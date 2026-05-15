@@ -1,5 +1,10 @@
 [build]
   command = "npx prisma migrate deploy && npm run build"
 
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
+[build.environment]
+  # Next.js 16 exige Node recente; evita falhas soltas no plugin/runtime
+  NODE_VERSION = "22"
+
+# Não declare [[plugins]] @netlify/plugin-nextjs aqui se o site já usa
+# "Next.js" no painel da Netlify — plugin duplicado causa "Build failed due to a plugin error".
+# Runtime Next é aplicado automaticamente: https://docs.netlify.com/frameworks/next-js/overview/
