@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { attachClientPortalMeta } from "@/lib/clientPortalMeta";
 import { buildDashboardClients } from "@/lib/contaazul/aggregate";
 import {
   fetchAllReceivableInstallments,
@@ -37,7 +38,8 @@ export async function GET(request: Request) {
       ),
     ];
     const people = await fetchPeopleByIds(token, clientIds);
-    const clients = buildDashboardClients(items, people);
+    const built = buildDashboardClients(items, people);
+    const clients = await attachClientPortalMeta(built);
 
     return NextResponse.json({
       clients,

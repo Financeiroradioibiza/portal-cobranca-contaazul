@@ -19,3 +19,13 @@ model ContaAzulToken {
 
   @@map("conta_azul_token")
 }
+
+/// Anotações do portal por cliente Conta Azul (id da pessoa). Removidas quando o cliente some da listagem.
+model ClientPortalMeta {
+  clientId          String   @id @map("client_id")
+  hasActiveContract Boolean  @default(false) @map("has_active_contract")
+  note              String   @default("")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("client_portal_meta")
+}

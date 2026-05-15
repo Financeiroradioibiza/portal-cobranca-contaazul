@@ -23,6 +23,8 @@ export function CobrancaDashboard() {
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [oauthBanner, setOauthBanner] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [parcelaBusy, setParcelaBusy] = useState<string | null>(null);
 
   const toggle = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -124,10 +126,91 @@ export function CobrancaDashboard() {
     await loadStatus();
   }, [loadStatus]);
 
+  const onPortalLogout = useCallback(async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }, []);
+
+  const openParcelaLink = useCallback(async (parcelaId: string, tipo: "boleto" | "nf") => {
+    const busyKey = `${parcelaId}:${tipo}`;
+    setActionMsg(null);
+    setParcelaBusy(busyKey);
+    try {
+      const url = `/api/contaazul/parcela/${encodeURIComponent(parcelaId)}/file?tipo=${tipo}`;
+      const res = await fetch(url, { credentials: "include", redirect: "manual" });
+
+      if (res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307 || res.status === 308) {
+        const loc = res.headers.get("Location");
+        if (loc) {
+          window.open(loc, "_blank", "noopener,noreferrer");
+          return;
+        }
+      }
+
+      if (!res.ok) {
+        const t = (await res.text()).trim();
+        setActionMsg(t.slice(0, 500) || "Não foi possível abrir o documento.");
+        return;
+      }
+
+      const ct = res.headers.get("content-type") ?? "";
+      if (ct.includes("application/json")) {
+        try {
+          const j = (await res.json()) as { message?: string; error?: string };
+          setActionMsg(j.message || j.error || "Resposta inesperada da API.");
+        } catch {
+          setActionMsg("Resposta inesperada da API.");
+        }
+        return;
+      }
+
+      const blob = await res.blob();
+      const obj = URL.createObjectURL(blob);
+      window.open(obj, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(obj), 120_000);
+    } catch {
+      setActionMsg("Falha ao abrir o documento. Tente de novo.");
+    } finally {
+      setParcelaBusy(null);
+    }
+  }, []);
+
+  const patchClientMeta = useCallback(
+    async (clientId: string, body: { hasActiveContract?: boolean; note?: string }) => {
+      try {
+        const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          setActionMsg("Não foi possível salvar dados do cliente.");
+          return;
+        }
+        const data = (await res.json()) as {
+          hasActiveContract: boolean;
+          note: string;
+        };
+        setActionMsg(null);
+        setClients((prev) =>
+          prev.map((c) =>
+            c.id === clientId
+              ? { ...c, hasActiveContract: data.hasActiveContract, note: data.note }
+              : c,
+          ),
+        );
+      } catch {
+        setActionMsg("Falha ao salvar. Verifique a conexão.");
+      }
+    },
+    [],
+  );
+
   const connected = Boolean(status?.connected);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-8">
       {oauthBanner ? (
         <div
           className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
@@ -202,6 +285,13 @@ export function CobrancaDashboard() {
                 Desconectar
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={() => void onPortalLogout()}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Sair do portal
+            </button>
           </div>
         </div>
       </header>
@@ -226,6 +316,15 @@ export function CobrancaDashboard() {
       {fetchError ? (
         <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
           {fetchError}
+        </p>
+      ) : null}
+
+      {actionMsg ? (
+        <p
+          className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
+          role="status"
+        >
+          {actionMsg}
         </p>
       ) : null}
 
@@ -282,21 +381,23 @@ export function CobrancaDashboard() {
             : "Conecte o Conta Azul para carregar receitas. Cadastre OAuth e Postgres nas variáveis de ambiente."}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[1000px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                 <th className="px-4 py-3">Nome fantasia</th>
                 <th className="px-4 py-3">CNPJ</th>
                 <th className="px-4 py-3 text-right">Nº vendas vencidas</th>
                 <th className="px-4 py-3 text-right">Total em aberto</th>
-                <th className="px-4 py-3">E-mail cobrança / faturamento</th>
+                <th className="px-4 py-3 min-w-[10rem]">E-mail cobrança / faturamento</th>
+                <th className="px-4 py-3 whitespace-nowrap">Contrato</th>
+                <th className="px-4 py-3 min-w-[12rem]">Observação (só no portal)</th>
               </tr>
             </thead>
             <tbody>
               {clients.length === 0 && !loading ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={7}
                     className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
                   >
                     {connected
@@ -305,12 +406,22 @@ export function CobrancaDashboard() {
                   </td>
                 </tr>
               ) : null}
-              {clients.map((c) => {
+              {clients.map((c, clientIndex) => {
                 const total = c.sales.reduce((s, x) => s + x.value, 0);
                 const open = expanded.has(c.id);
+                const zebraMain =
+                  clientIndex % 2 === 0
+                    ? "bg-white hover:bg-sky-50/80 dark:bg-slate-900 dark:hover:bg-slate-800"
+                    : "bg-slate-200/90 hover:bg-sky-100/70 dark:bg-slate-800 dark:hover:bg-slate-700";
+                const zebraExpand =
+                  clientIndex % 2 === 0
+                    ? "bg-slate-100 dark:bg-slate-900"
+                    : "bg-slate-200/90 dark:bg-slate-800";
                 return (
                   <Fragment key={c.id}>
-                    <tr className="border-b border-slate-100 hover:bg-[#e8f1fb] dark:border-slate-800 dark:hover:bg-slate-800/80">
+                    <tr
+                      className={`border-b border-slate-200/80 transition-colors dark:border-slate-800 ${zebraMain}`}
+                    >
                       <td className="px-4 py-2">
                         <button
                           type="button"
@@ -341,10 +452,47 @@ export function CobrancaDashboard() {
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
+                      <td className="px-4 py-2 align-top">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void patchClientMeta(c.id, {
+                              hasActiveContract: !c.hasActiveContract,
+                            })
+                          }
+                          className={
+                            c.hasActiveContract
+                              ? "inline-flex min-h-[2rem] items-center justify-center rounded-md bg-emerald-700 px-3 py-1 text-center text-[0.65rem] font-bold uppercase tracking-wide text-white shadow-sm hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                              : "inline-flex min-h-[2rem] items-center justify-center rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-[0.65rem] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                          }
+                        >
+                          {c.hasActiveContract ? "CONTRATO ATIVO" : "Sem contrato ativo"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-2 align-top">
+                        <input
+                          type="text"
+                          value={c.note}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setClients((prev) =>
+                              prev.map((x) =>
+                                x.id === c.id ? { ...x, note: v } : x,
+                              ),
+                            );
+                          }}
+                          onBlur={(e) =>
+                            void patchClientMeta(c.id, { note: e.target.value })
+                          }
+                          placeholder="Anotação interna…"
+                          className="w-full min-w-[10rem] max-w-[20rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                          autoComplete="off"
+                        />
+                      </td>
                     </tr>
                     {open ? (
-                      <tr className="bg-slate-50 dark:bg-slate-950/50">
-                        <td colSpan={5} className="px-2 pb-3 pt-1">
+                      <tr className={`border-b border-slate-200/80 dark:border-slate-800 ${zebraExpand}`}>
+                        <td colSpan={7} className="px-2 pb-3 pt-1">
                           <table className="ml-4 mt-1 w-[calc(100%-1rem)] text-xs">
                             <thead>
                               <tr className="bg-slate-100 text-[0.6rem] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
@@ -356,11 +504,19 @@ export function CobrancaDashboard() {
                               </tr>
                             </thead>
                             <tbody>
-                              {c.sales.map((s) => (
-                                <tr
-                                  key={s.id}
-                                  className="border-b border-slate-200/80 dark:border-slate-700"
-                                >
+                              {c.sales.map((s, si) => {
+                                const subZebra =
+                                  si % 2 === 0
+                                    ? "bg-white dark:bg-slate-950/70"
+                                    : "bg-slate-100 dark:bg-slate-800/65";
+                                const boletoBusy =
+                                  parcelaBusy === `${s.id}:boleto`;
+                                const nfBusy = parcelaBusy === `${s.id}:nf`;
+                                return (
+                                  <tr
+                                    key={s.id}
+                                    className={`border-b border-slate-200/80 dark:border-slate-700 ${subZebra}`}
+                                  >
                                   <td className="px-2 py-1.5 text-slate-800 dark:text-slate-200">
                                     {s.comp}
                                   </td>
@@ -377,22 +533,27 @@ export function CobrancaDashboard() {
                                     <div className="flex flex-wrap gap-1">
                                       <button
                                         type="button"
-                                        className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.7rem] font-medium hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
-                                        title="Integração futura: link do boleto"
+                                        disabled={Boolean(parcelaBusy)}
+                                        onClick={() => void openParcelaLink(s.id, "boleto")}
+                                        className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.7rem] font-medium hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                        title="Abre boleto ou link de pagamento (Conta Azul)"
                                       >
-                                        Boleto
+                                        {boletoBusy ? "…" : "Boleto"}
                                       </button>
                                       <button
                                         type="button"
-                                        className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.7rem] font-medium hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
-                                        title="Integração futura: NF"
+                                        disabled={Boolean(parcelaBusy)}
+                                        onClick={() => void openParcelaLink(s.id, "nf")}
+                                        className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.7rem] font-medium hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                        title="Abre nota fiscal ou documento anexo (Conta Azul)"
                                       >
-                                        NF
+                                        {nfBusy ? "…" : "Nota"}
                                       </button>
                                     </div>
                                   </td>
                                 </tr>
-                              ))}
+                              );
+                              })}
                             </tbody>
                           </table>
                         </td>

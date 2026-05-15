@@ -1,6 +1,9 @@
 /** Item retornado por contas-a-receber/buscar (campos usados pelo portal). */
 export type CaReceivableItem = {
   id: string;
+  /** Se a API enviar, preferir para GET /parcelas/{id} */
+  id_parcela?: string;
+  idParcela?: string;
   descricao: string;
   data_vencimento: string;
   data_competencia?: string;
@@ -26,6 +29,21 @@ export type CaPerson = {
 export type CaPeopleSearchResponse = {
   itens?: CaPerson[];
   items?: CaPerson[];
+};
+
+/** Detalhe da parcela (GET …/parcelas/{id}) — campos parciais para links de boleto/documento. */
+export type CaInstallmentDetail = {
+  id?: string;
+  anexos?: Array<{
+    url?: string | null;
+    tipo_anexo?: string;
+    nome?: string | null;
+    descricao?: string | null;
+  }>;
+  solicitacoes_cobrancas?: Array<{
+    url?: string | null;
+    tipo_solicitacao_cobranca?: string;
+  }>;
 };
 
 export function todayYmdLocal(): string {

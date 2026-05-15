@@ -1,9 +1,11 @@
 import { CONTA_AZUL_API_BASE } from "./config";
 import type {
+  CaInstallmentDetail,
   CaPeopleSearchResponse,
   CaReceivableItem,
   CaReceivableSearchResponse,
 } from "./types";
+import { normalizeInstallmentDetail } from "./normalizeInstallment";
 
 async function caFetch<T>(
   pathWithQuery: string,
@@ -96,4 +98,16 @@ export async function fetchPeopleByIds(
   }
 
   return map;
+}
+
+/** Detalhes de uma parcela (boleto, anexos, cobrança registrada, etc.). */
+export async function fetchInstallmentById(
+  accessToken: string,
+  id: string,
+): Promise<CaInstallmentDetail> {
+  const raw = await caFetch<unknown>(
+    `/v1/financeiro/eventos-financeiros/parcelas/${encodeURIComponent(id)}`,
+    accessToken,
+  );
+  return normalizeInstallmentDetail(raw);
 }

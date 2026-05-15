@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "portal:hash-password": "node scripts/portal-hash-password.mjs",
+    "portal:totp-secret": "node scripts/portal-generate-totp-secret.mjs"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",

@@ -35,19 +35,25 @@ export function buildDashboardClients(
     const fantasy =
       p?.nome?.trim() || parcelas[0]?.cliente?.nome?.trim() || "Cliente";
 
-    const sales: SaleRow[] = parcelas.map((s) => ({
-      id: s.id,
-      comp: s.data_competencia?.slice(0, 10) ?? "—",
-      due: s.data_vencimento?.slice(0, 10) ?? "—",
-      summary: s.descricao ?? "—",
-      value: s.nao_pago,
-    }));
+    const sales: SaleRow[] = parcelas.map((s) => {
+      const parcelaId =
+        s.id_parcela?.trim() || s.idParcela?.trim() || s.id.trim() || s.id;
+      return {
+        id: parcelaId,
+        comp: s.data_competencia?.slice(0, 10) ?? "—",
+        due: s.data_vencimento?.slice(0, 10) ?? "—",
+        summary: s.descricao ?? "—",
+        value: s.nao_pago,
+      };
+    });
 
     rows.push({
       id: clientId,
       fantasy,
       cnpj: formatDocumento(p?.documento),
       email: p?.email?.trim() || "—",
+      hasActiveContract: false,
+      note: "",
       sales,
     });
   }
