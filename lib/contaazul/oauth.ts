@@ -17,7 +17,9 @@ export function buildAuthorizeUrl(state: string) {
   u.searchParams.set("client_id", clientId);
   u.searchParams.set("redirect_uri", redirectUri);
   u.searchParams.set("state", state);
-  u.searchParams.set("scope", CONTA_AZUL_SCOPE.replace(/ /g, "+"));
+  // Espaços → "+" na query (x-www-form-urlencoded). Não passar "+" manual:
+  // vira %2B e a Conta Azul responde invalid_scope.
+  u.searchParams.set("scope", CONTA_AZUL_SCOPE);
   return u.toString();
 }
 
