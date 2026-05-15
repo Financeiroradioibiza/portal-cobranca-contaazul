@@ -1,5 +1,6 @@
 [build]
   command = "npx prisma migrate deploy && npm run build"
+  publish = ".next"
 
 [build.environment]
   # Next.js 16 exige Node recente; evita falhas soltas no plugin/runtime
