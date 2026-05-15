@@ -389,8 +389,10 @@ export function CobrancaDashboard() {
                 <th className="px-4 py-3 text-right">Nº vendas vencidas</th>
                 <th className="px-4 py-3 text-right">Total em aberto</th>
                 <th className="px-4 py-3 min-w-[10rem]">E-mail cobrança / faturamento</th>
-                <th className="px-4 py-3 whitespace-nowrap">Contrato</th>
-                <th className="px-4 py-3 min-w-[12rem]">Observação (só no portal)</th>
+                <th className="px-4 py-3 min-w-[11rem] whitespace-nowrap">Contrato</th>
+                <th className="px-4 py-3 min-w-[20rem] max-w-[28rem] w-[24rem]">
+                  Observação (só no portal)
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -470,8 +472,8 @@ export function CobrancaDashboard() {
                         </button>
                       </td>
                       <td className="px-4 py-2 align-top">
-                        <input
-                          type="text"
+                        <textarea
+                          rows={3}
                           value={c.note}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -485,7 +487,7 @@ export function CobrancaDashboard() {
                             void patchClientMeta(c.id, { note: e.target.value })
                           }
                           placeholder="Anotação interna…"
-                          className="w-full min-w-[10rem] max-w-[20rem] rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                          className="box-border w-full min-h-[4.5rem] resize-y rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs leading-snug text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
                           autoComplete="off"
                         />
                       </td>

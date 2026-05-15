@@ -15,8 +15,10 @@ export type CaReceivableItem = {
 };
 
 export type CaReceivableSearchResponse = {
-  itens_totais: number;
-  itens: CaReceivableItem[];
+  itens_totais?: number;
+  /** Lista principal ou alternativa em inglês na API. */
+  itens?: CaReceivableItem[];
+  items?: unknown[];
 };
 
 export type CaPerson = {

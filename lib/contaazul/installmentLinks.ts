@@ -44,7 +44,16 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
     const url = normalizeContaAzulUrl(sc.url);
     if (!url) continue;
     if (
-      tipoMatch(tipo, "BOLETO", "BOLETO_REGISTRADO", "LINK_PAGAMENTO", "PIX_COBRANCA")
+      tipoMatch(
+        tipo,
+        "BOLETO",
+        "BOLETO_REGISTRADO",
+        "LINK_PAGAMENTO",
+        "PIX_COBRANCA",
+        "PIX",
+        "COBRANCA",
+        "BOLEPIX",
+      )
     ) {
       if (!boletoUrl) boletoUrl = url;
     }
@@ -59,7 +68,23 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
     ) {
       if (!boletoUrl) boletoUrl = url;
     }
-    if (tipoMatch(t, "FATURA", "RECIBO", "RECIBO_DIGITAL", "DANFE", "NFE")) {
+    if (
+      tipoMatch(
+        t,
+        "FATURA",
+        "RECIBO",
+        "RECIBO_DIGITAL",
+        "DANFE",
+        "NFE",
+        "NFSE",
+        "NF_E",
+        "NOTA_FISCAL",
+        "DOCUMENTO_FISCAL",
+        "CTE",
+        "XML",
+        "ESPELHO",
+      )
+    ) {
       if (!docUrl) docUrl = url;
     }
   }
@@ -73,9 +98,27 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
         boletoUrl = url;
         continue;
       }
-      if (/(nota|danfe|nfe|nf-?e|fiscal|dacte|pdf)/i.test(name)) {
+      if (/(nota|danfe|nfe|nf-?e|nfse|fiscal|dacte|nfs-e|pdf)/i.test(name)) {
         docUrl = url;
         break;
+      }
+    }
+  }
+
+  if (!docUrl || !boletoUrl) {
+    for (const a of detail.anexos ?? []) {
+      const url = normalizeContaAzulUrl(a.url);
+      if (!url) continue;
+      const blob = `${a.tipo_anexo ?? ""} ${a.nome ?? ""} ${a.descricao ?? ""}`.toLowerCase();
+      if (!boletoUrl && /boleto|ficha.?compensa|linha.?digit/i.test(blob)) {
+        boletoUrl = url;
+        continue;
+      }
+      if (
+        !docUrl &&
+        /(nota|danfe|nfe|nf-?e|nfse|fiscal|dacte|recibo|xml|espelho)/i.test(blob)
+      ) {
+        docUrl = url;
       }
     }
   }

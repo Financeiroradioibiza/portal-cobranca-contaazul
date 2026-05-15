@@ -6,6 +6,7 @@ import type {
   CaReceivableSearchResponse,
 } from "./types";
 import { normalizeInstallmentDetail } from "./normalizeInstallment";
+import { normalizeReceivableItem } from "./normalizeReceivable";
 
 async function caFetch<T>(
   pathWithQuery: string,
@@ -53,9 +54,12 @@ export async function fetchAllReceivableInstallments(
 
     const path = `/v1/financeiro/eventos-financeiros/contas-a-receber/buscar?${qs.toString()}`;
     const data = await caFetch<CaReceivableSearchResponse>(path, accessToken);
-    const chunk = data.itens ?? [];
-    all.push(...chunk);
-    if (chunk.length < tamanho_pagina) break;
+    const rawChunk = data.itens ?? data.items ?? [];
+    for (const row of rawChunk) {
+      const norm = normalizeReceivableItem(row);
+      if (norm) all.push(norm);
+    }
+    if (rawChunk.length < tamanho_pagina) break;
     pagina += 1;
     if (pagina > 200) break;
   }

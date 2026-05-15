@@ -36,8 +36,8 @@ export function buildDashboardClients(
       p?.nome?.trim() || parcelas[0]?.cliente?.nome?.trim() || "Cliente";
 
     const sales: SaleRow[] = parcelas.map((s) => {
-      const parcelaId =
-        s.id_parcela?.trim() || s.idParcela?.trim() || s.id.trim() || s.id;
+      const explicit = s.id_parcela?.trim() || s.idParcela?.trim();
+      const parcelaId = explicit || s.id.trim();
       return {
         id: parcelaId,
         comp: s.data_competencia?.slice(0, 10) ?? "—",
