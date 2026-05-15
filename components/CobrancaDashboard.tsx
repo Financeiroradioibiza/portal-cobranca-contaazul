@@ -371,19 +371,31 @@ export function CobrancaDashboard() {
             : "Conecte o Conta Azul para carregar receitas. Cadastre OAuth e Postgres nas variáveis de ambiente."}
         </div>
         <div className="overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[720px] border-collapse text-xs">
+          <table className="w-full min-w-[720px] border-separate border-spacing-0 text-xs">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-[0.6rem] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                <th className="px-2 py-2">Nome fantasia</th>
-                <th className="px-2 py-2 whitespace-nowrap">CNPJ</th>
-                <th className="px-2 py-2 text-right whitespace-nowrap">Nº vendas</th>
-                <th className="px-2 py-2 text-right whitespace-nowrap">Total aberto</th>
-                <th className="px-2 py-2 max-w-[10rem]">E-mail</th>
-                <th className="px-2 py-2 whitespace-nowrap">Contrato</th>
-                <th className="px-2 py-2 min-w-[12rem] max-w-[22rem]">
+              <tr className="bg-slate-50 text-left text-[0.6rem] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <th className="border-b border-slate-200 px-2 py-2 dark:border-slate-700">
+                  Nome fantasia
+                </th>
+                <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
+                  CNPJ
+                </th>
+                <th className="border-b border-slate-200 px-2 py-2 text-right whitespace-nowrap dark:border-slate-700">
+                  Nº vendas
+                </th>
+                <th className="border-b border-slate-200 px-2 py-2 text-right whitespace-nowrap dark:border-slate-700">
+                  Total aberto
+                </th>
+                <th className="border-b border-slate-200 px-2 py-2 max-w-[10rem] dark:border-slate-700">
+                  E-mail
+                </th>
+                <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
+                  Contrato
+                </th>
+                <th className="border-b border-slate-200 px-2 py-2 min-w-[12rem] max-w-[22rem] dark:border-slate-700">
                   Parcelas · boleto / NF
                 </th>
-                <th className="sticky right-0 z-20 min-w-[11rem] max-w-[14rem] border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
+                <th className="sticky right-0 z-20 min-w-[11rem] max-w-[14rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
                   Observação
                 </th>
               </tr>
@@ -393,7 +405,7 @@ export function CobrancaDashboard() {
                 <tr>
                   <td
                     colSpan={8}
-                    className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
+                    className="border-b border-slate-200/90 px-4 py-8 text-center text-slate-500 dark:border-slate-800 dark:text-slate-400"
                   >
                     {connected
                       ? "Nenhum cliente com parcelas vencidas em aberto nesse período."
@@ -407,32 +419,29 @@ export function CobrancaDashboard() {
                   clientIndex % 2 === 0
                     ? "bg-white dark:bg-slate-900"
                     : "bg-slate-100 dark:bg-slate-800";
-                const stickyObs = `sticky right-0 z-10 border-l border-slate-200 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.1)] dark:border-slate-600 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.3)] ${stripe}`;
+                const stickyObs = `sticky right-0 z-10 border-b border-l border-slate-200 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.1)] dark:border-slate-600 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.3)] ${stripe}`;
 
                 return (
-                  <tr
-                    key={c.id}
-                    className={`border-b border-slate-200/90 align-top dark:border-slate-800 ${stripe}`}
-                  >
+                  <tr key={c.id} className={`align-top ${stripe}`}>
                     <td
-                      className="max-w-[9rem] px-2 py-1 align-middle"
+                      className="max-w-[9rem] border-b border-slate-200/90 px-2 py-1 align-middle dark:border-slate-800"
                       title={c.fantasy}
                     >
                       <span className="line-clamp-2 font-semibold text-[#0066cc] dark:text-sky-400">
                         {c.fantasy}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-2 py-1 align-middle tabular-nums text-slate-700 dark:text-slate-300">
+                    <td className="whitespace-nowrap border-b border-slate-200/90 px-2 py-1 align-middle tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-300">
                       {c.cnpj}
                     </td>
-                    <td className="px-2 py-1 text-right align-middle tabular-nums text-slate-900 dark:text-slate-100">
+                    <td className="border-b border-slate-200/90 px-2 py-1 text-right align-middle tabular-nums text-slate-900 dark:border-slate-800 dark:text-slate-100">
                       {c.sales.length}
                     </td>
-                    <td className="px-2 py-1 text-right align-middle tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                    <td className="border-b border-slate-200/90 px-2 py-1 text-right align-middle tabular-nums font-medium text-slate-900 dark:border-slate-800 dark:text-slate-100">
                       {formatBRL(total)}
                     </td>
                     <td
-                      className="max-w-[9rem] truncate px-2 py-1 align-middle text-[0.65rem]"
+                      className="max-w-[9rem] truncate border-b border-slate-200/90 px-2 py-1 align-middle text-[0.65rem] dark:border-slate-800"
                       title={c.email !== "—" ? c.email : undefined}
                     >
                       {c.email !== "—" ? (
@@ -446,7 +455,7 @@ export function CobrancaDashboard() {
                         <span className="text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-2 py-1 align-middle whitespace-nowrap">
+                    <td className="border-b border-slate-200/90 px-2 py-1 align-middle whitespace-nowrap dark:border-slate-800">
                       <button
                         type="button"
                         onClick={() =>
@@ -463,15 +472,15 @@ export function CobrancaDashboard() {
                         {c.hasActiveContract ? "Ativo" : "Sem contrato"}
                       </button>
                     </td>
-                    <td className="min-w-[12rem] max-w-[24rem] px-2 py-1 align-middle">
+                    <td className="min-w-[12rem] max-w-[24rem] border-b border-slate-200/90 px-2 py-1 align-middle dark:border-slate-800">
                       <div className="flex snap-x snap-mandatory gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
-                        {c.sales.map((s) => {
+                        {c.sales.map((s, si) => {
                           const boletoBusy =
                             parcelaBusy === `${s.id}:boleto`;
                           const nfBusy = parcelaBusy === `${s.id}:nf`;
                           return (
                             <div
-                              key={s.id}
+                              key={`${c.id}-${s.id}-${si}`}
                               className="flex w-[9.5rem] flex-none snap-start flex-col gap-0.5 rounded border border-slate-200 bg-white/90 px-1.5 py-1 dark:border-slate-600 dark:bg-slate-950/60"
                               title={s.summary}
                             >
