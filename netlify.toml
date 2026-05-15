@@ -1,0 +1,5 @@
+[build]
+  command = "npx prisma migrate deploy && npm run build"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

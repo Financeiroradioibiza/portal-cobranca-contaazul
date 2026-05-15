@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radio Ibiza — Portal Cobrança (protótipo)</title>
+  <style>
+    :root, html[data-theme="light"] {
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --accent: #0066cc;
+      --accent-soft: #e8f1fb;
+      --success: #0a7a3e;
+      --success-bg: #e7f6ee;
+      --success-bd: #b8e0c8;
+      --hint-bg: #fafbfc;
+      --th-bg: #fafbfc;
+      --child-wrap-bg: #f8fafc;
+      --child-th: #eef2f7;
+      --company: #0066cc;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    html[data-theme="dark"] {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --border: #334155;
+      --accent: #38bdf8;
+      --accent-soft: #1e3a5f;
+      --success: #34d399;
+      --success-bg: #064e3b;
+      --success-bd: #047857;
+      --hint-bg: #1e293b;
+      --th-bg: #334155;
+      --child-wrap-bg: #0f172a;
+      --child-th: #334155;
+      --company: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.5; transition: background 0.2s, color 0.2s; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+    .brand {
+      font-size: 0.875rem; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--company); margin: 0 0 0.25rem;
+    }
+    header {
+      display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem;
+      align-items: center; justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    h1 { font-size: 1.25rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; color: var(--text); }
+    .sub { margin: 0.15rem 0 0; font-size: 0.875rem; color: var(--muted); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+    .theme-seg {
+      display: inline-flex; border: 1px solid var(--border); border-radius: 8px;
+      padding: 2px; background: rgba(100,116,139,0.12);
+    }
+    .theme-seg button {
+      border: none; background: transparent; font-size: 0.75rem; font-weight: 600;
+      padding: 0.35rem 0.75rem; border-radius: 6px; color: var(--muted); cursor: pointer;
+    }
+    .theme-seg button.active {
+      background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+    html[data-theme="dark"] .theme-seg button.active { background: #475569; color: #f8fafc; }
+    html[data-theme="dark"] .theme-seg button.active:last-child { background: #0f172a; color: #f8fafc; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      font-size: 0.75rem; font-weight: 600;
+      padding: 0.35rem 0.65rem; border-radius: 999px;
+      background: var(--success-bg); color: var(--success);
+      border: 1px solid var(--success-bd);
+    }
+    .badge::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+    }
+    label { font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 0.2rem; }
+    input[type="date"] {
+      font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px;
+      background: var(--card); color: var(--text);
+    }
+    .row-dates { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; }
+    button {
+      font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--card); padding: 0.45rem 0.9rem; font-weight: 600; color: var(--text);
+    }
+    button.primary {
+      background: #0066cc; color: #fff; border-color: #0052a3;
+    }
+    html[data-theme="dark"] button.primary {
+      background: #0284c7; border-color: #0369a1;
+    }
+    button.primary:hover { filter: brightness(1.05); }
+    button.ghost { background: transparent; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      overflow: hidden; box-shadow: 0 1px 2px rgba(15,23,42,0.06);
+    }
+    .hint {
+      font-size: 0.8rem; color: var(--muted); padding: 0.65rem 1rem; border-bottom: 1px solid var(--border);
+      background: var(--hint-bg);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th {
+      text-align: left; font-weight: 600; color: var(--muted); font-size: 0.7rem;
+      text-transform: uppercase; letter-spacing: 0.04em;
+      padding: 0.65rem 1rem; border-bottom: 1px solid var(--border); background: var(--th-bg);
+    }
+    td { padding: 0.55rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr.parent-row:hover td { background: var(--accent-soft); }
+    .client-name {
+      color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .child-wrap { display: none; background: var(--child-wrap-bg); }
+    .child-wrap.open { display: table-row; }
+    .child-inner { padding: 0 0 0.75rem 0; }
+    .child-table {
+      width: 100%; border-collapse: collapse; font-size: 0.8rem;
+      margin: 0 1rem 0 2rem; max-width: calc(100% - 3rem);
+    }
+    .child-table th { background: var(--child-th); font-size: 0.65rem; }
+    .child-table td { border-color: var(--border); }
+    .actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .actions button { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
+    footer { margin-top: 1.5rem; font-size: 0.75rem; color: var(--muted); }
+    a.back { color: var(--accent); font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a class="back" href="/">← Voltar ao app Next.js</a></p>
+    <p class="brand">Radio Ibiza</p>
+    <header>
+      <div>
+        <h1>Cobrança — clientes com parcelas vencidas em aberto</h1>
+        <p class="sub">Protótipo estático. Ordenado do maior para o menor número de parcelas vencidas em aberto.</p>
+      </div>
+      <div class="toolbar" style="flex-direction:column;align-items:flex-end;">
+        <div class="theme-seg" id="theme-seg" role="group" aria-label="Tema">
+          <button type="button" data-theme-btn="light" class="active">Diurno</button>
+          <button type="button" data-theme-btn="dark">Noturno</button>
+        </div>
+        <div class="toolbar" style="margin-top:0.5rem;">
+          <span class="badge">Conectado ao Conta Azul (demo)</span>
+          <button type="button" class="primary" id="btn-refresh">Atualizar</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="toolbar row-dates" style="margin-bottom:1rem;">
+      <div>
+        <label for="d0">Período — início</label>
+        <input type="date" id="d0" />
+      </div>
+      <div>
+        <label for="d1">Período — fim</label>
+        <input type="date" id="d1" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button type="button" class="ghost" id="btn-default">Usar últimos 6 meses (padrão)</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="hint">
+        Somente clientes com receita <strong>em aberto</strong> e <strong>vencida</strong> no período.
+        Clique no <strong>nome fantasia</strong> para expandir.
+      </div>
+      <table id="grid">
+        <thead>
+          <tr>
+            <th>Nome fantasia</th>
+            <th>CNPJ</th>
+            <th class="num">Nº vendas vencidas em aberto</th>
+            <th class="num">Total em aberto</th>
+            <th>E-mail cobrança / faturamento</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <footer>Radio Ibiza — arquivo <code>public/prototype.html</code> · dados de exemplo.</footer>
+  </div>
+  <script>
+    const COMPANY = "Radio Ibiza";
+    const THEME_KEY = "radioibiza-theme";
+    function applyTheme(mode) {
+      document.documentElement.setAttribute("data-theme", mode);
+      try { localStorage.setItem(THEME_KEY, mode); } catch (e) {}
+      document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+        btn.classList.toggle("active", btn.getAttribute("data-theme-btn") === mode);
+      });
+    }
+    (function initTheme() {
+      let saved = "light";
+      try { saved = localStorage.getItem(THEME_KEY) || "light"; } catch (e) {}
+      if (saved !== "dark" && saved !== "light") saved = "light";
+      applyTheme(saved);
+    })();
+    document.querySelectorAll("[data-theme-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-btn")));
+    });
+
+    const fmtMoney = (n) =>
+      n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+    const data = [
+      {
+        id: "c1",
+        fantasy: "Distribuidora Sul Ltda",
+        cnpj: "12.345.678/0001-90",
+        email: "financeiro@distsul.com.br",
+        sales: [
+          { comp: "2025-10-05", due: "2026-02-01", summary: "NF-e 88421 — mix produtos", value: 12890.5 },
+          { comp: "2025-11-12", due: "2026-03-10", summary: "Ref. pedido 4421", value: 4200 },
+          { comp: "2026-01-08", due: "2026-04-02", summary: "Serviços logística Jan/26", value: 3150.75 },
+        ],
+      },
+      {
+        id: "c2",
+        fantasy: "Mercado Bom Preço",
+        cnpj: "98.765.432/0001-10",
+        email: "cobranca@bompreco.com",
+        sales: [
+          { comp: "2025-12-01", due: "2026-03-28", summary: "Fatura mensal dezembro", value: 18700 },
+          { comp: "2026-02-14", due: "2026-04-30", summary: "Bonific acordada — rateio", value: 960.2 },
+        ],
+      },
+      {
+        id: "c3",
+        fantasy: "Ótica Visão Clara",
+        cnpj: "45.678.901/0001-22",
+        email: "faturamento@visaocara.com.br",
+        sales: [
+          { comp: "2026-03-01", due: "2026-04-05", summary: "Venda armações lote B", value: 5420 },
+        ],
+      },
+    ];
+
+    function render() {
+      const sorted = [...data].sort((a, b) => b.sales.length - a.sales.length);
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = sorted.map((c) => {
+        const total = c.sales.reduce((s, x) => s + x.value, 0);
+        const childRows = c.sales
+          .map(
+            (s) =>
+              `<tr>
+            <td>${s.comp}</td>
+            <td>${s.due}</td>
+            <td>${s.summary}</td>
+            <td class="num">${fmtMoney(s.value)}</td>
+            <td><span class="actions">
+                <button type="button">Download boleto</button>
+                <button type="button">Download NF</button>
+              </span></td>
+          </tr>`
+          )
+          .join("");
+        return `
+          <tr class="parent-row" data-id="${c.id}">
+            <td><span class="client-name" role="button" tabindex="0" data-expand="${c.id}">${c.fantasy}</span></td>
+            <td>${c.cnpj}</td>
+            <td class="num">${c.sales.length}</td>
+            <td class="num">${fmtMoney(total)}</td>
+            <td><a href="mailto:${c.email}" style="color:var(--accent)">${c.email}</a></td>
+          </tr>
+          <tr class="child-wrap" id="child-${c.id}">
+            <td colspan="5">
+              <div class="child-inner">
+                <table class="child-table">
+                  <thead>
+                    <tr><th>Competência</th><th>Vencimento</th><th>Resumo</th><th class="num">Valor</th><th>Ações</th></tr>
+                  </thead>
+                  <tbody>${childRows}</tbody>
+                </table>
+              </div>
+            </td>
+          </tr>`;
+      }).join("");
+
+      document.querySelectorAll("[data-expand]").forEach((el) => {
+        el.addEventListener("click", () => toggle(el.dataset.expand));
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle(el.dataset.expand);
+          }
+        });
+      });
+    }
+
+    function toggle(id) {
+      document.getElementById("child-" + id).classList.toggle("open");
+    }
+
+    document.getElementById("btn-refresh").addEventListener("click", () => {
+      alert(COMPANY + ": no app real, sync com API Conta Azul.");
+    });
+
+    function setDefaultDates() {
+      const end = new Date();
+      const start = new Date(end);
+      start.setMonth(start.getMonth() - 6);
+      document.getElementById("d1").value = end.toISOString().slice(0, 10);
+      document.getElementById("d0").value = start.toISOString().slice(0, 10);
+    }
+
+    document.getElementById("btn-default").addEventListener("click", setDefaultDates);
+    setDefaultDates();
+    render();
+  </script>
+</body>
+</html>

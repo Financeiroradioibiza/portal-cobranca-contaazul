@@ -1,0 +1,21 @@
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Um único registro com os tokens OAuth da empresa conectada ao Conta Azul.
+model ContaAzulToken {
+  id           String   @id @default("default")
+  accessToken  String   @map("access_token")
+  refreshToken String   @map("refresh_token")
+  expiresAt    DateTime @map("expires_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("conta_azul_token")
+}
