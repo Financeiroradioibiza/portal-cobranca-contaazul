@@ -4,22 +4,22 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
+import { safeInternalPath } from "@/lib/auth/safeRedirect";
 
 export function LoginForm() {
   const router = useRouter();
   const sp = useSearchParams();
   const err = sp.get("error");
-  const next = sp.get("next") ?? "/";
+  const next = safeInternalPath(sp.get("next"));
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [totp, setTotp] = useState("");
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const configError =
     err === "config"
-      ? "Login do portal não configurado. Defina PORTAL_SESSION_SECRET e PORTAL_USERS_JSON no servidor."
+      ? "Login do portal não configurado. Defina PORTAL_SESSION_SECRET (≥32 caracteres) no servidor."
       : null;
 
   async function onSubmit(e: React.FormEvent) {
@@ -30,19 +30,17 @@ export function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, totp }),
+        body: JSON.stringify({ username, password }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string; disabled?: boolean };
 
       if (data.disabled) {
-        router.replace(next.startsWith("/") ? next : "/");
+        router.replace(next);
         return;
       }
 
       if (!res.ok) {
-        if (data.error === "invalid_totp") {
-          setFormError("Código do Google Authenticator inválido ou expirado.");
-        } else if (data.error === "invalid_credentials") {
+        if (data.error === "invalid_credentials") {
           setFormError("Usuário ou senha incorretos.");
         } else if (data.error === "auth_not_configured") {
           setFormError("Autenticação não configurada no servidor.");
@@ -52,7 +50,7 @@ export function LoginForm() {
         return;
       }
 
-      router.replace(next.startsWith("/") ? next : "/");
+      router.replace(next);
       router.refresh();
     } catch {
       setFormError("Falha de rede. Tente novamente.");
@@ -72,7 +70,7 @@ export function LoginForm() {
             Acesso ao portal
           </h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Informe usuário, senha e o código de 6 dígitos do Google Authenticator.
+            Informe usuário e senha do portal.
           </p>
         </div>
         <ThemeToggle />
@@ -121,22 +119,6 @@ export function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
-            required
-          />
-        </label>
-
-        <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-400">
-          Código (Google Authenticator)
-          <input
-            name="totp"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]*"
-            maxLength={8}
-            placeholder="000000"
-            value={totp}
-            onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
-            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 tracking-widest text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
             required
           />
         </label>

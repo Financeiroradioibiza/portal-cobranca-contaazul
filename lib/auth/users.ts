@@ -1,7 +1,6 @@
 export type PortalUserRecord = {
   username: string;
   passwordHash: string;
-  totpSecret: string;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -9,12 +8,27 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 /**
- * Usuários do portal (financeiro). JSON em PORTAL_USERS_JSON.
- *
- * Exemplo (uma linha no .env / Netlify):
- * [{"username":"joao","passwordHash":"$2a$12$...","totpSecret":"JBSWY3DPEHPK3PXP"}]
+ * Usuários fixos do portal. Senhas só como bcrypt (cost 12).
+ * Para alterar senhas sem redeploy, use PORTAL_USERS_JSON no servidor (mesmo formato, sem TOTP).
  */
-export function getPortalUsers(): PortalUserRecord[] {
+const BUILT_IN_PORTAL_USERS: PortalUserRecord[] = [
+  {
+    username: "rafaelgasparian",
+    passwordHash:
+      "$2a$12$CvPFF1QEt9DKW1AcMoZRj.T1LVgnnDJ2azVZlRk.J6oyU6JB8kzJe",
+  },
+  {
+    username: "rodolfogasparian",
+    passwordHash:
+      "$2a$12$CvPFF1QEt9DKW1AcMoZRj.T1LVgnnDJ2azVZlRk.J6oyU6JB8kzJe",
+  },
+];
+
+/**
+ * Opcional: sobrescreve / acrescenta usuários. Uma linha no .env / Netlify, ex.:
+ * [{"username":"joao","passwordHash":"$2a$12$..."}]
+ */
+function getPortalUsersFromEnv(): PortalUserRecord[] {
   const raw = process.env.PORTAL_USERS_JSON?.trim();
   if (!raw) return [];
   let parsed: unknown;
@@ -31,12 +45,21 @@ export function getPortalUsers(): PortalUserRecord[] {
     const username = typeof row.username === "string" ? row.username.trim() : "";
     const passwordHash =
       typeof row.passwordHash === "string" ? row.passwordHash.trim() : "";
-    const totpSecret =
-      typeof row.totpSecret === "string" ? row.totpSecret.trim().replace(/\s/g, "") : "";
-    if (!username || !passwordHash || !totpSecret) continue;
-    out.push({ username, passwordHash, totpSecret });
+    if (!username || !passwordHash) continue;
+    out.push({ username, passwordHash });
   }
   return out;
+}
+
+export function getPortalUsers(): PortalUserRecord[] {
+  const byName = new Map<string, PortalUserRecord>();
+  for (const u of BUILT_IN_PORTAL_USERS) {
+    byName.set(u.username, u);
+  }
+  for (const u of getPortalUsersFromEnv()) {
+    byName.set(u.username, u);
+  }
+  return [...byName.values()];
 }
 
 export function findPortalUser(username: string): PortalUserRecord | undefined {

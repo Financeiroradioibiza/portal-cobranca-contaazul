@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
 import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
+import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 
 export async function middleware(request: NextRequest) {
@@ -60,7 +61,8 @@ export async function middleware(request: NextRequest) {
   if (!sub) {
     const u = request.nextUrl.clone();
     u.pathname = "/login";
-    u.searchParams.set("next", pathname + request.nextUrl.search);
+    const nextPath = safeInternalPath(pathname + request.nextUrl.search);
+    u.searchParams.set("next", nextPath);
     return NextResponse.redirect(u);
   }
 

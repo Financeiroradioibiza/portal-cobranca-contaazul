@@ -16,6 +16,19 @@ function plain(msg: string, status: number) {
   });
 }
 
+const isProd = process.env.NODE_ENV === "production";
+
+function upstreamError(status: number, detail: string) {
+  if (isProd) {
+    console.error("[parcela/file] upstream error:", status, detail.slice(0, 500));
+    return plain("Não foi possível obter o arquivo. Tente de novo mais tarde.", 502);
+  }
+  return plain(
+    `Não foi possível baixar o arquivo (Conta Azul ${status}). ${detail.slice(0, 200)}`,
+    502,
+  );
+}
+
 /**
  * Abre ou baixa boleto / nota: redireciona para gateway externo ou faz proxy com Bearer na API v2.
  */
@@ -36,6 +49,10 @@ export async function GET(
     detail = await fetchInstallmentById(token, id);
   } catch (e) {
     const m = e instanceof Error ? e.message : "Erro ao buscar parcela na Conta Azul.";
+    if (isProd) {
+      console.error("[parcela/file] fetchInstallmentById:", m);
+      return plain("Não foi possível carregar os dados da parcela.", 502);
+    }
     return plain(m, 502);
   }
 
@@ -77,10 +94,7 @@ export async function GET(
 
   if (!upstream.ok) {
     const body = await upstream.text().catch(() => "");
-    return plain(
-      `Não foi possível baixar o arquivo (Conta Azul ${upstream.status}). ${body.slice(0, 200)}`,
-      502,
-    );
+    return upstreamError(upstream.status, body);
   }
 
   const headers = new Headers();

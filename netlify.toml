@@ -1,5 +1,6 @@
 [build]
   command = "npx prisma migrate deploy && npm run build"
+  # Sem isso o Netlify assume publish = raiz do repo (= base) e o plugin Next falha.
   publish = ".next"
 
 [build.environment]

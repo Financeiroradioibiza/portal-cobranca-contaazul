@@ -8,8 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
-    "portal:hash-password": "node scripts/portal-hash-password.mjs",
-    "portal:totp-secret": "node scripts/portal-generate-totp-secret.mjs"
+    "portal:hash-password": "node scripts/portal-hash-password.mjs"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
@@ -17,7 +16,6 @@
     "jose": "^5.10.0",
     "next": "16.2.6",
     "next-themes": "^0.4.6",
-    "otplib": "^13.4.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
