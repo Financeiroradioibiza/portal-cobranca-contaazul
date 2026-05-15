@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
 import { defaultPeriodMonths, formatBRL } from "@/lib/format";
@@ -16,7 +16,6 @@ export function CobrancaDashboard() {
   const initial = defaultPeriodMonths(6);
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [status, setStatus] = useState<ConnStatus | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -25,15 +24,6 @@ export function CobrancaDashboard() {
   const [oauthBanner, setOauthBanner] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [parcelaBusy, setParcelaBusy] = useState<string | null>(null);
-
-  const toggle = useCallback((id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -377,21 +367,24 @@ export function CobrancaDashboard() {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
           {connected
-            ? "Dados da API: clientes com parcelas vencidas em aberto no período. Clique no nome para expandir."
+            ? "Dados da API: um cliente = uma linha. Parcelas à esquerda; observação fixa à direita (role a tabela se precisar)."
             : "Conecte o Conta Azul para carregar receitas. Cadastre OAuth e Postgres nas variáveis de ambiente."}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-sm">
+        <div className="overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-[720px] border-collapse text-xs">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                <th className="px-4 py-3">Nome fantasia</th>
-                <th className="px-4 py-3">CNPJ</th>
-                <th className="px-4 py-3 text-right">Nº vendas vencidas</th>
-                <th className="px-4 py-3 text-right">Total em aberto</th>
-                <th className="px-4 py-3 min-w-[10rem]">E-mail cobrança / faturamento</th>
-                <th className="px-4 py-3 min-w-[11rem] whitespace-nowrap">Contrato</th>
-                <th className="px-4 py-3 min-w-[20rem] max-w-[28rem] w-[24rem]">
-                  Observação (só no portal)
+              <tr className="border-b border-slate-200 bg-slate-50 text-left text-[0.6rem] font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                <th className="px-2 py-2">Nome fantasia</th>
+                <th className="px-2 py-2 whitespace-nowrap">CNPJ</th>
+                <th className="px-2 py-2 text-right whitespace-nowrap">Nº vendas</th>
+                <th className="px-2 py-2 text-right whitespace-nowrap">Total aberto</th>
+                <th className="px-2 py-2 max-w-[10rem]">E-mail</th>
+                <th className="px-2 py-2 whitespace-nowrap">Contrato</th>
+                <th className="px-2 py-2 min-w-[12rem] max-w-[22rem]">
+                  Parcelas · boleto / NF
+                </th>
+                <th className="sticky right-0 z-20 min-w-[11rem] max-w-[14rem] border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
+                  Observação
                 </th>
               </tr>
             </thead>
@@ -399,7 +392,7 @@ export function CobrancaDashboard() {
               {clients.length === 0 && !loading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
                   >
                     {connected
@@ -410,158 +403,129 @@ export function CobrancaDashboard() {
               ) : null}
               {clients.map((c, clientIndex) => {
                 const total = c.sales.reduce((s, x) => s + x.value, 0);
-                const open = expanded.has(c.id);
-                const zebraMain =
+                const stripe =
                   clientIndex % 2 === 0
-                    ? "bg-white hover:bg-sky-50/80 dark:bg-slate-900 dark:hover:bg-slate-800"
-                    : "bg-slate-200/90 hover:bg-sky-100/70 dark:bg-slate-800 dark:hover:bg-slate-700";
-                const zebraExpand =
-                  clientIndex % 2 === 0
-                    ? "bg-slate-100 dark:bg-slate-900"
-                    : "bg-slate-200/90 dark:bg-slate-800";
+                    ? "bg-white dark:bg-slate-900"
+                    : "bg-slate-100 dark:bg-slate-800";
+                const stickyObs = `sticky right-0 z-10 border-l border-slate-200 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.1)] dark:border-slate-600 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.3)] ${stripe}`;
+
                 return (
-                  <Fragment key={c.id}>
-                    <tr
-                      className={`border-b border-slate-200/80 transition-colors dark:border-slate-800 ${zebraMain}`}
+                  <tr
+                    key={c.id}
+                    className={`border-b border-slate-200/90 align-top dark:border-slate-800 ${stripe}`}
+                  >
+                    <td
+                      className="max-w-[9rem] px-2 py-1 align-middle"
+                      title={c.fantasy}
                     >
-                      <td className="px-4 py-2">
-                        <button
-                          type="button"
-                          onClick={() => toggle(c.id)}
-                          className="text-left font-semibold text-[#0066cc] underline decoration-[#0066cc]/40 underline-offset-2 hover:decoration-[#0066cc] dark:text-sky-400 dark:decoration-sky-400/40"
+                      <span className="line-clamp-2 font-semibold text-[#0066cc] dark:text-sky-400">
+                        {c.fantasy}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1 align-middle tabular-nums text-slate-700 dark:text-slate-300">
+                      {c.cnpj}
+                    </td>
+                    <td className="px-2 py-1 text-right align-middle tabular-nums text-slate-900 dark:text-slate-100">
+                      {c.sales.length}
+                    </td>
+                    <td className="px-2 py-1 text-right align-middle tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                      {formatBRL(total)}
+                    </td>
+                    <td
+                      className="max-w-[9rem] truncate px-2 py-1 align-middle text-[0.65rem]"
+                      title={c.email !== "—" ? c.email : undefined}
+                    >
+                      {c.email !== "—" ? (
+                        <a
+                          href={`mailto:${c.email}`}
+                          className="text-[#0066cc] hover:underline dark:text-sky-400"
                         >
-                          {c.fantasy}
-                        </button>
-                      </td>
-                      <td className="px-4 py-2 text-slate-700 dark:text-slate-300">
-                        {c.cnpj}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                        {c.sales.length}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                        {formatBRL(total)}
-                      </td>
-                      <td className="px-4 py-2">
-                        {c.email !== "—" ? (
-                          <a
-                            href={`mailto:${c.email}`}
-                            className="text-[#0066cc] hover:underline dark:text-sky-400"
-                          >
-                            {c.email}
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 align-top">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void patchClientMeta(c.id, {
-                              hasActiveContract: !c.hasActiveContract,
-                            })
-                          }
-                          className={
-                            c.hasActiveContract
-                              ? "inline-flex min-h-[2rem] items-center justify-center rounded-md bg-emerald-700 px-3 py-1 text-center text-[0.65rem] font-bold uppercase tracking-wide text-white shadow-sm hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                              : "inline-flex min-h-[2rem] items-center justify-center rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-[0.65rem] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                          }
-                        >
-                          {c.hasActiveContract ? "CONTRATO ATIVO" : "Sem contrato ativo"}
-                        </button>
-                      </td>
-                      <td className="px-4 py-2 align-top">
-                        <textarea
-                          rows={3}
-                          value={c.note}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setClients((prev) =>
-                              prev.map((x) =>
-                                x.id === c.id ? { ...x, note: v } : x,
-                              ),
-                            );
-                          }}
-                          onBlur={(e) =>
-                            void patchClientMeta(c.id, { note: e.target.value })
-                          }
-                          placeholder="Anotação interna…"
-                          className="box-border w-full min-h-[4.5rem] resize-y rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs leading-snug text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
-                          autoComplete="off"
-                        />
-                      </td>
-                    </tr>
-                    {open ? (
-                      <tr className={`border-b border-slate-200/80 dark:border-slate-800 ${zebraExpand}`}>
-                        <td colSpan={7} className="px-2 pb-3 pt-1">
-                          <table className="ml-4 mt-1 w-[calc(100%-1rem)] text-xs">
-                            <thead>
-                              <tr className="bg-slate-100 text-[0.6rem] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                <th className="px-2 py-1 text-left">Competência</th>
-                                <th className="px-2 py-1 text-left">Vencimento</th>
-                                <th className="px-2 py-1 text-left">Resumo</th>
-                                <th className="px-2 py-1 text-right">Valor</th>
-                                <th className="px-2 py-1 text-left">Ações</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {c.sales.map((s, si) => {
-                                const subZebra =
-                                  si % 2 === 0
-                                    ? "bg-white dark:bg-slate-950/70"
-                                    : "bg-slate-100 dark:bg-slate-800/65";
-                                const boletoBusy =
-                                  parcelaBusy === `${s.id}:boleto`;
-                                const nfBusy = parcelaBusy === `${s.id}:nf`;
-                                return (
-                                  <tr
-                                    key={s.id}
-                                    className={`border-b border-slate-200/80 dark:border-slate-700 ${subZebra}`}
-                                  >
-                                  <td className="px-2 py-1.5 text-slate-800 dark:text-slate-200">
-                                    {s.comp}
-                                  </td>
-                                  <td className="px-2 py-1.5 text-slate-800 dark:text-slate-200">
-                                    {s.due}
-                                  </td>
-                                  <td className="px-2 py-1.5 text-slate-800 dark:text-slate-200">
-                                    {s.summary}
-                                  </td>
-                                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                                    {formatBRL(s.value)}
-                                  </td>
-                                  <td className="px-2 py-1.5">
-                                    <div className="flex flex-wrap gap-1">
-                                      <button
-                                        type="button"
-                                        disabled={Boolean(parcelaBusy)}
-                                        onClick={() => void openParcelaLink(s.id, "boleto")}
-                                        className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.7rem] font-medium hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
-                                        title="Abre boleto ou link de pagamento (Conta Azul)"
-                                      >
-                                        {boletoBusy ? "…" : "Boleto"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={Boolean(parcelaBusy)}
-                                        onClick={() => void openParcelaLink(s.id, "nf")}
-                                        className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.7rem] font-medium hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
-                                        title="Abre nota fiscal ou documento anexo (Conta Azul)"
-                                      >
-                                        {nfBusy ? "…" : "Nota"}
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                              })}
-                            </tbody>
-                          </table>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
+                          {c.email}
+                        </a>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1 align-middle whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void patchClientMeta(c.id, {
+                            hasActiveContract: !c.hasActiveContract,
+                          })
+                        }
+                        className={
+                          c.hasActiveContract
+                            ? "rounded px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide bg-emerald-700 text-white hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                            : "rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.6rem] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                        }
+                      >
+                        {c.hasActiveContract ? "Ativo" : "Sem contrato"}
+                      </button>
+                    </td>
+                    <td className="min-w-[12rem] max-w-[24rem] px-2 py-1 align-middle">
+                      <div className="flex snap-x snap-mandatory gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
+                        {c.sales.map((s) => {
+                          const boletoBusy =
+                            parcelaBusy === `${s.id}:boleto`;
+                          const nfBusy = parcelaBusy === `${s.id}:nf`;
+                          return (
+                            <div
+                              key={s.id}
+                              className="flex w-[9.5rem] flex-none snap-start flex-col gap-0.5 rounded border border-slate-200 bg-white/90 px-1.5 py-1 dark:border-slate-600 dark:bg-slate-950/60"
+                              title={s.summary}
+                            >
+                              <div className="whitespace-nowrap text-[0.6rem] leading-tight text-slate-600 dark:text-slate-400">
+                                {s.due} · {formatBRL(s.value)}
+                              </div>
+                              <div className="flex gap-0.5">
+                                <button
+                                  type="button"
+                                  disabled={Boolean(parcelaBusy)}
+                                  onClick={() =>
+                                    void openParcelaLink(s.id, "boleto")
+                                  }
+                                  className="flex-1 rounded border border-slate-300 bg-slate-50 py-0.5 text-[0.65rem] font-semibold hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                  title="Boleto / pagamento"
+                                >
+                                  {boletoBusy ? "…" : "Boleto"}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={Boolean(parcelaBusy)}
+                                  onClick={() => void openParcelaLink(s.id, "nf")}
+                                  className="flex-1 rounded border border-slate-300 bg-slate-50 py-0.5 text-[0.65rem] font-semibold hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                  title="Nota / documento"
+                                >
+                                  {nfBusy ? "…" : "Nota"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className={`px-2 py-1 align-middle ${stickyObs}`}>
+                      <textarea
+                        rows={2}
+                        value={c.note}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setClients((prev) =>
+                            prev.map((x) =>
+                              x.id === c.id ? { ...x, note: v } : x,
+                            ),
+                          );
+                        }}
+                        onBlur={(e) =>
+                          void patchClientMeta(c.id, { note: e.target.value })
+                        }
+                        placeholder="Nota interna…"
+                        className="box-border w-full min-h-[2.75rem] max-w-full resize-y rounded border border-slate-300 bg-white px-1.5 py-1 text-[0.65rem] leading-snug text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+                        autoComplete="off"
+                      />
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
