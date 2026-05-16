@@ -46,16 +46,27 @@ export async function fetchActiveContractNumbersByClientIds(
       cache: "no-store",
     });
 
+    const text = await res.text();
     if (!res.ok) {
       console.error(
         "[contracts] GET /v1/contratos",
         res.status,
-        (await res.text().catch(() => "")).slice(0, 400),
+        text.slice(0, 400),
       );
       break;
     }
-
-    const data = (await res.json()) as { items?: Row[]; itens?: Row[] };
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      console.error("[contracts] resposta não-JSON:", trimmed.slice(0, 200));
+      break;
+    }
+    let data: { items?: Row[]; itens?: Row[] };
+    try {
+      data = JSON.parse(text) as { items?: Row[]; itens?: Row[] };
+    } catch {
+      console.error("[contracts] JSON inválido:", trimmed.slice(0, 200));
+      break;
+    }
     const items = data.items ?? data.itens ?? [];
 
     for (const raw of items) {
@@ -82,7 +93,7 @@ export async function fetchActiveContractNumbersByClientIds(
 
     if (items.length < 50) break;
     pagina += 1;
-    if (pagina > 80) break;
+    if (pagina > 25) break;
   }
 
   const out = new Map<string, string>();

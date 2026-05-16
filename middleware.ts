@@ -50,6 +50,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!configured) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "auth_not_configured" }, { status: 503 });
+    }
     const u = request.nextUrl.clone();
     u.pathname = "/login";
     u.searchParams.set("error", "config");
@@ -59,6 +62,16 @@ export async function middleware(request: NextRequest) {
   const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
   const sub = await verifyPortalSessionToken(raw);
   if (!sub) {
+    const isBrowserOAuthStart =
+      pathname === "/api/contaazul/login" ||
+      pathname.startsWith("/api/contaazul/login/");
+    // APIs devem responder JSON; exceção: GET em /api/contaazul/login (link "Conectar") precisa redirect HTML.
+    if (pathname.startsWith("/api/") && !isBrowserOAuthStart) {
+      return NextResponse.json(
+        { error: "unauthorized", connected: false },
+        { status: 401 },
+      );
+    }
     const u = request.nextUrl.clone();
     u.pathname = "/login";
     const nextPath = safeInternalPath(pathname + request.nextUrl.search);

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
+import { readJsonFromResponse } from "@/lib/safeHttpJson";
 
 export function LoginForm() {
   const router = useRouter();
@@ -30,9 +31,19 @@ export function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; disabled?: boolean };
+      const parsed = await readJsonFromResponse<{
+        ok?: boolean;
+        error?: string;
+        disabled?: boolean;
+      }>(res);
+      if (parsed.parseError || !parsed.data) {
+        setFormError("Resposta inválida do servidor. Atualize a página e tente de novo.");
+        return;
+      }
+      const data = parsed.data;
 
       if (data.disabled) {
         router.replace(next);

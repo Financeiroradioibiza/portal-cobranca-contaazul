@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
 import { defaultPeriodMonths, formatBRL } from "@/lib/format";
+import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import type { ClientRow } from "@/lib/types";
 
 type ConnStatus = {
@@ -36,8 +37,19 @@ export function CobrancaDashboard() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/contaazul/status");
-      const data = (await res.json()) as ConnStatus;
+      const res = await fetch("/api/contaazul/status", { credentials: "include" });
+      const { data, parseError, rawText, ok } = await readJsonFromResponse<ConnStatus>(res);
+      if (parseError || !data) {
+        setStatus({
+          connected: false,
+          error: rawText.trim().slice(0, 240) || "Resposta inválida ao consultar status.",
+        });
+        return;
+      }
+      if (!ok && !("connected" in data)) {
+        setStatus({ connected: false, error: `Erro ${res.status}` });
+        return;
+      }
       setStatus(data);
     } catch {
       setStatus({ connected: false, error: "Falha ao consultar status." });
@@ -49,11 +61,23 @@ export function CobrancaDashboard() {
     setFetchError(null);
     try {
       const q = new URLSearchParams({ start, end });
-      const res = await fetch(`/api/contaazul/receivables?${q}`);
-      const data = (await res.json()) as {
+      const res = await fetch(`/api/contaazul/receivables?${q}`, {
+        credentials: "include",
+      });
+      const { data, parseError, rawText } = await readJsonFromResponse<{
         clients?: ClientRow[];
         error?: string;
-      };
+      }>(res);
+
+      if (parseError || !data) {
+        setClients([]);
+        setFetchError(
+          rawText.trim().slice(0, 220) ||
+            `Erro ${res.status}: resposta não é JSON (pode ser falha do servidor ou timeout no deploy).`,
+        );
+        return;
+      }
+
       if (!res.ok) {
         if (res.status === 401) {
           setClients([]);
@@ -149,13 +173,16 @@ export function CobrancaDashboard() {
           setActionMsg("Não foi possível salvar dados do cliente.");
           return;
         }
-        const data = (await res.json()) as {
-          note: string;
-        };
+        const parsed = await readJsonFromResponse<{ note?: string }>(res);
+        if (parsed.parseError || !parsed.data || typeof parsed.data.note !== "string") {
+          setActionMsg("Resposta inválida ao salvar (servidor não enviou JSON).");
+          return;
+        }
+        const note = parsed.data.note;
         setActionMsg(null);
         setClients((prev) =>
           prev.map((c) =>
-            c.id === clientId ? { ...c, note: data.note } : c,
+            c.id === clientId ? { ...c, note } : c,
           ),
         );
       } catch {

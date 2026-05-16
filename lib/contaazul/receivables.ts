@@ -25,7 +25,19 @@ async function caFetch<T>(
     const short = pathWithQuery.split("?")[0];
     throw new Error(`Conta Azul ${short}: ${res.status} ${text}`);
   }
-  return JSON.parse(text) as T;
+  const t = text.trim();
+  if (!t.startsWith("{") && !t.startsWith("[")) {
+    const short = pathWithQuery.split("?")[0];
+    throw new Error(
+      `Conta Azul ${short}: resposta não é JSON (${t.slice(0, 120)}${t.length > 120 ? "…" : ""})`,
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const short = pathWithQuery.split("?")[0];
+    throw new Error(`Conta Azul ${short}: JSON inválido (${t.slice(0, 120)}…)`);
+  }
 }
 
 const RECEIVABLE_STATUSES = ["ATRASADO", "EM_ABERTO", "RECEBIDO_PARCIAL"] as const;

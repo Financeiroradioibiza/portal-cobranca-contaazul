@@ -10,6 +10,9 @@ import { getValidAccessToken } from "@/lib/contaazul/session";
 import { isPastDueOpen } from "@/lib/contaazul/types";
 import { defaultPeriodMonths } from "@/lib/format";
 
+/** Netlify/Vercel: tenta dar mais tempo para paginação Conta Azul + contratos. */
+export const maxDuration = 60;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   let start = searchParams.get("start") ?? "";
@@ -40,7 +43,14 @@ export async function GET(request: Request) {
     ];
     const people = await fetchPeopleByIds(token, clientIds);
     const built = buildDashboardClients(items, people);
-    const contractsByClient = await fetchActiveContractNumbersByClientIds(token, clientIds);
+
+    let contractsByClient = new Map<string, string>();
+    try {
+      contractsByClient = await fetchActiveContractNumbersByClientIds(token, clientIds);
+    } catch (err) {
+      console.error("[receivables] contratos Conta Azul (ignorado para não bloquear listagem):", err);
+    }
+
     const withContracts = built.map((c) => ({
       ...c,
       activeContractNumbers: contractsByClient.get(c.id) ?? null,
