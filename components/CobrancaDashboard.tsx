@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
 import { defaultPeriodMonths, formatBRL } from "@/lib/format";
@@ -25,6 +25,8 @@ export function CobrancaDashboard() {
   const [oauthBanner, setOauthBanner] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  /** Invalida merges de contratos quando período / refresh mudam antes da API responder. */
+  const receivablesLoadGenRef = useRef(0);
 
   const toggle = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -59,6 +61,7 @@ export function CobrancaDashboard() {
   const loadReceivables = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
+    const loadGen = ++receivablesLoadGenRef.current;
     try {
       const q = new URLSearchParams({ start, end });
       const res = await fetch(`/api/contaazul/receivables?${q}`, {
@@ -88,8 +91,51 @@ export function CobrancaDashboard() {
         }
         throw new Error(data.error || `Erro ${res.status}`);
       }
-      setClients(data.clients ?? []);
+      const list = data.clients ?? [];
+      setClients(list);
       setLastRefresh(new Date());
+
+      if (list.length > 0) {
+        void (async () => {
+          const ids = list.map((c) => c.id);
+          const [rContracts, rNotes] = await Promise.all([
+            fetch("/api/contaazul/contracts-for-clients", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ clientIds: ids }),
+            }),
+            fetch("/api/clients/notes-for", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ clientIds: ids }),
+            }),
+          ]);
+          if (loadGen !== receivablesLoadGenRef.current) return;
+          const [pC, pN] = await Promise.all([
+            readJsonFromResponse<{ byClientId?: Record<string, string>; error?: string }>(
+              rContracts,
+            ),
+            readJsonFromResponse<{ byId?: Record<string, string>; error?: string }>(rNotes),
+          ]);
+          if (loadGen !== receivablesLoadGenRef.current) return;
+
+          const mapC =
+            rContracts.ok && !pC.parseError && pC.data?.byClientId ? pC.data.byClientId : null;
+          const mapN = rNotes.ok && !pN.parseError && pN.data?.byId ? pN.data.byId : null;
+          if (!mapC && !mapN) return;
+
+          setClients((prev) =>
+            prev.map((c) => ({
+              ...c,
+              activeContractNumbers:
+                mapC != null ? (mapC[c.id] ?? c.activeContractNumbers) : c.activeContractNumbers,
+              note: mapN != null ? (mapN[c.id] ?? c.note) : c.note,
+            })),
+          );
+        })();
+      }
     } catch (e) {
       setClients([]);
       setFetchError(e instanceof Error ? e.message : "Erro ao carregar dados");

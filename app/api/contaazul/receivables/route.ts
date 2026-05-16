@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { attachClientPortalMeta } from "@/lib/clientPortalMeta";
 import { buildDashboardClients } from "@/lib/contaazul/aggregate";
-import { fetchActiveContractNumbersByClientIds } from "@/lib/contaazul/contracts";
 import {
   fetchAllReceivableInstallments,
   fetchPeopleByIds,
@@ -10,7 +8,9 @@ import { getValidAccessToken } from "@/lib/contaazul/session";
 import { isPastDueOpen } from "@/lib/contaazul/types";
 import { defaultPeriodMonths } from "@/lib/format";
 
-/** Netlify/Vercel: tenta dar mais tempo para paginação Conta Azul + contratos. */
+/** Sem edge: menos restrição de CPU/tempo que Edge em alguns hosts. */
+export const runtime = "nodejs";
+/** Contratos saem de POST /api/contaazul/contracts-for-clients para não estourar timeout. */
 export const maxDuration = 60;
 
 export async function GET(request: Request) {
@@ -42,20 +42,8 @@ export async function GET(request: Request) {
       ),
     ];
     const people = await fetchPeopleByIds(token, clientIds);
-    const built = buildDashboardClients(items, people);
-
-    let contractsByClient = new Map<string, string>();
-    try {
-      contractsByClient = await fetchActiveContractNumbersByClientIds(token, clientIds);
-    } catch (err) {
-      console.error("[receivables] contratos Conta Azul (ignorado para não bloquear listagem):", err);
-    }
-
-    const withContracts = built.map((c) => ({
-      ...c,
-      activeContractNumbers: contractsByClient.get(c.id) ?? null,
-    }));
-    const clients = await attachClientPortalMeta(withContracts);
+    const clients = buildDashboardClients(items, people);
+    // Notas do portal: POST /api/clients/notes-for (paralelo no cliente, menos trabalho aqui).
 
     return NextResponse.json({
       clients,

@@ -6,6 +6,11 @@
 [build.environment]
   # Next.js 16 exige Node recente; evita falhas soltas no plugin/runtime
   NODE_VERSION = "22"
+  # Middleware no Edge tem limite de CPU curto; rodar no origin evita "edge function timed out".
+  NEXT_DISABLE_NETLIFY_EDGE = "true"
+
+# Timeout de função (~10s no plano Free): listagem e contratos estão em handlers separados.
+# Com Pro, dá para subir o limite em Site configuration → Functions → Function timeout.
 
 # Não declare [[plugins]] @netlify/plugin-nextjs aqui se o site já usa
 # "Next.js" no painel da Netlify — plugin duplicado causa "Build failed due to a plugin error".
