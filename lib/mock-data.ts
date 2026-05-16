@@ -7,7 +7,7 @@ export const mockClients: ClientRow[] = [
     fantasy: "Distribuidora Sul Ltda",
     cnpj: "12.345.678/0001-90",
     email: "financeiro@distsul.com.br",
-    hasActiveContract: false,
+    activeContractNumbers: null,
     note: "",
     sales: [
       {
@@ -38,7 +38,7 @@ export const mockClients: ClientRow[] = [
     fantasy: "Mercado Bom Preço",
     cnpj: "98.765.432/0001-10",
     email: "cobranca@bompreco.com",
-    hasActiveContract: true,
+    activeContractNumbers: "1014",
     note: "Renegociar taxa em abril.",
     sales: [
       {
@@ -62,7 +62,7 @@ export const mockClients: ClientRow[] = [
     fantasy: "Ótica Visão Clara",
     cnpj: "45.678.901/0001-22",
     email: "faturamento@visaocara.com.br",
-    hasActiveContract: false,
+    activeContractNumbers: null,
     note: "",
     sales: [
       {

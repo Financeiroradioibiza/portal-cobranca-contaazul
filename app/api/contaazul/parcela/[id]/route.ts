@@ -20,21 +20,29 @@ export async function GET(
 
   try {
     const detail = await fetchInstallmentById(token, id);
-    const { boletoUrl, docUrl } = extractBoletoAndDocUrls(detail);
+    const { boletoUrl, docUrl, boletoAnexoId, docAnexoId } = extractBoletoAndDocUrls(detail);
     const url = tipo === "nf" ? docUrl : boletoUrl;
+    const anexoId = tipo === "nf" ? docAnexoId : boletoAnexoId;
 
-    if (!url) {
-      const label = tipo === "nf" ? "nota fiscal / documento" : "boleto ou link de pagamento";
-      return NextResponse.json(
-        {
-          error: "not_found",
-          message: `Não há ${label} anexado a esta parcela na Conta Azul.`,
-        },
-        { status: 404 },
-      );
+    if (url) {
+      return NextResponse.json({ url });
     }
 
-    return NextResponse.json({ url });
+    if (anexoId) {
+      return NextResponse.json({
+        url: `/api/contaazul/parcela/${encodeURIComponent(id)}/file?tipo=${tipo === "nf" ? "nf" : "boleto"}`,
+        useSameOrigin: true,
+      });
+    }
+
+    const label = tipo === "nf" ? "nota fiscal / documento" : "boleto ou link de pagamento";
+    return NextResponse.json(
+      {
+        error: "not_found",
+        message: `Não há ${label} anexado a esta parcela na Conta Azul.`,
+      },
+      { status: 404 },
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "fetch_error";
     return NextResponse.json({ error: msg }, { status: 502 });

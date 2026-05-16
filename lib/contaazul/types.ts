@@ -37,8 +37,11 @@ export type CaPeopleSearchResponse = {
 export type CaInstallmentDetail = {
   id?: string;
   anexos?: Array<{
+    id?: string;
     url?: string | null;
     tipo_anexo?: string;
+    /** FILE | URL (API Conta Azul) */
+    tipo_conteudo?: string;
     nome?: string | null;
     descricao?: string | null;
   }>;

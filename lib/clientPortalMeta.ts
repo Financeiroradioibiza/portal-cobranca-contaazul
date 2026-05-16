@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { ClientRow } from "@/lib/types";
 
 /**
- * Anexa contrato/observação persistidos e remove registros de clientes que saíram da listagem
+ * Anexa observação persistida e remove registros de clientes que saíram da listagem
  * (sem parcelas vencidas em aberto neste recorte).
  */
 export async function attachClientPortalMeta(clients: ClientRow[]): Promise<ClientRow[]> {
@@ -26,7 +26,6 @@ export async function attachClientPortalMeta(clients: ClientRow[]): Promise<Clie
     const m = byId.get(c.id);
     return {
       ...c,
-      hasActiveContract: m?.hasActiveContract ?? false,
       note: m?.note ?? "",
     };
   });

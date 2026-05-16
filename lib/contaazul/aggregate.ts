@@ -52,7 +52,7 @@ export function buildDashboardClients(
       fantasy,
       cnpj: formatDocumento(p?.documento),
       email: p?.email?.trim() || "—",
-      hasActiveContract: false,
+      activeContractNumbers: null,
       note: "",
       sales,
     });

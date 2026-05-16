@@ -11,8 +11,12 @@ export type ClientRow = {
   fantasy: string;
   cnpj: string;
   email: string;
-  /** Só no portal; persistido até o cliente sair da listagem. */
-  hasActiveContract: boolean;
+  /**
+   * Número(s) de contrato com status ATIVO na Conta Azul (GET /v1/contratos).
+   * Separados por vírgula se houver mais de um.
+   */
+  activeContractNumbers: string | null;
+  /** Somente portal; persistido no banco. */
   note: string;
   sales: SaleRow[];
 };

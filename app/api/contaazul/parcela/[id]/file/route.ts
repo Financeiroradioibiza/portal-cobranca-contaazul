@@ -3,6 +3,7 @@ import {
   extractBoletoAndDocUrls,
   shouldProxyContaAzulDownload,
 } from "@/lib/contaazul/installmentLinks";
+import { fetchParcelaAnexoFile } from "@/lib/contaazul/parcelaAnexoDownload";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 
@@ -56,54 +57,69 @@ export async function GET(
     return plain(m, 502);
   }
 
-  const { boletoUrl, docUrl } = extractBoletoAndDocUrls(detail);
-  const target = tipo === "nf" ? docUrl : boletoUrl;
+  const { boletoUrl, docUrl, boletoAnexoId, docAnexoId } = extractBoletoAndDocUrls(detail);
+  const targetUrl = tipo === "nf" ? docUrl : boletoUrl;
+  const targetAnexoId = tipo === "nf" ? docAnexoId : boletoAnexoId;
 
-  if (!target) {
-    return plain(
-      tipo === "nf"
-        ? "Não há nota ou documento com link nesta parcela na Conta Azul."
-        : "Não há boleto ou link de cobrança nesta parcela na Conta Azul.",
-      404,
-    );
+  if (targetUrl) {
+    let dest: URL;
+    try {
+      dest = new URL(targetUrl);
+    } catch {
+      return plain("URL do documento inválida.", 502);
+    }
+
+    if (dest.protocol !== "http:" && dest.protocol !== "https:") {
+      return plain("Protocolo de URL não suportado.", 502);
+    }
+
+    if (!shouldProxyContaAzulDownload(targetUrl)) {
+      return NextResponse.redirect(targetUrl, 302);
+    }
+
+    const upstream = await fetch(targetUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "*/*",
+      },
+      redirect: "follow",
+      cache: "no-store",
+    });
+
+    if (!upstream.ok) {
+      const body = await upstream.text().catch(() => "");
+      return upstreamError(upstream.status, body);
+    }
+
+    const headers = new Headers();
+    const ct = upstream.headers.get("content-type");
+    if (ct) headers.set("Content-Type", ct);
+    const cd = upstream.headers.get("content-disposition");
+    if (cd) headers.set("Content-Disposition", cd);
+    else headers.set("Content-Disposition", "inline");
+    headers.set("Cache-Control", "no-store");
+
+    return new NextResponse(upstream.body, { status: 200, headers });
   }
 
-  let dest: URL;
-  try {
-    dest = new URL(target);
-  } catch {
-    return plain("URL do documento inválida.", 502);
+  if (targetAnexoId) {
+    const fileRes = await fetchParcelaAnexoFile(token, id, targetAnexoId);
+    if (fileRes?.ok) {
+      const headers = new Headers();
+      const ct = fileRes.headers.get("content-type");
+      if (ct) headers.set("Content-Type", ct);
+      const cd = fileRes.headers.get("content-disposition");
+      if (cd) headers.set("Content-Disposition", cd);
+      else headers.set("Content-Disposition", "inline");
+      headers.set("Cache-Control", "no-store");
+      return new NextResponse(fileRes.body, { status: 200, headers });
+    }
   }
 
-  if (dest.protocol !== "http:" && dest.protocol !== "https:") {
-    return plain("Protocolo de URL não suportado.", 502);
-  }
-
-  if (!shouldProxyContaAzulDownload(target)) {
-    return NextResponse.redirect(target, 302);
-  }
-
-  const upstream = await fetch(target, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "*/*",
-    },
-    redirect: "follow",
-    cache: "no-store",
-  });
-
-  if (!upstream.ok) {
-    const body = await upstream.text().catch(() => "");
-    return upstreamError(upstream.status, body);
-  }
-
-  const headers = new Headers();
-  const ct = upstream.headers.get("content-type");
-  if (ct) headers.set("Content-Type", ct);
-  const cd = upstream.headers.get("content-disposition");
-  if (cd) headers.set("Content-Disposition", cd);
-  else headers.set("Content-Disposition", "inline");
-  headers.set("Cache-Control", "no-store");
-
-  return new NextResponse(upstream.body, { status: 200, headers });
+  return plain(
+    tipo === "nf"
+      ? "Não há nota ou documento com link nesta parcela na Conta Azul."
+      : "Não há boleto ou link de cobrança nesta parcela na Conta Azul.",
+    404,
+  );
 }

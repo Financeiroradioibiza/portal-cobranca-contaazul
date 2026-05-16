@@ -31,6 +31,11 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
     "documentos",
     "documents",
   ]);
+  if (isRecord(data.evento)) {
+    anexosIn.push(
+      ...concatArrays(data.evento as Record<string, unknown>, ["anexos", "attachments"]),
+    );
+  }
 
   const solicIn = concatArrays(data, [
     "solicitacoes_cobrancas",
@@ -44,7 +49,7 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
   ]);
 
   const anexos: CaInstallmentDetail["anexos"] = [];
-  const seenAnexoUrl = new Set<string>();
+  const seenAnexo = new Set<string>();
   for (const a of anexosIn) {
     if (!isRecord(a)) continue;
     const url =
@@ -55,13 +60,18 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
       str(a.public_url) ??
       str(a.arquivoUrl) ??
       (isRecord(a.arquivo) ? str(a.arquivo.url) ?? str(a.arquivo.link) : undefined);
+    const anexoId = str(a.id) ?? str(a.id_anexo) ?? str(a.idAnexo);
+    const tipoConteudo = str(a.tipo_conteudo) ?? str(a.tipoConteudo);
     const tipoAnexo =
       str(a.tipo_anexo) ?? str(a.tipoAnexo) ?? str(a.tipo) ?? str(a.tipoDocumento);
-    if (url && seenAnexoUrl.has(url)) continue;
-    if (url) seenAnexoUrl.add(url);
+    const dedupeKey = url ?? anexoId ?? "";
+    if (dedupeKey && seenAnexo.has(dedupeKey)) continue;
+    if (dedupeKey) seenAnexo.add(dedupeKey);
     anexos.push({
+      id: anexoId,
       url: url ?? null,
       tipo_anexo: tipoAnexo,
+      tipo_conteudo: tipoConteudo,
       nome: str(a.nome) ?? str(a.name) ?? null,
       descricao: str(a.descricao) ?? str(a.description) ?? null,
     });

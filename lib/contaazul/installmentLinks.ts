@@ -29,15 +29,44 @@ function tipoMatch(t: string | undefined, ...candidates: string[]): boolean {
   return candidates.some((c) => c === n || n.includes(c));
 }
 
+export type ParcelaDocLinks = {
+  boletoUrl: string | null;
+  docUrl: string | null;
+  /** Quando o anexo é FILE na API e não há URL pública */
+  boletoAnexoId: string | null;
+  docAnexoId: string | null;
+};
+
+type Anexo = NonNullable<CaInstallmentDetail["anexos"]>[number];
+
 /**
  * Extrai link de boleto/cobrança e link de documento (NF/recibo) do detalhe da parcela.
  */
-export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
-  boletoUrl: string | null;
-  docUrl: string | null;
-} {
+export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): ParcelaDocLinks {
   let boletoUrl: string | null = null;
   let docUrl: string | null = null;
+  let boletoAnexoId: string | null = null;
+  let docAnexoId: string | null = null;
+
+  function considerBoletoAnexo(a: Anexo, urlNorm: string | null) {
+    if (urlNorm) {
+      if (!boletoUrl) boletoUrl = urlNorm;
+      return;
+    }
+    if (a.id && !boletoAnexoId) {
+      boletoAnexoId = a.id;
+    }
+  }
+
+  function considerDocAnexo(a: Anexo, urlNorm: string | null) {
+    if (urlNorm) {
+      if (!docUrl) docUrl = urlNorm;
+      return;
+    }
+    if (a.id && !docAnexoId) {
+      docAnexoId = a.id;
+    }
+  }
 
   for (const sc of detail.solicitacoes_cobrancas ?? []) {
     const tipo = sc.tipo_solicitacao_cobranca;
@@ -61,12 +90,12 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
 
   for (const a of detail.anexos ?? []) {
     const url = normalizeContaAzulUrl(a.url);
-    if (!url) continue;
     const t = a.tipo_anexo;
     if (
       tipoMatch(t, "BOLETO_BANCARIO", "BOLETO_BANCARIO_RFB", "BOLETO")
     ) {
-      if (!boletoUrl) boletoUrl = url;
+      considerBoletoAnexo(a, url);
+      continue;
     }
     if (
       tipoMatch(
@@ -85,7 +114,7 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
         "ESPELHO",
       )
     ) {
-      if (!docUrl) docUrl = url;
+      considerDocAnexo(a, url);
     }
   }
 
@@ -95,11 +124,11 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
       if (!url || !tipoMatch(a.tipo_anexo, "OUTROS")) continue;
       const name = `${a.nome ?? ""} ${a.descricao ?? ""}`.toLowerCase();
       if (/boleto/i.test(name) && !boletoUrl) {
-        boletoUrl = url;
+        considerBoletoAnexo(a, url);
         continue;
       }
       if (/(nota|danfe|nfe|nf-?e|nfse|fiscal|dacte|nfs-e|pdf)/i.test(name)) {
-        docUrl = url;
+        considerDocAnexo(a, url);
         break;
       }
     }
@@ -108,22 +137,21 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
   if (!docUrl || !boletoUrl) {
     for (const a of detail.anexos ?? []) {
       const url = normalizeContaAzulUrl(a.url);
-      if (!url) continue;
       const blob = `${a.tipo_anexo ?? ""} ${a.nome ?? ""} ${a.descricao ?? ""}`.toLowerCase();
-      if (!boletoUrl && /boleto|ficha.?compensa|linha.?digit/i.test(blob)) {
-        boletoUrl = url;
+      if (!boletoUrl && !boletoAnexoId && /boleto|ficha.?compensa|linha.?digit/i.test(blob)) {
+        considerBoletoAnexo(a, url);
         continue;
       }
       if (
         !docUrl &&
+        !docAnexoId &&
         /(nota|danfe|nfe|nf-?e|nfse|fiscal|dacte|recibo|xml|espelho)/i.test(blob)
       ) {
-        docUrl = url;
+        considerDocAnexo(a, url);
       }
     }
   }
 
-  // Último recurso: qualquer cobrança com URL (às vezes o tipo vem indefinido)
   if (!boletoUrl) {
     for (const sc of detail.solicitacoes_cobrancas ?? []) {
       const url = normalizeContaAzulUrl(sc.url);
@@ -145,5 +173,5 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): {
     }
   }
 
-  return { boletoUrl, docUrl };
+  return { boletoUrl, docUrl, boletoAnexoId, docAnexoId };
 }

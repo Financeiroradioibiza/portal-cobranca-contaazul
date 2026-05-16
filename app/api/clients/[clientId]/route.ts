@@ -12,7 +12,7 @@ function validClientId(id: string): boolean {
 }
 
 /**
- * PATCH body: { hasActiveContract?: boolean, note?: string }
+ * PATCH body: { note?: string }
  */
 export async function PATCH(
   request: Request,
@@ -25,16 +25,14 @@ export async function PATCH(
     return NextResponse.json({ error: "invalid_client_id" }, { status: 400 });
   }
 
-  let body: { hasActiveContract?: boolean; note?: string };
+  let body: { note?: string };
   try {
-    body = (await request.json()) as { hasActiveContract?: boolean; note?: string };
+    body = (await request.json()) as { note?: string };
   } catch {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
 
-  const hasC = typeof body.hasActiveContract === "boolean";
-  const hasN = typeof body.note === "string";
-  if (!hasC && !hasN) {
+  if (typeof body.note !== "string") {
     return NextResponse.json({ error: "no_fields" }, { status: 400 });
   }
 
@@ -42,12 +40,11 @@ export async function PATCH(
     where: { clientId },
     create: {
       clientId,
-      hasActiveContract: hasC ? body.hasActiveContract! : false,
-      note: hasN ? body.note!.slice(0, MAX_NOTE) : "",
+      hasActiveContract: false,
+      note: body.note.slice(0, MAX_NOTE),
     },
     update: {
-      ...(hasC && { hasActiveContract: body.hasActiveContract }),
-      ...(hasN && { note: body.note!.slice(0, MAX_NOTE) }),
+      note: body.note.slice(0, MAX_NOTE),
     },
   });
 
@@ -56,7 +53,6 @@ export async function PATCH(
   });
 
   return NextResponse.json({
-    hasActiveContract: row?.hasActiveContract ?? false,
     note: row?.note ?? "",
   });
 }

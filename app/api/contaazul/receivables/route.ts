@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { attachClientPortalMeta } from "@/lib/clientPortalMeta";
 import { buildDashboardClients } from "@/lib/contaazul/aggregate";
+import { fetchActiveContractNumbersByClientIds } from "@/lib/contaazul/contracts";
 import {
   fetchAllReceivableInstallments,
   fetchPeopleByIds,
@@ -39,7 +40,12 @@ export async function GET(request: Request) {
     ];
     const people = await fetchPeopleByIds(token, clientIds);
     const built = buildDashboardClients(items, people);
-    const clients = await attachClientPortalMeta(built);
+    const contractsByClient = await fetchActiveContractNumbersByClientIds(token, clientIds);
+    const withContracts = built.map((c) => ({
+      ...c,
+      activeContractNumbers: contractsByClient.get(c.id) ?? null,
+    }));
+    const clients = await attachClientPortalMeta(withContracts);
 
     return NextResponse.json({
       clients,

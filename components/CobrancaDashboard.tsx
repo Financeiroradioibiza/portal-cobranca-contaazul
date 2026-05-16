@@ -23,7 +23,6 @@ export function CobrancaDashboard() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [oauthBanner, setOauthBanner] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
-  const [parcelaBusy, setParcelaBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const toggle = useCallback((id: string) => {
@@ -131,52 +130,14 @@ export function CobrancaDashboard() {
     window.location.href = "/login";
   }, []);
 
-  const openParcelaLink = useCallback(async (parcelaId: string, tipo: "boleto" | "nf") => {
-    const busyKey = `${parcelaId}:${tipo}`;
+  const openParcelaLink = useCallback((parcelaId: string, tipo: "boleto" | "nf") => {
     setActionMsg(null);
-    setParcelaBusy(busyKey);
-    try {
-      const url = `/api/contaazul/parcela/${encodeURIComponent(parcelaId)}/file?tipo=${tipo}`;
-      const res = await fetch(url, { credentials: "include", redirect: "manual" });
-
-      if (res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307 || res.status === 308) {
-        const loc = res.headers.get("Location");
-        if (loc) {
-          window.open(loc, "_blank", "noopener,noreferrer");
-          return;
-        }
-      }
-
-      if (!res.ok) {
-        const t = (await res.text()).trim();
-        setActionMsg(t.slice(0, 500) || "Não foi possível abrir o documento.");
-        return;
-      }
-
-      const ct = res.headers.get("content-type") ?? "";
-      if (ct.includes("application/json")) {
-        try {
-          const j = (await res.json()) as { message?: string; error?: string };
-          setActionMsg(j.message || j.error || "Resposta inesperada da API.");
-        } catch {
-          setActionMsg("Resposta inesperada da API.");
-        }
-        return;
-      }
-
-      const blob = await res.blob();
-      const obj = URL.createObjectURL(blob);
-      window.open(obj, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(obj), 120_000);
-    } catch {
-      setActionMsg("Falha ao abrir o documento. Tente de novo.");
-    } finally {
-      setParcelaBusy(null);
-    }
+    const path = `/api/contaazul/parcela/${encodeURIComponent(parcelaId)}/file?tipo=${tipo}`;
+    window.open(path, "_blank", "noopener,noreferrer");
   }, []);
 
   const patchClientMeta = useCallback(
-    async (clientId: string, body: { hasActiveContract?: boolean; note?: string }) => {
+    async (clientId: string, body: { note: string }) => {
       try {
         const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}`, {
           method: "PATCH",
@@ -189,15 +150,12 @@ export function CobrancaDashboard() {
           return;
         }
         const data = (await res.json()) as {
-          hasActiveContract: boolean;
           note: string;
         };
         setActionMsg(null);
         setClients((prev) =>
           prev.map((c) =>
-            c.id === clientId
-              ? { ...c, hasActiveContract: data.hasActiveContract, note: data.note }
-              : c,
+            c.id === clientId ? { ...c, note: data.note } : c,
           ),
         );
       } catch {
@@ -400,7 +358,7 @@ export function CobrancaDashboard() {
                   E-mail
                 </th>
                 <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
-                  Contrato
+                  Contrato ativo
                 </th>
                 <th className="sticky right-0 z-20 min-w-[12rem] max-w-[16rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
                   Observação
@@ -476,22 +434,17 @@ export function CobrancaDashboard() {
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="border-b border-slate-200/90 px-2 py-1.5 align-middle whitespace-nowrap dark:border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void patchClientMeta(c.id, {
-                              hasActiveContract: !c.hasActiveContract,
-                            })
-                          }
-                          className={
-                            c.hasActiveContract
-                              ? "rounded px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide bg-emerald-700 text-white hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-                              : "rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.6rem] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-                          }
-                        >
-                          {c.hasActiveContract ? "Ativo" : "Sem contrato"}
-                        </button>
+                      <td className="border-b border-slate-200/90 px-2 py-1.5 align-middle text-[0.65rem] dark:border-slate-800">
+                        {c.activeContractNumbers ? (
+                          <span
+                            className="font-semibold text-emerald-700 dark:text-emerald-400"
+                            title={`Contrato(s) ativo(s) na Conta Azul: ${c.activeContractNumbers}`}
+                          >
+                            {c.activeContractNumbers}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                       <td className={`px-2 py-1.5 align-top ${stickyObs}`}>
                         <textarea
@@ -536,9 +489,6 @@ export function CobrancaDashboard() {
                               </thead>
                               <tbody>
                                 {c.sales.map((s, si) => {
-                                  const boletoBusy =
-                                    parcelaBusy === `${s.id}:boleto`;
-                                  const nfBusy = parcelaBusy === `${s.id}:nf`;
                                   const sub =
                                     si % 2 === 0
                                       ? "bg-white dark:bg-slate-900/80"
@@ -564,25 +514,19 @@ export function CobrancaDashboard() {
                                         <div className="flex flex-wrap gap-1">
                                           <button
                                             type="button"
-                                            disabled={Boolean(parcelaBusy)}
-                                            onClick={() =>
-                                              void openParcelaLink(s.id, "boleto")
-                                            }
-                                            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.65rem] font-semibold hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                            onClick={() => openParcelaLink(s.id, "boleto")}
+                                            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.65rem] font-semibold hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
                                             title="Boleto ou link de pagamento"
                                           >
-                                            {boletoBusy ? "…" : "Boleto"}
+                                            Boleto
                                           </button>
                                           <button
                                             type="button"
-                                            disabled={Boolean(parcelaBusy)}
-                                            onClick={() =>
-                                              void openParcelaLink(s.id, "nf")
-                                            }
-                                            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.65rem] font-semibold hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                            onClick={() => openParcelaLink(s.id, "nf")}
+                                            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[0.65rem] font-semibold hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
                                             title="Nota fiscal ou documento"
                                           >
-                                            {nfBusy ? "…" : "Nota"}
+                                            Nota
                                           </button>
                                         </div>
                                       </td>
