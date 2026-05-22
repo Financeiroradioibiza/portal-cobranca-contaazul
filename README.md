@@ -14,6 +14,17 @@ Copie [`.env.example`](.env.example) para `.env` e preencha:
 | `CONTA_AZUL_REDIRECT_URI` | **Exatamente** a URL registrada no app (ex.: `https://SEU-SITE.netlify.app/api/contaazul/callback`) |
 | `NEXT_PUBLIC_SITE_URL` | URL pública do site (mesmo domínio; usada em redirects se necessário) |
 
+Opcionalmente, para **Consulta painel** (`public/prototype.html` → servidor):
+
+| Variável | Uso |
+|----------|-----|
+| `RADIO_PAINEL_ENABLED` | `1`, `true` ou `yes` — ativa `POST /api/radio-painel/query`. |
+| `RADIO_PAINEL_BASE_URL` | Padrão `https://painel.radioibiza.com.br`. |
+| `RADIO_PAINEL_EMAIL` + `RADIO_PAINEL_PASSWORD` | Login automatizado Cake. |
+| `RADIO_PAINEL_SESSION_COOKIE` | Alternativa: cookie `CAKEPHP=...` copiado do browser autenticado. |
+| `RADIO_PAINEL_CLIENTES_INDEX_SEARCH_PATH` | Template da lista de clientes (use `{q}` no URL se o índice do painel for personalizado). |
+| `RADIO_PAINEL_PROXY_SECRET` | Opcional: mesmo valor como header `x-radio-painel-secret`. Na consola: `window.__RADIO_PAINEL_PROXY_SECRET`. |
+
 ## Banco de dados (local)
 
 ```bash
@@ -34,7 +45,7 @@ Documentação: [Solicitando código](https://developers.contaazul.com/requestin
 
 1. Crie um banco Postgres (Neon) e copie `DATABASE_URL`.
 2. Repo no GitHub/GitLab → **Import** na Netlify.
-3. **Environment variables**: todas as variáveis acima. `CONTA_AZUL_REDIRECT_URI` deve usar a URL **final** do site Netlify.
+3. **Environment variables**: variáveis do portal + Postgres + **integração opcional Painel** (`RADIO_PAINEL_*`, ver tabela nas variáveis de ambiente).
 4. Build (já em [`netlify.toml`](netlify.toml)): `npx prisma migrate deploy && npm run build`
 5. No Portal Conta Azul, cadastre a mesma `CONTA_AZUL_REDIRECT_URI` de produção.
 6. Primeiro deploy: authorize o app com um usuário **do ERP Conta Azul** (não o login do portal desenvolvedor).
@@ -45,4 +56,4 @@ A Conta Azul indica limites da ordem de **600 req/min** por conta ERP; a sincron
 
 ## Protótipo estático
 
-[`public/prototype.html`](public/prototype.html) — HTML de referência (sem API).
+[`public/prototype.html`](public/prototype.html) — HTML de referência com grade de exemplo. Botão **Consulta painel** chama a API Next `POST /api/radio-painel/query`; as credenciais ficam apenas em variáveis de ambiente no Netlify/`env` (**não** vão para o navegador). Ative `RADIO_PAINEL_ENABLED=1` e configure login ou cookie conforme [.env.example](.env.example).

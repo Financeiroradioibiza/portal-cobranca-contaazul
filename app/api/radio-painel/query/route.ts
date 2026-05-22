@@ -1,0 +1,144 @@
+import { NextResponse } from "next/server";
+import { buildClientePainelPayload } from "@/lib/radioPainel/clientePayload";
+import { resolveClienteNome } from "@/lib/radioPainel/clienteSearch";
+import { buildPdvPainelPayload } from "@/lib/radioPainel/pdvPayload";
+import { getPainelSessionCookie, painelHtml } from "@/lib/radioPainel/session";
+
+export const runtime = "nodejs";
+export const maxDuration = 55;
+
+function painelEnabled(): boolean {
+  const v = process.env.RADIO_PAINEL_ENABLED?.trim().toLowerCase() ?? "";
+  return v === "1" || v === "true" || v === "yes";
+}
+
+export async function POST(request: Request) {
+  const secret = process.env.RADIO_PAINEL_PROXY_SECRET?.trim();
+  if (secret && request.headers.get("x-radio-painel-secret") !== secret) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  if (!painelEnabled()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Integração Radio Painel desligada (RADIO_PAINEL_ENABLED=1 no Netlify ou .env.local).",
+      },
+      { status: 503 },
+    );
+  }
+
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  const body =
+    typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+
+  let modeRaw = "";
+  try {
+    const { cookie, base } = await getPainelSessionCookie();
+    const mode = typeof body.mode === "string" ? body.mode.trim() : "";
+    modeRaw = mode;
+
+    if (mode === "clienteNome") {
+      const nome = typeof body.nome === "string" ? body.nome.trim() : "";
+      if (!nome) {
+        return NextResponse.json({ error: "nome_obrigatorio" }, { status: 400 });
+      }
+
+      const candidatos = await resolveClienteNome(cookie, base, nome);
+      if (candidatos.length === 0) {
+        return NextResponse.json({
+          ok: true,
+          tipo: "cliente_vazio",
+          candidatos,
+          aviso:
+            "Nenhum cliente na lista com esse texto. Configure RADIO_PAINEL_CLIENTES_INDEX_SEARCH_PATH ou o nome exato do filtro usado pelo painel.",
+        });
+      }
+
+      if (candidatos.length === 1) {
+        const cid = candidatos[0].clienteId;
+        const html = await painelHtml(cookie, base, `/adm/clientes/edit?cliente=${cid}`);
+        return NextResponse.json({
+          ok: true,
+          tipo: "cliente",
+          resultado: buildClientePainelPayload(html, cid),
+          candidatos,
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        tipo: "cliente_escolha",
+        candidatos,
+      });
+    }
+
+    if (mode === "clienteId") {
+      let id = "";
+      if (typeof body.clienteId === "string") id = body.clienteId.trim();
+      else if (typeof body.clienteId === "number") id = String(Math.trunc(body.clienteId));
+
+      if (!/^\d+$/.test(id)) {
+        return NextResponse.json({ error: "clienteId_invalido" }, { status: 400 });
+      }
+      const html = await painelHtml(cookie, base, `/adm/clientes/edit?cliente=${id}`);
+      return NextResponse.json({
+        ok: true,
+        tipo: "cliente",
+        resultado: buildClientePainelPayload(html, id),
+      });
+    }
+
+    if (mode === "pdv") {
+      let pdvId = "";
+      if (typeof body.pdvId === "string") pdvId = body.pdvId.trim();
+      else if (typeof body.pdvId === "number") pdvId = String(Math.trunc(body.pdvId));
+
+      let clienteExtras = "";
+      if (typeof body.clienteId === "string") clienteExtras = body.clienteId.trim();
+      else if (typeof body.clienteId === "number" && Number.isFinite(body.clienteId)) {
+        clienteExtras = String(Math.trunc(body.clienteId));
+      }
+
+      if (!/^\d+$/.test(pdvId)) {
+        return NextResponse.json({ error: "pdvId_invalido" }, { status: 400 });
+      }
+
+      const path =
+        clienteExtras && /^\d+$/.test(clienteExtras)
+          ? `/adm/pdv/edit?pdv=${pdvId}&cliente=${clienteExtras}`
+          : `/adm/pdv/edit?pdv=${pdvId}`;
+
+      const html = await painelHtml(cookie, base, path);
+      return NextResponse.json({
+        ok: true,
+        tipo: "pdv",
+        resultado: buildPdvPainelPayload(
+          html,
+          pdvId,
+          clienteExtras || undefined,
+        ),
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error: "mode_invalido",
+        recebido: modeRaw || null,
+        opcoes: ["clienteNome", "clienteId", "pdv"],
+      },
+      { status: 400 },
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "painel_erro";
+    console.error("[radio-painel]", modeRaw, msg);
+    return NextResponse.json({ ok: false, error: msg }, { status: 502 });
+  }
+}

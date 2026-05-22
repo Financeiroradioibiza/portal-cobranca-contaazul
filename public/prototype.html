@@ -130,6 +130,74 @@
     .actions button { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
     footer { margin-top: 1.5rem; font-size: 0.75rem; color: var(--muted); }
     a.back { color: var(--accent); font-size: 0.875rem; }
+
+    dialog#dlg-painel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0;
+      max-width: min(640px, 96vw);
+      width: 100%;
+      background: var(--card);
+      color: var(--text);
+      box-shadow: 0 12px 40px rgba(15,23,42,0.18);
+    }
+    dialog::backdrop {
+      background: rgba(15,23,42,0.45);
+      backdrop-filter: blur(4px);
+    }
+    html[data-theme="dark"] dialog::backdrop {
+      background: rgba(0,0,0,0.55);
+    }
+    .painel-cap { padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+      flex-wrap: wrap;}
+    .painel-cap h2 { margin: 0; font-size: 1rem; letter-spacing: -0.02em; }
+    .painel-cap .close-x {
+      border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.35rem;
+      line-height: 1; padding: 0 0.25rem;
+    }
+    .painel-body { padding: 1rem; max-height: 70vh; overflow: auto; }
+    .painel-tabs {
+      display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border); padding-bottom: 0.55rem;
+    }
+    .painel-tab {
+      font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; border-radius: 6px;
+      border: 1px solid transparent; padding: 0.35rem 0.65rem; background: transparent; color: var(--muted);
+    }
+    .painel-tab.active { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+    .painel-field { margin-bottom: 0.65rem; }
+    .painel-field input[type="text"], .painel-field input[type="number"] {
+      width: 100%; max-width: 100%; font: inherit;
+      padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text);
+    }
+    .painel-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.45rem;}
+    .painel-mini { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.75rem; line-height: 1.35; }
+    .painel-erro {
+      padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid var(--danger-bd, #f59e9b); background: var(--danger-bg, #fef2f2); color: #991b1b;
+      font-size: 0.8rem;
+    }
+    html[data-theme="dark"] .painel-erro {
+      background: #431313; border-color: #7f1d1d; color: #fecaca;
+    }
+    .painel-out { margin-top: 0.85rem; font-size: 0.8125rem; line-height: 1.42; white-space: pre-wrap; word-break: break-word; }
+    .painel-pre { padding: 0.65rem; border-radius: 8px; border: 1px solid var(--border); background: var(--hint-bg);}
+    .painel-out label { margin-top: 0.65rem; }
+    button.maps-g {
+      margin-top: 0.65rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fff;
+      cursor: pointer; font-weight: 600;
+      font: inherit;
+    }
+    html[data-theme="dark"] button.maps-g { background: #1e293b; color: #f8fafc; }
+    .painel-choice { margin: 0.4rem 0; list-style: none; padding-left: 0; }
+    .painel-choice li { margin-bottom: 0.25rem;}
+    .painel-choice button.linkish {
+      text-align: left; background: transparent; border: none; color: var(--accent);
+      cursor: pointer; text-decoration: underline; font: inherit;
+    }
   </style>
 </head>
 <body>
@@ -148,6 +216,7 @@
         </div>
         <div class="toolbar" style="margin-top:0.5rem;">
           <span class="badge">Conectado ao Conta Azul (demo)</span>
+          <button type="button" class="ghost" id="btn-painel">Consulta painel</button>
           <button type="button" class="primary" id="btn-refresh">Atualizar</button>
         </div>
       </div>
@@ -185,7 +254,82 @@
         <tbody id="tbody"></tbody>
       </table>
     </div>
-    <footer>Radio Ibiza — arquivo <code>public/prototype.html</code> · dados de exemplo.</footer>
+    <footer>
+      Radio Ibiza — arquivo <code>public/prototype.html</code> · dados de exemplo.
+      <br />
+      <span style="opacity:0.9">Consulta painel usa o servidor Next (<code>/api/radio-painel/query</code>) com credenciais só no Netlify / env (<code>RADIO_PAINEL_*</code>).</span>
+    </footer>
+
+    <dialog id="dlg-painel">
+      <div class="painel-cap">
+        <h2>Consulta painel</h2>
+        <button type="button" class="close-x" id="painel-fechar" aria-label="Fechar">×</button>
+      </div>
+      <div class="painel-body">
+        <p class="painel-mini">
+          Origem configurável: produção típica
+          <a href="https://painel.radioibiza.com.br/" target="_blank" rel="noopener noreferrer">painel.radioibiza.com.br</a>.
+          O login vai no Netlify (<code>RADIO_PAINEL_EMAIL</code>, <code>RADIO_PAINEL_PASSWORD</code>) ou cole um cookie válido (<code>RADIO_PAINEL_SESSION_COOKIE</code>).
+        </p>
+        <div class="painel-tabs" role="tablist">
+          <button type="button" class="painel-tab active" data-pane="pane-cli-nome">Cliente (nome)</button>
+          <button type="button" class="painel-tab" data-pane="pane-cli-id">Cliente (ID)</button>
+          <button type="button" class="painel-tab" data-pane="pane-pdv">PDV</button>
+        </div>
+
+        <div id="pane-cli-nome" class="painel-pane">
+          <div class="painel-field">
+            <label for="painel-nome">Nome do cliente</label>
+            <input id="painel-nome" type="text" placeholder="ex.: Maria Filó Próprias" autocomplete="off" />
+          </div>
+          <div class="painel-actions">
+            <button type="button" class="primary" id="painel-btn-cli-nome">Buscar no painel</button>
+          </div>
+        </div>
+
+        <div id="pane-cli-id" class="painel-pane" hidden>
+          <div class="painel-field">
+            <label for="painel-id">ID cliente (painel)</label>
+            <input id="painel-id" type="number" inputmode="numeric" placeholder="ex.: 1395" autocomplete="off" />
+          </div>
+          <div class="painel-actions">
+            <button type="button" class="primary" id="painel-btn-cli-id">Consultar cliente</button>
+          </div>
+        </div>
+
+        <div id="pane-pdv" class="painel-pane" hidden>
+          <div class="painel-field">
+            <label for="painel-pdv">ID PDV</label>
+            <input id="painel-pdv" type="number" inputmode="numeric" placeholder="ex.: 13855" autocomplete="off" />
+          </div>
+          <div class="painel-field">
+            <label for="painel-pdv-cli">ID cliente (opcional, como na URL do painel)</label>
+            <input id="painel-pdv-cli" type="number" inputmode="numeric" placeholder="ex.: 1485" autocomplete="off" />
+          </div>
+          <div class="painel-actions">
+            <button type="button" class="primary" id="painel-btn-pdv">Consultar PDV</button>
+          </div>
+        </div>
+
+        <div id="painel-erro-wrap" hidden style="margin-top:0.75rem;"></div>
+
+        <div id="painel-escolha" hidden style="margin-top:0.75rem;">
+          <strong style="display:block;margin-bottom:0.35rem;">Vários clientes — escolha um ID:</strong>
+          <ul id="painel-ul-escolha" class="painel-choice"></ul>
+          <button type="button" class="ghost" id="painel-cancel-choice">Cancelar</button>
+        </div>
+
+        <div id="painel-out-wrap" hidden style="margin-top:1rem;">
+          <div class="painel-pre painel-out" id="painel-out"></div>
+          <button type="button" class="maps-g" id="painel-google" hidden aria-label="Abrir Google Maps"></button>
+        </div>
+
+        <p class="painel-mini" style="margin-top:0.85rem;">
+          Opcional: defina na consola<br />
+          <code>window.__RADIO_PAINEL_PROXY_SECRET=&quot;(mesmo valor de RADIO_PAINEL_PROXY_SECRET no Netlify)&quot;</code><br />se usares esse header nas rotas.
+        </p>
+      </div>
+    </dialog>
   </div>
   <script>
     const COMPANY = "Radio Ibiza";
@@ -315,6 +459,238 @@
     document.getElementById("btn-default").addEventListener("click", setDefaultDates);
     setDefaultDates();
     render();
+
+    /** —— Consulta painel Ibiza —— */
+    const dlg = document.getElementById("dlg-painel");
+    const painelErroWrap = document.getElementById("painel-erro-wrap");
+    const painelEscolha = document.getElementById("painel-escolha");
+    const painelUlEscolha = document.getElementById("painel-ul-escolha");
+    const painelCancelChoice = document.getElementById("painel-cancel-choice");
+    const painelOutWrap = document.getElementById("painel-out-wrap");
+    const painelOut = document.getElementById("painel-out");
+    const painelGoogleBtn = document.getElementById("painel-google");
+
+    function painelLimparErro() {
+      painelErroWrap.hidden = true;
+      painelErroWrap.innerHTML = "";
+    }
+
+    function painelErro(txt) {
+      painelLimparEscolha();
+      painelErroWrap.hidden = false;
+      painelErroWrap.innerHTML = '<div class="painel-erro"></div>';
+      painelErroWrap.querySelector(".painel-erro").textContent = txt;
+      painelOutWrap.hidden = true;
+      painelGoogleBtn.hidden = true;
+    }
+
+    function painelLimparEscolha() {
+      painelEscolha.hidden = true;
+      painelUlEscolha.innerHTML = "";
+    }
+
+    function painelHeaders() {
+      const h = { "Content-Type": "application/json" };
+      if (typeof window !== "undefined" && window.__RADIO_PAINEL_PROXY_SECRET) {
+        h["x-radio-painel-secret"] = window.__RADIO_PAINEL_PROXY_SECRET;
+      }
+      return h;
+    }
+
+    async function painelPost(payload) {
+      const res = await fetch("/api/radio-painel/query", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: painelHeaders(),
+        body: JSON.stringify(payload),
+      });
+      let data = null;
+      try {
+        data = JSON.parse(await res.text());
+      } catch {
+        data = {};
+      }
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    function fmtCliente(r) {
+      const linhas = [`Nome: ${r.nomeCliente || "—"}`, `Telefone: ${r.telefone || "—"}`];
+      (r.contatosExtras || []).forEach((ex, i) => {
+        linhas.push("");
+        linhas.push(`Contato extra ${i + 1}`);
+        linhas.push(`· Setor / cargo: ${ex.setorOuCargo || "—"}`);
+        linhas.push(`· Nome completo: ${ex.nomeCompleto || "—"}`);
+        linhas.push(`· Telefone fixo: ${ex.telefoneFixo || "—"}`);
+        linhas.push(`· Telefone móvel: ${ex.telefoneMovel || "—"}`);
+        linhas.push(`· E-mail: ${ex.email || "—"}`);
+      });
+      return linhas.join("\n");
+    }
+
+    function fmtPdv(r) {
+      const R = r.responsavel || {};
+      const linhas = [
+        `Nome do PDV: ${r.nomePdv}`,
+        `CNPJ: ${r.cnpj}`,
+        "",
+        `Responsável — nome completo: ${R.nomeCompleto || "—"}`,
+        `Responsável — e-mail: ${R.email || "—"}`,
+        `Responsável — tel. fixo: ${R.telefoneFixo || "—"}`,
+        `Responsável — tel. móvel: ${R.telefoneMovel || "—"}`,
+      ];
+      (r.contatosExtras || []).forEach((ex, i) => {
+        linhas.push("");
+        linhas.push(`Contato extra ${i + 1}`);
+        linhas.push(`· Nome completo: ${ex.nomeCompleto || "—"}`);
+        linhas.push(`· E-mail: ${ex.email || "—"}`);
+        linhas.push(`· Tel. fixo: ${ex.telefoneFixo || "—"}`);
+        linhas.push(`· Tel. móvel: ${ex.telefoneMovel || "—"}`);
+      });
+      return linhas.join("\n");
+    }
+
+    async function clientePorId(cid) {
+      painelLimparErro();
+      painelLimparEscolha();
+      const { ok, status, data } = await painelPost({ mode: "clienteId", clienteId: String(cid) });
+      if (!ok) {
+        painelErro(data.error || `Erro HTTP ${status}`);
+        return;
+      }
+      painelOut.textContent = fmtCliente(data.resultado);
+      painelOutWrap.hidden = false;
+      painelGoogleBtn.hidden = true;
+    }
+
+    async function clientePorNomeRun() {
+      const nome = (document.getElementById("painel-nome").value || "").trim();
+      painelLimparErro();
+      painelLimparEscolha();
+      painelGoogleBtn.hidden = true;
+      if (nome.length < 2) {
+        painelErro("Informe pelo menos 2 caracteres no nome.");
+        return;
+      }
+      const { ok, status, data } = await painelPost({ mode: "clienteNome", nome });
+      if (!ok) {
+        painelErro(data.error || `Erro HTTP ${status}`);
+        return;
+      }
+      if (!data.ok) {
+        painelErro(data.error || "Resposta OK=false");
+        return;
+      }
+
+      if (data.tipo === "cliente_vazio") {
+        painelErro(data.aviso || "Nenhum resultado.");
+        return;
+      }
+
+      if (data.tipo === "cliente_escolha" && Array.isArray(data.candidatos)) {
+        painelLimparEscolha();
+        painelEscolha.hidden = false;
+        data.candidatos.forEach((c) => {
+          const li = document.createElement("li");
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "linkish";
+          b.textContent = `Cliente #${c.clienteId} — ${c.textoLinha?.slice?.(0, 180) ?? ""}`;
+          b.addEventListener("click", () => {
+            clientePorId(c.clienteId);
+          });
+          li.appendChild(b);
+          painelUlEscolha.appendChild(li);
+        });
+        return;
+      }
+
+      if (data.tipo === "cliente" && data.resultado) {
+        painelOut.textContent = fmtCliente(data.resultado);
+        painelOutWrap.hidden = false;
+        painelGoogleBtn.hidden = true;
+        return;
+      }
+
+      painelErro(JSON.stringify(data, null, 2));
+    }
+
+    async function pdvRun() {
+      const pid = document.getElementById("painel-pdv").value.trim();
+      const cid = document.getElementById("painel-pdv-cli").value.trim();
+      painelLimparErro();
+      painelLimparEscolha();
+      if (!/^\d+$/.test(pid)) {
+        painelErro("ID do PDV numérico é obrigatório.");
+        return;
+      }
+
+      const body = { mode: "pdv", pdvId: pid };
+      if (/^\d+$/.test(cid)) body.clienteId = cid;
+
+      const { ok, status, data } = await painelPost(body);
+      if (!ok) {
+        painelErro(data.error || `Erro HTTP ${status}`);
+        return;
+      }
+      if (!data.ok || data.tipo !== "pdv" || !data.resultado) {
+        painelErro(data.error ? String(data.error) : JSON.stringify(data, null, 2));
+        return;
+      }
+
+      const r = data.resultado;
+
+      const query = (r.googleMapsQuery || r.nomePdv || "").trim();
+
+      painelOut.textContent =
+        `${fmtPdv(r)}\n\n--- Google Maps ---\nTexto enviado à busca:\n${query}`;
+
+      const url = r.googleMapsUrl || buildMapsUrl(query);
+      painelGoogleBtn.hidden = false;
+      painelGoogleBtn.textContent = "Abrir no Google Maps";
+
+      /** Google Maps abre nova aba oficial com esse texto concatenado – inclui nome do PDV, endereço e bairro */
+      painelGoogleBtn.onclick = () => {
+        window.open(url, "_blank", "noopener,noreferrer");
+      };
+      painelOutWrap.hidden = false;
+    }
+
+    function buildMapsUrl(q) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+    }
+
+    document.getElementById("btn-painel").addEventListener("click", () => {
+      painelLimparErro();
+      painelEscolha.hidden = true;
+      painelOutWrap.hidden = true;
+      dlg.showModal();
+    });
+
+    document.getElementById("painel-fechar").addEventListener("click", () => dlg.close());
+    dlg.addEventListener("cancel", () => dlg.close());
+
+    document.querySelectorAll(".painel-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".painel-tab").forEach((t) =>
+          t.classList.toggle("active", t === tab),
+        );
+        const id = tab.getAttribute("data-pane");
+        ["pane-cli-nome", "pane-cli-id", "pane-pdv"].forEach((pid) => {
+          document.getElementById(pid).hidden = pid !== id;
+        });
+      });
+    });
+
+    painelCancelChoice.addEventListener("click", painelLimparEscolha);
+
+    document.getElementById("painel-btn-cli-nome").addEventListener("click", clientePorNomeRun);
+    document.getElementById("painel-btn-cli-id").addEventListener("click", () => {
+      const cid = document.getElementById("painel-id").value.trim();
+      if (!/^\d+$/.test(cid)) painelErro("ID cliente inválido.");
+      else clientePorId(cid);
+    });
+
+    document.getElementById("painel-btn-pdv").addEventListener("click", pdvRun);
   </script>
 </body>
 </html>

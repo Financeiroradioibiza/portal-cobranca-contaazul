@@ -49,6 +49,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  /** Prototipo público `/prototype.html` e proxy opcional `/api/radio-painel` (credenciais Painel ficam só no servidor). */
+  if (pathname.startsWith("/api/radio-painel") || pathname === "/prototype.html") {
+    return NextResponse.next();
+  }
+
   if (!configured) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "auth_not_configured" }, { status: 503 });
