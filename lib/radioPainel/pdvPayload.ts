@@ -241,11 +241,162 @@ function linhaContatoExtras(row: Record<string, string>): ContatoView {
   };
 }
 
+/** Quando o Cake usa nomes de campo que não casam com `linhaContatoExtras`, inferimos contato pela forma dos valores / do leaf. */
+function inferContatoViewFromIndexedRow(row: Record<string, string>): ContatoView {
+  let bestNome = { score: -1, v: "" };
+  let bestMail = { score: -1, v: "" };
+  let bestFix = { score: -1, v: "" };
+  let bestMob = { score: -1, v: "" };
+  let bestSetor = { score: -1, v: "" };
+
+  const nomeIgnoreLeaf =
+    /\b(?:cnpj|cpf|cgc|fantasia|razao|ie|rg|cep|usuario|senha)\b/i;
+
+  function leafCargoScore(leaf: string): number {
+    let s = 35;
+    if (/extra/i.test(leaf.toLowerCase())) s += 15;
+    return s;
+  }
+
+  function leafNomeScore(leaf: string): number {
+    const compact = leaf.replace(/_/g, "");
+    let s = 0;
+    if (/nomecompleto|nomecontato|nomecliente|nomeresp|dscnome/i.test(compact)) s += 40;
+    if (/extra/i.test(leaf.toLowerCase())) s += 10;
+    return s;
+  }
+
+  function leafMailScore(leaf: string): number {
+    const ll = leaf.toLowerCase();
+    let s = 0;
+    if (/\bmail|email|e_mail\b/.test(ll)) s += 40;
+    if (/extra/.test(ll)) s += 10;
+    return s;
+  }
+
+  for (const [leaf, raw] of Object.entries(row)) {
+    const val = raw?.trim();
+    if (!val || val === "—" || val.length > 480) continue;
+    const ll = leaf.toLowerCase();
+
+    if (/\bendereco|cep|cidade|bairro|complemento|logradouro|latitude|longitude|pais|cnae\b/i.test(ll)) continue;
+    if (nomeIgnoreLeaf.test(ll)) continue;
+    if (/^id$/i.test(leaf)) continue;
+
+    if (
+      /cargo|setor|fun[cç][aã]o|departamento/i.test(leaf)
+      && val.length <= 160
+      && !/^\d+$/.test(val)
+    ) {
+      const scr = leafCargoScore(leaf);
+      if (scr > bestSetor.score || (scr === bestSetor.score && !bestSetor.v)) bestSetor = { score: scr, v: val };
+    }
+
+    if (looksLikePersonName(val)) {
+      let scr = leafNomeScore(leaf);
+      if (/\bnomefantasia|^fantasia/i.test(leaf)) scr -= 100;
+      if (scr >= bestNome.score || !bestNome.v) bestNome = { score: scr, v: val };
+    }
+
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+      const scr = leafMailScore(leaf);
+      if (scr > bestMail.score || (scr === bestMail.score && !bestMail.v)) bestMail = { score: scr, v: val };
+    }
+
+    const dTel = digitsOnlyChars(val);
+    if (looksLikeBrazilPhoneDigits(dTel)) {
+      const lk = leaf;
+      const isMovelLeaf =
+        /movel|cel|whatsapp|^foneClienteContatosPdvsCliente7|^foneClienteContatosPdvsCliente5|^foneClienteResponsavelPdvCliente2|\bfoneCel\b/i.test(lk);
+      const isFixLeaf =
+        /\bfixo\b|\btelefone\b|foneFixo|^foneClienteContatosPdvsCliente(?:2|3|4|6)\b|^foneClienteContatosPdvsCliente[^57]|foneFixoPdvs/i.test(lk);
+
+      if (isMovelLeaf) {
+        const scr = 22;
+        if (scr >= bestMob.score || !bestMob.v) bestMob = { score: scr, v: val };
+      }
+      if (isFixLeaf) {
+        const scr = 22;
+        if (scr >= bestFix.score || !bestFix.v) bestFix = { score: scr, v: val };
+      }
+      if (!isMovelLeaf && !isFixLeaf) {
+        const scr = 6;
+        if (scr >= bestFix.score || !bestFix.v) bestFix = { score: scr, v: val };
+      }
+    }
+  }
+
+  if (bestMob.v === bestFix.v && bestMob.v) bestMob = { score: -1, v: "" };
+
+  return {
+    setorOuCargo: bestSetor.v,
+    nomeCompleto: bestNome.v,
+    telefoneFixo: bestFix.v,
+    telefoneMovel: bestMob.v,
+    email: bestMail.v,
+  };
+}
+
+function linhaContatoExtrasOuInferido(row: Record<string, string>): ContatoView {
+  const explicit = linhaContatoExtras(row);
+  if (
+    explicit.email
+    || explicit.nomeCompleto
+    || explicit.telefoneFixo
+    || explicit.telefoneMovel
+    || explicit.setorOuCargo.trim()
+  ) {
+    return explicit;
+  }
+  return inferContatoViewFromIndexedRow(row);
+}
+
+/** Modelos com campos diretos `data[Model][campo]` — alguns Cakes colocam o “contato extra” aqui sem `[][n][]`. */
+const MODELOS_PDV_SHELL_SEM_INDICE = ["PdvsCliente", "PdvCliente", "ClientePdvsCliente"] as const;
+
+function aggregateSinIndiceFields(
+  flat: Record<string, string>,
+  model: string,
+): Record<string, string> {
+  const row: Record<string, string> = {};
+  const prefix = `data[${model}][`;
+  for (const [k, raw] of Object.entries(flat)) {
+    if (!k.startsWith(prefix)) continue;
+    const inner = k.slice(prefix.length);
+    if (/^\d+\]\[/.test(inner)) continue;
+    const field = inner.replace(/\]$/, "");
+    if (!field.trim() || /^\d+$/.test(field)) continue;
+    row[field] = raw ?? "";
+  }
+  return row;
+}
+
+/** Só mantém leaves que o Cake marca como linha secundária / contato extra (evita duplicar o bloco inteiro PDV cliente). */
+function slimTwoTierRowParaPossivelExtra(row: Record<string, string>): Record<string, string> {
+  /** Não incluir dados do responsável só por terem “ClienteContatos…” no nome. */
+  const extraLeaf =
+    /\bextras?\b|ClienteContatosEx|ClienteContatosExtra|ClienteContatosExtras|ContatosExtraPdvs|ClienteContatosExPdvsCliente|ClienteContatosExClientesPdvsCliente|ClienteContatosExtraPdvs|ClienteContatosExtrasPdvs|ClienteContatoExtraPdvs|ClienteContatosExPdvs|ContatoClienteExtraPdvsCliente|ClienteContatoExtraPdvsCliente|Cliente2Pdvs|contatoCliente2|^segundo|emailContatoExtra|nomeCompletoContatoExtra|nomeContatoExtra|foneFixoContatoExtra|foneMovelContatoExtra|mailClienteContatosEx|mailClienteExtra|emailClienteExtra|nomeClienteExtra|foneClienteExtra|^mailContatoPdvs|^emailCliente2|^nomeCompletoCliente2|^mailCliente2|(?:mailCliente|mailContato|emailCliente|emailContato|nomeCompleto|foneMovel|foneFixo)\w*PdvsCliente2\b|(?:mailCliente|mailContato|emailCliente|emailContato|nomeCompleto|foneMovel|foneFixo)\w*PdvCliente2\b/i;
+  const out: Record<string, string> = {};
+  for (const [leaf, raw] of Object.entries(row)) {
+    const val = raw?.trim();
+    if (!val || val === "—") continue;
+    if (!extraLeaf.test(leaf)) continue;
+    out[leaf] = val;
+  }
+  return out;
+}
+
 function modelosExtrasRepetidos(flat: Record<string, string>): string[] {
   const set = new Set<string>();
   for (const k of Object.keys(flat)) {
     const m = /^data\[([^\]]+)\]\[(\d+)\]\[/i.exec(k);
-    if (!m || (!/extra|contato|respons[aá]vel|contatos|^ClienteContatos/i.test(m[1]))) continue;
+    if (
+      !m
+      || (!/ClienteContatos|ClienteContato|extra|Extra|contato|ContatosPdvs|ContatosPdv|^ContatosEx|^ContatosExtra/i.test(
+          m[1],
+        ))
+    )
+      continue;
     set.add(m[1]);
   }
   return [...set];
@@ -412,8 +563,8 @@ export function buildPdvPainelPayload(
   const contatosExtras: ContatoView[] = [];
   for (const modelo of modelosExtrasRepetidos(flat)) {
     for (const row of groupIndexedRowsExactModel(flat, modelo)) {
-      const c = linhaContatoExtras(row);
-      if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel)) continue;
+      const c = linhaContatoExtrasOuInferido(row);
+      if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel || c.setorOuCargo.trim())) continue;
       if (ehIgualResp(c)) continue;
       contatosExtras.push(c);
     }
@@ -422,17 +573,45 @@ export function buildPdvPainelPayload(
   for (const modeloFixo of [
     "ClienteContatosPdvsCliente",
     "ClienteContatosExtraPdvsCliente",
+    "ClienteContatoExtraPdvsCliente",
+    "ClienteContatosExtrasPdvsCliente",
     "ClienteContatosPdvCliente",
     "ContatosPdvsCliente",
     "ContatosExtraPdvsCliente",
+    "ContatoExtraPdvsCliente",
     "ClienteContatosExClientesPdvsCliente",
   ]) {
     for (const row of groupIndexedRowsExactModel(flat, modeloFixo)) {
-      const c = linhaContatoExtras(row);
-      if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel)) continue;
+      const c = linhaContatoExtrasOuInferido(row);
+      if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel || c.setorOuCargo.trim())) continue;
       if (ehIgualResp(c)) continue;
       contatosExtras.push(c);
     }
+  }
+
+  /**
+   * Modelos Cake `data[Model][idx][campo]` cujo nome traz “contato” (antes filtrávamos só padrões
+   * pré-definidos; nomes tipo `ContatoClienteExtraPdvsCliente` ficavam fora da lista).
+   */
+  for (const modelo of indexedModelNamesFromFlat(flat)) {
+    if (/^Pdv$|^Pdvs$|^PontoDeVenda$/i.test(modelo)) continue;
+    if (!/contato/i.test(modelo)) continue;
+    for (const row of groupIndexedRowsExactModel(flat, modelo)) {
+      const c = linhaContatoExtrasOuInferido(row);
+      if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel || c.setorOuCargo.trim())) continue;
+      if (ehIgualResp(c)) continue;
+      contatosExtras.push(c);
+    }
+  }
+
+  /** Segunda linha de contato apenas em campos não indexados sob PdvsCliente / PdvCliente. */
+  for (const shell of MODELOS_PDV_SHELL_SEM_INDICE) {
+    const skinny = slimTwoTierRowParaPossivelExtra(aggregateSinIndiceFields(flat, shell));
+    if (Object.keys(skinny).length === 0) continue;
+    const c = linhaContatoExtrasOuInferido(skinny);
+    if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel || c.setorOuCargo.trim())) continue;
+    if (ehIgualResp(c)) continue;
+    contatosExtras.push(c);
   }
 
   const googleMapsQuery = [nomePdv, endereco, bairro].filter(Boolean).join(", ");

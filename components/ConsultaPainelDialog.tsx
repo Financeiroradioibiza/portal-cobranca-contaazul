@@ -72,6 +72,7 @@ function fmtPdv(r: Record<string, unknown>) {
     const e = ex as Record<string, unknown>;
     linhas.push("");
     linhas.push(`Contato extra ${i + 1}`);
+    linhas.push(`· Setor / cargo: ${String(e.setorOuCargo ?? "—")}`);
     linhas.push(`· Nome completo: ${String(e.nomeCompleto ?? "—")}`);
     linhas.push(`· E-mail: ${String(e.email ?? "—")}`);
     linhas.push(`· Tel. fixo: ${String(e.telefoneFixo ?? "—")}`);

@@ -83,7 +83,7 @@ export function scrapeCakeDataFields(html: string): Record<string, string> {
 type IndexedRow = Record<string, string>;
 
 /** Agrupa chaves data[Model][idx][campo] em linhas. */
-function escapeRegex(s: string): string {
+export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
