@@ -1,5 +1,5 @@
 /**
- * Extrai pares name→value de inputs/textarea do HTML legado CakePHP 2 (name="data[Model][campo]").
+ * Extrai pares name→value de inputs, textarea e select do HTML CakePHP (name="data[Model][campo]").
  */
 
 function decodeEntities(s: string): string {
@@ -34,6 +34,42 @@ export function scrapeCakeDataFields(html: string): Record<string, string> {
   const taRe = /<textarea\b[^>]*name=["'](data[^"']+)["'][^>]*>([\s\S]*?)<\/textarea>/gi;
   while ((m = taRe.exec(html)) !== null) {
     out[m[1]] = decodeEntities(m[2].trim());
+  }
+
+  /** `<select>`: valor da option `selected`; senão primeira option não vazia. */
+  const selRe = /<select\b([^>]*)>([\s\S]*?)<\/select>/gi;
+  while ((m = selRe.exec(html)) !== null) {
+    const attrs = m[1];
+    const body = m[2];
+    const nm = /\bname=["'](data\[.+?\])["']/i.exec(attrs);
+    if (!nm) continue;
+    let chosen = "";
+    const optRe = /<option\b([^>]*)>([\s\S]*?)<\/option>/gi;
+    let opt: RegExpExecArray | null;
+    while ((opt = optRe.exec(body)) !== null) {
+      const oAttrs = opt[1];
+      const txt = decodeEntities(opt[2].trim().replace(/\s+/g, " "));
+      const vM = /value=["']([^"']*)["']/i.exec(oAttrs);
+      const val = decodeEntities(vM ? vM[1] : txt);
+      if (/\bselected\b/i.test(oAttrs) && (val.trim() || txt.trim())) {
+        chosen = val.trim() || txt.trim();
+        break;
+      }
+    }
+    if (!chosen) {
+      optRe.lastIndex = 0;
+      while ((opt = optRe.exec(body)) !== null) {
+        const oAttrs = opt[1];
+        const txt = decodeEntities(opt[2].trim().replace(/\s+/g, " "));
+        const vM = /value=["']([^"']*)["']/i.exec(oAttrs);
+        const val = decodeEntities(vM ? vM[1] : txt);
+        if (val.trim() || txt.trim()) {
+          chosen = val.trim() || txt.trim();
+          break;
+        }
+      }
+    }
+    if (chosen) out[nm[1]] = chosen;
   }
 
   return out;
@@ -106,7 +142,31 @@ export function pickFirst(
   return "";
 }
 
-/** Varre qualquer data[...][campo] sem índice para o model exato. */
+/** Une `data[Model][n][campo]` em um único objeto (última linha sobrescreve) para ler blocos dispersos sobre índices. */
+function mergeIndexedRowsForModel(
+  flat: Record<string, string>,
+  model: string,
+): IndexedRow {
+  return Object.assign(
+    {},
+    ...groupIndexedRowsExactModel(flat, model),
+  ) as IndexedRow;
+}
+
+function pickFirstFromMergedIndexed(
+  flat: Record<string, string>,
+  model: string,
+  fields: string[],
+): string {
+  const merged = mergeIndexedRowsForModel(flat, model);
+  for (const f of fields) {
+    const v = merged[f]?.trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+/** Varre qualquer data[...][campo] sem índice para o model exato (e também `data[Model][0][campo]`… em linhas indexadas). */
 export function pickFromModel(
   flat: Record<string, string>,
   model: string,
@@ -114,10 +174,14 @@ export function pickFromModel(
 ): string {
   const direct = pickFirst(flat, model, fields);
   if (direct) return direct;
+  const fromMerged = pickFirstFromMergedIndexed(flat, model, fields);
+  if (fromMerged) return fromMerged;
   const prefix = `data[${model}][`;
   for (const [k, v] of Object.entries(flat)) {
     if (!k.startsWith(prefix)) continue;
     const inner = k.slice(prefix.length);
+    /** Ignora `data[Pdv][0][campo]` — já tratado em linhas indexadas. */
+    if (/^\d+\]\[/.test(inner)) continue;
     const field = inner.replace(/\]$/, "");
     if (!fields.includes(field)) continue;
     if (v?.trim()) return v.trim();

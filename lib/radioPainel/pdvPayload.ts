@@ -48,8 +48,13 @@ function linhaContatoExtras(row: Record<string, string>): ContatoView {
     setorOuCargo: gv("setorContatoExtra", "cargoContatoCliente", "cargoContatoExtra", "setorExtrav"),
     nomeCompleto: gv(
       "nomeCompletoContatoCliente",
+      "nomeCompletoContatoExtraPdvsCliente",
+      "nomeCompletoContatoPdvsCliente",
       "nomeContatoCliente",
       "nomeClienteExtra",
+      "nomeContatoPdvsCliente",
+      "nomeExtraPdvsCliente",
+      "nomeCompletoPdvsCliente",
       "nomeClienteContatosPdvsCliente",
       "nome",
     ),
@@ -60,6 +65,10 @@ function linhaContatoExtras(row: Record<string, string>): ContatoView {
       "telefoneCliente",
       "fone",
       "foneComercialCliente",
+      "foneFixoContatoExtraPdvsCliente",
+      "foneFixoPdvsCliente",
+      "foneFixoPdvsCliente2",
+      "foneClienteContatosPdvsCliente",
     ),
     telefoneMovel: gv(
       "foneMovelCliente",
@@ -68,8 +77,20 @@ function linhaContatoExtras(row: Record<string, string>): ContatoView {
       "celularCliente",
       "foneCelularCliente",
       "foneMovel",
+      "foneMovelContatoExtraPdvsCliente",
+      "foneMovelPdvsCliente",
+      "foneMovelPdvsCliente2",
+      "foneClienteCelPdvsCliente",
+      "foneCelPdvsCliente",
     ),
-    email: gv("emailContatoCliente", "emailCliente", "email"),
+    email: gv(
+      "emailContatoCliente",
+      "emailCliente",
+      "emailContatoExtraPdvsCliente",
+      "emailPdvsCliente",
+      "emailClienteContatosPdvsCliente",
+      "email",
+    ),
   };
 }
 
@@ -77,7 +98,7 @@ function modelosExtrasRepetidos(flat: Record<string, string>): string[] {
   const set = new Set<string>();
   for (const k of Object.keys(flat)) {
     const m = /^data\[([^\]]+)\]\[(\d+)\]\[/i.exec(k);
-    if (!m || !/extra|contato/i.test(m[1])) continue;
+    if (!m || (!/extra|contato|respons[aá]vel|contatos|^ClienteContatos/i.test(m[1]))) continue;
     set.add(m[1]);
   }
   return [...set];
@@ -160,6 +181,9 @@ export function buildPdvPainelPayload(
   ]);
 
   const nomeCompletoResp = pickPrimeiro(flat, MODELOS_PDV, [
+    "nomeCompletoResponsavelPdvCliente",
+    "nomeCompletoResponsavelPdvsCliente",
+    "nomeCompletoContatoResponsavelPdvsCliente",
     "nomeClienteContatosPdvsCliente",
     "nomeResponsavelPdvCliente",
     "nomeResponsavelPdvsCliente",
@@ -173,9 +197,13 @@ export function buildPdvPainelPayload(
     "emailResponsavelPdvCliente",
     "emailResponsavelPdvsCliente",
     "emailClienteResponsavelPdvCliente",
-    "emailCliente",
+    "emailContatoCliente",
     "mailCliente",
+    /** genéricos por último (evitar confundir com e-mail institucional) */
+    "emailCliente",
     "email",
+    "emailContatoExtraPdvsCliente",
+    "emailPdvsCliente",
   ]);
 
   const telFixResp = pickPrimeiro(flat, MODELOS_PDV, [
@@ -232,12 +260,15 @@ export function buildPdvPainelPayload(
     }
   }
 
-  for (const modelo of [
-    "ClienteContatosExClientesPdvsCliente",
+  for (const modeloFixo of [
+    "ClienteContatosPdvsCliente",
     "ClienteContatosExtraPdvsCliente",
+    "ClienteContatosPdvCliente",
+    "ContatosPdvsCliente",
     "ContatosExtraPdvsCliente",
+    "ClienteContatosExClientesPdvsCliente",
   ]) {
-    for (const row of groupIndexedRowsExactModel(flat, modelo)) {
+    for (const row of groupIndexedRowsExactModel(flat, modeloFixo)) {
       const c = linhaContatoExtras(row);
       if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel)) continue;
       if (ehIgualResp(c)) continue;
