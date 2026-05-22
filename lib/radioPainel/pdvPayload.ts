@@ -351,6 +351,80 @@ function linhaContatoExtrasOuInferido(row: Record<string, string>): ContatoView 
   return inferContatoViewFromIndexedRow(row);
 }
 
+/**
+ * Radio Ibiza (Cake): contato extra em `data[Pdv][nome-completo-extra][]`, `data[Pdv][email-extra][]`,
+ * etc. (`[]` em vez de `[0][campo]`). Antes ficava invisível para `groupIndexedRowsExactModel`.
+ */
+const RE_PDV_CAMPO_EXTRA_SUFIXO = /^data\[(Pdv|Pdvs|PontoDeVenda)]\[(.+)](\[\]|\[\d+\])$/i;
+
+function slotPdvBracketSuffix(bracketTail: string): string {
+  if (bracketTail === "[]") return "0";
+  const digits = /^\[(\d+)]$/.exec(bracketTail);
+  return digits?.[1] ?? "0";
+}
+
+function mapLeadPdvModeloParaContato(leaf: string):
+  | "nomeCompleto"
+  | "email"
+  | "telefoneFixo"
+  | "telefoneMovel"
+  | "setorOuCargo"
+  | null {
+  if (!/-extra/i.test(leaf)) return null;
+  const f = leaf.toLowerCase();
+
+  if (/setor|cargo|fun[cç]|departamento/.test(f)) return "setorOuCargo";
+
+  /** “nome-*-extra”: distinguir antes de “email-extra” onde “mail” aparece só no domínio. */
+  if (/\bnome|^nome-|completo|dsc.?nome|\bfantasia-extra\b/.test(f) && !/email|^mail|^e_?mail/.test(f)) {
+    return "nomeCompleto";
+  }
+
+  if (/email|^mail|^e_?mail/.test(f)) return "email";
+
+  if (/movel|móvel|cel|mobile|whatsapp/.test(f)) return "telefoneMovel";
+
+  if (/tel|fixo|fone|telefone/.test(f)) return "telefoneFixo";
+
+  return null;
+}
+
+function extrairContatosExtrasDataPdvSufixoExtra(flat: Record<string, string>): ContatoView[] {
+  /** slot → campo parcial */
+  const acc = new Map<string, Partial<Record<ContatoViewKey, string>>>();
+  type ContatoViewKey = keyof ContatoView;
+
+  for (const [k, rawVal] of Object.entries(flat)) {
+    const m = RE_PDV_CAMPO_EXTRA_SUFIXO.exec(k.trim());
+    if (!m) continue;
+    const campo = m[2];
+    const lead = mapLeadPdvModeloParaContato(campo);
+    if (!lead) continue;
+
+    const v = rawVal?.trim();
+    if (!v || v === "—") continue;
+
+    const slot = slotPdvBracketSuffix(m[3]);
+    if (!acc.has(slot)) acc.set(slot, {});
+    const row = acc.get(slot)!;
+
+    /** Último valor por slot vence duplicados de HTML. */
+    row[lead] = v.length < 480 ? v : `${v.slice(0, 476)}…`;
+  }
+
+  const out: ContatoView[] = [];
+  for (const row of acc.values()) {
+    out.push({
+      setorOuCargo: row.setorOuCargo ?? "",
+      nomeCompleto: row.nomeCompleto ?? "",
+      telefoneFixo: row.telefoneFixo ?? "",
+      telefoneMovel: row.telefoneMovel ?? "",
+      email: row.email ?? "",
+    });
+  }
+  return out;
+}
+
 /** Modelos com campos diretos `data[Model][campo]` — alguns Cakes colocam o “contato extra” aqui sem `[][n][]`. */
 const MODELOS_PDV_SHELL_SEM_INDICE = ["PdvsCliente", "PdvCliente", "ClientePdvsCliente"] as const;
 
@@ -609,6 +683,13 @@ export function buildPdvPainelPayload(
     const skinny = slimTwoTierRowParaPossivelExtra(aggregateSinIndiceFields(flat, shell));
     if (Object.keys(skinny).length === 0) continue;
     const c = linhaContatoExtrasOuInferido(skinny);
+    if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel || c.setorOuCargo.trim())) continue;
+    if (ehIgualResp(c)) continue;
+    contatosExtras.push(c);
+  }
+
+  /** Ibiza Cake: bloco “Contato extra” em **data[Pdv][*-extra][]** (não há matriz [n][]). */
+  for (const c of extrairContatosExtrasDataPdvSufixoExtra(flat)) {
     if (!(c.email || c.nomeCompleto || c.telefoneFixo || c.telefoneMovel || c.setorOuCargo.trim())) continue;
     if (ehIgualResp(c)) continue;
     contatosExtras.push(c);

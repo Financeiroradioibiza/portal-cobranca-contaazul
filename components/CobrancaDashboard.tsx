@@ -9,6 +9,8 @@ import { defaultPeriodMonths, formatBrazilianTaxId, formatBRL, parseEmailAddress
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import type { ClientRow } from "@/lib/types";
 
+import { composePersistClienteNote } from "@/lib/portalClienteNote";
+
 type ConnStatus = {
   connected: boolean;
   expiresAt?: string;
@@ -32,6 +34,16 @@ export function CobrancaDashboard() {
   const [sortClientsBy, setSortClientsBy] = useState<ClientSortMode>("parcelas_desc");
   /** Invalida merges de contratos quando período / refresh mudam antes da API responder. */
   const receivablesLoadGenRef = useRef(0);
+  /** Observações: última versão confirmada pela API neste navegador (por cliente). */
+  const lastPersistedNotesRef = useRef<Record<string, string>>({});
+  /** Valor ao ganhar foco — usado para carimbar só o texto acrescentado em cada sessão. */
+  const snapshotOnFocusNoteRef = useRef<Record<string, string>>({});
+  const dirtyNoteIdsRef = useRef<Set<string>>(new Set());
+  const clientsLatestRef = useRef<ClientRow[]>([]);
+
+  useEffect(() => {
+    clientsLatestRef.current = clients;
+  }, [clients]);
 
   const toggle = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -167,6 +179,14 @@ export function CobrancaDashboard() {
           const mapC =
             Object.keys(mergedByClientId).length > 0 ? mergedByClientId : null;
           const mapN = rNotes.ok && !pN.parseError && pN.data?.byId ? pN.data.byId : null;
+
+          if (mapN) {
+            for (const id of ids) {
+              /** Sem linha na tabela ⇒ nota vazia. */
+              lastPersistedNotesRef.current[id] = mapN[id] ?? "";
+            }
+          }
+
           if (!mapC && !mapN) return;
 
           setClients((prev) =>
@@ -249,37 +269,83 @@ export function CobrancaDashboard() {
     window.open(path, "_blank", "noopener,noreferrer");
   }, []);
 
-  const patchClientMeta = useCallback(
-    async (clientId: string, body: { note: string }) => {
+  const persistClientMetaNote = useCallback(
+    async (clientId: string, noteFull: string, opts?: { keepalive?: boolean }) => {
       try {
         const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify(body),
+          body: JSON.stringify({ note: noteFull }),
+          keepalive: opts?.keepalive ?? false,
         });
         if (!res.ok) {
           setActionMsg("Não foi possível salvar dados do cliente.");
-          return;
+          return false;
         }
         const parsed = await readJsonFromResponse<{ note?: string }>(res);
         if (parsed.parseError || !parsed.data || typeof parsed.data.note !== "string") {
           setActionMsg("Resposta inválida ao salvar (servidor não enviou JSON).");
-          return;
+          return false;
         }
         const note = parsed.data.note;
+        lastPersistedNotesRef.current[clientId] = note;
+        dirtyNoteIdsRef.current.delete(clientId);
         setActionMsg(null);
         setClients((prev) =>
           prev.map((c) =>
             c.id === clientId ? { ...c, note } : c,
           ),
         );
+        return true;
       } catch {
         setActionMsg("Falha ao salvar. Verifique a conexão.");
+        return false;
       }
     },
     [],
   );
+
+  const flushClientNoteDraft = useCallback(
+    async (clientId: string, draft: string, opts?: { keepalive?: boolean }) => {
+      const last = lastPersistedNotesRef.current[clientId] ?? "";
+      const snap = snapshotOnFocusNoteRef.current[clientId];
+      const composed = composePersistClienteNote({
+        lastPersisted: last,
+        snapshotOnFocus: typeof snap === "string" ? snap : undefined,
+        draft,
+      });
+      if (composed.action === "skip") {
+        dirtyNoteIdsRef.current.delete(clientId);
+        return;
+      }
+
+      await persistClientMetaNote(clientId, composed.note, opts);
+    },
+    [persistClientMetaNote],
+  );
+
+  useEffect(() => {
+    const flushDirtyNotes = () => {
+      const list = clientsLatestRef.current;
+      for (const id of [...dirtyNoteIdsRef.current]) {
+        const row = list.find((x) => x.id === id);
+        if (!row) continue;
+        void flushClientNoteDraft(id, row.note, { keepalive: true });
+      }
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        flushDirtyNotes();
+      }
+    };
+    window.addEventListener("pagehide", flushDirtyNotes);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", flushDirtyNotes);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [flushClientNoteDraft]);
 
   const connected = Boolean(status?.connected);
 
@@ -472,7 +538,7 @@ export function CobrancaDashboard() {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
           {connected
-            ? "Clique no nome do cliente para ver as parcelas e abrir boleto ou nota. Observação permanece à direita (role a tabela se precisar)."
+            ? "Clique no nome do cliente para ver as parcelas e abrir boleto ou nota. Observações internas ficam à direita; o texto segue gravado mesmo que o cliente deixe a listagem. Ao tirar o foco ou fechar a aba/site, novo trecho pode ser registado automaticamente com data e horário (Horário Brasília)."
             : "Conecte o Conta Azul para carregar receitas. Cadastre OAuth e Postgres nas variáveis de ambiente."}
         </div>
         <div className="overflow-x-auto overscroll-x-contain">
@@ -620,9 +686,13 @@ export function CobrancaDashboard() {
                       </td>
                       <td className={`px-2 py-1.5 align-top ${stickyObs}`}>
                         <textarea
-                          rows={2}
+                          rows={5}
                           value={c.note}
+                          onFocus={(e) => {
+                            snapshotOnFocusNoteRef.current[c.id] = e.target.value;
+                          }}
                           onChange={(e) => {
+                            dirtyNoteIdsRef.current.add(c.id);
                             const v = e.target.value;
                             setClients((prev) =>
                               prev.map((x) =>
@@ -630,12 +700,11 @@ export function CobrancaDashboard() {
                               ),
                             );
                           }}
-                          onBlur={(e) =>
-                            void patchClientMeta(c.id, { note: e.target.value })
-                          }
-                          placeholder="Nota interna…"
+                          onBlur={(e) => void flushClientNoteDraft(c.id, e.target.value)}
+                          placeholder="Histórico interno. Acrescentou texto desde que clicou no campo? Ao sair, pode ser criada uma linha com data/hora."
                           className="box-border w-full min-h-[2.75rem] max-w-full resize-y rounded border border-slate-300 bg-inherit px-1.5 py-1 text-[0.65rem] leading-snug text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:text-slate-100 dark:placeholder:text-slate-500"
                           autoComplete="off"
+                          spellCheck="false"
                         />
                       </td>
                     </tr>

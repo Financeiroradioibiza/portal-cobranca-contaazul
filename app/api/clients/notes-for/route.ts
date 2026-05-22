@@ -7,6 +7,7 @@ const MAX_IDS = 500;
 
 /**
  * POST { clientIds: string[] } → { byId: Record<clientId, note> }
+ * Não remove metadados de outros clientes: observações permanecem mesmo fora da listagem actual.
  * Separado da rota receivables para não acumular Prisma + Conta Azul no mesmo timeout.
  */
 export async function POST(request: Request) {
@@ -28,9 +29,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    await prisma.clientPortalMeta.deleteMany({
-      where: { clientId: { notIn: unique } },
-    });
     const rows = await prisma.clientPortalMeta.findMany({
       where: { clientId: { in: unique } },
       select: { clientId: true, note: true },

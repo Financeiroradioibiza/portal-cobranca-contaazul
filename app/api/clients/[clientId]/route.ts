@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-const MAX_NOTE = 5000;
+const MAX_NOTE = 50_000;
 const MAX_CLIENT_ID_LEN = 128;
 
 /** Id de cliente Conta Azul (UUID ou similar) — evita path injection. */
@@ -12,7 +12,7 @@ function validClientId(id: string): boolean {
 }
 
 /**
- * PATCH body: { note?: string }
+ * PATCH body: { note?: string } — nota interna (histórico até ~50 kb).
  */
 export async function PATCH(
   request: Request,
