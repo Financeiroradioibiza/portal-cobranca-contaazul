@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ConsultaPainelDialog } from "@/components/ConsultaPainelDialog";
 import { COMPANY_NAME } from "@/lib/brand";
 import { defaultPeriodMonths, formatBRL } from "@/lib/format";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
@@ -411,12 +412,15 @@ export function CobrancaDashboard() {
         >
           Últimos 6 meses (padrão)
         </button>
-        <a
-          href="/prototype.html"
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-[#0066cc] hover:bg-slate-50 dark:border-slate-600 dark:text-sky-400 dark:hover:bg-slate-900"
-        >
-          Ver protótipo HTML
-        </a>
+        <div className="flex flex-wrap items-end gap-2">
+          <a
+            href="/prototype.html"
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-[#0066cc] hover:bg-slate-50 dark:border-slate-600 dark:text-sky-400 dark:hover:bg-slate-900"
+          >
+            Ver protótipo HTML
+          </a>
+          <ConsultaPainelDialog />
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">

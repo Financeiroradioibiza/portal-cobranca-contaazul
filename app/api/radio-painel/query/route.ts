@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  csvMatchClientesPorTexto,
+  csvMatchPdvsPorTexto,
+} from "@/lib/radioPainel/exportClientesCsv";
 import { buildClientePainelPayload } from "@/lib/radioPainel/clientePayload";
 import { resolveClienteNome } from "@/lib/radioPainel/clienteSearch";
 import { buildPdvPainelPayload } from "@/lib/radioPainel/pdvPayload";
@@ -51,14 +55,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "nome_obrigatorio" }, { status: 400 });
       }
 
-      const candidatos = await resolveClienteNome(cookie, base, nome);
+      const candCsv = csvMatchClientesPorTexto(nome);
+      let candidatos = candCsv.map((c) => ({
+        clienteId: c.clienteId,
+        textoLinha: c.textoLinha,
+      }));
+
+      if (candidatos.length === 0 && process.env.RADIO_PAINEL_HTML_SEARCH_FALLBACK === "1") {
+        candidatos = await resolveClienteNome(cookie, base, nome);
+      }
+
       if (candidatos.length === 0) {
         return NextResponse.json({
           ok: true,
           tipo: "cliente_vazio",
-          candidatos,
+          candidatos: [],
+          fonte: "csv",
           aviso:
-            "Nenhum cliente na lista com esse texto. Configure RADIO_PAINEL_CLIENTES_INDEX_SEARCH_PATH ou o nome exato do filtro usado pelo painel.",
+            "Sem correspondencia na planilha data/export-clientes.csv (troque arquivo ou ajuste o texto). Exporte novamente em /adm/exports. Opcao RADIO_PAINEL_HTML_SEARCH_FALLBACK=1 tenta lista HTML do painel.",
         });
       }
 
@@ -70,6 +84,7 @@ export async function POST(request: Request) {
           tipo: "cliente",
           resultado: buildClientePainelPayload(html, cid),
           candidatos,
+          fonte: candCsv.length ? "csv" : "html_lista",
         });
       }
 
@@ -77,6 +92,7 @@ export async function POST(request: Request) {
         ok: true,
         tipo: "cliente_escolha",
         candidatos,
+        fonte: candCsv.length ? "csv" : "html_lista",
       });
     }
 
@@ -93,6 +109,49 @@ export async function POST(request: Request) {
         ok: true,
         tipo: "cliente",
         resultado: buildClientePainelPayload(html, id),
+      });
+    }
+
+    if (mode === "pdvNome") {
+      const nome = typeof body.nome === "string" ? body.nome.trim() : "";
+      if (!nome) {
+        return NextResponse.json({ error: "nome_obrigatorio" }, { status: 400 });
+      }
+
+      const candidatos = csvMatchPdvsPorTexto(nome);
+      if (candidatos.length === 0) {
+        return NextResponse.json({
+          ok: true,
+          tipo: "pdv_vazio",
+          candidatos: [],
+          fonte: "csv",
+          aviso:
+            "Sem PDV correspondente na planilha (data/export-clientes.csv). Exporte atualizado pelo painel /adm/exports.",
+        });
+      }
+
+      if (candidatos.length === 1) {
+        const cid = candidatos[0].clienteId;
+        const pid = candidatos[0].pdvId;
+        const html = await painelHtml(
+          cookie,
+          base,
+          `/adm/pdv/edit?pdv=${pid}&cliente=${cid}`,
+        );
+        return NextResponse.json({
+          ok: true,
+          tipo: "pdv",
+          resultado: buildPdvPainelPayload(html, pid, cid),
+          candidatos,
+          fonte: "csv",
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        tipo: "pdv_escolha",
+        candidatos,
+        fonte: "csv",
       });
     }
 
@@ -132,7 +191,7 @@ export async function POST(request: Request) {
       {
         error: "mode_invalido",
         recebido: modeRaw || null,
-        opcoes: ["clienteNome", "clienteId", "pdv"],
+        opcoes: ["clienteNome", "clienteId", "pdvNome", "pdv"],
       },
       { status: 400 },
     );

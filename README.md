@@ -14,7 +14,7 @@ Copie [`.env.example`](.env.example) para `.env` e preencha:
 | `CONTA_AZUL_REDIRECT_URI` | **Exatamente** a URL registrada no app (ex.: `https://SEU-SITE.netlify.app/api/contaazul/callback`) |
 | `NEXT_PUBLIC_SITE_URL` | URL pública do site (mesmo domínio; usada em redirects se necessário) |
 
-Opcionalmente, para **Consulta painel** (`public/prototype.html` → servidor):
+Opcionalmente, para **Consulta painel** no painel principal (botão ao lado de “Ver protótipo HTML”) → `POST /api/radio-painel/query`:
 
 | Variável | Uso |
 |----------|-----|
@@ -23,7 +23,10 @@ Opcionalmente, para **Consulta painel** (`public/prototype.html` → servidor):
 | `RADIO_PAINEL_EMAIL` + `RADIO_PAINEL_PASSWORD` | Login automatizado Cake. |
 | `RADIO_PAINEL_SESSION_COOKIE` | Alternativa: cookie `CAKEPHP=...` copiado do browser autenticado. |
 | `RADIO_PAINEL_CLIENTES_INDEX_SEARCH_PATH` | Template da lista de clientes (use `{q}` no URL se o índice do painel for personalizado). |
-| `RADIO_PAINEL_PROXY_SECRET` | Opcional: mesmo valor como header `x-radio-painel-secret`. Na consola: `window.__RADIO_PAINEL_PROXY_SECRET`. |
+| `RADIO_PAINEL_HTML_SEARCH_FALLBACK` | Opcional — `1` tenta lista HTML do painel se o CSV não tiver resultado (mais frágil). |
+| `RADIO_PAINEL_EXPORT_CSV_PATH` | Opcional — caminho absoluto a outro ficheiro export (substitui `data/export-clientes.csv`). |
+
+**Busca por nome (cliente ou PDV):** o servidor usa **`data/export-clientes.csv`** (export do painel, botão *Exportar* em [painel › exports](https://painel.radioibiza.com.br/adm/exports)). Mantenha essa cópia na pasta `data/` e faça novo deploy sempre que atualizar a planilha; em alternativa, configure `RADIO_PAINEL_EXPORT_CSV_PATH` para um ficheiro noutra localização.
 
 ## Banco de dados (local)
 
@@ -56,4 +59,4 @@ A Conta Azul indica limites da ordem de **600 req/min** por conta ERP; a sincron
 
 ## Protótipo estático
 
-[`public/prototype.html`](public/prototype.html) — HTML de referência com grade de exemplo. Botão **Consulta painel** chama a API Next `POST /api/radio-painel/query`; as credenciais ficam apenas em variáveis de ambiente no Netlify/`env` (**não** vão para o navegador). Ative `RADIO_PAINEL_ENABLED=1` e configure login ou cookie conforme [.env.example](.env.example).
+[`public/prototype.html`](public/prototype.html) — HTML de referência (tabela de exemplo; sem integração Painel).
