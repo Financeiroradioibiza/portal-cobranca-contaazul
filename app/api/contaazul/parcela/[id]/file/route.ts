@@ -3,7 +3,10 @@ import {
   extractBoletoAndDocUrls,
   shouldProxyContaAzulDownload,
 } from "@/lib/contaazul/installmentLinks";
+import { tryResolveNfeDownloadUrl } from "@/lib/contaazul/nfeFromVenda";
+import { tryResolveNfseServicoDownload } from "@/lib/contaazul/nfseServico";
 import { fetchParcelaAnexoFile } from "@/lib/contaazul/parcelaAnexoDownload";
+import { fetchServiceInvoicePdfByVendaId } from "@/lib/contaazul/serviceInvoicePdf";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 
@@ -57,9 +60,46 @@ export async function GET(
     return plain(m, 502);
   }
 
-  const { boletoUrl, docUrl, boletoAnexoId, docAnexoId } = extractBoletoAndDocUrls(detail);
-  const targetUrl = tipo === "nf" ? docUrl : boletoUrl;
+  const { boletoUrl, docUrl, boletoAnexoId, docAnexoId, boletoAnexoBaixaId, docAnexoBaixaId } =
+    extractBoletoAndDocUrls(detail);
+
+  let billingPubPdf: Response | null = null;
+  let nfeFromVendaUrl: string | null = null;
+  let nfseUrl: string | null = null;
+  let nfsePdf: Response | null = null;
+  if (tipo === "nf" && !docUrl && !docAnexoId) {
+    if (detail.id_venda?.trim()) {
+      billingPubPdf = await fetchServiceInvoicePdfByVendaId(detail.id_venda, token);
+    }
+    if (!billingPubPdf?.ok) {
+      nfeFromVendaUrl = await tryResolveNfeDownloadUrl(token, {
+        idVenda: detail.id_venda,
+        dataRef: detail.data_referencia_nf,
+        numeroNota: detail.numero_fatura,
+      });
+      if (!nfeFromVendaUrl) {
+        const numeroNfse =
+          detail.numero_nfse ??
+          (detail.tipo_fatura?.toUpperCase() === "NFSE"
+            ? detail.numero_fatura
+            : undefined) ??
+          (detail.id_venda && detail.numero_fatura ? detail.numero_fatura : undefined);
+        const se = await tryResolveNfseServicoDownload(token, {
+          idVenda: detail.id_venda,
+          dataCompetencia: detail.data_referencia_nf,
+          numeroNfse: numeroNfse ?? undefined,
+          numeroRps: detail.numero_rps,
+        });
+        nfseUrl = se.url;
+        nfsePdf = se.pdfResponse;
+      }
+    }
+  }
+
+  const targetUrl =
+    tipo === "nf" ? (docUrl ?? nfeFromVendaUrl ?? nfseUrl) : boletoUrl;
   const targetAnexoId = tipo === "nf" ? docAnexoId : boletoAnexoId;
+  const targetAnexoBaixaId = tipo === "nf" ? docAnexoBaixaId : boletoAnexoBaixaId;
 
   if (targetUrl) {
     let dest: URL;
@@ -102,8 +142,32 @@ export async function GET(
     return new NextResponse(upstream.body, { status: 200, headers });
   }
 
+  if (tipo === "nf" && billingPubPdf?.ok) {
+    const headers = new Headers();
+    const ct = billingPubPdf.headers.get("content-type");
+    if (ct) headers.set("Content-Type", ct);
+    else headers.set("Content-Type", "application/pdf");
+    const cd = billingPubPdf.headers.get("content-disposition");
+    if (cd) headers.set("Content-Disposition", cd);
+    else headers.set("Content-Disposition", "inline");
+    headers.set("Cache-Control", "no-store");
+    return new NextResponse(billingPubPdf.body, { status: 200, headers });
+  }
+
+  if (tipo === "nf" && nfsePdf?.ok) {
+    const headers = new Headers();
+    const ct = nfsePdf.headers.get("content-type");
+    if (ct) headers.set("Content-Type", ct);
+    else headers.set("Content-Type", "application/pdf");
+    const cd = nfsePdf.headers.get("content-disposition");
+    if (cd) headers.set("Content-Disposition", cd);
+    else headers.set("Content-Disposition", "inline");
+    headers.set("Cache-Control", "no-store");
+    return new NextResponse(nfsePdf.body, { status: 200, headers });
+  }
+
   if (targetAnexoId) {
-    const fileRes = await fetchParcelaAnexoFile(token, id, targetAnexoId);
+    const fileRes = await fetchParcelaAnexoFile(token, id, targetAnexoId, targetAnexoBaixaId);
     if (fileRes?.ok) {
       const headers = new Headers();
       const ct = fileRes.headers.get("content-type");
@@ -114,6 +178,22 @@ export async function GET(
       headers.set("Cache-Control", "no-store");
       return new NextResponse(fileRes.body, { status: 200, headers });
     }
+    if (isProd) {
+      console.error(
+        "[parcela/file] download de anexo FILE falhou:",
+        fileRes?.status,
+        "parcela",
+        id,
+        "anexo",
+        targetAnexoId,
+        "baixa",
+        targetAnexoBaixaId ?? "—",
+      );
+    }
+    return plain(
+      "A Conta Azul tem um arquivo nesta parcela, mas o download não foi concluído. Abra o lançamento no Conta Azul ou tente de novo.",
+      502,
+    );
   }
 
   return plain(

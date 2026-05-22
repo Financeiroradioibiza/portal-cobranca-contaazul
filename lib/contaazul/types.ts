@@ -44,11 +44,29 @@ export type CaInstallmentDetail = {
     tipo_conteudo?: string;
     nome?: string | null;
     descricao?: string | null;
+    /**
+     * Quando o anexo veio de `baixas[].anexos`, o download FILE pode exigir o id da baixa na URL.
+     */
+    id_baixa?: string | null;
   }>;
   solicitacoes_cobrancas?: Array<{
     url?: string | null;
     tipo_solicitacao_cobranca?: string;
   }>;
+  /**
+   * Quando o evento financeiro vem de venda — usado em `GET /v1/notas-fiscais?id_venda=`.
+   */
+  id_venda?: string;
+  /** YYYY-MM-DD para montar janela de datas na API de NF-e */
+  data_referencia_nf?: string;
+  /** Campo `fatura.numero` da parcela (filtro opcional em notas-fiscais) */
+  numero_fatura?: number;
+  /** `fatura.tipo_fatura`: NFE | NFSE | NFCE */
+  tipo_fatura?: string;
+  /** Número da NFS-e (ex.: coluna “NFS-e” na tela) */
+  numero_nfse?: number;
+  /** Número do RPS */
+  numero_rps?: number;
 };
 
 export function todayYmdLocal(): string {

@@ -98,31 +98,45 @@ export function CobrancaDashboard() {
       if (list.length > 0) {
         void (async () => {
           const ids = list.map((c) => c.id);
-          const [rContracts, rNotes] = await Promise.all([
-            fetch("/api/contaazul/contracts-for-clients", {
+          /** Mesmo limite que `MAX_IDS` em `/api/contaazul/contracts-for-clients` */
+          const CONTRACT_CLIENT_IDS_BATCH = 400;
+
+          const notesPromise = fetch("/api/clients/notes-for", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientIds: ids }),
+          });
+
+          const mergedByClientId: Record<string, string> = {};
+          for (let off = 0; off < ids.length; off += CONTRACT_CLIENT_IDS_BATCH) {
+            const slice = ids.slice(off, off + CONTRACT_CLIENT_IDS_BATCH);
+            const rContracts = await fetch("/api/contaazul/contracts-for-clients", {
               method: "POST",
               credentials: "include",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ clientIds: ids }),
-            }),
-            fetch("/api/clients/notes-for", {
-              method: "POST",
-              credentials: "include",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ clientIds: ids }),
-            }),
-          ]);
+              body: JSON.stringify({ clientIds: slice }),
+            });
+            if (loadGen !== receivablesLoadGenRef.current) return;
+            const pC = await readJsonFromResponse<{
+              byClientId?: Record<string, string>;
+              error?: string;
+            }>(rContracts);
+            if (loadGen !== receivablesLoadGenRef.current) return;
+            if (rContracts.ok && !pC.parseError && pC.data?.byClientId) {
+              Object.assign(mergedByClientId, pC.data.byClientId);
+            }
+          }
+
+          const rNotes = await notesPromise;
           if (loadGen !== receivablesLoadGenRef.current) return;
-          const [pC, pN] = await Promise.all([
-            readJsonFromResponse<{ byClientId?: Record<string, string>; error?: string }>(
-              rContracts,
-            ),
-            readJsonFromResponse<{ byId?: Record<string, string>; error?: string }>(rNotes),
-          ]);
+          const pN = await readJsonFromResponse<{ byId?: Record<string, string>; error?: string }>(
+            rNotes,
+          );
           if (loadGen !== receivablesLoadGenRef.current) return;
 
           const mapC =
-            rContracts.ok && !pC.parseError && pC.data?.byClientId ? pC.data.byClientId : null;
+            Object.keys(mergedByClientId).length > 0 ? mergedByClientId : null;
           const mapN = rNotes.ok && !pN.parseError && pN.data?.byId ? pN.data.byId : null;
           if (!mapC && !mapN) return;
 

@@ -34,7 +34,10 @@ export type ParcelaDocLinks = {
   docUrl: string | null;
   /** Quando o anexo é FILE na API e não há URL pública */
   boletoAnexoId: string | null;
+  /** Se o anexo do boleto veio de `baixas`, informar para montar a URL correta. */
+  boletoAnexoBaixaId: string | null;
   docAnexoId: string | null;
+  docAnexoBaixaId: string | null;
 };
 
 type Anexo = NonNullable<CaInstallmentDetail["anexos"]>[number];
@@ -46,25 +49,40 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): ParcelaDoc
   let boletoUrl: string | null = null;
   let docUrl: string | null = null;
   let boletoAnexoId: string | null = null;
+  let boletoAnexoBaixaId: string | null = null;
   let docAnexoId: string | null = null;
+  let docAnexoBaixaId: string | null = null;
+
+  function baixaIdFrom(a: Anexo): string | null {
+    const raw = a.id_baixa?.trim();
+    return raw || null;
+  }
 
   function considerBoletoAnexo(a: Anexo, urlNorm: string | null) {
     if (urlNorm) {
-      if (!boletoUrl) boletoUrl = urlNorm;
+      if (!boletoUrl) {
+        boletoUrl = urlNorm;
+        boletoAnexoBaixaId = null;
+      }
       return;
     }
     if (a.id && !boletoAnexoId) {
       boletoAnexoId = a.id;
+      boletoAnexoBaixaId = baixaIdFrom(a);
     }
   }
 
   function considerDocAnexo(a: Anexo, urlNorm: string | null) {
     if (urlNorm) {
-      if (!docUrl) docUrl = urlNorm;
+      if (!docUrl) {
+        docUrl = urlNorm;
+        docAnexoBaixaId = null;
+      }
       return;
     }
     if (a.id && !docAnexoId) {
       docAnexoId = a.id;
+      docAnexoBaixaId = baixaIdFrom(a);
     }
   }
 
@@ -107,6 +125,7 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): ParcelaDoc
         "NFE",
         "NFSE",
         "NF_E",
+        "NFCE",
         "NOTA_FISCAL",
         "DOCUMENTO_FISCAL",
         "CTE",
@@ -166,12 +185,38 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): ParcelaDoc
     for (const a of detail.anexos ?? []) {
       const url = normalizeContaAzulUrl(a.url);
       if (!url || url === boletoUrl) continue;
-      if (/\.pdf(\?|$)/i.test(url)) {
+      if (/\.pdf([\?#]|$)/i.test(url) || /danfe|nfe|nota|fiscal|nf-?e/i.test(url)) {
         docUrl = url;
         break;
       }
     }
   }
 
-  return { boletoUrl, docUrl, boletoAnexoId, docAnexoId };
+  /* FILE sem tipo claro: prioriza nome/descrição que lembra fiscal (evita pegar comprovante genérico). */
+  if (!docUrl && !docAnexoId) {
+    for (const a of detail.anexos ?? []) {
+      const tcont = (a.tipo_conteudo ?? "").toUpperCase();
+      if (tcont !== "FILE" || !a.id) continue;
+      if (boletoAnexoId === a.id) continue;
+      const blob = `${a.tipo_anexo ?? ""} ${a.nome ?? ""} ${a.descricao ?? ""}`.toLowerCase();
+      if (/boleto|ficha|linha.?digit|pix|remessa|cobranca.?registrada/i.test(blob)) continue;
+      if (
+        /(nota|danfe|nfe|nf-?e|nfse|fiscal|dacte|nfs|xml|espelho|fatura|rps|invoice)/i.test(
+          blob,
+        )
+      ) {
+        considerDocAnexo(a, normalizeContaAzulUrl(a.url ?? undefined));
+        break;
+      }
+    }
+  }
+
+  return {
+    boletoUrl,
+    docUrl,
+    boletoAnexoId,
+    boletoAnexoBaixaId,
+    docAnexoId,
+    docAnexoBaixaId,
+  };
 }

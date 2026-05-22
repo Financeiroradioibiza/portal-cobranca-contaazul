@@ -3,11 +3,27 @@ import { CONTA_AZUL_API_BASE } from "./config";
 type Row = {
   status?: string;
   numero?: number | string;
+  /** Alguns payloads trazem o número apenas em termos */
+  termos?: { numero?: number | string };
   cliente?: { id?: string };
   cliente_id?: string;
   clienteId?: string;
   id?: string;
 };
+
+/** Nº exibível do contrato (lista GET costuma usar `numero`; detalhe pode usar só `termos.numero`). */
+function contractDisplayNumber(r: Record<string, unknown>): string | null {
+  const top = r.numero;
+  if (top != null && top !== "") return String(top);
+  const termos = r.termos;
+  if (termos && typeof termos === "object" && termos !== null) {
+    const tn = (termos as { numero?: unknown }).numero;
+    if (tn != null && tn !== "") return String(tn);
+  }
+  const id = r.id;
+  if (typeof id === "string" && id.length) return `ref-${id.slice(0, 8)}`;
+  return null;
+}
 
 function addRowsToAcc(
   items: Row[],
@@ -17,19 +33,13 @@ function addRowsToAcc(
   for (const raw of items) {
     if (!raw || typeof raw !== "object") continue;
     const r = raw as Row;
-    const status = String(r.status ?? "").toUpperCase();
+    const status = String(r.status ?? "").trim().toUpperCase();
     if (status !== "ATIVO") continue;
 
     const cid = r.cliente?.id ?? r.cliente_id ?? r.clienteId ?? "";
     if (!cid || !want.has(cid)) continue;
 
-    const num =
-      r.numero != null && r.numero !== ""
-        ? String(r.numero)
-        : r.id
-          ? `ref-${String(r.id).slice(0, 8)}`
-          : null;
-
+    const num = contractDisplayNumber(r as Record<string, unknown>);
     if (!num) continue;
     if (!acc.has(cid)) acc.set(cid, new Set());
     acc.get(cid)!.add(num);
@@ -116,7 +126,11 @@ export async function fetchActiveContractNumbersByClientIds(
 
   const end = new Date();
   const start = new Date();
-  start.setFullYear(start.getFullYear() - 12);
+  /**
+   * A Conta Azul exige intervalo na listagem; 12 meses excluí contratos ativos
+   * cuja vigência/recorrência começou há mais tempo (ex.: cliente com contrato antigo como 7100).
+   */
+  start.setFullYear(start.getFullYear() - 30);
   const data_inicio = start.toISOString().slice(0, 10);
   const data_fim = new Date(end.getTime() + 86400000 * 800).toISOString().slice(0, 10);
 
