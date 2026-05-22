@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ConsultaPainelDialog } from "@/components/ConsultaPainelDialog";
+import { CopyTextButton } from "@/components/CopyTextButton";
 import { COMPANY_NAME } from "@/lib/brand";
-import { defaultPeriodMonths, formatBRL } from "@/lib/format";
+import { defaultPeriodMonths, formatBrazilianTaxId, formatBRL, parseEmailAddresses } from "@/lib/format";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import type { ClientRow } from "@/lib/types";
 
@@ -13,6 +14,8 @@ type ConnStatus = {
   expiresAt?: string;
   error?: string;
 };
+
+type ClientSortMode = "parcelas_desc" | "open_desc" | "open_asc";
 
 export function CobrancaDashboard() {
   const initial = defaultPeriodMonths(6);
@@ -26,6 +29,7 @@ export function CobrancaDashboard() {
   const [oauthBanner, setOauthBanner] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [sortClientsBy, setSortClientsBy] = useState<ClientSortMode>("parcelas_desc");
   /** Invalida merges de contratos quando período / refresh mudam antes da API responder. */
   const receivablesLoadGenRef = useRef(0);
 
@@ -37,6 +41,30 @@ export function CobrancaDashboard() {
       return next;
     });
   }, []);
+
+  const totalOpenOf = useCallback((c: ClientRow) => c.sales.reduce((s, x) => s + x.value, 0), []);
+
+  const sortedClients = useMemo(() => {
+    const list = [...clients];
+    const t = totalOpenOf;
+    if (sortClientsBy === "parcelas_desc") {
+      list.sort((a, b) => {
+        const n = b.sales.length - a.sales.length;
+        return n !== 0 ? n : t(b) - t(a);
+      });
+    } else if (sortClientsBy === "open_desc") {
+      list.sort((a, b) => {
+        const n = t(b) - t(a);
+        return n !== 0 ? n : b.sales.length - a.sales.length;
+      });
+    } else {
+      list.sort((a, b) => {
+        const n = t(a) - t(b);
+        return n !== 0 ? n : b.sales.length - a.sales.length;
+      });
+    }
+    return list;
+  }, [clients, sortClientsBy, totalOpenOf]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -275,8 +303,8 @@ export function CobrancaDashboard() {
             Cobrança — parcelas vencidas em aberto
           </h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Ordenado do maior para o menor número de vendas vencidas e em aberto.
-            Fonte: API Conta Azul (contas a receber + cadastro de pessoas).
+            Ordenação ajustável: mais parcelas vencidas, ou maior / menor valor total em aberto por
+            cliente. Fonte: API Conta Azul (contas a receber + cadastro de pessoas).
           </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
             Período (vencimento): {start} a {end}. Apenas parcelas com vencimento{" "}
@@ -412,6 +440,24 @@ export function CobrancaDashboard() {
         >
           Últimos 6 meses (padrão)
         </button>
+        <div>
+          <label
+            htmlFor="sort_clients"
+            className="mb-1 block text-xs text-slate-500 dark:text-slate-400"
+          >
+            Ordenar clientes
+          </label>
+          <select
+            id="sort_clients"
+            value={sortClientsBy}
+            onChange={(e) => setSortClientsBy(e.target.value as ClientSortMode)}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+          >
+            <option value="parcelas_desc">Mais parcelas vencidas primeiro</option>
+            <option value="open_desc">Total em aberto — maior → menor</option>
+            <option value="open_asc">Total em aberto — menor → maior</option>
+          </select>
+        </div>
         <div className="flex flex-wrap items-end gap-2">
           <a
             href="/prototype.html"
@@ -469,8 +515,8 @@ export function CobrancaDashboard() {
                   </td>
                 </tr>
               ) : null}
-              {clients.map((c, clientIndex) => {
-                const total = c.sales.reduce((s, x) => s + x.value, 0);
+              {sortedClients.map((c, clientIndex) => {
+                const total = totalOpenOf(c);
                 const open = expanded.has(c.id);
                 const stripe =
                   clientIndex % 2 === 0
@@ -486,23 +532,36 @@ export function CobrancaDashboard() {
                   <Fragment key={c.id}>
                     <tr className={`align-top ${stripe}`}>
                       <td
-                        className="max-w-[11rem] border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800"
+                        className="max-w-[12rem] border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800"
                         title={c.fantasy}
                       >
-                        <button
-                          type="button"
-                          onClick={() => toggle(c.id)}
-                          aria-expanded={open}
-                          className="text-left font-semibold text-[#0066cc] underline decoration-[#0066cc]/40 underline-offset-2 hover:decoration-[#0066cc] dark:text-sky-400 dark:decoration-sky-400/40"
-                        >
-                          <span className="line-clamp-2">{c.fantasy}</span>
-                          <span className="ml-1 text-[0.55rem] font-normal text-slate-500 no-underline dark:text-slate-400">
-                            {open ? "▴" : "▾"}
-                          </span>
-                        </button>
+                        <div className="flex items-start gap-1">
+                          <button
+                            type="button"
+                            onClick={() => toggle(c.id)}
+                            aria-expanded={open}
+                            className="min-w-0 flex-1 text-left font-semibold text-[#0066cc] underline decoration-[#0066cc]/40 underline-offset-2 hover:decoration-[#0066cc] dark:text-sky-400 dark:decoration-sky-400/40"
+                          >
+                            <span className="line-clamp-2">{c.fantasy}</span>
+                            <span className="ml-1 text-[0.55rem] font-normal text-slate-500 no-underline dark:text-slate-400">
+                              {open ? "▴" : "▾"}
+                            </span>
+                          </button>
+                          <CopyTextButton text={c.fantasy} label={`Copiar nome fantasia (${c.fantasy})`} />
+                        </div>
                       </td>
-                      <td className="whitespace-nowrap border-b border-slate-200/90 px-2 py-1.5 align-middle tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-300">
-                        {c.cnpj}
+                      <td className="whitespace-nowrap border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="tabular-nums text-slate-700 dark:text-slate-300">
+                            {formatBrazilianTaxId(c.cnpj)}
+                          </span>
+                          {c.cnpj !== "—" ? (
+                            <CopyTextButton
+                              text={formatBrazilianTaxId(c.cnpj)}
+                              label="Copiar CNPJ ou CPF"
+                            />
+                          ) : null}
+                        </div>
                       </td>
                       <td className="border-b border-slate-200/90 px-2 py-1.5 text-right align-middle tabular-nums text-slate-900 dark:border-slate-800 dark:text-slate-100">
                         {c.sales.length}
@@ -511,19 +570,41 @@ export function CobrancaDashboard() {
                         {formatBRL(total)}
                       </td>
                       <td
-                        className="min-w-[11rem] max-w-[16rem] border-b border-slate-200/90 px-2 py-1.5 align-middle break-all text-[0.65rem] leading-snug dark:border-slate-800"
-                        title={c.email !== "—" ? c.email : undefined}
+                        className="min-w-[11rem] max-w-[17rem] border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800"
                       >
-                        {c.email !== "—" ? (
-                          <a
-                            href={`mailto:${c.email}`}
-                            className="text-[#0066cc] hover:underline dark:text-sky-400"
-                          >
-                            {c.email}
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                        {(() => {
+                          const emails = parseEmailAddresses(
+                            c.email === "—" ? "" : c.email,
+                          );
+                          const joined = emails.join("\n");
+                          if (emails.length === 0) {
+                            return (
+                              <span className="text-[0.65rem] text-slate-400">—</span>
+                            );
+                          }
+                          return (
+                            <div className="space-y-1 break-all text-[0.65rem] leading-snug">
+                              <ul className="list-none space-y-0.5">
+                                {emails.map((em) => (
+                                  <li key={em}>
+                                    <a
+                                      href={`mailto:${em}`}
+                                      className="text-[#0066cc] hover:underline dark:text-sky-400"
+                                      title={em}
+                                    >
+                                      {em}
+                                    </a>
+                                  </li>
+                                ))}
+                              </ul>
+                              <CopyTextButton
+                                text={joined}
+                                label="Copiar todos os e-mails deste cliente"
+                                className="!normal-case !tracking-normal"
+                              />
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="border-b border-slate-200/90 px-2 py-1.5 align-middle text-[0.65rem] dark:border-slate-800">
                         {c.activeContractNumbers ? (

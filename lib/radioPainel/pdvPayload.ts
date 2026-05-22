@@ -1,6 +1,8 @@
 import type { ContatoView } from "./clientePayload";
 import {
+  cakeDataLeafField,
   groupIndexedRowsExactModel,
+  indexedModelNamesFromFlat,
   pickFromModel,
   scrapeCakeDataFields,
 } from "./scrapeCake";
@@ -22,7 +24,152 @@ export type PdvPainelResponse = {
   googleMapsUrl: string;
 };
 
-const MODELOS_PDV = ["Pdv", "Pdvs", "PontoDeVenda"] as const;
+const MODELOS_PDV_BASE = ["Pdv", "Pdvs", "PontoDeVenda"] as const;
+
+/** Model indexado no formulário relacionado ao PDV / contatos (evita matriz cliente genérica só `Cliente`). */
+function modelTouchesPdvContext(modelName: string): boolean {
+  return /Pdv|Ponto|Gerente|Respons|PdvsCliente|PdvCliente|ClienteContatos|ContatosPdvs|ContatosExClientesPdvs|ContatosExtraPdvs|ContatosPdv|SubPdv|Estabelecimento|Unidade|LojaPdv|OperadorPdvs/i.test(modelName);
+}
+
+function modeloUnionParaContato(flat: Record<string, string>): string[] {
+  const dyn = indexedModelNamesFromFlat(flat).filter(modelTouchesPdvContext);
+  const set = new Set<string>(MODELOS_PDV_BASE);
+  dyn.forEach((m) => set.add(m));
+  return [...set];
+}
+
+function looksLikePersonName(val: string): boolean {
+  const t = val.normalize("NFC").trim();
+  if (!t || t.length > 120) return false;
+  if (/[<>]|\/\//.test(t)) return false;
+  if (/^\d+[.,\-/]+\d+[.,\-/]+/.test(t)) return false;
+  if (/^\(?\d{2}\)?\s*\d{4,}-?\d+$/.test(t)) return false;
+  if (/\d/.test(t)) return false;
+  const parts = t.split(/\s+/).filter((p) => /^[A-Za-zÀ-ÿ.'-]+$/.test(p));
+  return parts.length >= 2 || (parts.length === 1 && parts[0].length >= 4);
+}
+
+function digitsOnlyChars(val: string): string {
+  return val.replace(/\D/g, "");
+}
+
+function looksLikeBrazilPhoneDigits(d: string): boolean {
+  return d.length >= 10 && d.length <= 13;
+}
+
+/**
+ * Fallback: varre chaves data[…] ligadas ao Pdv/contato e escolhe nome / mail / tel por pontuação.
+ */
+function responsavelFromFlatHeuristic(
+  flat: Record<string, string>,
+  nomePdv: string,
+  cnpjFormatadoOuRaw: string,
+): { nomeCompleto: string; email: string; telefoneFixo: string; telefoneMovel: string } {
+  const nomePdvN = nomePdv.replace(/\s+/g, " ").trim().toLowerCase();
+  const cnpjD = digitsOnlyChars(cnpjFormatadoOuRaw);
+
+  let bestNome = { score: 0, v: "" };
+  let bestMail = { score: 0, v: "" };
+  let bestFix = { score: 0, v: "" };
+  let bestMob = { score: 0, v: "" };
+
+  const nomeIgnoreLeaf =
+    /\b(?:cnpj|cpf|cgc|fantasia|razao|ie|rg|cep|usuario|senha)/i;
+
+  function pathNome(fullKey: string): number {
+    let s = 0;
+    if (/respons[aá]vel/i.test(fullKey)) s += 100;
+    if (/ClienteContatos.*Pdv|PdvsCliente|PdvCliente|PontoDeVenda/i.test(fullKey)) s += 70;
+    if (/ClienteContatosPdvsCliente|ClienteContatosPdv/i.test(fullKey)) s += 85;
+    if (/contatosextra|ClienteContatosEx/i.test(fullKey)) s -= 35;
+    if (/data\[Pdv\]|\[\s*Pdv\s*\]/i.test(fullKey)) s += 60;
+    if (/gerente|supervisor/i.test(fullKey)) s += 55;
+    return s;
+  }
+
+  function pathFone(fullKey: string): number {
+    return pathNome(fullKey);
+  }
+
+  for (const [fullKey, raw] of Object.entries(flat)) {
+    const val = raw?.trim();
+    if (!val || val === "—" || val.length > 220) continue;
+    if (!/^data\[/.test(fullKey)) continue;
+    if (
+      !/[Pp][Dd][Vv]|[Pp]onto|[Gg]erente|[Rr]espons|[Cc]liente[Cc]ontatos|[Cc]ontatosPdvs|[Cc]ontatoPdvs|[Pp][Dd]vs[Cc]liente/i.test(
+        fullKey,
+      )
+    ) {
+      continue;
+    }
+
+    const leaf = cakeDataLeafField(fullKey);
+    if (!leaf) continue;
+    const ll = leaf.toLowerCase();
+
+    if (nomeIgnoreLeaf.test(ll)) continue;
+    if (/\bendereco|cep|numero|cidade|bairro|estado|referencia|complemento|logradouro|rua|latitude|longitude|pais|cnae/i.test(ll)) continue;
+    if (/\bnomefantasia|\bnomePdvsCliente\b|^fantasiaPdvs|^nomeClientePdv$|^nomeEstabelecimento|^nomecomercial/i.test(leaf)) continue;
+
+    if (looksLikePersonName(val)) {
+      const vNorm = val.toLowerCase().replace(/\s+/g, " ").trim();
+      if (nomePdvN.length >= 4 && vNorm === nomePdvN) continue;
+      let scr =
+        pathNome(fullKey)
+        + (/\bnomecompleto|nomeRespons|nomeGerente|nomeClienteContatos|nomeContatoPdvs|^dscNome/i.test(leaf)
+          ? 30
+          : 0);
+      if (/^nomeClienteContatosPdvs|^nomeRespons|^nomeGerentePdvs|^nomeCompletoResp/i.test(leaf)) scr += 25;
+      if (scr >= bestNome.score || !bestNome.v) {
+        bestNome = { score: scr, v: val };
+      }
+    }
+
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+      let scr =
+        pathNome(fullKey)
+        + (/\bmail|email|e_mail\b/i.test(ll) ? 40 : 0)
+        + (/\bClienteContatosPdvs|Respons|ClienteContatosPdv|^emailGerente/i.test(fullKey) ? 20 : 0);
+      if (/contatoextra|ContatosExtra/i.test(fullKey)) scr -= 20;
+      if (scr > bestMail.score || (scr === bestMail.score && !bestMail.v)) {
+        bestMail = { score: scr, v: val };
+      }
+    }
+
+    const dTel = digitsOnlyChars(val);
+    if (looksLikeBrazilPhoneDigits(dTel)) {
+      if (cnpjD && dTel === cnpjD && dTel.length >= 14) continue;
+
+      const lk = `${leaf}|${fullKey}`;
+      const isMovelLeaf =
+        /movel|cel|whatsapp|^foneClienteContatosPdvsCliente7|^foneClienteContatosPdvsCliente5|^foneClienteResponsavelPdvCliente2|\bfoneCel\b/i.test(lk);
+      const isFixLeaf =
+        /\bfixo\b|\btelefone\b|foneFixo|^foneClienteContatosPdvsCliente(?:2|3|4|6)\b|^foneClienteContatosPdvsCliente[^57]|foneFixoPdvs/i.test(lk);
+
+      if (isMovelLeaf) {
+        const scr = pathFone(fullKey) + 22;
+        if (scr >= bestMob.score || !bestMob.v) bestMob = { score: scr, v: val };
+      }
+      if (isFixLeaf) {
+        const scr = pathFone(fullKey) + 22;
+        if (scr >= bestFix.score || !bestFix.v) bestFix = { score: scr, v: val };
+      }
+      if (!isMovelLeaf && !isFixLeaf) {
+        const scr = pathFone(fullKey) + 6;
+        if (scr >= bestFix.score || !bestFix.v) bestFix = { score: scr, v: val };
+      }
+    }
+  }
+
+  if (bestMob.v === bestFix.v && bestMob.v) bestMob = { score: 0, v: "" };
+
+  return {
+    nomeCompleto: bestNome.v,
+    email: bestMail.v,
+    telefoneFixo: bestFix.v,
+    telefoneMovel: bestMob.v,
+  };
+}
 
 function pickPrimeiro(
   flat: Record<string, string>,
@@ -128,8 +275,9 @@ export function buildPdvPainelPayload(
   clienteLinkId?: string | null,
 ): PdvPainelResponse {
   const flat = scrapeCakeDataFields(html);
+  const modelosContact = modeloUnionParaContato(flat);
 
-  const nomePdv = pickPrimeiro(flat, MODELOS_PDV, [
+  const nomePdv = pickPrimeiro(flat, MODELOS_PDV_BASE, [
     "nomePdv",
     "nomeFantasiaPdv",
     "nomeClientePdv",
@@ -142,7 +290,7 @@ export function buildPdvPainelPayload(
     "nome",
   ]);
 
-  const cnpj = pickPrimeiro(flat, MODELOS_PDV, [
+  const cnpj = pickPrimeiro(flat, MODELOS_PDV_BASE, [
     "cnpjPdv",
     "cnpjClientePdv",
     "cnpjCliente",
@@ -151,7 +299,7 @@ export function buildPdvPainelPayload(
     "numerocgcPdvCliente",
   ]);
 
-  const endereco = pickPrimeiro(flat, MODELOS_PDV, [
+  const endereco = pickPrimeiro(flat, MODELOS_PDV_BASE, [
     "nomeEnderecoPdvsCliente",
     "nomeEnderecoPdvCliente",
     "ruaPdvsCliente",
@@ -170,7 +318,7 @@ export function buildPdvPainelPayload(
     "enderecoCliente",
   ]);
 
-  const bairro = pickPrimeiro(flat, MODELOS_PDV, [
+  const bairro = pickPrimeiro(flat, MODELOS_PDV_BASE, [
     "bairroPdvCliente",
     "nomeBairroPdvsCliente",
     "nomeBairroPdvCliente",
@@ -180,7 +328,7 @@ export function buildPdvPainelPayload(
     "bairroCliente",
   ]);
 
-  const nomeCompletoResp = pickPrimeiro(flat, MODELOS_PDV, [
+  const nomeCompletoResp = pickPrimeiro(flat, modelosContact, [
     "nomeCompletoResponsavelPdvCliente",
     "nomeCompletoResponsavelPdvsCliente",
     "nomeCompletoContatoResponsavelPdvsCliente",
@@ -188,11 +336,16 @@ export function buildPdvPainelPayload(
     "nomeResponsavelPdvCliente",
     "nomeResponsavelPdvsCliente",
     "nomeResponsavelPdv",
+    "nomeGerentePdvsCliente",
+    "nomeGerenteClientePdvsCliente",
+    "dscNomeGerentePdvsCliente",
+    "nomeRepresentantePdvsCliente",
     "nomeCompletoCliente",
     "nomeClienteResponsavelPdvCliente",
+    "nomeContatoCliente",
   ]);
 
-  const emailResp = pickPrimeiro(flat, MODELOS_PDV, [
+  const emailResp = pickPrimeiro(flat, modelosContact, [
     "emailClienteContatosPdvsCliente",
     "emailResponsavelPdvCliente",
     "emailResponsavelPdvsCliente",
@@ -206,7 +359,7 @@ export function buildPdvPainelPayload(
     "emailPdvsCliente",
   ]);
 
-  const telFixResp = pickPrimeiro(flat, MODELOS_PDV, [
+  const telFixResp = pickPrimeiro(flat, modelosContact, [
     "foneClienteContatosPdvsCliente",
     "foneClienteResponsavelPdvCliente",
     "foneResponsavelPdvsCliente",
@@ -223,7 +376,7 @@ export function buildPdvPainelPayload(
     "telefoneCliente",
   ]);
 
-  const telMobResp = pickPrimeiro(flat, MODELOS_PDV, [
+  const telMobResp = pickPrimeiro(flat, modelosContact, [
     "foneMovelPdvsCliente",
     "foneClienteResponsavelPdvCliente2",
     "foneClienteContatosPdvsCliente7",
@@ -237,11 +390,17 @@ export function buildPdvPainelPayload(
     "celular",
   ]);
 
+  const respHeur = responsavelFromFlatHeuristic(
+    flat,
+    nomePdv || "",
+    cnpj || "",
+  );
+
   const responsavel = {
-    nomeCompleto: nomeCompletoResp,
-    email: emailResp,
-    telefoneFixo: telFixResp,
-    telefoneMovel: telMobResp,
+    nomeCompleto: nomeCompletoResp.trim() || respHeur.nomeCompleto,
+    email: emailResp.trim() || respHeur.email,
+    telefoneFixo: telFixResp.trim() || respHeur.telefoneFixo,
+    telefoneMovel: telMobResp.trim() || respHeur.telefoneMovel,
   };
 
   const ehIgualResp = (c: ContatoView) =>

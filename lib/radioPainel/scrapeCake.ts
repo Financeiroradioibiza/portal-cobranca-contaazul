@@ -26,8 +26,13 @@ export function scrapeCakeDataFields(html: string): Record<string, string> {
     if (/type=["']submit["']/i.test(tag) || /type=["']button["']/i.test(tag)) continue;
     if (/type=["']checkbox["']/i.test(tag) && !/\bchecked\b/i.test(tag)) continue;
 
-    const valM = /value=["']([^"']*)["']/i.exec(tag);
-    const value = valM ? valM[1] : "";
+    let value = "";
+    const valQuoted = /\bvalue\s*=\s*(["'])((?:\\\1|.)*?)\1/i.exec(tag);
+    if (valQuoted) value = valQuoted[2] ?? "";
+    else {
+      const valUnquoted = /\bvalue\s*=\s*([^\s>]+)/i.exec(tag);
+      if (valUnquoted) value = valUnquoted[1]?.replace(/^["']|["']$/g, "") ?? "";
+    }
     out[nm[1]] = decodeEntities(value);
   }
 
@@ -140,6 +145,24 @@ export function pickFirst(
     if (v) return v;
   }
   return "";
+}
+
+/** Model Cake em chaves indexadas `data[M][idx][campo]`. */
+export function indexedModelNamesFromFlat(flat: Record<string, string>): string[] {
+  const s = new Set<string>();
+  for (const k of Object.keys(flat)) {
+    const m = /^data\[([^\]]+)\]\[\d+\]\[[^\]]+\]/i.exec(k.trim());
+    if (m) s.add(m[1]);
+  }
+  return [...s];
+}
+
+/** Segmento `[campo]` final de uma chave `data[M]…` ou vazio se não encontrar. */
+export function cakeDataLeafField(fullKey: string): string {
+  if (!fullKey.endsWith("]")) return "";
+  const i = fullKey.lastIndexOf("[");
+  if (i <= 0) return "";
+  return fullKey.slice(i + 1, -1);
 }
 
 /** Une `data[Model][n][campo]` em um único objeto (última linha sobrescreve) para ler blocos dispersos sobre índices. */
