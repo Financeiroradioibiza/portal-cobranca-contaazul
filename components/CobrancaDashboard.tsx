@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ConsultaPainelDialog } from "@/components/ConsultaPainelDialog";
 import { CopyTextButton } from "@/components/CopyTextButton";
@@ -531,6 +532,12 @@ export function CobrancaDashboard() {
           >
             Ver protótipo HTML
           </a>
+          <Link
+            href="/manual"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Envios manuais (OC)
+          </Link>
           <ConsultaPainelDialog />
         </div>
       </div>
@@ -563,7 +570,7 @@ export function CobrancaDashboard() {
                 <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
                   Contrato ativo
                 </th>
-                <th className="sticky right-0 z-20 min-w-[12rem] max-w-[16rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
+                <th className="sticky right-0 z-20 min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
                   Observação
                 </th>
               </tr>
@@ -592,7 +599,7 @@ export function CobrancaDashboard() {
                   clientIndex % 2 === 0
                     ? "bg-slate-50/95 dark:bg-slate-950/50"
                     : "bg-slate-200/80 dark:bg-slate-800/90";
-                const stickyObs = `sticky right-0 z-10 border-b border-l border-slate-200 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.1)] dark:border-slate-600 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.3)] ${stripe}`;
+                const stickyObs = `sticky right-0 z-10 min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.1)] dark:border-slate-600 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.3)] ${stripe}`;
 
                 return (
                   <Fragment key={c.id}>

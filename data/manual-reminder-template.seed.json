@@ -1,0 +1,184 @@
+[
+  {
+    "emissionDay": 1,
+    "clienteNome": ".Arezzo - Franquias  (Grupo Arezzo&Co)",
+    "cnpjDocumento": "16.590.234/0010-67",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": ".Arezzo - Próprias  (Grupo Arezzo&Co)",
+    "cnpjDocumento": "07.900.208/0001-06",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Alexandre Birman - Próprias  (Grupo Arezzo&Co)",
+    "cnpjDocumento": "07.900.208/0052-56",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Anacapri - Próprias  (Grupo Arezzo&Co)",
+    "cnpjDocumento": "07.900.208/0080-00",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Anacapri- Franquias (Grupo Arezzo&Co)",
+    "cnpjDocumento": "16.590.234/0159-55",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Bangu Shopping ALLOS",
+    "cnpjDocumento": "28.811.773/0001-77",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Ernest",
+    "cnpjDocumento": "59.527.788/0004-84",
+    "tarefaNotaSpreadsheet": "Baixar Conta azul e enviar manual",
+    "solicitarPedirOc": false
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Independencia Shopping",
+    "cnpjDocumento": "09.417.796/0001-57",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Oficina Reserva (Grupo Arezzo&Co)",
+    "cnpjDocumento": "16.590.234/0064-50",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "RDL - Allos",
+    "cnpjDocumento": null,
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Recreio Shopping Center ALLOS",
+    "cnpjDocumento": "03.679.747/0001-06",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Reserva Mini (Grupo Arezzo&Co)",
+    "cnpjDocumento": "16.590.234/0064-50",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Reserva Próprias (Grupo Arezzo&Co)",
+    "cnpjDocumento": "16.590.234/0064-50",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Schutz - Franquias (Grupo Arezzo&Co)",
+    "cnpjDocumento": "16.590.234/0010-67",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Schutz LP  (Grupo Arezzo&Co)",
+    "cnpjDocumento": "07.900.208/0009-63",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Shopping Ilha Plaza - FUNDO DE PROMOÇÃO",
+    "cnpjDocumento": "42.367.683/0001-60",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Shopping Leblon - Fundo de Promoção ALLOS",
+    "cnpjDocumento": "09.528.776/0001-53",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Shopping Midway Mall (Ancar)",
+    "cnpjDocumento": "08.713.566/0001-72",
+    "tarefaNotaSpreadsheet": "08.713.566/0001-72",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Shopping Piracicaba - Allos",
+    "cnpjDocumento": "55.350.458/0001-62",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Shopping Plaza Niterói - Allos",
+    "cnpjDocumento": "30.170.070/0001-59",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Shopping Tijuca - Allos",
+    "cnpjDocumento": "28.425.472/0001-05",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Shopping Vila Velha - Allos",
+    "cnpjDocumento": "20.287.527/0001-56",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Vans - Próprias  (Grupo Arezzo&Co)",
+    "cnpjDocumento": "16.590.234/0164-12",
+    "tarefaNotaSpreadsheet": "PEDIR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 1,
+    "clienteNome": "Vicenza (Grupo arezzo",
+    "cnpjDocumento": "07.900.208/0234-08",
+    "tarefaNotaSpreadsheet": "AUTOMATICO",
+    "solicitarPedirOc": false
+  },
+  {
+    "emissionDay": 15,
+    "clienteNome": "CP Mee",
+    "cnpjDocumento": "33.374.984/0001-20",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  },
+  {
+    "emissionDay": 15,
+    "clienteNome": "CP Pérgula",
+    "cnpjDocumento": "33.374.984/0001-20",
+    "tarefaNotaSpreadsheet": "AGUARDAR OC",
+    "solicitarPedirOc": true
+  }
+]

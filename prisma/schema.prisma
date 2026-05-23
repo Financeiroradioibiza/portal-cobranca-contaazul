@@ -30,3 +30,61 @@ model ClientPortalMeta {
 
   @@map("client_portal_meta")
 }
+
+/// Status do fluxo OC / envio para um cliente num mês.
+enum ManualReminderRowStatus {
+  pendente
+  solicitado_ordem
+  enviado
+}
+
+/// Modelo de linhas (novos meses copiam daqui).
+model ManualReminderTemplate {
+  id              String   @id @default(cuid())
+  emissionDay     Int      @map("emission_day")
+  clienteNome     String   @map("cliente_nome")
+  cnpjDocumento   String?  @map("cnpj_documento")
+  solicitarPedirOc Boolean @default(true) @map("solicitar_pedir_oc")
+  spreadsheetHint String?  @map("spreadsheet_hint")
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("manual_reminder_template")
+}
+
+/// Instância mensal (aba “Maio/2026”, etc.).
+model ManualReminderMonth {
+  id        String   @id @default(cuid())
+  yearMonth Int      @unique @map("year_month")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  linhas ManualReminderRow[]
+
+  @@map("manual_reminder_month")
+}
+
+model ManualReminderRow {
+  id                 String                  @id @default(cuid())
+  monthId            String                  @map("month_id")
+  month              ManualReminderMonth     @relation(fields: [monthId], references: [id], onDelete: Cascade)
+
+  emissionDay        Int                     @map("emission_day")
+  clienteNome        String                  @map("cliente_nome")
+  cnpjDocumento      String?                 @map("cnpj_documento")
+  contaAzulPersonId  String?                 @map("conta_azul_person_id")
+
+  solicitarPedirOc   Boolean                 @default(true) @map("solicitar_pedir_oc")
+  status             ManualReminderRowStatus @default(pendente)
+
+  emailCobranca      String?                 @map("email_cobranca")
+  spreadsheetHint    String?                 @map("spreadsheet_hint")
+  notes              String                  @default("")
+
+  sortOrder          Int                     @default(0) @map("sort_order")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+
+  @@index([monthId, emissionDay, sortOrder])
+  @@map("manual_reminder_row")
+}
