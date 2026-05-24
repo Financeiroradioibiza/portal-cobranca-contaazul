@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import { billingEmailJoined, fetchPersonDetail } from "@/lib/contaazul/personBilling";
 
+const CA_HINT_PT =
+  "Sem sessão OAuth Conta Azul no servidor ou o refresh falhou. Abra o painel principal (/), reconecte o Conta Azul neste mesmo domínio e tente vincular de novo.";
+
 function validRowId(id: string): boolean {
   if (!id || id.length > 140) return false;
   return /^c[a-z0-9]+$|^[a-z0-9]{20,}$/.test(id);
@@ -27,7 +30,11 @@ export async function POST(req: Request, context: { params: Promise<{ rowId: str
 
   const token = await getValidAccessToken();
   if (!token) {
-    return NextResponse.json({ error: "conta_azul_not_connected" }, { status: 401 });
+    return NextResponse.json({
+      connected: false as const,
+      message: CA_HINT_PT,
+      row: null,
+    });
   }
 
   const rowBefore = await prisma.manualReminderRow.findUnique({ where: { id: rowId } });
@@ -50,7 +57,7 @@ export async function POST(req: Request, context: { params: Promise<{ rowId: str
         data: { contaAzulPersonId: null, emailCobranca: null },
       });
       const row = await prisma.manualReminderRow.findUnique({ where: { id: rowId } });
-      return NextResponse.json({ row });
+      return NextResponse.json({ connected: true as const, row });
     }
 
     const raw = await fetchPersonDetail(token, personId);
@@ -64,9 +71,25 @@ export async function POST(req: Request, context: { params: Promise<{ rowId: str
       },
     });
 
-    return NextResponse.json({ row, emailPreview: row.emailCobranca });
+    return NextResponse.json({
+      connected: true as const,
+      row,
+      emailPreview: row.emailCobranca,
+      /** Diagnóstico leve quando o cadastro não tem contato cobrança preenchido */
+      billingEmailsEmptyHint:
+        !email ?
+          "A pessoa existe no cadastro mas não há e-mails em cobrança/faturamento nem e-mail principal. Complete no Conta Azul."
+        : null,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "ca_erro";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    return NextResponse.json(
+      {
+        connected: true as const,
+        errorDetail: msg,
+        row: null,
+      },
+      { status: 502 },
+    );
   }
 }

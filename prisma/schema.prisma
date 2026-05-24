@@ -81,10 +81,23 @@ model ManualReminderRow {
   spreadsheetHint    String?                 @map("spreadsheet_hint")
   notes              String                  @default("")
 
+  /// YYYYMMDD (TZ Brasil): último envio automático OC; impede segundo disparo no mesmo dia (reset ao voltar para pendente).
+  autoOcSentYmd      Int?                    @map("auto_oc_sent_ymd")
+
   sortOrder          Int                     @default(0) @map("sort_order")
   createdAt          DateTime                @default(now()) @map("created_at")
   updatedAt          DateTime                @updatedAt @map("updated_at")
 
   @@index([monthId, emissionDay, sortOrder])
   @@map("manual_reminder_row")
+}
+
+/// Modelo único de e-mail para pedido de OC (Envios manuais). Id fixo `default`.
+model OcEmailTemplate {
+  id        String   @id
+  subject   String
+  bodyText  String   @map("body_text") @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("oc_email_template")
 }

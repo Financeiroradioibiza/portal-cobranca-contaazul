@@ -28,6 +28,12 @@ Opcionalmente, para **Consulta painel** no painel principal (botão ao lado de �
 
 **Busca por nome (cliente ou PDV):** o servidor usa **`data/export-clientes.csv`** (export do painel, botão *Exportar* em [painel › exports](https://painel.radioibiza.com.br/adm/exports)). Mantenha essa cópia na pasta `data/` e faça novo deploy sempre que atualizar a planilha; em alternativa, configure `RADIO_PAINEL_EXPORT_CSV_PATH` para um ficheiro noutra localização.
 
+**Envios manuais — e-mail OC:** em `/manual` pode editar o modelo (nome do cliente, mês etc.) e, com `OC_EMAIL_SMTP_*` + `OC_EMAIL_FROM` configurados (**Locaweb**, normalmente porta **587/TLS**), cada linha tem **«Disparar e-mail OC»**. Todos os envios incluem automaticamente **BCC para `cobranca@radioibiza.com.br`** (cópia oculta; não duplica se já estiver em «Para»). O modelo fica em Postgres (`oc_email_template`). As variáveis `OC_EMAIL_*` podem ficar todas no Netlify (**Site configuration → Environment variables**); após criar ou alterar, faça novo deploy ou "Clear cache and deploy" se o build ler cache antigo.
+
+**Envio automático (cron opcional):** configure `OC_EMAIL_CRON_SECRET` (≥16 caracteres) ou reutilize `CRON_SECRET`. Agende um job diário (**horário Brasília**) que faça **GET ou POST** em  
+`https://SEU_DOMINIO/api/manual-envios/oc-email/auto-dispatch`  
+com cabeçalho `Authorization: Bearer <SEGREDO>`. Neste endpoint o servidor só envia e-mail para linhas do **mês corrente (Brasil)** cujo campo **«Dia OC»** coincide com **o dia atual**, com **Pedir OC** ativo e **status Pendente**; se já tiver **Solicitada OC** ou **Enviada**, não envia. Após SMTP OK marca **Solicitada OC** e grava uma marca de dia idempotente; ao voltar o status manualmente para **Pendente**, essa marca é limpa para permitir um novo ciclo.
+
 ## Banco de dados (local)
 
 ```bash

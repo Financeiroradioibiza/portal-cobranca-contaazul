@@ -71,6 +71,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ rowId
     const st = parseStatus(body.status);
     if (st === null) return NextResponse.json({ error: "bad_status" }, { status: 400 });
     patch.status = st;
+    if (st === ManualReminderRowStatus.pendente) {
+      patch.autoOcSentYmd = null;
+    }
   }
 
   if ("emailCobranca" in body) {

@@ -15,7 +15,14 @@ export async function POST(_req: Request, context: { params: Promise<{ ym: strin
 
   const token = await getValidAccessToken();
   if (!token) {
-    return NextResponse.json({ error: "conta_azul_not_connected" }, { status: 401 });
+    return NextResponse.json({
+      connected: false as const,
+      message:
+        "Sem OAuth Conta Azul no servidor. Conecte no painel principal (/) neste mesmo domínio e tente de novo.",
+      atualizados: 0,
+      falhas: 0,
+      falhas_amostra: [] as string[],
+    });
   }
 
   const snap = await ensureMonthSnapshot(prisma, ym);
@@ -50,5 +57,10 @@ export async function POST(_req: Request, context: { params: Promise<{ ym: strin
     }
   }
 
-  return NextResponse.json({ atualizados: ok, falhas: fail, falhas_amostra: errors });
+  return NextResponse.json({
+    connected: true as const,
+    atualizados: ok,
+    falhas: fail,
+    falhas_amostra: errors,
+  });
 }

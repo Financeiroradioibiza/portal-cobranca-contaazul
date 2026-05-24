@@ -4,9 +4,17 @@ import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
 import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
+import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  /** Cron SMTP «pedido OC»: não exige sessão do portal — só Bearer com OC_EMAIL_CRON_SECRET / CRON_SECRET. */
+  if (pathname === "/api/manual-envios/oc-email/auto-dispatch") {
+    const auth = authorizeOcAutoDispatchCron(request);
+    if (!auth.ok) return auth.response;
+    return NextResponse.next();
+  }
 
   if (
     pathname.startsWith("/_next/static") ||
