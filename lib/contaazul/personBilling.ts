@@ -78,7 +78,13 @@ export function normalizeCaPersonBrief(
   return { id, nome: nome || `Cadastro (${id.slice(0, 8)}…)`, documento: doc };
 }
 
-/** GET /v1/pessoas: tentamos várias chaves porque o Contrato público já variou nos ambientes ERP. */
+/**
+ * Tamanho de página permitido pelo OpenAPI Conta Azul em GET /v1/pessoas:
+ * 10, 20, 50, 100, 200, 500, 1000 (valores fora disso tendem a responder 400).
+ */
+const CA_PESSOAS_PAGE_SIZE = "50";
+
+/** GET /v1/pessoas: busca textual + filtro `documentos` para CPF/CNPJ só dígitos. */
 export async function searchPeopleByText(
   accessToken: string,
   busca: string,
@@ -92,19 +98,33 @@ export async function searchPeopleByText(
       .replace(/\s{2,}/g, " ")
       .trim() || rawQ;
   const digits = rawQ.replace(/\D/g, "");
-  const queryCandidates = [...new Set([rawQ, simplified, ...(digits.length >= 11 ? [digits] : [])])];
+  const docDigits =
+    digits.length >= 11 && digits.length <= 14 ? digits : null;
+
+  /** CNPJ/CPF: priorizar termo só dígitos (API documenta `documentos` e `busca`). */
+  const queryCandidates = [...new Set([...(docDigits ? [docDigits] : []), rawQ, simplified])];
 
   type Params = Record<string, string>;
 
-  const paramBundlesForTerm = (term: string): Params[] => [
-    { pagina: "1", tamanho_pagina: "40", busca: term },
-    { pagina: "1", tamanho_pagina: "40", texto_busca: term },
-    { pagina: "1", tamanho_pagina: "40", textoBusca: term },
-    { pagina: "1", tamanho_pagina: "40", filtro_padraio: term },
-    { pagina: "1", tamanho_pagina: "40", filtro_padrao: term },
-    { pagina: "1", tamanho_pagina: "40", nome: term },
-    { pagina: "1", tamanho_pagina: "40", documento: term },
-  ];
+  const basePaging: Params = {
+    pagina: "1",
+    tamanho_pagina: CA_PESSOAS_PAGE_SIZE,
+  };
+
+  /**
+   * Parâmetros documentados em developers.contaazul.com — evitar chaves não listadas (risco de 400).
+   * @see https://developers.contaazul.com/open-api-docs/open-api-person/v1/retornapessoasporfiltros
+   */
+  const paramBundlesForTerm = (term: string): Params[] => {
+    const t = term.trim();
+    const onlyDoc = /^\d{11,14}$/.test(t);
+
+    if (onlyDoc) {
+      return [{ ...basePaging, documentos: t }, { ...basePaging, busca: t }];
+    }
+
+    return [{ ...basePaging, busca: t }, { ...basePaging, nomes: t }];
+  };
 
   /** Monta todas as linhas candidatas vindas na resposta. */
   const extractRowsFlat = (data: unknown): Record<string, unknown>[] => {
@@ -122,7 +142,7 @@ export async function searchPeopleByText(
   const out: Array<{ id: string; nome: string; documento?: string | null }> = [];
 
   for (const qText of queryCandidates) {
-    if (qText.length < 2 && !/^\d{11,}$/.test(qText)) continue;
+    if (qText.length < 2 && !/^\d{11,14}$/.test(qText)) continue;
 
     for (const p of paramBundlesForTerm(qText.trim())) {
       const qs = new URLSearchParams(p);
