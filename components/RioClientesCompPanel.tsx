@@ -82,6 +82,7 @@ export function RioClientesCompPanel() {
   /** Muitas chamadas GET /v1/pessoas?ids… (e-mail cobrança, razão, valor) — típico gatilho de timeout sem contratos. */
   const [syncIncludePersonDetails, setSyncIncludePersonDetails] = useState(false);
   const fileImportRef = useRef<HTMLInputElement | null>(null);
+  const fileMarcaLayoutRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
   /** Import CSV: cruzar com mês anterior → entrada/saída como no sync pela API */
   const [importInferMovement, setImportInferMovement] = useState(true);
@@ -264,6 +265,65 @@ export function RioClientesCompPanel() {
       }
     },
     [activeYm, loadMonth, loadMonths, importInferMovement],
+  );
+
+  const runMarcaLayoutImport = useCallback(
+    async (file: File) => {
+      if (
+        !window.confirm(
+          "Este ficheiro aplica apenas MARCA (col. A), categoria (H) e lista de PDVs (B/C conforme planilha interna). Não altera CNPJ nem valor mensal nas linhas; os clientes têm de existir já nesta competência (sync ou import CSV). Continuar?",
+        )
+      )
+        return;
+      setImporting(true);
+      setMsg(null);
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/import-marca-layout`, {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        });
+        const { data, rawText } = await readJsonFromResponse<{
+          grupos?: RioGrupo[];
+          linhas?: RioLinha[];
+          error?: string;
+          warnings?: string[];
+          appliedCount?: number;
+          unmatchedLabels?: string[];
+          unmatchedCount?: number;
+        }>(res);
+        if (!res.ok) {
+          setMsg(data?.error || rawText.slice(0, 220) || `Erro ${res.status}`);
+          return;
+        }
+        setLinhas(data?.linhas ?? []);
+        setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
+        const w = Array.isArray(data?.warnings) ? data!.warnings.filter(Boolean) : [];
+        const applied = typeof data?.appliedCount === "number" ? data.appliedCount : 0;
+        const unLabels = Array.isArray(data?.unmatchedLabels) ? data!.unmatchedLabels : [];
+        const un =
+          typeof data?.unmatchedCount === "number" ?
+            data.unmatchedCount
+          : unLabels.length;
+        const unPreview =
+          un > 0 && unLabels.length ?
+            ` (${unLabels.slice(0, 10).join(", ")}${unLabels.length > 10 ? ", …" : ""})`
+          : "";
+        const unHint =
+          un > 0 ?
+            ` ${un} nome${un !== 1 ? "s" : ""} não encontrado${un !== 1 ? "s" : ""} no portal.${unPreview}`
+          : "";
+        const warnTxt = w.length ? ` Avisos: ${w.slice(0, 12).join(" ")}${w.length > 12 ? "…" : ""}` : "";
+        setMsg(`Layout MARCA/PDVs aplicado: ${applied} clientes atualizados.${unHint}${warnTxt}`);
+      } catch {
+        setMsg("Falha ao importar layout MARCA+PDVs.");
+      } finally {
+        setImporting(false);
+      }
+    },
+    [activeYm],
   );
 
   const patchLinha = useCallback(
@@ -679,6 +739,26 @@ export function RioClientesCompPanel() {
           onClick={() => fileImportRef.current?.click()}
         >
           {importing ? "A importar…" : "Importar CSV / Excel"}
+        </button>
+        <input
+          ref={fileMarcaLayoutRef}
+          type="file"
+          accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void runMarcaLayoutImport(f);
+          }}
+        />
+        <button
+          type="button"
+          title="CSV/Excel exportado com colunas A MARCA, B nº PDV, C nome, H categoria (sem usar CNPJ nem valor)."
+          className="rounded-lg border border-violet-700 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-950 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-50 dark:hover:bg-violet-900/55"
+          disabled={importing}
+          onClick={() => fileMarcaLayoutRef.current?.click()}
+        >
+          MARCA + PDVs (planilha interna)
         </button>
         <a
           href="/planilha-rio-import-exemplo.csv"

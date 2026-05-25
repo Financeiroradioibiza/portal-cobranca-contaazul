@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeClientesCa";
 import type { ParsedRioFileRow } from "@/lib/rio/rioCompFileImport";
 import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
+import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
 
@@ -687,6 +688,178 @@ export async function replaceRioCompMonthFromImportedRows(
   const full = await getRioCompMonthWithLinhas(yearMonth);
   if (!full) throw new Error("rio_month_missing_after_import");
   return full;
+}
+
+function normNomeMatchKey(s: string): string {
+  return s
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Cruza o nome vindo da planilha interna MARCA+PDVs com `nomeFantasia` já guardado (sync/CSV).
+ * Não usa CNPJ. Com vários candidatos escolhe o mais próximo em comprimento e regista aviso.
+ */
+function pickLinhaForMarcaCsvNome(
+  nomeCsv: string,
+  pool: RioCompLinhaOut[],
+  usedIds: Set<string>,
+): { linha: RioCompLinhaOut | null; note?: string } {
+  const eligible = pool.filter((l) => !usedIds.has(l.id));
+  const n = normNomeMatchKey(nomeCsv);
+  if (!n) return { linha: null };
+
+  const exactHits = eligible.filter((l) => normNomeMatchKey(l.nomeFantasia) === n);
+  if (exactHits.length === 1) return { linha: exactHits[0]! };
+  if (exactHits.length > 1) {
+    exactHits.sort((a, b) => a.id.localeCompare(b.id));
+    return {
+      linha: exactHits[0]!,
+      note: `várias linhas com o mesmo nome fantasia (${exactHits.length}); usada a primeira por id interno.`,
+    };
+  }
+
+  const subs = eligible.filter((l) => {
+    const lf = normNomeMatchKey(l.nomeFantasia);
+    if (!lf) return false;
+    if (n.length >= 5 && lf.includes(n)) return true;
+    if (lf.length >= 8 && n.includes(lf)) return true;
+    return false;
+  });
+
+  if (subs.length === 1) return { linha: subs[0]! };
+  if (subs.length > 1) {
+    subs.sort(
+      (a, b) =>
+        Math.abs(normNomeMatchKey(a.nomeFantasia).length - n.length) -
+        Math.abs(normNomeMatchKey(b.nomeFantasia).length - n.length),
+    );
+    return {
+      linha: subs[0]!,
+      note: `vários candidatos por similaridade (${subs.length}); escolhido «${subs[0]!.nomeFantasia}».`,
+    };
+  }
+
+  return { linha: null };
+}
+
+/**
+ * Atualiza **apenas** MARCA (`grupo_site`), categoria (col. H), Nº PDVs site e lista de PDVs,
+ * cruzando linhas do CSV interno com clientes já existentes na competência.
+ * Não altera CNPJ/documento, valor, e-mail, movimento nem contratos.
+ */
+export async function applyMarcaPdvCsvLayoutToMonth(
+  yearMonth: number,
+  buffer: Buffer,
+  fileName: string,
+): Promise<{
+  month: RioCompMonth;
+  grupos: RioCompGrupoDto[];
+  linhas: RioCompLinhaOut[];
+  warnings: string[];
+  appliedCount: number;
+  unmatchedLabels: string[];
+}> {
+  const parsed = parseMarcaPdvLayoutFromBuffer(buffer, fileName);
+  const warningsOut = [...parsed.warnings];
+
+  await ensureRioCompMonth(yearMonth);
+  const bundleBefore = await getRioCompMonthWithLinhas(yearMonth);
+  if (!bundleBefore) throw new Error("rio_month_bundle_missing_after_ensure");
+
+  if (!parsed.rows.length) {
+    return {
+      month: bundleBefore.month,
+      grupos: bundleBefore.grupos,
+      linhas: bundleBefore.linhas,
+      warnings: warningsOut,
+      appliedCount: 0,
+      unmatchedLabels: [],
+    };
+  }
+
+  if (!bundleBefore.linhas.length) {
+    warningsOut.push(
+      "Não há clientes nesta competência — sincronize a Conta Azul ou importe o CSV de clientes antes de aplicar o layout MARCA+PDVs.",
+    );
+    return {
+      month: bundleBefore.month,
+      grupos: bundleBefore.grupos,
+      linhas: bundleBefore.linhas,
+      warnings: warningsOut,
+      appliedCount: 0,
+      unmatchedLabels: parsed.rows.map((r) => r.nomeMatch),
+    };
+  }
+
+  const usedIds = new Set<string>();
+  const unmatchedLabels: string[] = [];
+  let appliedCount = 0;
+  const monthId = bundleBefore.month.id;
+  const pool = bundleBefore.linhas;
+
+  await prisma.$transaction(
+    async (tx) => {
+      for (const row of parsed.rows) {
+        const { linha, note } = pickLinhaForMarcaCsvNome(row.nomeMatch, pool, usedIds);
+        if (!linha) {
+          unmatchedLabels.push(row.nomeMatch);
+          continue;
+        }
+        if (note) {
+          warningsOut.push(`«${row.nomeMatch}»: ${note}`);
+        }
+
+        const marca = normMarcaNome(row.marca);
+        await tx.rioCompClienteLinha.update({
+          where: { id: linha.id, monthId },
+          data: {
+            grupoSite: marca,
+            categoriaSite: row.categoriaSite,
+            numeroPdvSite: row.numeroPdvSite,
+          },
+        });
+
+        await tx.rioCompPdv.deleteMany({ where: { clienteId: linha.id } });
+
+        for (let pi = 0; pi < row.pdvs.length; pi++) {
+          const p = row.pdvs[pi]!;
+          await tx.rioCompPdv.create({
+            data: {
+              clienteId: linha.id,
+              nome: p.nome.trim() ? p.nome : `PDV ${pi + 1}`,
+              notes: "",
+              sortOrder: p.sortOrder ?? pi,
+            },
+          });
+        }
+
+        usedIds.add(linha.id);
+        appliedCount += 1;
+      }
+
+      await reconcileRioCompGrupoLinksTx(tx, monthId);
+    },
+    {
+      timeout: 120_000,
+      maxWait: 25_000,
+    },
+  );
+
+  const full = await getRioCompMonthWithLinhas(yearMonth);
+  if (!full) throw new Error("rio_month_missing_after_marca_layout");
+  return {
+    month: full.month,
+    grupos: full.grupos,
+    linhas: full.linhas,
+    warnings: warningsOut,
+    appliedCount,
+    unmatchedLabels,
+  };
 }
 
 export async function patchRioCompClienteLinha(
