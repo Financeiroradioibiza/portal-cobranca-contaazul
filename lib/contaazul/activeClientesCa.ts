@@ -1,4 +1,5 @@
 import { caFetch } from "./caHttp";
+import { extractCaPessoasListRows } from "./personBilling";
 
 /** Listagem `/v1/pessoas`: filtramos cliente ativo conforme payloads usuais da Conta Azul. */
 export type CaClienteActiveSummary = {
@@ -33,25 +34,22 @@ function isClientePerfis(perfs: string[]): boolean {
 }
 
 /**
- * Perfil cliente + marcação ativa (quando a API enviar `ativo`, exigimos `true`).
+ * Linha válida para listagem já filtrada por `tipo_perfil=Cliente`.
  *
- * A listagem com `tipo_perfil=Cliente` costuma omitir o array `perfis`; nesse caso
- * confiamos no filtro do servidor — só excluímos por perfil quando há valores
- * explícitos que **não** indicam cliente.
+ * - **Não** exigimos `ativo === true`: em payloads resumidos a CA costuma enviar `false`
+ *   ou omitir o campo mesmo para cadastros que na UI aparecem ativos.
+ * - **`perfis` vazio:** confiamos na filtragem do servidor (ver nota anterior).
+ * - **`perfis` com valores que não indicam cliente:** excluímos (sem ambiguidade).
  */
-function rowIsClienteAtivo(row: Record<string, unknown>): boolean {
+function rowPassesClienteFilteredList(row: Record<string, unknown>): boolean {
   if (!str(row.id)) return false;
-  const ativoKnown = typeof row.ativo === "boolean";
-  if (ativoKnown && row.ativo !== true) return false;
-
   const perfs = perfisUpper(row);
   if (!isClientePerfis(perfs) && perfs.length > 0) return false;
-
   return true;
 }
 
 function summarizeRow(row: Record<string, unknown>): CaClienteActiveSummary | null {
-  if (!rowIsClienteAtivo(row)) return null;
+  if (!rowPassesClienteFilteredList(row)) return null;
   return {
     id: str(row.id),
     nomeLista: str(row.nome) || str(row.nomeFantasia) || str(row.name) || "(sem nome)",
@@ -63,20 +61,40 @@ function summarizeRow(row: Record<string, unknown>): CaClienteActiveSummary | nu
   };
 }
 
+function totalItemsFromEnvelope(envelope: Record<string, unknown> | null): number | null {
+  const candidates: unknown[] = [];
+  if (envelope) {
+    candidates.push(
+      envelope.totalItems,
+      envelope.itens_totais,
+      envelope.total,
+      (envelope.totais as Record<string, unknown> | undefined)?.total,
+    );
+    const nested = envelope.data;
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const d = nested as Record<string, unknown>;
+      candidates.push(d.totalItems, d.itens_totais, d.total, (d.totais as Record<string, unknown> | undefined)?.total);
+    }
+  }
+  for (const h of candidates) {
+    if (typeof h === "number" && Number.isFinite(h)) return h;
+  }
+  return null;
+}
+
 export function activeClientMaxPages(): number {
   const n = Number(process.env.CA_ACTIVE_CLIENT_PAGES_MAX ?? "120");
   return Math.min(300, Number.isFinite(n) && n > 0 ? n : 120);
 }
 
 /**
- * Lista pessoas com perfil **Cliente** marcadas como ativas quando o campo existe.
- * Pagina até esgotar `totalItems`/páginas vazias.
+ * Lista pessoas com perfil **Cliente** (`tipo_perfil` na API).
+ * Pagina até esgotar `totalItems`/páginas vazias. Não depende de `ativo` no JSON resumido.
  */
 export async function fetchActiveClientePersonSummaries(
   accessToken: string,
 ): Promise<CaClienteActiveSummary[]> {
   const outMap = new Map<string, CaClienteActiveSummary>();
-  const seenTotal = new Set<number>();
 
   for (let pagina = 1; pagina <= activeClientMaxPages(); pagina++) {
     const qs = new URLSearchParams({
@@ -88,7 +106,12 @@ export async function fetchActiveClientePersonSummaries(
     });
     const raw = await caFetch<unknown>(`/v1/pessoas?${qs}`, accessToken);
     const envelope = asRecord(raw);
-    const itemsUnknown = envelope?.items ?? envelope?.itens ?? [];
+    const rows = extractCaPessoasListRows(raw);
+    const itemsUnknown =
+      rows ??
+      (Array.isArray(envelope?.items) ? envelope!.items
+      : Array.isArray(envelope?.itens) ? envelope!.itens
+      : []);
     if (!Array.isArray(itemsUnknown) || itemsUnknown.length === 0) break;
 
     for (const rawRow of itemsUnknown) {
@@ -98,20 +121,8 @@ export async function fetchActiveClientePersonSummaries(
       if (s?.id) outMap.set(s.id, s);
     }
 
-    const totalHints = [
-      envelope?.totalItems,
-      envelope?.itens_totais,
-      (envelope?.total as unknown) ?? (envelope?.totais as Record<string, unknown>)?.total,
-    ];
-    let totalKnown: number | null = null;
-    for (const h of totalHints) {
-      if (typeof h === "number" && Number.isFinite(h)) {
-        totalKnown = h;
-        break;
-      }
-    }
+    const totalKnown = totalItemsFromEnvelope(envelope);
     if (totalKnown != null) {
-      seenTotal.add(totalKnown);
       const loaded = pagina * 200;
       if (loaded >= totalKnown || itemsUnknown.length < 200) break;
       continue;

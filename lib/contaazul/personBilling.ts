@@ -17,8 +17,9 @@ function asRecord(x: unknown): Record<string, unknown> | null {
 
 /**
  * Detecta primeiro array “de pessoa” dentro do envelope típico do GET `/v1/pessoas`.
+ * Exportado para sync Planilha Rio (`tipo_perfil=Cliente`) e outros consumidores.
  */
-function extractPersonLikeRows(payload: unknown): unknown[] | null {
+export function extractCaPessoasListRows(payload: unknown): unknown[] | null {
   if (Array.isArray(payload)) return payload.length ? payload : null;
 
   const root = asRecord(payload);
@@ -129,7 +130,7 @@ export async function searchPeopleByText(
 
   /** Monta todas as linhas candidatas vindas na resposta. */
   const extractRowsFlat = (data: unknown): Record<string, unknown>[] => {
-    const arr = extractPersonLikeRows(data);
+    const arr = extractCaPessoasListRows(data);
     if (arr?.length) return arr.filter(isRecord) as Record<string, unknown>[];
     const t = data as CaPeopleSearchResponse;
     const legacy = ([] as CaPerson[])
