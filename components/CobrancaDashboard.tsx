@@ -38,6 +38,15 @@ export function CobrancaDashboard() {
   const [cobEmailTplSaving, setCobEmailTplSaving] = useState(false);
   const [smtpCobOpenCharges, setSmtpCobOpenCharges] = useState(false);
   const [sendingCobEmailClientId, setSendingCobEmailClientId] = useState<string | null>(null);
+  const [cobSendModalOpen, setCobSendModalOpen] = useState(false);
+  const [cobSendPreviewLoading, setCobSendPreviewLoading] = useState(false);
+  const [cobSendClient, setCobSendClient] = useState<ClientRow | null>(null);
+  const [cobSendSubject, setCobSendSubject] = useState("");
+  const [cobSendBody, setCobSendBody] = useState("");
+  const [cobSendEmailRaw, setCobSendEmailRaw] = useState("");
+  const [cobSendPdfCount, setCobSendPdfCount] = useState(0);
+  const [cobSendHadGaps, setCobSendHadGaps] = useState(false);
+  const [cobSendHtmlPreview, setCobSendHtmlPreview] = useState("");
   /** Invalida merges de contratos quando período / refresh mudam antes da API responder. */
   const receivablesLoadGenRef = useRef(0);
   /** Observações: última versão confirmada pela API neste navegador (por cliente). */
@@ -305,7 +314,19 @@ export function CobrancaDashboard() {
     }
   }, [cobEmailTpl.subject, cobEmailTpl.bodyText]);
 
-  const sendOpenChargesEmail = useCallback(
+  const closeCobSendModal = useCallback(() => {
+    setCobSendModalOpen(false);
+    setCobSendPreviewLoading(false);
+    setCobSendClient(null);
+    setCobSendSubject("");
+    setCobSendBody("");
+    setCobSendEmailRaw("");
+    setCobSendPdfCount(0);
+    setCobSendHadGaps(false);
+    setCobSendHtmlPreview("");
+  }, []);
+
+  const openCobChargesEmailComposer = useCallback(
     async (c: ClientRow) => {
       const dest = parseEmailAddresses(c.email === "—" ? "" : c.email);
       if (!dest.length) {
@@ -318,23 +339,13 @@ export function CobrancaDashboard() {
         );
         return;
       }
-
-      const intro =
-        "Enviaremos um único e-mail com todas as parcelas desta expansão — anexam-se os PDFs que o servidor conseguir obter (inclui boleto iugu quando o pedido público à Conta Azul funciona para essa cobrança).";
-      const nuance =
-        "Parcelas cuja página seja só HTML (Pix ou escolher meio), ou onde o PDF público não estiver disponível, entram apenas como hiperligações — abrir no navegador e usar «Fazer download do boleto» quando existir esse botão.";
-      if (
-        !window.confirm(
-          `${intro}\n\n${nuance}\n\nDestinatários: ${dest.join(", ")}\n\nContinuar?`,
-        )
-      ) {
-        return;
-      }
-
-      setSendingCobEmailClientId(c.id);
+      setCobSendModalOpen(true);
+      setCobSendPreviewLoading(true);
+      setCobSendClient(c);
+      setCobSendEmailRaw(c.email === "—" ? "" : c.email);
       setActionMsg(null);
       try {
-        const res = await fetch("/api/cobranca-aberta/send", {
+        const res = await fetch("/api/cobranca-aberta/preview", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
@@ -348,24 +359,90 @@ export function CobrancaDashboard() {
         });
         const { data, rawText } = await readJsonFromResponse<{
           ok?: boolean;
+          subject?: string;
+          bodyPlain?: string;
+          htmlPreview?: string;
           pdfAttachments?: number;
-          linksListed?: number;
-          recipients?: string[];
+          hadAttachmentGaps?: boolean;
           error?: string;
         }>(res);
         if (!res.ok || !data?.ok) {
-          setActionMsg(data?.error || rawText.slice(0, 220) || "Falha ao enviar e-mail.");
+          setActionMsg(data?.error || rawText.slice(0, 220) || "Falha ao montar pré-visualização.");
+          closeCobSendModal();
           return;
         }
-        setActionMsg(
-          `Enviado para ${data.recipients?.join(", ") ?? "?"} — PDFs em anexo: ${data.pdfAttachments ?? 0}; links no texto: ${data.linksListed ?? 0}.`,
-        );
+        setCobSendSubject(data.subject ?? "");
+        setCobSendBody(data.bodyPlain ?? "");
+        setCobSendPdfCount(data.pdfAttachments ?? 0);
+        setCobSendHadGaps(Boolean(data.hadAttachmentGaps));
+        setCobSendHtmlPreview(data.htmlPreview ?? "");
+      } catch {
+        setActionMsg("Falha de rede ao pedir pré-visualização.");
+        closeCobSendModal();
       } finally {
-        setSendingCobEmailClientId(null);
+        setCobSendPreviewLoading(false);
       }
     },
-    [smtpCobOpenCharges],
+    [closeCobSendModal, smtpCobOpenCharges],
   );
+
+  const confirmCobChargesEmailSend = useCallback(async () => {
+    const c = cobSendClient;
+    if (!c) return;
+
+    const to = parseEmailAddresses(cobSendEmailRaw.trim());
+    if (!to.length) {
+      setActionMsg("Introduza pelo menos um e-mail válido em «Para».");
+      return;
+    }
+    if (!cobSendSubject.trim()) {
+      setActionMsg("Introduza o assunto.");
+      return;
+    }
+
+    setSendingCobEmailClientId(c.id);
+    setActionMsg(null);
+    try {
+      const res = await fetch("/api/cobranca-aberta/send", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: c.id,
+          fantasy: c.fantasy,
+          cnpj: c.cnpj === "—" ? "" : c.cnpj,
+          emailRaw: cobSendEmailRaw.trim(),
+          subject: cobSendSubject.trim(),
+          bodyPlain: cobSendBody,
+          sales: c.sales,
+        }),
+      });
+      const { data, rawText } = await readJsonFromResponse<{
+        ok?: boolean;
+        pdfAttachments?: number;
+        hadAttachmentGaps?: boolean;
+        recipients?: string[];
+        error?: string;
+      }>(res);
+      if (!res.ok || !data?.ok) {
+        setActionMsg(data?.error || rawText.slice(0, 220) || "Falha ao enviar e-mail.");
+        return;
+      }
+      let msg =
+        `Enviado para ${data.recipients?.join(", ") ?? "?"} — ${data.pdfAttachments ?? 0} PDF(s) em anexo.`;
+      if (data.hadAttachmentGaps) msg += " (Algum PDF não ficou disponível aqui para anexar.)";
+      setActionMsg(msg);
+      closeCobSendModal();
+    } finally {
+      setSendingCobEmailClientId(null);
+    }
+  }, [
+    cobSendBody,
+    cobSendClient,
+    cobSendEmailRaw,
+    cobSendSubject,
+    closeCobSendModal,
+  ]);
 
   const persistClientMetaNote = useCallback(
     async (clientId: string, noteFull: string, opts?: { keepalive?: boolean }) => {
@@ -688,7 +765,7 @@ export function CobrancaDashboard() {
             <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{TOTAL}}"}</code>,{" "}
             <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{DOCUMENTOS}}"}</code>,{" "}
             <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{MARCA}}"}</code>.
-            Boletos: tentativa de PDF público Conta Azul (iugu) + outros caminhos; se ficar só a página HTML, entra só como link.
+            Boletos novos (Conta Azul / iugu) tentam ir em PDF nos anexos; se faltar algum, aparece um aviso na revisão antes de enviar.
           </p>
           {cobEmailTplOpen ? (
             <div className="mt-2 space-y-2">
@@ -803,7 +880,7 @@ export function CobrancaDashboard() {
                         className="max-w-[12rem] border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800"
                         title={c.fantasy}
                       >
-                        <div className="flex items-start gap-1">
+                        <div className="flex items-center gap-0.5">
                           <button
                             type="button"
                             onClick={() => toggle(c.id)}
@@ -818,9 +895,9 @@ export function CobrancaDashboard() {
                           <CopyTextButton text={c.fantasy} label={`Copiar nome fantasia (${c.fantasy})`} />
                         </div>
                       </td>
-                      <td className="whitespace-nowrap border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800">
-                        <div className="flex flex-wrap items-center gap-1">
-                          <span className="tabular-nums text-slate-700 dark:text-slate-300">
+                      <td className="border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800">
+                        <div className="flex min-w-0 flex-nowrap items-center gap-0.5">
+                          <span className="min-w-0 truncate tabular-nums text-slate-700 dark:text-slate-300">
                             {formatBrazilianTaxId(c.cnpj)}
                           </span>
                           {c.cnpj !== "—" ? (
@@ -851,8 +928,8 @@ export function CobrancaDashboard() {
                             );
                           }
                           return (
-                            <div className="space-y-1 break-all text-[0.65rem] leading-snug">
-                              <ul className="list-none space-y-0.5">
+                            <div className="flex min-w-0 items-start gap-0.5 break-all text-[0.65rem] leading-snug">
+                              <ul className="min-w-0 flex-1 list-none space-y-0.5">
                                 {emails.map((em) => (
                                   <li key={em}>
                                     <a
@@ -868,7 +945,6 @@ export function CobrancaDashboard() {
                               <CopyTextButton
                                 text={joined}
                                 label="Copiar todos os e-mails deste cliente"
-                                className="!normal-case !tracking-normal"
                               />
                             </div>
                           );
@@ -925,19 +1001,21 @@ export function CobrancaDashboard() {
                               disabled={
                                 !canSendCobEmail ||
                                 sendingCobEmailClientId === c.id ||
-                                !cobEmailTpl.loaded
+                                (cobSendModalOpen &&
+                                  cobSendPreviewLoading &&
+                                  cobSendClient?.id === c.id)
                               }
-                              onClick={() => void sendOpenChargesEmail(c)}
+                              onClick={() => void openCobChargesEmailComposer(c)}
                               className="rounded-lg border border-violet-600 bg-violet-50 px-3 py-1.5 text-[0.65rem] font-semibold text-violet-950 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-900/50"
                               title={
                                 !smtpCobOpenCharges
                                   ? "Configure OC_EMAIL_SMTP_* e OC_EMAIL_FROM"
-                                  : "Um único e-mail com todas as parcelas deste cliente"
+                                  : "Revisar texto e destinatários, depois enviar um único e-mail com anexos"
                               }
                             >
                               {sendingCobEmailClientId === c.id
-                                ? "Enviando e-mail…"
-                                : "Enviar e-mail (todas as cobranças)"}
+                                ? "A enviar…"
+                                : "Revisar e enviar e-mail"}
                             </button>
                             {!smtpCobOpenCharges ? (
                               <span className="text-[0.6rem] text-amber-800 dark:text-amber-200">
@@ -947,9 +1025,6 @@ export function CobrancaDashboard() {
                                 </code>
                                 ).
                               </span>
-                            ) : null}
-                            {!cobEmailTpl.loaded ? (
-                              <span className="text-[0.6rem] text-slate-500">A carregar modelo…</span>
                             ) : null}
                           </div>
                           <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-600">
@@ -1022,6 +1097,141 @@ export function CobrancaDashboard() {
           </table>
         </div>
       </div>
+
+      {cobSendModalOpen && cobSendClient ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cob-send-title"
+          onClick={() => void closeCobSendModal()}
+          onKeyDown={(ev) => {
+            if (ev.key === "Escape" && !sendingCobEmailClientId) closeCobSendModal();
+          }}
+        >
+          <div
+            className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl outline-none dark:border-slate-700 dark:bg-slate-950"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+            tabIndex={-1}
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+              <div>
+                <h2
+                  id="cob-send-title"
+                  className="text-base font-bold text-slate-900 dark:text-slate-100"
+                >
+                  Revisar e-mail — {cobSendClient.fantasy}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Altere destinatários e texto. Enviamos texto simples e uma versão HTML com marca{" "}
+                  <span className="font-semibold text-[#0066cc]">Radio Ibiza</span>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void closeCobSendModal()}
+                disabled={Boolean(sendingCobEmailClientId) || cobSendPreviewLoading}
+                className="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+              {cobSendPreviewLoading ? (
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  A preparar texto e PDFs das parcelas…
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-0.5 block text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Para (e-mails separados por vírgula)
+                    </label>
+                    <textarea
+                      value={cobSendEmailRaw}
+                      onChange={(e) => setCobSendEmailRaw(e.target.value)}
+                      rows={2}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-0.5 block text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Assunto
+                    </label>
+                    <input
+                      value={cobSendSubject}
+                      onChange={(e) => setCobSendSubject(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-0.5 block text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Mensagem (texto)
+                    </label>
+                    <textarea
+                      value={cobSendBody}
+                      onChange={(e) => setCobSendBody(e.target.value)}
+                      rows={12}
+                      spellCheck={true}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs leading-relaxed dark:border-slate-600 dark:bg-slate-900"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-[0.7rem]">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                      PDFs a anexar: {cobSendPdfCount}
+                    </span>
+                    {cobSendHadGaps ? (
+                      <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-amber-950 dark:bg-amber-950/55 dark:text-amber-50">
+                        Atenção: uma ou mais parcelas não geraram PDF automático.
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-[0.65rem] text-slate-500 dark:text-slate-400">
+                    No envio, o servidor gera novamente o HTML com base no texto acima (mantendo o mesmo cabeçalho Radio Ibiza). A pré-visualização
+                    em baixo pode ficar antiga até fechar e reabrir esta janela.
+                  </p>
+                  {cobSendHtmlPreview ? (
+                    <details className="rounded-lg border border-slate-200 dark:border-slate-700">
+                      <summary className="cursor-pointer select-none px-2 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        Pré-visualização HTML (como aparece ao cliente)
+                      </summary>
+                      <iframe
+                        title="HTML do e-mail"
+                        sandbox=""
+                        srcDoc={cobSendHtmlPreview}
+                        className="h-60 w-full border-t border-slate-200 bg-white dark:border-slate-700"
+                      />
+                    </details>
+                  ) : null}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => void closeCobSendModal()}
+                disabled={
+                  cobSendPreviewLoading || sendingCobEmailClientId === cobSendClient.id
+                }
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-900"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={cobSendPreviewLoading || sendingCobEmailClientId === cobSendClient.id}
+                onClick={() => void confirmCobChargesEmailSend()}
+                className="rounded-lg bg-[#0066cc] px-4 py-2 text-sm font-semibold text-white hover:brightness-105 disabled:opacity-50 dark:bg-sky-600"
+              >
+                {sendingCobEmailClientId === cobSendClient.id ? "A enviar…" : "Enviar agora"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <footer className="mt-8 text-xs text-slate-500 dark:text-slate-500">
         {COMPANY_NAME} — variáveis:{" "}

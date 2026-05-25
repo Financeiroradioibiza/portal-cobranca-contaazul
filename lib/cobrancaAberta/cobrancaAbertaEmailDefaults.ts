@@ -12,8 +12,6 @@ Resumo das cobranças vencidas em aberto:
 
 Total em aberto: {{TOTAL}}
 
-{{DOCUMENTOS}}
-
 —
 {{MARCA}}`;
 

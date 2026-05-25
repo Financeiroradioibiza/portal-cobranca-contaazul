@@ -1,4 +1,8 @@
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
+import {
+  extractBillingChargeUuidFromUrlString,
+  fetchBillingChargePdfPublic,
+} from "@/lib/contaazul/billingChargeFilePdf";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
 import type { SaleRow } from "@/lib/types";
@@ -83,6 +87,24 @@ export async function collectOpenChargesEmailAssets(
         continue;
       }
       if (res.kind === "external_redirect") {
+        if (tipo === "boleto") {
+          const uuidRetry = extractBillingChargeUuidFromUrlString(res.url);
+          if (uuidRetry) {
+            const got = await fetchBillingChargePdfPublic(uuidRetry);
+            if (
+              got?.buffer &&
+              isProbablyPdf(got.buffer, "application/pdf") &&
+              attachments.length < MAX_ATTACHMENTS
+            ) {
+              attachments.push({
+                filename: buildFilename(s.comp, s.id, role),
+                content: got.buffer,
+                contentType: "application/pdf",
+              });
+              continue;
+            }
+          }
+        }
         const pdf = await fetchPublicUrlAsPdf(res.url);
         if (pdf && attachments.length < MAX_ATTACHMENTS) {
           attachments.push({

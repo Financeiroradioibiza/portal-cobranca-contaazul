@@ -23,6 +23,42 @@ const RX_FATURA_HASH_VISUALIZAR = new RegExp(
   `#/+fatura/+visualizar/+(${UUID})`,
   "i",
 );
+const RX_VISUALIZAR_FLEX = new RegExp(
+  `visualizar(?:/|%2[Ff])(${UUID})`,
+  "i",
+);
+
+function tryDecodeUrl(s: string): string {
+  try {
+    return decodeURIComponent(s.replace(/\+/g, " "));
+  } catch {
+    return s;
+  }
+}
+
+/** Tenta tirar um UUID da cobrança até de URLs só com fragment ou percent-encoded. */
+export function extractBillingChargeUuidFromUrlString(raw: string): string | null {
+  const variants = [...new Set([raw, tryDecodeUrl(raw)])];
+  for (const v of variants) {
+    let m = v.match(RX_CHARGE_FILE_URL);
+    if (m?.[1]) return m[1];
+    m = v.match(RX_FATURA_HASH_VISUALIZAR);
+    if (m?.[1]) return m[1];
+    m = v.match(RX_VISUALIZAR_FLEX);
+    if (m?.[1]) return m[1];
+  }
+
+  const base = variants[0] ?? raw;
+  if (/faturas\.contaazul\.com/i.test(base)) {
+    const fragment = base.includes("#") ? base.slice(base.indexOf("#")) : base;
+    const reGlob = new RegExp(`(${UUID})`, "gi");
+    let last: string | null = null;
+    let mm: RegExpExecArray | null;
+    while ((mm = reGlob.exec(fragment)) !== null) last = mm[1];
+    if (last) return last;
+  }
+  return null;
+}
 
 /** Junta todas as URLs em que o uuid da cobrança pode aparecer. */
 export function extractBillingChargeFileUuid(
@@ -48,6 +84,10 @@ export function extractBillingChargeFileUuid(
   for (const raw of candidates) {
     const mHash = raw.match(RX_FATURA_HASH_VISUALIZAR);
     if (mHash?.[1]) return mHash[1];
+  }
+  for (const raw of candidates) {
+    const loose = extractBillingChargeUuidFromUrlString(raw);
+    if (loose) return loose;
   }
   return null;
 }
@@ -75,7 +115,8 @@ export async function fetchBillingChargePdfPublic(
         Origin: "https://faturas.contaazul.com",
         Referer: "https://faturas.contaazul.com/",
         "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "sec-fetch-site": "same-site",
       },
       redirect: "follow",
       cache: "no-store",

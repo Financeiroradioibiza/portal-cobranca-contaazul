@@ -682,7 +682,8 @@ export function ManualEnviosPanel() {
               </pre>
               <div className="mt-2">
                 <CopyTextButton
-                  label="copiar-previa-corpo-oc"
+                  variant="text"
+                  label="Copiar pré-visualização do corpo do pedido OC"
                   text={ocPreviewBodyRendered}
                   className="text-[11px] text-sky-700 underline-offset-2 hover:underline dark:text-sky-400"
                 />
@@ -885,7 +886,8 @@ export function ManualEnviosPanel() {
                       {row.emailCobranca ? (
                         <div className="mt-1">
                           <CopyTextButton
-                            label="copiar-emails-oc"
+                            variant="text"
+                            label="Copiar e-mails OC desta linha"
                             text={row.emailCobranca}
                             className="text-[11px] text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
                           />
