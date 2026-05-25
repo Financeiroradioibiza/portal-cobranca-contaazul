@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { patchRioCompClienteLinha } from "@/lib/rio/rioClienteCompService";
+import { patchRioCompClienteLinha, reconcileRioCompGrupoLinks } from "@/lib/rio/rioClienteCompService";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
 
@@ -35,6 +35,8 @@ export async function PATCH(request: Request, context: Ctx) {
     numeroPdvSite: number;
     categoriaSite: string;
     observacoesLinha: string;
+    sortOrder: number;
+    rioGrupoId: string | null;
   }> = {};
 
   if (typeof body.grupoSite === "string") patch.grupoSite = body.grupoSite.slice(0, 8000);
@@ -46,11 +48,49 @@ export async function PATCH(request: Request, context: Ctx) {
     patch.numeroPdvSite = Math.max(0, Math.floor(body.numeroPdvSite));
   }
 
-  await patchRioCompClienteLinha(linha.id, patch);
-  const ref = await prisma.rioCompClienteLinha.findUniqueOrThrow({
-    where: { id: linha.id },
-    include: { pdvs: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
-  });
+  if (typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)) {
+    patch.sortOrder = Math.max(0, Math.floor(body.sortOrder));
+  }
 
-  return NextResponse.json({ ok: true, linha: ref });
+  if (body.rioGrupoId === null) {
+    patch.rioGrupoId = null;
+  } else if (typeof body.rioGrupoId === "string") {
+    const gid = body.rioGrupoId.trim();
+    patch.rioGrupoId = gid.length ? gid : null;
+  }
+
+  if (typeof patch.rioGrupoId === "string") {
+    const g = await prisma.rioCompGrupo.findFirst({
+      where: { id: patch.rioGrupoId, monthId: month.id },
+    });
+    if (!g) return NextResponse.json({ error: "grupo_not_found" }, { status: 400 });
+    patch.grupoSite = g.nome;
+  } else if (patch.rioGrupoId === null) {
+    patch.grupoSite = "";
+  }
+
+  await patchRioCompClienteLinha(linha.id, patch);
+  if (patch.grupoSite !== undefined || Object.prototype.hasOwnProperty.call(patch, "rioGrupoId")) {
+    await reconcileRioCompGrupoLinks(month.id);
+  }
+  const raw = await prisma.rioCompClienteLinha.findUniqueOrThrow({
+    where: { id: linha.id },
+    include: {
+      pdvs: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      rioGrupo: { select: { id: true, nome: true, sortOrder: true } },
+    },
+  });
+  const { rioGrupo: rg, ...core } = raw;
+  const linhaOut = {
+    ...core,
+    grupo:
+      rg ?
+        {
+          id: rg.id,
+          nome: rg.nome,
+          sortOrder: rg.sortOrder,
+        }
+      : null,
+  };
+  return NextResponse.json({ ok: true, linha: linhaOut });
 }

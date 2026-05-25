@@ -23,6 +23,7 @@ export async function GET(_req: Request, context: Ctx) {
       return NextResponse.json({
         month: null,
         yearMonth: ym,
+        grupos: [],
         linhas: [],
       });
     }
@@ -30,6 +31,7 @@ export async function GET(_req: Request, context: Ctx) {
     const full = await getRioCompMonthWithLinhas(ym);
     return NextResponse.json({
       month: full?.month ?? monthMeta,
+      grupos: full?.grupos ?? [],
       linhas: full?.linhas ?? [],
     });
   } catch (e) {
@@ -51,6 +53,7 @@ export async function PUT(_req: Request, context: Ctx) {
     const full = await getRioCompMonthWithLinhas(ym);
     return NextResponse.json({
       month: full?.month ?? null,
+      grupos: full?.grupos ?? [],
       linhas: full?.linhas ?? [],
     });
   } catch (e) {

@@ -200,15 +200,34 @@ model RioCompMonth {
   lastSyncedAt DateTime? @map("last_synced_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
+  grupos RioCompGrupo[]
   linhas RioCompClienteLinha[]
 
   @@map("rio_comp_month")
+}
+
+/// Marca agrupadora (PDF «MARCA») — arrastar clientes dentro no painel Rio.
+model RioCompGrupo {
+  id       String       @id @default(cuid())
+  monthId  String       @map("month_id")
+  month    RioCompMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+
+  nome      String @default("") @map("nome") @db.Text
+  sortOrder Int    @default(0) @map("sort_order")
+
+  linhas RioCompClienteLinha[]
+
+  @@index([monthId, sortOrder])
+  @@map("rio_comp_grupo")
 }
 
 model RioCompClienteLinha {
   id       String       @id @default(cuid())
   monthId  String       @map("month_id")
   month    RioCompMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+
+  rioGrupoId String?        @map("rio_grupo_id")
+  rioGrupo   RioCompGrupo? @relation(fields: [rioGrupoId], references: [id], onDelete: SetNull)
 
   caPersonId String @map("ca_person_id")
 

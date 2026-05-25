@@ -61,12 +61,13 @@ export async function POST(req: Request, context: Ctx) {
     inferRaw !== "0" && inferRaw !== "false" && inferRaw !== "off";
 
   try {
-    const { month, linhas } = await replaceRioCompMonthFromImportedRows(ym, rows, {
+    const { month, grupos, linhas } = await replaceRioCompMonthFromImportedRows(ym, rows, {
       inferMovementVsPriorMonth,
     });
     return NextResponse.json({
       ok: true,
       month,
+      grupos,
       linhas,
       count: linhas.length,
       warnings,

@@ -36,11 +36,18 @@ export async function POST(req: Request, context: Ctx) {
   }
 
   try {
-    const { month, linhas, caPersonListingCount, syncedContractsFromCa, syncedPersonDetailsFromCa } =
-      await syncRioCompMonthFromContaAzul(token, ym, { includeContracts, includePersonDetails });
+    const {
+      month,
+      grupos,
+      linhas,
+      caPersonListingCount,
+      syncedContractsFromCa,
+      syncedPersonDetailsFromCa,
+    } = await syncRioCompMonthFromContaAzul(token, ym, { includeContracts, includePersonDetails });
     return NextResponse.json({
       ok: true,
       month,
+      grupos,
       linhas,
       count: linhas.length,
       caPersonListingCount,

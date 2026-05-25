@@ -1,80 +1,68 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
+import {
+  ClienteMarcaBlock,
+  type RioGrupoCb,
+  type RioLinhaCb,
+} from "@/components/rio/ClienteMarcaBlock";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
+import { arrayMove } from "@dnd-kit/sortable";
 
 type MonthMeta = { id: string; yearMonth: number };
-type Mov = "estavel" | "entrada" | "saida";
 
-type RioPdv = {
-  id: string;
-  nome: string;
-  notes: string;
-  sortOrder: number;
-};
+type RioGrupo = RioGrupoCb;
+type RioLinha = RioLinhaCb;
+type RioPdv = RioLinha["pdvs"][number];
 
-type RioLinha = {
-  id: string;
-  caPersonId: string;
-  grupoSite: string;
-  nomeFantasia: string;
-  razaoSocial: string;
-  documento: string | null;
-  emailCobranca: string | null;
-  valorClienteTexto: string;
-  numeroPdvSite: number;
-  categoriaSite: string;
-  contratosAtivosTexto: string;
-  movimento: Mov;
-  observacoesLinha: string;
-  pdvs: RioPdv[];
-};
+function bucketize(grupOrd: RioGrupo[], linhasAll: RioLinha[]) {
+  const map = new Map<string, RioLinha[]>();
+  for (const g of grupOrd) map.set(g.id, []);
+  const orphans: RioLinha[] = [];
 
-const CAT_OPTIONS = ["", "moda", "shopping", "hotelaria", "gastronomia", "outro"];
-
-function movBadge(m: Mov) {
-  if (m === "entrada") {
-    return (
-      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-100">
-        Entrada no mês
-      </span>
-    );
+  for (const ln of linhasAll) {
+    const gid = ln.rioGrupoId;
+    if (gid && map.has(gid)) map.get(gid)!.push(ln);
+    else orphans.push(ln);
   }
-  if (m === "saida") {
-    return (
-      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900 dark:bg-rose-900/55 dark:text-rose-100">
-        Saiu no mês
-      </span>
-    );
-  }
-  return (
-    <span className="text-[10px] text-slate-400 dark:text-slate-500">—</span>
+
+  map.forEach((arr) =>
+    arr.sort(
+      (a, b) =>
+        (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+        a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" }),
+    ),
   );
+  orphans.sort(
+    (a, b) =>
+      (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+      a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" }),
+  );
+  return { map, orphans } as const;
 }
 
-function contractsCell(txt: string) {
-  const t = txt.trim();
-  if (!t || t === "—") {
-    return (
-      <span className="inline-flex min-w-[4.5rem] justify-center rounded-md bg-orange-500/95 px-2 py-1 text-[11px] font-semibold text-white shadow-sm">
-        Sem contrato
-      </span>
+function stripLineFromBuckets(
+  map: Map<string, RioLinha[]>,
+  orphansList: RioLinha[],
+  lineId: string,
+): { map: Map<string, RioLinha[]>; orphans: RioLinha[] } {
+  const m2 = new Map<string, RioLinha[]>();
+  map.forEach((arr, k) => {
+    m2.set(
+      k,
+      arr.filter((x) => x.id !== lineId),
     );
-  }
-  return (
-    <span className="inline-flex min-w-[4.5rem] justify-center rounded-md bg-emerald-700 px-2 py-1 text-[11px] font-semibold text-white shadow-sm">
-      {t}
-    </span>
-  );
+  });
+  return { map: m2, orphans: orphansList.filter((x) => x.id !== lineId) };
 }
 
 export function RioClientesCompPanel() {
@@ -83,6 +71,7 @@ export function RioClientesCompPanel() {
   const [activeYm, setActiveYm] = useState<number>(todayYm);
   const [monthInfo, setMonthInfo] = useState<{ lastSyncedAt: string | null } | null>(null);
   const [linhas, setLinhas] = useState<RioLinha[]>([]);
+  const [grupos, setGrupos] = useState<RioGrupo[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -112,21 +101,25 @@ export function RioClientesCompPanel() {
       });
       const { data, rawText } = await readJsonFromResponse<{
         month?: { lastSyncedAt?: string } | null;
+        grupos?: RioGrupo[];
         linhas?: RioLinha[];
       }>(res);
       if (!res.ok) {
         setMsg(data && "error" in data ? String((data as { error: string }).error) : rawText.slice(0, 200));
         setLinhas([]);
+        setGrupos([]);
         setMonthInfo(null);
         return;
       }
       setMonthInfo(
         data?.month ? { lastSyncedAt: data.month.lastSyncedAt ?? null } : { lastSyncedAt: null },
       );
+      setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
       setLinhas(Array.isArray(data?.linhas) ? data!.linhas! : []);
     } catch {
       setMsg("Falha ao carregar competência.");
       setLinhas([]);
+      setGrupos([]);
     } finally {
       setLoading(false);
     }
@@ -168,6 +161,7 @@ export function RioClientesCompPanel() {
         }),
       });
       const { data, rawText, parseError } = await readJsonFromResponse<{
+        grupos?: RioGrupo[];
         linhas?: RioLinha[];
         error?: string;
         count?: number;
@@ -195,6 +189,7 @@ export function RioClientesCompPanel() {
         return;
       }
       setLinhas(data?.linhas ?? []);
+      setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
       setMonthInfo((m) => ({ lastSyncedAt: new Date().toISOString() }));
       const n = data?.count ?? data?.linhas?.length ?? 0;
       const listed = data?.caPersonListingCount;
@@ -217,7 +212,7 @@ export function RioClientesCompPanel() {
     } finally {
       setSyncing(false);
     }
-  }, [activeYm, syncIncludeContracts, syncIncludePersonDetails]);
+  }, [activeYm, syncIncludeContracts, syncIncludePersonDetails, loadMonths]);
 
   const runImportFile = useCallback(
     async (file: File) => {
@@ -239,6 +234,7 @@ export function RioClientesCompPanel() {
           credentials: "include",
         });
         const { data, rawText } = await readJsonFromResponse<{
+          grupos?: RioGrupo[];
           linhas?: RioLinha[];
           error?: string;
           count?: number;
@@ -250,6 +246,7 @@ export function RioClientesCompPanel() {
           return;
         }
         setLinhas(data?.linhas ?? []);
+        setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
         setMonthInfo((m) => ({ lastSyncedAt: new Date().toISOString() }));
         const w = Array.isArray(data?.warnings) ? data!.warnings.filter(Boolean) : [];
         const warnTxt = w.length ? ` Avisos: ${w.join(" ")}` : "";
@@ -343,18 +340,183 @@ export function RioClientesCompPanel() {
     );
   }, []);
 
-  const toggleExpand = useCallback((id: string) => {
-    setExpanded((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
+  const grupoOrd = useMemo(
+    () => [...grupos].sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)),
+    [grupos],
+  );
+
+  const { map: buckets, orphans } = useMemo(() => bucketize(grupoOrd, linhas), [grupoOrd, linhas]);
+
+  const persistBuckets = useCallback(
+    async (mapArg: Map<string, RioLinha[]>, orphansArg: RioLinha[]) => {
+      const items: { id: string; rio_grupo_id: string | null; sort_order: number }[] = [];
+      let ord = 0;
+      for (const g of grupoOrd) {
+        const lst = mapArg.get(g.id) ?? [];
+        for (const l of lst) {
+          items.push({ id: l.id, rio_grupo_id: g.id, sort_order: ord });
+          ord += 1;
+        }
+      }
+      for (const l of orphansArg) {
+        items.push({ id: l.id, rio_grupo_id: null, sort_order: ord });
+        ord += 1;
+      }
+      const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/linhas/layout`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const { data, rawText } = await readJsonFromResponse<{ linhas?: RioLinha[]; grupos?: RioGrupo[] }>(res);
+      if (!res.ok) {
+        const errMsg =
+          data && typeof data === "object" && data !== null && "error" in data ?
+            String((data as { error: string }).error)
+          : rawText.slice(0, 220);
+        setMsg(errMsg);
+        return;
+      }
+      if (Array.isArray(data?.linhas)) setLinhas(data!.linhas!);
+      if (Array.isArray(data?.grupos)) setGrupos(data!.grupos!);
+      setMsg(null);
+    },
+    [activeYm, grupoOrd],
+  );
+
+  const reorderMesmaMarca = useCallback(
+    async (marcaId: string | null, activeId: string, overId: string) => {
+      const mapClone = new Map(buckets);
+      let list = marcaId ? [...(mapClone.get(marcaId) ?? [])] : [...orphans];
+      const oi = list.findIndex((x) => x.id === activeId);
+      const ni = list.findIndex((x) => x.id === overId);
+      if (oi < 0 || ni < 0 || oi === ni) return;
+      list = arrayMove(list, oi, ni).map((x) =>
+        marcaId ?
+          ({
+            ...x,
+            rioGrupoId: marcaId,
+            grupo: grupoOrd.find((g) => g.id === marcaId) ?? null,
+            grupoSite: grupoOrd.find((g) => g.id === marcaId)?.nome ?? x.grupoSite,
+          })
+        : {
+            ...x,
+            rioGrupoId: null,
+            grupo: null,
+            grupoSite: "",
+          },
+      );
+      if (marcaId) mapClone.set(marcaId, list);
+      const orphansNext = marcaId ? [...orphans] : list;
+      await persistBuckets(mapClone, orphansNext);
+    },
+    [buckets, orphans, grupoOrd, persistBuckets],
+  );
+
+  const moveLinhaEntreMarcas = useCallback(
+    async (linhaId: string, marcaSel: string) => {
+      const targetId = marcaSel.trim().length ? marcaSel : null;
+      const ln = linhas.find((x) => x.id === linhaId);
+      if (!ln) return;
+      const { map: mc, orphans: oc } = stripLineFromBuckets(buckets, orphans, linhaId);
+      let moved: RioLinha = {
+        ...ln,
+        rioGrupoId: targetId,
+        grupo: targetId ? (grupoOrd.find((g) => g.id === targetId) ?? null) : null,
+        grupoSite: targetId ? (grupoOrd.find((g) => g.id === targetId)?.nome ?? ln.grupoSite) : "",
+      };
+      if (targetId) {
+        const lst = [...(mc.get(targetId) ?? [])];
+        lst.push(moved);
+        mc.set(targetId, lst);
+        await persistBuckets(mc, oc);
+      } else {
+        const oc2 = [...oc, moved];
+        await persistBuckets(mc, oc2);
+      }
+    },
+    [buckets, orphans, grupoOrd, linhas, persistBuckets],
+  );
+
+  const deslocarBlocoMarca = useCallback(
+    async (ix: number, delta: number) => {
+      const ids = grupoOrd.map((g) => g.id);
+      const j = ix + delta;
+      if (j < 0 || j >= ids.length) return;
+      const nextIds = arrayMove(ids, ix, j);
+      const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/grupos`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedIds: nextIds }),
+      });
+      const { data, rawText } = await readJsonFromResponse<{ linhas?: RioLinha[]; grupos?: RioGrupo[] }>(res);
+      if (!res.ok) {
+        setMsg(rawText.slice(0, 200));
+        return;
+      }
+      if (Array.isArray(data?.grupos)) setGrupos(data!.grupos!);
+      if (Array.isArray(data?.linhas)) setLinhas(data!.linhas!);
+    },
+    [activeYm, grupoOrd],
+  );
+
+  const criarMarca = useCallback(async () => {
+    const nome = window.prompt("Nome da MARCA (tipo coluna MARCA no PDF):")?.trim();
+    const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/grupos`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome: nome ?? "" }),
     });
-  }, []);
+    const { data, rawText } = await readJsonFromResponse<{ linhas?: RioLinha[]; grupos?: RioGrupo[] }>(res);
+    if (!res.ok) {
+      setMsg(rawText.slice(0, 200));
+      return;
+    }
+    if (Array.isArray(data?.grupos)) setGrupos(data!.grupos!);
+    if (Array.isArray(data?.linhas)) setLinhas(data!.linhas!);
+    setMsg("MARCA criada — atribua clientes pela coluna ou arraste dentro do bloco.");
+  }, [activeYm]);
+
+  const renomearMarca = useCallback(
+    async (grupoId: string, novoNome: string) => {
+      const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/grupos/${grupoId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: novoNome }),
+      });
+      const { data } = await readJsonFromResponse<{ linhas?: RioLinha[]; grupos?: RioGrupo[] }>(res);
+      if (!res.ok) return;
+      if (Array.isArray(data?.grupos)) setGrupos(data!.grupos!);
+      if (Array.isArray(data?.linhas)) setLinhas(data!.linhas!);
+    },
+    [activeYm],
+  );
+
+  const apagarMarcaVazia = useCallback(
+    async (grupoId: string) => {
+      const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/grupos/${grupoId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const { data, rawText } = await readJsonFromResponse<{ linhas?: RioLinha[]; grupos?: RioGrupo[] }>(res);
+      if (!res.ok) {
+        setMsg(rawText.includes("409") ? "Existem clientes nesta MARCA." : rawText.slice(0, 200));
+        return;
+      }
+      if (Array.isArray(data?.grupos)) setGrupos(data!.grupos!);
+      if (Array.isArray(data?.linhas)) setLinhas(data!.linhas!);
+      setMsg(null);
+    },
+    [activeYm],
+  );
 
   const exportExcel = useCallback(() => {
     const head = [
-      "Grupo",
+      "MARCA (bloco Rio)",
+      "Grupo texto (CSV)",
       "Cliente",
       "CNPJ",
       "Movimento",
@@ -367,6 +529,7 @@ export function RioClientesCompPanel() {
       "PDVs (lista)",
     ];
     const rows = linhas.map((r) => [
+      r.grupo?.nome ?? "",
       r.grupoSite,
       r.nomeFantasia,
       r.documento ?? "",
@@ -417,11 +580,10 @@ export function RioClientesCompPanel() {
             Planilha Rio — clientes ativos Conta Azul
           </h1>
           <p className="mt-1 max-w-[52rem] text-sm text-slate-600 dark:text-slate-400">
-            Mockup inicial: cada competência guarda uma fotografia dos <strong>clientes</strong> (sync API ou{" "}
-            <strong>importação CSV/Excel</strong>). Ao sincronizar pela API, comparamos com o{" "}
-            <strong>mês civil anterior</strong> já gravado aqui para marcar <em>entrada</em>/<em>saida</em>; importação
-            de ficheiro <strong>não usa</strong> a Conta Azul e substitui as linhas desta competência. Grupo, categoria e
-            PDVs você edita no site — importação em massa só de PDVs será o próximo passo.
+            Cada competência guarda uma fotografia dos clientes (<strong>sincronizar Conta Azul</strong> ou{" "}
+            <strong>importar CSV/Excel</strong>). Organiza por <strong>MARCA</strong> (como a coluna do teu PDF RIO — verdes
+            agregadores / PDVs CA em lista amarela numerada ao expandir). Arraste ≡ para ordenar clientes dentro de cada
+            MARCA; use ⧉ para copiar nome, CNPJ e e-mail separados por tab.
           </p>
           <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-500">
             {monthInfo?.lastSyncedAt ?
@@ -527,6 +689,13 @@ export function RioClientesCompPanel() {
         </a>
         <button
           type="button"
+          className="rounded-lg border border-emerald-900/71 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-950 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-50 dark:hover:bg-emerald-900/71"
+          onClick={() => void criarMarca()}
+        >
+          Nova MARCA
+        </button>
+        <button
+          type="button"
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
           onClick={() => void exportExcel()}
         >
@@ -558,146 +727,93 @@ export function RioClientesCompPanel() {
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <table className="min-w-[1100px] w-full border-collapse text-sm">
+        <table className="min-w-[1180px] w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-              <th className="px-2 py-2">Grupo</th>
-              <th className="px-2 py-2">Cliente</th>
-              <th className="px-2 py-2">CNPJ</th>
-              <th className="px-2 py-2">Mov.</th>
-              <th className="px-2 py-2">Contrato</th>
-              <th className="px-2 py-2">Valor</th>
-              <th className="px-2 py-2">Nº PDV</th>
-              <th className="px-2 py-2">Categoria</th>
-              <th className="px-2 py-2">E-mail cobrança</th>
-              <th className="px-2 py-2">Razão social</th>
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+              <th className="sticky left-0 z-[2] w-16 bg-slate-50 px-1 py-1 dark:bg-slate-900">⇅ / ⧉</th>
+              <th className="border-l px-1 py-1">Marca bloco</th>
+              <th className="border-l px-1 py-1">Cliente CA</th>
+              <th className="px-1 py-1">CNPJ</th>
+              <th className="border-l px-1 py-1 text-center">Mov.</th>
+              <th className="px-1 py-1 text-center">Contrato</th>
+              <th className="px-1 py-1">Valor</th>
+              <th className="px-1 py-1">Nº PDV</th>
+              <th className="px-1 py-1">Categoria</th>
+              <th className="px-1 py-1">E-mail cobrança</th>
+              <th className="px-1 py-1">Razão social</th>
             </tr>
           </thead>
-          <tbody>
-            {loading ?
+          {loading ?
+            <tbody>
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={11} className="px-3 py-8 text-center text-sm text-slate-500">
                   Carregando…
                 </td>
               </tr>
-            : linhas.length === 0 ?
+            </tbody>
+          : linhas.length === 0 ?
+            <tbody>
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
-                  Nenhuma linha. Use <strong>Importar CSV / Excel</strong> (export «Cliente» da Conta Azul) ou{" "}
-                  <strong>Sincronizar Conta Azul</strong>.
+                <td colSpan={11} className="px-3 py-8 text-center text-sm text-slate-500">
+                  Nenhuma linha. Use <strong>Importar CSV / Excel</strong> ou <strong>Sincronizar Conta Azul</strong>.
+                  Depois crie MARCA («Nova MARCA») e distribua os clientes.
                 </td>
               </tr>
-            : linhas.map((r) => (
-                <Fragment key={r.id}>
-                  <tr className="border-b border-slate-100 align-top hover:bg-slate-50/80 dark:border-slate-900 dark:hover:bg-slate-900/40">
-                    <td className="px-2 py-2">
-                      <input
-                        className="w-full min-w-[6rem] rounded border border-slate-200 bg-transparent px-1 py-0.5 text-[13px] dark:border-slate-700"
-                        defaultValue={r.grupoSite}
-                        onBlur={(e) => void patchLinha(r.id, { grupoSite: e.target.value })}
-                      />
-                    </td>
-                    <td className="px-2 py-2">
-                      <button
-                        type="button"
-                        className="text-left font-semibold text-sky-700 underline-offset-2 hover:underline dark:text-sky-400"
-                        onClick={() => toggleExpand(r.id)}
-                      >
-                        {r.nomeFantasia}
-                      </button>
-                    </td>
-                    <td className="px-2 py-2 whitespace-nowrap text-[12px] text-slate-700 dark:text-slate-300">
-                      {r.documento ?? "—"}
-                    </td>
-                    <td className="px-2 py-2">{movBadge(r.movimento)}</td>
-                    <td className="px-2 py-2 text-center">{contractsCell(r.contratosAtivosTexto)}</td>
-                    <td className="px-2 py-2 text-[12px] text-slate-700 dark:text-slate-300">
-                      {r.valorClienteTexto?.trim() ? r.valorClienteTexto : "—"}
-                    </td>
-                    <td className="px-2 py-2">
-                      <input
-                        type="number"
-                        min={0}
-                        className="w-16 rounded border border-slate-200 bg-transparent px-1 py-0.5 text-[13px] dark:border-slate-700"
-                        defaultValue={r.numeroPdvSite}
-                        onBlur={(e) =>
-                          void patchLinha(r.id, { numeroPdvSite: Number(e.target.value) || 0 })
-                        }
-                      />
-                    </td>
-                    <td className="px-2 py-2">
-                      <select
-                        className="max-w-[8rem] rounded border border-slate-200 bg-transparent px-1 py-0.5 text-[12px] dark:border-slate-700"
-                        defaultValue={r.categoriaSite || ""}
-                        onChange={(e) => void patchLinha(r.id, { categoriaSite: e.target.value })}
-                      >
-                        {CAT_OPTIONS.map((c) => (
-                          <option key={c || "empty"} value={c}>
-                            {c || "— categoria —"}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="max-w-[12rem] truncate px-2 py-2 text-[12px] text-slate-700 dark:text-slate-300">
-                      {r.emailCobranca ?? "—"}
-                    </td>
-                    <td className="max-w-[14rem] truncate px-2 py-2 text-[12px] text-slate-600 dark:text-slate-400">
-                      {r.razaoSocial || "—"}
-                    </td>
-                  </tr>
-                  {expanded.has(r.id) ?
-                    <tr className="border-b border-slate-100 bg-slate-50/90 dark:border-slate-900 dark:bg-slate-900/30">
-                      <td colSpan={10} className="px-4 py-3">
-                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          PDVs do cliente (editável — ainda sem importação em massa)
-                        </p>
-                        <ul className="mb-2 space-y-1">
-                          {r.pdvs.length === 0 ?
-                            <li className="text-xs text-slate-500">Nenhum PDV cadastrado.</li>
-                          : r.pdvs.map((p) => (
-                              <li
-                                key={p.id}
-                                className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
-                              >
-                                <input
-                                  className="min-w-[12rem] flex-1 rounded border border-transparent px-1 py-0.5 hover:border-slate-200 dark:hover:border-slate-700"
-                                  defaultValue={p.nome}
-                                  onBlur={(e) => void patchPdv(p.id, e.target.value)}
-                                />
-                                <button
-                                  type="button"
-                                  className="text-rose-600 hover:underline dark:text-rose-400"
-                                  onClick={() => void delPdv(p.id)}
-                                >
-                                  remover
-                                </button>
-                              </li>
-                            ))}
-                        </ul>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            placeholder="Nome do PDV"
-                            className="min-w-[12rem] rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900"
-                            value={newPdvName[r.id] ?? ""}
-                            onChange={(e) =>
-                              setNewPdvName((m) => ({ ...m, [r.id]: e.target.value }))
-                            }
-                          />
-                          <button
-                            type="button"
-                            className="rounded bg-slate-800 px-2 py-1 text-xs font-semibold text-white dark:bg-slate-200 dark:text-slate-900"
-                            onClick={() => void addPdv(r.id)}
-                          >
-                            Adicionar PDV
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  : null}
-                </Fragment>
-              ))
-            }
-          </tbody>
+            </tbody>
+          : (
+            <>
+              {grupoOrd.map((g, ix) => (
+                <ClienteMarcaBlock
+                  key={g.id}
+                  ym={activeYm}
+                  marca={g}
+                  grupoIndex={ix}
+                  grupoCount={grupoOrd.length}
+                  gruposTodos={grupoOrd}
+                  linhasOrdered={buckets.get(g.id) ?? []}
+                  onReorderLinhasSameMarca={(a, o) => void reorderMesmaMarca(g.id, a, o)}
+                  onMoveMarca={(lid, nid) => void moveLinhaEntreMarcas(lid, nid)}
+                  onRenameMarca={(gid, nome) => void renomearMarca(gid, nome.trim())}
+                  onDeleteMarca={(gid) => void apagarMarcaVazia(gid)}
+                  onShiftMarca={(i, d) => void deslocarBlocoMarca(i, d)}
+                  expanded={expanded}
+                  setExpanded={setExpanded}
+                  patchLinha={patchLinha}
+                  setLinhas={setLinhas}
+                  addPdv={addPdv}
+                  patchPdv={patchPdv}
+                  delPdv={delPdv}
+                  newPdvName={newPdvName}
+                  setNewPdvName={setNewPdvName}
+                />
+              ))}
+              {orphans.length ?
+                <ClienteMarcaBlock
+                  key="__sem_marca__"
+                  ym={activeYm}
+                  marca={null}
+                  gruposTodos={grupoOrd}
+                  linhasOrdered={orphans}
+                  grupoIndex={null}
+                  grupoCount={0}
+                  onReorderLinhasSameMarca={(a, o) => void reorderMesmaMarca(null, a, o)}
+                  onMoveMarca={(lid, nid) => void moveLinhaEntreMarcas(lid, nid)}
+                  onRenameMarca={() => {}}
+                  onDeleteMarca={() => {}}
+                  onShiftMarca={() => {}}
+                  expanded={expanded}
+                  setExpanded={setExpanded}
+                  patchLinha={patchLinha}
+                  setLinhas={setLinhas}
+                  addPdv={addPdv}
+                  patchPdv={patchPdv}
+                  delPdv={delPdv}
+                  newPdvName={newPdvName}
+                  setNewPdvName={setNewPdvName}
+                />
+              : null}
+            </>
+          )}
         </table>
       </div>
 

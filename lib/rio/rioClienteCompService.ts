@@ -1,4 +1,11 @@
-import type { RioClienteCompMovimento, RioCompClienteLinha, RioCompPdv, RioCompMonth } from "@prisma/client";
+import type {
+  Prisma,
+  RioClienteCompMovimento,
+  RioCompClienteLinha,
+  RioCompGrupo,
+  RioCompMonth,
+  RioCompPdv,
+} from "@prisma/client";
 import { cobrancaPlusPrincipalEmailsJoined } from "@/lib/contaazul/personBilling";
 import { fetchActiveContractNumbersByClientIds } from "@/lib/contaazul/contracts";
 import { prisma } from "@/lib/prisma";
@@ -103,23 +110,143 @@ export async function ensureRioCompMonth(yearMonth: number): Promise<RioCompMont
   return prisma.rioCompMonth.create({ data: { yearMonth } });
 }
 
-export type RioCompLinhaOut = RioCompClienteLinha & { pdvs: RioCompPdv[] };
+export type RioCompGrupoDto = Pick<RioCompGrupo, "id" | "nome" | "sortOrder">;
 
-export async function getRioCompMonthWithLinhas(
-  yearMonth: number,
-): Promise<{ month: RioCompMonth; linhas: RioCompLinhaOut[] } | null> {
+export type RioCompLinhaOut = RioCompClienteLinha & {
+  pdvs: RioCompPdv[];
+  grupo?: RioCompGrupoDto | null;
+};
+
+function sortClienteLinhasByGrupo(gruposSorted: RioCompGrupo[], raw: RioCompLinhaOut[]) {
+  const idx = new Map(gruposSorted.map((g, i) => [g.id, i]));
+  return [...raw].sort((a, b) => {
+    const ga = a.rioGrupoId ? (idx.get(a.rioGrupoId) ?? 999999) : 999999;
+    const gb = b.rioGrupoId ? (idx.get(b.rioGrupoId) ?? 999999) : 999999;
+    if (ga !== gb) return ga - gb;
+    const sd = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    return sd !== 0 ? sd : a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" });
+  });
+}
+
+/** Liga `rio_grupo_id` usando o texto já guardado em `grupo_site` (import legado ou sync só texto). */
+export async function reconcileRioCompGrupoLinks(monthId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await reconcileRioCompGrupoLinksTx(tx, monthId);
+  });
+}
+
+function normMarcaNome(s: string): string {
+  return s.replace(/^\uFEFF/, "").trim();
+}
+
+async function needsGrupoLegacyAttach(monthId: string): Promise<boolean> {
+  const hit = await prisma.rioCompClienteLinha.findFirst({
+    where: {
+      monthId,
+      rioGrupoId: null,
+      NOT: [{ grupoSite: "" }],
+    },
+    select: { grupoSite: true },
+  });
+  return Boolean(hit?.grupoSite && normMarcaNome(hit.grupoSite).length > 0);
+}
+
+export async function reconcileRioCompGrupoLinksTx(tx: Prisma.TransactionClient, monthId: string) {
+  const linhasDb = await tx.rioCompClienteLinha.findMany({
+    where: { monthId },
+    select: { id: true, grupoSite: true },
+  });
+
+  let gruposExisting = await tx.rioCompGrupo.findMany({
+    where: { monthId },
+    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+  });
+
+  const byNome = new Map(gruposExisting.map((g) => [normMarcaNome(g.nome), g]));
+
+  const distinctNome = [
+    ...new Set(linhasDb.map((l) => normMarcaNome(l.grupoSite)).filter(Boolean)),
+  ];
+  distinctNome.sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+
+  let nextOrder =
+    gruposExisting.length ?
+      Math.max(...gruposExisting.map((g) => g.sortOrder)) + 1
+    : 0;
+
+  for (const nome of distinctNome) {
+    let g = byNome.get(nome);
+    if (!g) {
+      g = await tx.rioCompGrupo.create({
+        data: { monthId, nome, sortOrder: nextOrder },
+      });
+      nextOrder += 1;
+      byNome.set(nome, g);
+      gruposExisting.push(g);
+    }
+  }
+
+  for (const l of linhasDb) {
+    const t = normMarcaNome(l.grupoSite);
+    await tx.rioCompClienteLinha.update({
+      where: { id: l.id },
+      data: { rioGrupoId: t ? (byNome.get(t)?.id ?? null) : null },
+    });
+  }
+}
+
+async function hydrateMonthBundle(yearMonth: number, depth = 0) {
   const month = await prisma.rioCompMonth.findUnique({
     where: { yearMonth },
     include: {
-      linhas: { include: { pdvs: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } } },
+      grupos: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      linhas: {
+        include: {
+          pdvs: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+          rioGrupo: { select: { id: true, nome: true, sortOrder: true } },
+        },
+      },
     },
   });
   if (!month) return null;
-  const linhas = [...month.linhas].sort((a, b) => {
-    const d = a.sortOrder - b.sortOrder;
-    return d !== 0 ? d : a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR");
+
+  if (await needsGrupoLegacyAttach(month.id)) {
+    if (depth >= 10) throw new Error("rio_grupo_reconcile_retry_limit");
+    await reconcileRioCompGrupoLinks(month.id);
+    return hydrateMonthBundle(yearMonth, depth + 1);
+  }
+
+  const { grupos: _omitG, linhas: _omitL, ...monthRow } = month;
+
+  const gruposBrief: RioCompGrupoDto[] = month.grupos.map((g) => ({
+    id: g.id,
+    nome: g.nome,
+    sortOrder: g.sortOrder,
+  }));
+
+  const baseLinhas = month.linhas.map((ln) => {
+    const { rioGrupo, ...rest } = ln;
+    const out: RioCompLinhaOut = {
+      ...(rest as RioCompClienteLinha),
+      pdvs: ln.pdvs,
+      grupo: rioGrupo ? { ...rioGrupo } : null,
+    };
+    return out;
   });
-  return { month, linhas };
+  const linhas = sortClienteLinhasByGrupo(month.grupos, baseLinhas);
+  return {
+    month: monthRow,
+    grupos: gruposBrief,
+    linhas,
+  };
+}
+
+export async function getRioCompMonthWithLinhas(yearMonth: number): Promise<{
+  month: RioCompMonth;
+  grupos: RioCompGrupoDto[];
+  linhas: RioCompLinhaOut[];
+} | null> {
+  return hydrateMonthBundle(yearMonth);
 }
 
 export async function listRioCompMonths(): Promise<Array<{ id: string; yearMonth: number }>> {
@@ -170,6 +297,7 @@ export async function syncRioCompMonthFromContaAzul(
   options?: SyncRioCompFromCaOptions,
 ): Promise<{
   month: RioCompMonth;
+  grupos: RioCompGrupoDto[];
   linhas: RioCompLinhaOut[];
   caPersonListingCount: number;
   syncedContractsFromCa: boolean;
@@ -296,6 +424,7 @@ export async function syncRioCompMonthFromContaAzul(
   let sortOrder = 0;
   await prisma.$transaction(async (tx) => {
     await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
+    await tx.rioCompGrupo.deleteMany({ where: { monthId: month.id } });
     for (const d of drafts) {
       const created = await tx.rioCompClienteLinha.create({
         data: {
@@ -323,7 +452,7 @@ export async function syncRioCompMonthFromContaAzul(
             clienteId: created.id,
             nome: p.nome.trim() ? p.nome : `PDV ${pi + 1}`,
             notes: p.notes,
-            sortOrder: p.sortOrder || pi,
+            sortOrder: p.sortOrder ?? pi,
           },
         });
         pi++;
@@ -333,6 +462,7 @@ export async function syncRioCompMonthFromContaAzul(
       where: { id: month.id },
       data: { lastSyncedAt: new Date() },
     });
+    await reconcileRioCompGrupoLinksTx(tx, month.id);
   });
 
   const out = await getRioCompMonthWithLinhas(yearMonth);
@@ -353,7 +483,7 @@ export async function replaceRioCompMonthFromImportedRows(
   yearMonth: number,
   rows: ParsedRioFileRow[],
   options?: { inferMovementVsPriorMonth?: boolean },
-): Promise<{ month: RioCompMonth; linhas: RioCompLinhaOut[] }> {
+): Promise<{ month: RioCompMonth; grupos: RioCompGrupoDto[]; linhas: RioCompLinhaOut[] }> {
   const infer = options?.inferMovementVsPriorMonth !== false;
   const month = await ensureRioCompMonth(yearMonth);
 
@@ -489,6 +619,7 @@ export async function replaceRioCompMonthFromImportedRows(
   await prisma.$transaction(
     async (tx) => {
       await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
+      await tx.rioCompGrupo.deleteMany({ where: { monthId: month.id } });
 
       await tx.rioCompClienteLinha.createMany({
         data: drafts.map((d, sortOrder) => ({
@@ -544,6 +675,8 @@ export async function replaceRioCompMonthFromImportedRows(
         where: { id: month.id },
         data: { lastSyncedAt: new Date() },
       });
+
+      await reconcileRioCompGrupoLinksTx(tx, month.id);
     },
     {
       timeout: 180_000,
@@ -560,14 +693,124 @@ export async function patchRioCompClienteLinha(
   linhaId: string,
   data: Partial<{
     grupoSite: string;
+    rioGrupoId: string | null;
     numeroPdvSite: number;
+    sortOrder: number;
     categoriaSite: string;
     observacoesLinha: string;
   }>,
 ) {
+  const payload = { ...data };
   await prisma.rioCompClienteLinha.update({
     where: { id: linhaId },
-    data,
+    data: payload,
+  });
+}
+
+export async function createRioCompGrupo(monthId: string, nomeRaw?: string) {
+  const nome = (nomeRaw ?? "").trim().slice(0, 600) || "Nova MARCA";
+  const agg = await prisma.rioCompGrupo.aggregate({
+    where: { monthId },
+    _max: { sortOrder: true },
+  });
+  const sortOrder = (agg._max.sortOrder ?? -1) + 1;
+  return prisma.rioCompGrupo.create({
+    data: { monthId, nome, sortOrder },
+    select: { id: true, nome: true, sortOrder: true },
+  });
+}
+
+/** Só permite apagar marca vazia (sem cliente associado pelo FK). */
+export async function deleteRioCompGrupoIfEmpty(monthId: string, grupoId: string) {
+  const g = await prisma.rioCompGrupo.findFirst({
+    where: { id: grupoId, monthId },
+    select: { id: true },
+  });
+  if (!g) throw new Error("grupo_not_found");
+  const n = await prisma.rioCompClienteLinha.count({
+    where: { monthId, rioGrupoId: grupoId },
+  });
+  if (n > 0) throw new Error("grupo_not_empty");
+  await prisma.rioCompGrupo.delete({ where: { id: grupoId } });
+}
+
+export async function reorderRioCompGrupos(monthId: string, orderedIds: string[]) {
+  await prisma.$transaction(async (tx) => {
+    for (let i = 0; i < orderedIds.length; i++) {
+      const id = orderedIds[i]!;
+      const own = await tx.rioCompGrupo.findFirst({ where: { id, monthId } });
+      if (!own) continue;
+      await tx.rioCompGrupo.update({
+        where: { id },
+        data: { sortOrder: i },
+      });
+    }
+  });
+}
+
+export async function assignClienteLinhasLayout(
+  monthId: string,
+  items: { id: string; rio_grupo_id: string | null; sort_order: number }[],
+) {
+  await prisma.$transaction(async (tx) => {
+    for (const it of items) {
+      const linha = await tx.rioCompClienteLinha.findFirst({
+        where: { id: it.id, monthId },
+      });
+      if (!linha) continue;
+      let grupoSite = linha.grupoSite;
+      if (it.rio_grupo_id) {
+        const g = await tx.rioCompGrupo.findFirst({
+          where: { id: it.rio_grupo_id, monthId },
+        });
+        grupoSite = g?.nome ?? linha.grupoSite;
+      } else if (it.rio_grupo_id === null) {
+        grupoSite = "";
+      }
+      await tx.rioCompClienteLinha.update({
+        where: { id: linha.id },
+        data: {
+          rioGrupoId: it.rio_grupo_id,
+          sortOrder: it.sort_order,
+          grupoSite,
+        },
+      });
+    }
+  });
+}
+
+export async function reorderRioPdvsForClienteLinha(clienteId: string, orderedPdvIds: string[]) {
+  await prisma.$transaction(async (tx) => {
+    const pdvs = await tx.rioCompPdv.findMany({
+      where: { clienteId },
+      select: { id: true },
+    });
+    const set = new Set(pdvs.map((p) => p.id));
+    for (let i = 0; i < orderedPdvIds.length; i++) {
+      const pid = orderedPdvIds[i]!;
+      if (!set.has(pid)) continue;
+      await tx.rioCompPdv.update({
+        where: { id: pid },
+        data: { sortOrder: i },
+      });
+    }
+  });
+}
+
+export async function renameRioCompGrupo(monthId: string, grupoId: string, nomeRaw: string) {
+  const nome = nomeRaw.trim().slice(0, 600);
+  if (!nome) throw new Error("empty_name");
+  const g = await prisma.rioCompGrupo.findFirst({ where: { id: grupoId, monthId } });
+  if (!g) throw new Error("grupo_not_found");
+  await prisma.$transaction(async (tx) => {
+    await tx.rioCompGrupo.update({
+      where: { id: grupoId },
+      data: { nome },
+    });
+    await tx.rioCompClienteLinha.updateMany({
+      where: { monthId, rioGrupoId: grupoId },
+      data: { grupoSite: nome },
+    });
   });
 }
 
