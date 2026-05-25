@@ -1,4 +1,9 @@
 import { caFetch } from "./caHttp";
+import {
+  billingEmailJoined,
+  billingEmailsFromPersonDetail,
+  fetchPersonDetail,
+} from "./personBilling";
 import type {
   CaInstallmentDetail,
   CaPeopleSearchResponse,
@@ -100,6 +105,8 @@ export async function fetchPeopleByIds(
   const batchSize = 40;
   /** Várias requisições /v1/pessoas em paralelo. */
   const PEOPLE_PARALLEL = 3;
+  /** Quando GET por ids não envia «contato de cobrança e faturamento», buscar detalhe para o e-mail certo (evita ficar só no principal). */
+  const needPersonDetailForEmail = new Set<string>();
 
   const batches: string[][] = [];
   for (let i = 0; i < unique.length; i += batchSize) {
@@ -121,10 +128,44 @@ export async function fetchPeopleByIds(
           const data = await caFetch<CaPeopleSearchResponse>(path, accessToken);
           const items = data.itens ?? data.items ?? [];
           for (const p of items) {
-            if (p?.id) map.set(p.id, p);
+            if (!p?.id) continue;
+            const raw = p as unknown;
+            const row = {
+              id: p.id,
+              nome: p.nome,
+              documento: p.documento ?? null,
+              /** Preferimos contatos de cobrança/faturamento (`personBilling`). */
+              email: billingEmailJoined(raw, p.email ?? null),
+            };
+            map.set(p.id, row);
+            if (billingEmailsFromPersonDetail(raw).length === 0) {
+              needPersonDetailForEmail.add(p.id);
+            }
           }
         } catch {
           // Filtro pode variar na API; segue com nome da parcela.
+        }
+      }),
+    );
+  }
+
+  const detailParallel = Math.min(
+    16,
+    Math.max(1, Number(process.env.CA_PERSON_DETAIL_CONCURRENCY ?? "10") || 10),
+  );
+  const detailIds = [...needPersonDetailForEmail];
+  for (let i = 0; i < detailIds.length; i += detailParallel) {
+    const slice = detailIds.slice(i, i + detailParallel);
+    await Promise.all(
+      slice.map(async (id) => {
+        try {
+          const detail = await fetchPersonDetail(accessToken, id);
+          const cur = map.get(id);
+          if (!cur) return;
+          const email = billingEmailJoined(detail, cur.email ?? null);
+          if (email) map.set(id, { ...cur, email });
+        } catch {
+          /* mantém e-mail da listagem */
         }
       }),
     );

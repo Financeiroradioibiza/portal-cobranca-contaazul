@@ -2,6 +2,7 @@ import { CONTA_AZUL_API_BASE } from "./config";
 
 type Row = {
   status?: string;
+  situacao?: string | { nome?: string; descricao?: string; status?: string };
   numero?: number | string;
   /** Alguns payloads trazem o número apenas em termos */
   termos?: { numero?: number | string };
@@ -10,6 +11,27 @@ type Row = {
   clienteId?: string;
   id?: string;
 };
+
+function asciiUpper(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+}
+
+function contractStatusUpper(r: Record<string, unknown>): string {
+  const s = r.status;
+  if (typeof s === "string" && s.trim()) return asciiUpper(s.trim());
+
+  const situ = r.situacao ?? r.situacao_contrato ?? r.situacaoContrato;
+  if (typeof situ === "string" && situ.trim()) return asciiUpper(situ.trim());
+
+  if (situ && typeof situ === "object" && !Array.isArray(situ)) {
+    const o = situ as Record<string, unknown>;
+    for (const k of ["status", "nome", "descricao", "descricao_status"] as const) {
+      const v = o[k];
+      if (typeof v === "string" && v.trim()) return asciiUpper(v.trim());
+    }
+  }
+  return "";
+}
 
 /** Nº exibível do contrato (lista GET costuma usar `numero`; detalhe pode usar só `termos.numero`). */
 function contractDisplayNumber(r: Record<string, unknown>): string | null {
@@ -33,7 +55,7 @@ function addRowsToAcc(
   for (const raw of items) {
     if (!raw || typeof raw !== "object") continue;
     const r = raw as Row;
-    const status = String(r.status ?? "").trim().toUpperCase();
+    const status = contractStatusUpper(r as Record<string, unknown>);
     if (status !== "ATIVO") continue;
 
     const cid = r.cliente?.id ?? r.cliente_id ?? r.clienteId ?? "";
@@ -81,7 +103,52 @@ async function fetchContractPage(
 
 /** Requisições simultâneas à Conta Azul (cada uma filtra um cliente). */
 const CLIENT_FETCH_CONCURRENCY = 12;
-const MAX_PAGES_PER_CLIENT = 10;
+
+function contractsMaxPagesAtivo(): number {
+  const n = Number(process.env.CA_CONTRACTS_MAX_PAGES_ATIVO ?? "36");
+  return Math.min(80, Number.isFinite(n) && n > 0 ? n : 36);
+}
+
+/** Passagem extra: o filtro `ATIVO` às vezes omite linhas que a UI marca como Ativo — varremos TODOS e filtramos no código. */
+function contractsMaxPagesTodosSupplement(): number {
+  const n = Number(process.env.CA_CONTRACTS_MAX_PAGES_TODOS ?? "18");
+  return Math.min(60, Number.isFinite(n) && n > 0 ? n : 18);
+}
+
+async function listContractsOneClientPaged(
+  accessToken: string,
+  clienteId: string,
+  data_inicio: string,
+  data_fim: string,
+  want: Set<string>,
+  acc: Map<string, Set<string>>,
+  statusContrato: "ATIVO" | "TODOS",
+  maxPages: number,
+): Promise<void> {
+  let pagina = 1;
+  for (;;) {
+    /**
+     * - `ATIVO`: páginas enxutas quando o filtro está correto na API (ex.: 6515 já não se perde atrás de INATIVOS).
+     * - `TODOS`: suplemento só para apanhar inconsistências entre UI e lista filtrada; `addRowsToAcc` mantém apenas ATIVO.
+     */
+    const qs = new URLSearchParams({
+      data_inicio,
+      data_fim,
+      pagina: String(pagina),
+      tamanho_pagina: "50",
+      cliente_id: clienteId,
+      status: statusContrato,
+    });
+
+    const { ok, items } = await fetchContractPage(accessToken, qs);
+    if (!ok) return;
+
+    addRowsToAcc(items, want, acc);
+    if (items.length < 50) break;
+    pagina += 1;
+    if (pagina > maxPages) break;
+  }
+}
 
 async function listContractsOneClient(
   accessToken: string,
@@ -91,26 +158,26 @@ async function listContractsOneClient(
   want: Set<string>,
   acc: Map<string, Set<string>>,
 ): Promise<void> {
-  let pagina = 1;
-  for (;;) {
-    /** Só ATIVOS: sem isto vêm todos os históricos — com muitos INATIVO o paginador pára em 500 e some contrato ativo (ex.: 6515). */
-    const qs = new URLSearchParams({
-      data_inicio,
-      data_fim,
-      pagina: String(pagina),
-      tamanho_pagina: "50",
-      cliente_id: clienteId,
-      status: "ATIVO",
-    });
-
-    const { ok, items } = await fetchContractPage(accessToken, qs);
-    if (!ok) return;
-
-    addRowsToAcc(items, want, acc);
-    if (items.length < 50) break;
-    pagina += 1;
-    if (pagina > MAX_PAGES_PER_CLIENT) break;
-  }
+  await listContractsOneClientPaged(
+    accessToken,
+    clienteId,
+    data_inicio,
+    data_fim,
+    want,
+    acc,
+    "ATIVO",
+    contractsMaxPagesAtivo(),
+  );
+  await listContractsOneClientPaged(
+    accessToken,
+    clienteId,
+    data_inicio,
+    data_fim,
+    want,
+    acc,
+    "TODOS",
+    contractsMaxPagesTodosSupplement(),
+  );
 }
 
 /**
@@ -129,12 +196,12 @@ export async function fetchActiveContractNumbersByClientIds(
   const end = new Date();
   const start = new Date();
   /**
-   * A Conta Azul exige intervalo na listagem; 12 meses excluí contratos ativos
-   * cuja vigência/recorrência começou há mais tempo (ex.: cliente com contrato antigo como 7100).
+   * A Conta Azul exige intervalo na listagem. Janelas curtas em `data_fim` omitiam contratos com próximos
+   * vencimentos/emissões muito à frente; ~20 anos evita falsos «sem contrato ativo» na integração.
    */
   start.setFullYear(start.getFullYear() - 30);
   const data_inicio = start.toISOString().slice(0, 10);
-  const data_fim = new Date(end.getTime() + 86400000 * 800).toISOString().slice(0, 10);
+  const data_fim = new Date(end.getTime() + 86400000 * Math.round(365.25 * 20)).toISOString().slice(0, 10);
 
   const idList = [...want];
 
