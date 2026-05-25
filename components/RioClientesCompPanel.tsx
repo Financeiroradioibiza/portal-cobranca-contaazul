@@ -88,6 +88,8 @@ export function RioClientesCompPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [newPdvName, setNewPdvName] = useState<Record<string, string>>({});
+  /** Buscar contrato na CA por cliente deixa o pedido muito longo (timeout no Netlify/proxy). */
+  const [syncIncludeContracts, setSyncIncludeContracts] = useState(false);
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months", { credentials: "include" });
@@ -153,14 +155,27 @@ export function RioClientesCompPanel() {
       const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/sync`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeContracts: syncIncludeContracts }),
       });
-      const { data, rawText } = await readJsonFromResponse<{
+      const { data, rawText, parseError } = await readJsonFromResponse<{
         linhas?: RioLinha[];
         error?: string;
         count?: number;
         caPersonListingCount?: number;
+        syncedContractsFromCa?: boolean;
       }>(res);
       if (!res.ok) {
+        const proxyHtml =
+          parseError &&
+          (/inactivity\s+timeout/i.test(rawText) ||
+            /too much time has passed/i.test(rawText));
+        if (proxyHtml) {
+          setMsg(
+            "O servidor ou a rede cortaram o pedido por tempo (timeout). Na Planilha Rio isso costuma acontecer ao buscar contratos na Conta Azul para muitos clientes: deixe desmarcada a opção «Atualizar números de contrato…» e sincronize de novo; no Netlify um plano mais alto ou timeout maior também ajuda.",
+          );
+          return;
+        }
         const code = data?.error;
         const friendly =
           code === "conta_azul_disconnected" ?
@@ -177,14 +192,18 @@ export function RioClientesCompPanel() {
         typeof listed === "number" ?
           ` (${listed} registros «Cliente» na listagem CA${listed === 0 ? " — nada retornado pela API neste critério" : ""})`
         : "";
-      setMsg(`Sincronizado: ${n} linhas.${listedHint}`);
+      const contrHint =
+        data?.syncedContractsFromCa ?
+          " Contratos CA atualizados nesta sync."
+        : " Contratos: mantidos do que já estava na competência (sync sem busca em /contratos).";
+      setMsg(`Sincronizado: ${n} linhas.${listedHint}${contrHint}`);
       await loadMonths();
     } catch {
       setMsg("Falha na sincronização.");
     } finally {
       setSyncing(false);
     }
-  }, [activeYm]);
+  }, [activeYm, syncIncludeContracts]);
 
   const patchLinha = useCallback(
     async (id: string, body: Record<string, unknown>) => {
@@ -353,6 +372,21 @@ export function RioClientesCompPanel() {
           {msg}
         </div>
       : null}
+
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="flex max-w-md cursor-pointer items-start gap-2 text-xs text-slate-600 dark:text-slate-400">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={syncIncludeContracts}
+            onChange={(e) => setSyncIncludeContracts(e.target.checked)}
+          />
+          <span>
+            Atualizar <strong>números de contrato</strong> na Conta Azul (muito mais lento; pode dar{" "}
+            <em>timeout</em> no Netlify com muitos clientes).
+          </span>
+        </label>
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-sm">

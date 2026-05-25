@@ -145,6 +145,14 @@ type LinhaUpsertDraft = {
   pdvsSeed: PdvSeed[];
 };
 
+export type SyncRioCompFromCaOptions = {
+  /**
+   * Se true, chama `/v1/contratos` por cliente (muito pesado — costuma cortar antes de responder no Netlify).
+   * Com false, repete números de contrato já guardados nesta competência quando existiam.
+   */
+  includeContracts?: boolean;
+};
+
 /**
  * Lista clientes **ativos perfil Cliente** na CA, atualiza snapshots e marca entrada/saida
  * comparando com as linhas já guardadas para o competência **mês civil anterior**.
@@ -152,10 +160,12 @@ type LinhaUpsertDraft = {
 export async function syncRioCompMonthFromContaAzul(
   accessToken: string,
   yearMonth: number,
+  options?: SyncRioCompFromCaOptions,
 ): Promise<{
   month: RioCompMonth;
   linhas: RioCompLinhaOut[];
   caPersonListingCount: number;
+  syncedContractsFromCa: boolean;
 }> {
   const month = await ensureRioCompMonth(yearMonth);
 
@@ -171,6 +181,7 @@ export async function syncRioCompMonthFromContaAzul(
         numeroPdvSite: r.numeroPdvSite,
         categoriaSite: r.categoriaSite,
         observacoesLinha: r.observacoesLinha,
+        contratosAtivosTexto: r.contratosAtivosTexto,
         pdvs: r.pdvs.map((p) => ({ nome: p.nome, notes: p.notes, sortOrder: p.sortOrder })),
       },
     ]),
@@ -191,14 +202,13 @@ export async function syncRioCompMonthFromContaAzul(
     summaries.map((s) => s.id),
   );
 
-  const contractsMap = await fetchActiveContractNumbersByClientIds(
-    accessToken,
-    summaries.map((s) => s.id),
-    {
-      includeTodosSupplement: false,
-      clientConcurrency: 6,
-    },
-  );
+  const includeContracts = options?.includeContracts === true;
+  const contractsMap = includeContracts
+    ? await fetchActiveContractNumbersByClientIds(accessToken, summaries.map((s) => s.id), {
+        includeTodosSupplement: false,
+        clientConcurrency: 6,
+      })
+    : new Map<string, string>();
 
   const drafts: LinhaUpsertDraft[] = [];
 
@@ -215,7 +225,9 @@ export async function syncRioCompMonthFromContaAzul(
     const doc = documentoFromRaw(raw, s.documento);
     const valor = valorClienteFromRaw(raw);
     const prev = preserved.get(s.id);
-    const contratos = (contractsMap.get(s.id) ?? "").trim();
+    const contratos = includeContracts
+      ? ((contractsMap.get(s.id) ?? "").trim())
+      : (prev?.contratosAtivosTexto ?? "").trim();
 
     drafts.push({
       caPersonId: s.id,
@@ -310,7 +322,7 @@ export async function syncRioCompMonthFromContaAzul(
   });
 
   const out = await getRioCompMonthWithLinhas(yearMonth);
-  return { ...out!, caPersonListingCount: summaries.length };
+  return { ...out!, caPersonListingCount: summaries.length, syncedContractsFromCa: includeContracts };
 }
 
 export async function patchRioCompClienteLinha(
