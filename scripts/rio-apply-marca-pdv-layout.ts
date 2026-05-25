@@ -23,6 +23,42 @@ function loadCliEnv(): void {
 
 const DEFAULT_REL = path.join("data", "rio-marca-pdv-planilha-inicial.csv");
 
+/** Parse JDBC Postgres → URL (fallback `postgres://`). */
+function pgUrlParsed(raw: string): URL | null {
+  try {
+    return new URL(raw.trim().replace(/^postgres:\/\//i, "postgresql://"));
+  } catch {
+    return null;
+  }
+}
+
+/** Host JDBC para diagnóstico (sem passwords). */
+function pgUrlHost(raw: string): string {
+  const u = pgUrlParsed(raw);
+  if (!u) return "(URL inválida)";
+  return u.hostname || "(sem host)";
+}
+
+function isLocalPgHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return (
+    h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "0:0:0:0:0:0:0:1"
+  );
+}
+
+function looksLocalDbUrl(raw: string): boolean {
+  return isLocalPgHost(pgUrlHost(raw));
+}
+
+function looksInvalidDbPlaceholder(durl: string): boolean {
+  return (
+    !durl ||
+    durl.includes("postgres://USERNAME") ||
+    durl.includes("USER:PASSWORD@HOST") ||
+    /example\.invalid/i.test(durl)
+  );
+}
+
 function parseYm(raw: string | undefined): number | null {
   if (!raw || !/^\d{6}$/.test(raw.trim())) return null;
   return Number(raw.trim());
@@ -45,34 +81,64 @@ async function main() {
   }
 
   let durl = process.env.DATABASE_URL?.trim();
-  /** Alguns setups deixam só `DATABASE_POOL_URL` (Neon pooled) no `.env.local`. */
+
+  /** Se `.env` ainda está com exemplo `localhost` ou vazio mas tens Neon noutra variável. */
   if (
-    (!durl || /postgresql:\/\/[^\s:@]+@(localhost|127\.0\.0\.1)[:\/?]/i.test(durl)) &&
+    (!durl ||
+      looksLocalDbUrl(durl)) &&
     process.env.DATABASE_POOL_URL?.trim()
   ) {
     durl = process.env.DATABASE_POOL_URL!.trim();
   }
 
-  if (!durl || durl.includes("postgres://USERNAME") || /example\.invalid/i.test(durl)) {
+  if (
+    (!durl || looksInvalidDbPlaceholder(durl)) &&
+    process.env.NEON_DATABASE_URL?.trim()
+  ) {
+    durl = process.env.NEON_DATABASE_URL!.trim();
+  }
+
+  if (!durl || looksInvalidDbPlaceholder(durl)) {
     console.error(
-      "Defina DATABASE_URL com a connection string (**Pooled**) do Neon (igual ao que tens na Netlify).",
+      "Sem URL de Postgres válida: copia **`DATABASE_URL` (pooled Neon)** da Netlify para `.env.local` na raiz do repo.",
     );
     console.error(
-      "  Coloca-a em `.env.local` ou `.env` na raiz deste repo (.env primeiro; `.env.local` sobrepõe).",
+      "  Alternativas (qualquer uma): `DATABASE_POOL_URL`, `NEON_DATABASE_URL`.",
     );
     console.error(
-      "  Alternativa opcional para este comando: variável só pooled `DATABASE_POOL_URL=...` ",
+      '  Leram-se `.env` e depois `.env.local`; o segundo ganha.',
     );
     process.exit(1);
   }
 
-  if (/postgresql:\/\/[^\s:@]+@(localhost|127\.0\.0\.1)[:\/?]/i.test(durl)) {
-    console.warn(
-      "[aviso] DATABASE_URL aponta a localhost — se querias Neon, corrige `.env.local`/`DATABASE_URL`; local só se o Postgres aí existe.",
+  const parsedPg = pgUrlParsed(durl);
+  if (!parsedPg) {
+    console.error(`URL Postgres sintacticamente inválida (ver DATABASE_URL): «${pgUrlHost(durl)}».`);
+    process.exit(1);
+  }
+
+  const hostResolved = parsedPg.hostname;
+  if (
+    isLocalPgHost(hostResolved) &&
+    process.env.RIO_CLI_ALLOW_LOCAL_POSTGRES !== "1"
+  ) {
+    console.error(
+      `[erro] A URL efectiva usa host «${hostResolved}» — isto está quase sempre errado quando queres atualizar Neon em produção.`,
     );
+    console.error(
+      "  Cole no `.env.local` uma linha: DATABASE_URL=\"postgresql://…@….pooler…neon.tech/neondb?sslmode=require\"",
+    );
+    console.error(
+      '  Ou defina `DATABASE_POOL_URL=…` só com esse URL pooled.',
+    );
+    console.error(
+      "  Postgres local mesmo? Então antes: export RIO_CLI_ALLOW_LOCAL_POSTGRES=1",
+    );
+    process.exit(1);
   }
 
   process.env.DATABASE_URL = durl;
+  console.warn(`→ Postgres host: «${hostResolved}»`);
 
   const { applyMarcaPdvCsvLayoutToMonth } = await import("@/lib/rio/rioClienteCompService");
 
