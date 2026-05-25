@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
-import { defaultPeriodMonths, formatBRL } from "@/lib/format";
 import {
   formatYearMonthLabel,
   currentBrazilYearMonth,
 } from "@/lib/manualReminders/yearMonth";
 import type { RioChargeMode, RioPlanilhaBand, RioPlanilhaRow, RioPlanilhaRowKind } from "@prisma/client";
+import {
+  rioLinhasParsedFromXlsxArrayBuffer,
+  rioParsedToDraftVm,
+} from "@/lib/rio/rioPlanilhaXlsxImport";
 import { sortRioPlanilhaRows } from "@/lib/rio/sortLinhas";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 
@@ -39,49 +42,6 @@ function hydrate(rows: RioPlanilhaRow[]): Vm[] {
     editorKey: r.id,
     parentEditorKey: r.parentId,
   }));
-}
-
-type CaOpenClient = {
-  id: string;
-  fantasy: string;
-  cnpj: string;
-  email: string;
-  parcelasAbertas: number;
-  totalAberto: number;
-};
-
-function rowVmFromCaImport(c: CaOpenClient, sortOrder: number, monthId: string): Vm {
-  const rk = crypto.randomUUID();
-  const doc = c.cnpj === "—" || !c.cnpj?.trim() ? null : c.cnpj.trim();
-  return {
-    id: rk,
-    monthId,
-    band: "ativos",
-    kind: "pdv",
-    tituloSecao: null,
-    marca: "",
-    numOrdem: null,
-    pdvNome: c.fantasy,
-    cnpjDocumento: doc,
-    status: `${c.parcelasAbertas} parcela(s) em aberto`,
-    valorTexto: formatBRL(c.totalAberto),
-    qtdeTexto: String(c.parcelasAbertas),
-    categoria: "",
-    email: !c.email?.trim() || c.email === "—" ? null : c.email.trim(),
-    dataInstall: null,
-    grupoCobranca: c.fantasy,
-    razao: c.fantasy,
-    dataCancel: null,
-    notes: `Importação Conta Azul — soma em aberto no período: ${formatBRL(c.totalAberto)}.`,
-    contaAzulPersonId: c.id,
-    chargeMode: "cliente_ca_proprio",
-    sortOrder,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    parentId: null,
-    editorKey: rk,
-    parentEditorKey: null,
-  };
 }
 
 /** Linha modelo para um novo UUID (substitui `id`/`monthId` no mount). */
@@ -133,7 +93,8 @@ export function PlanilhaRioPanel() {
   const [editing, setEditing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [importingCa, setImportingCa] = useState(false);
+  const [importingXlsx, setImportingXlsx] = useState(false);
+  const xlsxInputRef = useRef<HTMLInputElement>(null);
 
   const [linkEk, setLinkEk] = useState<string | null>(null);
   const [buscaCa, setBuscaCa] = useState("");
@@ -278,69 +239,58 @@ export function PlanilhaRioPanel() {
     });
   };
 
-  const importCaOpenClients = useCallback(async () => {
-    if (!monthIdLookup.trim()) {
-      setMsg("Aguarde carregar o mês ou atualize a página.");
-      return;
-    }
-
-    setImportingCa(true);
-    setMsg(null);
-    try {
-      const p = defaultPeriodMonths(18);
-      const res = await fetch(
-        `/api/rio-planilha/contaazul/open-clients?start=${encodeURIComponent(p.start)}&end=${encodeURIComponent(p.end)}`,
-        { credentials: "include" },
-      );
-      const { data, rawText } = await readJsonFromResponse<{
-        clients?: CaOpenClient[];
-        period?: { start: string; end: string };
-        error?: string;
-      }>(res);
-      if (res.status === 401) {
-        setMsg("Conecte o Conta Azul no painel principal e volte a esta página.");
+  const parseAndApplyXlsx = useCallback(
+    async (file: File) => {
+      if (!monthIdLookup.trim()) {
+        setMsg("Aguarde carregar o mês ou atualize a página.");
         return;
       }
-      if (!res.ok || !Array.isArray(data?.clients)) {
-        setMsg(data?.error ?? rawText.slice(0, 260) ?? "Falha ao buscar dados no CA.");
+      if (
+        !confirm(
+          "Substituir todas as linhas da competência visível pelos dados da planilha Excel? " +
+            "Linhas já guardadas neste portal (incl. vínculos Conta Azul) serão trocadas no rascunho até você clicar Salvar.",
+        )
+      )
         return;
-      }
 
-      const list = data.clients;
-      if (list.length === 0) {
+      setImportingXlsx(true);
+      setMsg(null);
+      try {
+        const buf = await file.arrayBuffer();
+        const parsed = await rioLinhasParsedFromXlsxArrayBuffer(buf, monthIdLookup);
+        const stripped = rioParsedToDraftVm(parsed.rows).map(({ editorKey: _e, parentEditorKey: _p, ...r }) => r);
+        setDraft(hydrate(stripped));
+        setEditing(true);
+        const wc = [...parsed.warnings];
+        if (parsed.skippedRows > 0)
+          wc.push(`${parsed.skippedRows} linha(s) da planilha foram ignoradas (vazias / fora das faixas).`);
         setMsg(
-          `Sem parcelas em aberto entre ${data.period?.start ?? p.start} e ${data.period?.end ?? p.end} (janela igual à busca de contas a receber no CA).`,
+          wc.length
+            ? `Importação concluída — ${stripped.filter((x) => x.kind === "pdv").length} PDV(s). Avisos: ${wc.join(" ")}`
+            : `Importação concluída — ${stripped.filter((x) => x.kind === "pdv").length} PDV(s). Revise e clique em Salvar.`,
         );
+      } catch {
+        setMsg("Não foi possível ler o Excel — use .xlsx com aba no formato Rio (Marca … Data cancel).");
+      } finally {
+        setImportingXlsx(false);
+      }
+    },
+    [monthIdLookup],
+  );
+
+  const onXlsxChosen = useCallback(
+    async (ev: ChangeEvent<HTMLInputElement>) => {
+      const f = ev.target.files?.[0];
+      ev.target.value = "";
+      if (!f) return;
+      if (!f.name.toLowerCase().endsWith(".xlsx")) {
+        setMsg("Envie um arquivo .xlsx.");
         return;
       }
-
-      const baseSource = editing ? draft : committed;
-      const base = baseSource.map((v) => ({ ...v }));
-
-      const seen = new Set(base.map((r) => r.contaAzulPersonId).filter(Boolean));
-      let sortMx = base.length ? Math.max(...base.map((r) => r.sortOrder || 0)) : 0;
-      let added = 0;
-      const next = [...base];
-
-      for (const c of list) {
-        if (seen.has(c.id)) continue;
-        sortMx += 1;
-        seen.add(c.id);
-        next.push(rowVmFromCaImport(c, sortMx, monthIdLookup));
-        added += 1;
-      }
-
-      setDraft(next);
-      setEditing(true);
-      setMsg(
-        added > 0
-          ? `${added} linha(s) em «CLIENTES ATIVOS» (${data.period?.start} → ${data.period?.end}). Clique em «Salvar».`
-          : "Nada novo — todos já tinham o mesmo vínculo Conta Azul.",
-      );
-    } finally {
-      setImportingCa(false);
-    }
-  }, [monthIdLookup, editing, draft, committed]);
+      await parseAndApplyXlsx(f);
+    },
+    [parseAndApplyXlsx],
+  );
 
   const saveDraft = async () => {
     setSaving(true);
@@ -439,7 +389,7 @@ export function PlanilhaRioPanel() {
                   Buscar cliente no Conta Azul
                 </h2>
                 <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                  Liga o texto desta linha ao cadastro oficial (grupo ou PDV).
+                  Consulta e escolha o cadastro no Conta Azul (somente leitura pelo portal). Escreve só neste site.
                 </p>
               </div>
               <button
@@ -499,8 +449,11 @@ export function PlanilhaRioPanel() {
           </p>
           <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Planilha Rio</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-            Visão por competência: cancelamentos, PDVs novos e base ativa. Amarre linhas ao Conta Azul; PDVs sob grupo
-            usam modo &quot;matriz&quot;, franquia direta use &quot;cliente próprio&quot; no CA.
+            Competência mensal igual à sua planilha Excel: canceladas → PDVs novos → clientes ativos (com grupos
+            opcionais). Importe um <strong>.xlsx</strong> Rio (apenas este site persistido no Postgres). O botão{' '}
+            <strong>CA</strong>
+            só <strong>lê</strong> o Cadastro por API para você amarrar a linha — nada aqui atualiza dados no Conta
+            Azul.
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -512,14 +465,21 @@ export function PlanilhaRioPanel() {
             >
               Voltar ao painel
             </Link>
+            <input
+              ref={xlsxInputRef}
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              onChange={onXlsxChosen}
+            />
             <button
               type="button"
-              disabled={loading || importingCa || saving}
-              onClick={() => void importCaOpenClients()}
-              className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-500 dark:bg-sky-950/50 dark:text-sky-50 dark:hover:bg-sky-900/60"
-              title="Últimos 18 meses — clientes com pelo menos uma parcela em aberto (nao_pago > 0) no Conta Azul"
+              disabled={loading || importingXlsx || saving || !monthIdLookup}
+              onClick={() => void xlsxInputRef.current?.click()}
+              className="rounded-lg border border-violet-600 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-950 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500 dark:bg-violet-950/50 dark:text-violet-50 dark:hover:bg-violet-900/60"
+              title="Substitui o rascunho deste mês por linhas do Excel modelo Rio (.xlsx). Nenhum envio ao ERP."
             >
-              {importingCa ? "Consultando CA…" : "Trazer clientes CA (em aberto)"}
+              {importingXlsx ? "Lendo Excel…" : "Importar planilha Excel (.xlsx)"}
             </button>
             {!editing ? (
               <button
@@ -890,10 +850,10 @@ export function PlanilhaRioPanel() {
       </div>
 
       <p className="mt-4 max-w-3xl text-[11px] text-slate-500 dark:text-slate-400">
-        Padrão de início: <strong>Mai/2026</strong> (<code>RIO_PLANILHA_START_YM</code>=<code>202605</code>). Use{" "}
-        <strong>Trazer clientes CA</strong>
-        para listar cadastros com parcela em aberto (CA, últimos 18 meses) — agrupe PDVs sob matriz manualmente se
-        precisar. Importação direta do Excel pode vir depois.
+        Padrão de início da competência: <strong>Mai/2026</strong> (<code>RIO_PLANILHA_START_YM</code>=
+        <code>202605</code>). Para colunas <strong>CNPJ</strong>, formate-as como <strong>texto</strong> antes de
+        exportar (.xlsx) para evitar notação científica. Conta Azul: uso só para buscar cadastro pelo botão da coluna{' '}
+        <strong>CA</strong>; os dados ficam apenas neste portal até você gravar (<strong>Salvar</strong>).
       </p>
     </div>
   );
