@@ -95,6 +95,18 @@ export function extractBillingChargeUuidFromUrlString(raw: string): string | nul
   return null;
 }
 
+/** `chargeRequests[].id` ≠ UUID em `#/fatura/visualizar/` — prioriza links dessa página. */
+function preferUrlsWithFaturaVisualizarCandidates(urls: string[]): string[] {
+  const prio: string[] = [];
+  const rest: string[] = [];
+  for (const u of urls) {
+    if (/faturas\.contaazul\.com/i.test(u) && /fatura\/visualizar/i.test(u))
+      prio.push(u);
+    else rest.push(u);
+  }
+  return [...prio, ...rest];
+}
+
 /** Junta todas as URLs em que o uuid da cobrança pode aparecer. */
 export function extractBillingChargeFileUuid(
   detail: CaInstallmentDetail,
@@ -112,15 +124,19 @@ export function extractBillingChargeFileUuid(
     if (u) candidates.push(u);
   }
 
-  for (const raw of candidates) {
+  const ranked = preferUrlsWithFaturaVisualizarCandidates(candidates);
+
+  for (const raw of ranked) {
+    let m = raw.match(RX_FATURA_HASH_VISUALIZAR);
+    if (m?.[1]) return m[1];
+    m = raw.match(RX_VISUALIZAR_FLEX);
+    if (m?.[1]) return m[1];
+  }
+  for (const raw of ranked) {
     const mFromFile = raw.match(RX_CHARGE_FILE_URL);
     if (mFromFile?.[1]) return mFromFile[1];
   }
-  for (const raw of candidates) {
-    const mHash = raw.match(RX_FATURA_HASH_VISUALIZAR);
-    if (mHash?.[1]) return mHash[1];
-  }
-  for (const raw of candidates) {
+  for (const raw of ranked) {
     const loose = extractBillingChargeUuidFromUrlString(raw);
     if (loose) return loose;
   }

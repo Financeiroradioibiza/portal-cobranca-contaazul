@@ -29,6 +29,11 @@ function tipoMatch(t: string | undefined, ...candidates: string[]): boolean {
   return candidates.some((c) => c === n || n.includes(c));
 }
 
+/** Cobrança iugu — HTML em `faturas.contaazul.com` com UUID do PDF público no fragmento. */
+function isFaturaPortalVisualizarUrl(url: string): boolean {
+  return /faturas\.contaazul\.com/i.test(url) && /fatura\/visualizar/i.test(url);
+}
+
 export type ParcelaDocLinks = {
   boletoUrl: string | null;
   docUrl: string | null;
@@ -90,6 +95,14 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): ParcelaDoc
     const tipo = sc.tipo_solicitacao_cobranca;
     const url = normalizeContaAzulUrl(sc.url);
     if (!url) continue;
+    if (isFaturaPortalVisualizarUrl(url)) {
+      /** Prioridade: link oficial da fatura (UUID do PDF público pode divergir de `chargeRequests.id`). */
+      if (!boletoUrl || !isFaturaPortalVisualizarUrl(boletoUrl)) {
+        boletoUrl = url;
+        boletoAnexoBaixaId = null;
+      }
+      continue;
+    }
     if (
       tipoMatch(
         tipo,
@@ -100,6 +113,8 @@ export function extractBoletoAndDocUrls(detail: CaInstallmentDetail): ParcelaDoc
         "PIX",
         "COBRANCA",
         "BOLEPIX",
+        "CHARGE_REQUEST",
+        "CHARGE_REQUEST_ID_FALLBACK",
       )
     ) {
       if (!boletoUrl) boletoUrl = url;

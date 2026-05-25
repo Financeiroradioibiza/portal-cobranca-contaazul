@@ -32,13 +32,23 @@ function collectChargeRequestUrlRecords(root: Record<string, unknown>): unknown[
       if (!Array.isArray(arr)) continue;
       for (const raw of arr) {
         if (!isRecord(raw)) continue;
+        /** `id` pode ser outro GUID que o `#/fatura/visualizar/` — só o URL abre o boleto certo. */
+        const urlPortal = str(raw.url);
+        if (urlPortal) {
+          out.push({
+            url: urlPortal,
+            link: urlPortal,
+            tipoSolicitacaoCobranca: "charge_request",
+          });
+          continue;
+        }
         const id = str(raw.id);
-        const url =
-          str(raw.url) ??
-          (id && RX_BILLING_CHARGE_ID.test(id)
-            ? `https://faturas.contaazul.com/#/fatura/visualizar/${id}`
-            : undefined);
-        if (url) out.push({ url, link: url, tipoSolicitacaoCobranca: "charge_request" });
+        if (id && RX_BILLING_CHARGE_ID.test(id))
+          out.push({
+            url: `https://faturas.contaazul.com/#/fatura/visualizar/${id}`,
+            link: `https://faturas.contaazul.com/#/fatura/visualizar/${id}`,
+            tipoSolicitacaoCobranca: "charge_request_id_fallback",
+          });
       }
     }
   };
