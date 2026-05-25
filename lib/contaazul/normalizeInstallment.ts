@@ -157,9 +157,22 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
   let tipo_fatura: string | undefined;
   let numero_nfse: number | undefined;
   let numero_rps: number | undefined;
+  let cliente: CaInstallmentDetail["cliente"];
+
+  function pickClienteFrom(o: Record<string, unknown>) {
+    if (cliente?.id) return;
+    const cRaw = o.cliente ?? (isRecord(o.pessoa) ? o.pessoa : undefined);
+    if (isRecord(cRaw)) {
+      const cid = str(cRaw.id) ?? str(cRaw.uuid) ?? str(cRaw.id_pessoa);
+      if (cid) cliente = { id: cid };
+    }
+  }
+
+  pickClienteFrom(data as Record<string, unknown>);
 
   if (isRecord(data.evento)) {
     const ev = data.evento as Record<string, unknown>;
+    pickClienteFrom(ev);
     const dc = str(ev.data_competencia) ?? str(ev.dataCompetencia);
     if (dc) data_referencia_nf = dc.slice(0, 10);
     const ref = ev.referencia;
@@ -231,6 +244,7 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
     tipo_fatura,
     numero_nfse,
     numero_rps,
+    cliente: cliente ?? undefined,
     anexos: anexos.length ? anexos : undefined,
     solicitacoes_cobrancas: solicitacoes_cobrancas.length
       ? solicitacoes_cobrancas

@@ -33,6 +33,11 @@ export function CobrancaDashboard() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [sortClientsBy, setSortClientsBy] = useState<ClientSortMode>("parcelas_desc");
+  const [cobEmailTpl, setCobEmailTpl] = useState({ subject: "", bodyText: "", loaded: false });
+  const [cobEmailTplOpen, setCobEmailTplOpen] = useState(false);
+  const [cobEmailTplSaving, setCobEmailTplSaving] = useState(false);
+  const [smtpCobOpenCharges, setSmtpCobOpenCharges] = useState(false);
+  const [sendingCobEmailClientId, setSendingCobEmailClientId] = useState<string | null>(null);
   /** Invalida merges de contratos quando período / refresh mudam antes da API responder. */
   const receivablesLoadGenRef = useRef(0);
   /** Observações: última versão confirmada pela API neste navegador (por cliente). */
@@ -270,6 +275,98 @@ export function CobrancaDashboard() {
     window.open(path, "_blank", "noopener,noreferrer");
   }, []);
 
+  const persistCobEmailTemplate = useCallback(async () => {
+    if (!cobEmailTpl.subject.trim() || !cobEmailTpl.bodyText.trim()) {
+      setActionMsg("Preencha assunto e corpo do modelo de cobrança em aberto.");
+      return;
+    }
+    setCobEmailTplSaving(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch("/api/cobranca-aberta/email-template", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject: cobEmailTpl.subject, bodyText: cobEmailTpl.bodyText }),
+      });
+      const { data, rawText } = await readJsonFromResponse<{
+        ok?: boolean;
+        error?: string;
+        smtpConfigured?: boolean;
+      }>(res);
+      if (!res.ok || !data?.ok) {
+        setActionMsg(data?.error || rawText.slice(0, 160) || "Não gravou o modelo.");
+        return;
+      }
+      setSmtpCobOpenCharges(Boolean(data.smtpConfigured));
+      setActionMsg("Modelo «cobranças em aberto» gravado.");
+    } finally {
+      setCobEmailTplSaving(false);
+    }
+  }, [cobEmailTpl.subject, cobEmailTpl.bodyText]);
+
+  const sendOpenChargesEmail = useCallback(
+    async (c: ClientRow) => {
+      const dest = parseEmailAddresses(c.email === "—" ? "" : c.email);
+      if (!dest.length) {
+        setActionMsg("Este cadastro não tem e-mail válido na Conta Azul.");
+        return;
+      }
+      if (!smtpCobOpenCharges) {
+        setActionMsg(
+          "Configure SMTP (variáveis OC_EMAIL_SMTP_* e OC_EMAIL_FROM) — igual ao envio OC em /manual.",
+        );
+        return;
+      }
+
+      const intro =
+        "Enviaremos um único e-mail com todas as parcelas desta expansão — anexam-se os PDFs que o servidor conseguir obter (inclui boleto iugu quando o pedido público à Conta Azul funciona para essa cobrança).";
+      const nuance =
+        "Parcelas cuja página seja só HTML (Pix ou escolher meio), ou onde o PDF público não estiver disponível, entram apenas como hiperligações — abrir no navegador e usar «Fazer download do boleto» quando existir esse botão.";
+      if (
+        !window.confirm(
+          `${intro}\n\n${nuance}\n\nDestinatários: ${dest.join(", ")}\n\nContinuar?`,
+        )
+      ) {
+        return;
+      }
+
+      setSendingCobEmailClientId(c.id);
+      setActionMsg(null);
+      try {
+        const res = await fetch("/api/cobranca-aberta/send", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientId: c.id,
+            fantasy: c.fantasy,
+            cnpj: c.cnpj === "—" ? "" : c.cnpj,
+            emailRaw: c.email === "—" ? "" : c.email,
+            sales: c.sales,
+          }),
+        });
+        const { data, rawText } = await readJsonFromResponse<{
+          ok?: boolean;
+          pdfAttachments?: number;
+          linksListed?: number;
+          recipients?: string[];
+          error?: string;
+        }>(res);
+        if (!res.ok || !data?.ok) {
+          setActionMsg(data?.error || rawText.slice(0, 220) || "Falha ao enviar e-mail.");
+          return;
+        }
+        setActionMsg(
+          `Enviado para ${data.recipients?.join(", ") ?? "?"} — PDFs em anexo: ${data.pdfAttachments ?? 0}; links no texto: ${data.linksListed ?? 0}.`,
+        );
+      } finally {
+        setSendingCobEmailClientId(null);
+      }
+    },
+    [smtpCobOpenCharges],
+  );
+
   const persistClientMetaNote = useCallback(
     async (clientId: string, noteFull: string, opts?: { keepalive?: boolean }) => {
       try {
@@ -347,6 +444,28 @@ export function CobrancaDashboard() {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [flushClientNoteDraft]);
+
+  useEffect(() => {
+    const ok = Boolean(status?.connected);
+    if (!ok) return;
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/cobranca-aberta/email-template", { credentials: "include" });
+      const { data, parseError } = await readJsonFromResponse<{
+        subject?: string;
+        bodyText?: string;
+        smtpConfigured?: boolean;
+      }>(res);
+      if (canceled || parseError || !data) return;
+      setSmtpCobOpenCharges(Boolean(data.smtpConfigured));
+      if (typeof data.subject === "string" && typeof data.bodyText === "string") {
+        setCobEmailTpl({ subject: data.subject, bodyText: data.bodyText, loaded: true });
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [status?.connected]);
 
   const connected = Boolean(status?.connected);
 
@@ -548,6 +667,69 @@ export function CobrancaDashboard() {
         </div>
       </div>
 
+      {connected ? (
+        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs dark:border-slate-700 dark:bg-slate-900/40">
+          <button
+            type="button"
+            onClick={() => setCobEmailTplOpen((v) => !v)}
+            className="flex w-full items-center justify-between text-left font-semibold text-slate-800 dark:text-slate-100"
+          >
+            <span>E-mail agregado — cobranças em aberto (mesmo SMTP que «Envios manuais»)</span>
+            <span className="text-[0.65rem] text-slate-500">{cobEmailTplOpen ? "▴" : "▾"}</span>
+          </button>
+          <p className="mt-1 text-[0.65rem] leading-snug text-slate-600 dark:text-slate-400">
+            Placeholders no corpo do e-mail:{" "}
+            <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{CLIENTE}}"}</code>,{" "}
+            <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{CNPJ}}"}</code>,{" "}
+            <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">
+              {"{{TABELA_PARCELAS}}"}
+            </code>
+            ,{" "}
+            <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{TOTAL}}"}</code>,{" "}
+            <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{DOCUMENTOS}}"}</code>,{" "}
+            <code className="rounded bg-white/80 px-0.5 dark:bg-slate-800">{"{{MARCA}}"}</code>.
+            Boletos: tentativa de PDF público Conta Azul (iugu) + outros caminhos; se ficar só a página HTML, entra só como link.
+          </p>
+          {cobEmailTplOpen ? (
+            <div className="mt-2 space-y-2">
+              <div>
+                <label className="mb-0.5 block text-[0.6rem] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Assunto
+                </label>
+                <input
+                  value={cobEmailTpl.subject}
+                  onChange={(e) =>
+                    setCobEmailTpl((p) => ({ ...p, subject: e.target.value }))
+                  }
+                  className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-950"
+                />
+              </div>
+              <div>
+                <label className="mb-0.5 block text-[0.6rem] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Corpo (texto)
+                </label>
+                <textarea
+                  value={cobEmailTpl.bodyText}
+                  onChange={(e) =>
+                    setCobEmailTpl((p) => ({ ...p, bodyText: e.target.value }))
+                  }
+                  rows={10}
+                  className="w-full rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[0.7rem] leading-relaxed dark:border-slate-600 dark:bg-slate-950"
+                />
+              </div>
+              <button
+                type="button"
+                disabled={cobEmailTplSaving}
+                onClick={() => void persistCobEmailTemplate()}
+                className="rounded-lg bg-[#0066cc] px-3 py-1.5 text-xs font-semibold text-white hover:brightness-105 disabled:opacity-60 dark:bg-sky-600"
+              >
+                {cobEmailTplSaving ? "Salvando…" : "Salvar modelo"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
           {connected
@@ -606,6 +788,13 @@ export function CobrancaDashboard() {
                     ? "bg-slate-50/95 dark:bg-slate-950/50"
                     : "bg-slate-200/80 dark:bg-slate-800/90";
                 const stickyObs = `sticky right-0 z-10 min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.1)] dark:border-slate-600 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.3)] ${stripe}`;
+                const noteLineCount = c.note.trim()
+                  ? Math.min(4, Math.max(1, c.note.split(/\r?\n/).length))
+                  : 1;
+                const canSendCobEmail =
+                  smtpCobOpenCharges &&
+                  parseEmailAddresses(c.email === "—" ? "" : c.email).length > 0 &&
+                  c.sales.length > 0;
 
                 return (
                   <Fragment key={c.id}>
@@ -699,7 +888,7 @@ export function CobrancaDashboard() {
                       </td>
                       <td className={`px-2 py-1.5 align-top ${stickyObs}`}>
                         <textarea
-                          rows={5}
+                          rows={noteLineCount}
                           value={c.note}
                           onFocus={(e) => {
                             snapshotOnFocusNoteRef.current[c.id] = e.target.value;
@@ -715,7 +904,7 @@ export function CobrancaDashboard() {
                           }}
                           onBlur={(e) => void flushClientNoteDraft(c.id, e.target.value)}
                           placeholder="Histórico interno. Acrescentou texto desde que clicou no campo? Ao sair, pode ser criada uma linha com data/hora."
-                          className="box-border w-full min-h-[2.75rem] max-w-full resize-y rounded border border-slate-300 bg-inherit px-1.5 py-1 text-[0.65rem] leading-snug text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:text-slate-100 dark:placeholder:text-slate-500"
+                          className="box-border w-full max-h-24 max-w-full resize-y overflow-y-auto rounded border border-slate-300 bg-inherit px-1.5 py-0.5 text-[0.65rem] leading-tight text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:text-slate-100 dark:placeholder:text-slate-500"
                           autoComplete="off"
                           spellCheck="false"
                         />
@@ -730,6 +919,39 @@ export function CobrancaDashboard() {
                           <p className="mb-1.5 text-[0.65rem] font-medium text-slate-600 dark:text-slate-400">
                             Parcelas em aberto — {c.fantasy}
                           </p>
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={
+                                !canSendCobEmail ||
+                                sendingCobEmailClientId === c.id ||
+                                !cobEmailTpl.loaded
+                              }
+                              onClick={() => void sendOpenChargesEmail(c)}
+                              className="rounded-lg border border-violet-600 bg-violet-50 px-3 py-1.5 text-[0.65rem] font-semibold text-violet-950 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-900/50"
+                              title={
+                                !smtpCobOpenCharges
+                                  ? "Configure OC_EMAIL_SMTP_* e OC_EMAIL_FROM"
+                                  : "Um único e-mail com todas as parcelas deste cliente"
+                              }
+                            >
+                              {sendingCobEmailClientId === c.id
+                                ? "Enviando e-mail…"
+                                : "Enviar e-mail (todas as cobranças)"}
+                            </button>
+                            {!smtpCobOpenCharges ? (
+                              <span className="text-[0.6rem] text-amber-800 dark:text-amber-200">
+                                SMTP não configurado (env{" "}
+                                <code className="rounded bg-amber-100/80 px-0.5 dark:bg-amber-950/60">
+                                  OC_EMAIL_*
+                                </code>
+                                ).
+                              </span>
+                            ) : null}
+                            {!cobEmailTpl.loaded ? (
+                              <span className="text-[0.6rem] text-slate-500">A carregar modelo…</span>
+                            ) : null}
+                          </div>
                           <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-600">
                             <table className="w-full min-w-[640px] text-[0.65rem]">
                               <thead>

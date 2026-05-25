@@ -59,6 +59,26 @@ export async function sendTextEmailViaSmtp(opts: {
   text: string;
   replyTo?: string;
 }): Promise<void> {
+  await sendEmailViaSmtp({ ...opts });
+}
+
+export type EmailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+};
+
+/**
+ * Envio genérico (texto + opcional HTML + anexos). Mesmos BCC internos que OC.
+ */
+export async function sendEmailViaSmtp(opts: {
+  to: string[];
+  subject: string;
+  text: string;
+  html?: string;
+  attachments?: EmailAttachment[];
+  replyTo?: string;
+}): Promise<void> {
   if (!opts.to.length) throw new Error("Nenhum destinatário válido");
 
   const host = envStr("OC_EMAIL_SMTP_HOST");
@@ -95,6 +115,16 @@ export async function sendTextEmailViaSmtp(opts: {
     ...(alwaysBcc.length ? { bcc: alwaysBcc.join(", ") } : {}),
     subject: opts.subject,
     text: opts.text,
+    html: opts.html || undefined,
     replyTo: replyTo || undefined,
+    ...(opts.attachments?.length
+      ? {
+          attachments: opts.attachments.map((a) => ({
+            filename: a.filename,
+            content: a.content,
+            contentType: a.contentType,
+          })),
+        }
+      : {}),
   });
 }

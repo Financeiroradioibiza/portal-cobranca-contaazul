@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:billing-pdf": "bash scripts/test-billing-charge-pdf.sh",
     "postinstall": "prisma generate",
     "portal:hash-password": "node scripts/portal-hash-password.mjs"
   },

@@ -102,6 +102,16 @@ model OcEmailTemplate {
   @@map("oc_email_template")
 }
 
+/// Template do e-mail agregado «cobranças em aberto» na homepage (usa mesmo SMTP OC_*).
+model CobrancaAbertaEmailTemplate {
+  id        String   @id
+  subject   String   @db.VarChar(480)
+  bodyText  String   @map("body_text") @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("cobranca_aberta_email_template")
+}
+
 // --- Planilha Rio (visão competência mês a mês, amarrada ao Conta Azul) ---
 
 enum RioPlanilhaBand {

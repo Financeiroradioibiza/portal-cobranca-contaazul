@@ -67,6 +67,8 @@ export type CaInstallmentDetail = {
   numero_nfse?: number;
   /** Número do RPS */
   numero_rps?: number;
+  /** Dono lançamento (validação ao enviar e-mail agregado) */
+  cliente?: { id?: string };
 };
 
 export function todayYmdLocal(): string {
