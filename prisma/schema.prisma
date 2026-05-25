@@ -101,3 +101,77 @@ model OcEmailTemplate {
 
   @@map("oc_email_template")
 }
+
+// --- Planilha Rio (visão competência mês a mês, amarrada ao Conta Azul) ---
+
+enum RioPlanilhaBand {
+  canceladas
+  novos
+  ativos
+}
+
+enum RioPlanilhaRowKind {
+  secao
+  grupo
+  pdv
+}
+
+enum RioChargeMode {
+  herda_grupo
+  cliente_ca_proprio
+}
+
+model RioPlanilhaMonth {
+  id        String   @id @default(cuid())
+  yearMonth Int      @unique @map("year_month")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  linhas RioPlanilhaRow[]
+
+  @@map("rio_planilha_month")
+}
+
+model RioPlanilhaRow {
+  id      String           @id @default(cuid())
+  monthId String           @map("month_id")
+  month   RioPlanilhaMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+
+  band RioPlanilhaBand
+  kind RioPlanilhaRowKind
+
+  parentId String? @map("parent_id")
+  parent   RioPlanilhaRow?  @relation("RioPdvParent", fields: [parentId], references: [id], onDelete: Cascade)
+  children RioPlanilhaRow[] @relation("RioPdvParent")
+
+  /// Só em linhas `secao` — título da faixa (ex.: lojas canceladas).
+  tituloSecao String? @map("titulo_secao") @db.Text
+
+  marca          String  @default("")
+  numOrdem       Int?    @map("num_ordem")
+  pdvNome        String  @default("") @map("pdv_nome")
+  cnpjDocumento  String? @map("cnpj_documento")
+  status         String  @default("")
+  valorTexto     String? @map("valor_texto")
+  qtdeTexto      String? @map("qtde_texto")
+  categoria      String  @default("")
+  email          String? @db.Text
+  dataInstall    String? @map("data_install")
+  grupoCobranca  String  @default("") @map("grupo_cobranca") @db.Text
+  razao          String  @default("") @db.Text
+  dataCancel     String? @map("data_cancel")
+  notes          String  @default("") @db.Text
+
+  contaAzulPersonId String? @map("conta_azul_person_id")
+
+  /// Em `pdv`: fatura pelo grupo (matriz) vs cliente próprio no CA.
+  chargeMode RioChargeMode @default(herda_grupo) @map("charge_mode")
+
+  sortOrder Int @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([monthId, sortOrder])
+  @@index([monthId, band, sortOrder])
+  @@map("rio_planilha_row")
+}
