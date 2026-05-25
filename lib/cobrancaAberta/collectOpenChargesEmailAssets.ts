@@ -90,7 +90,9 @@ export async function collectOpenChargesEmailAssets(
         if (tipo === "boleto") {
           const uuidRetry = extractBillingChargeUuidFromUrlString(res.url);
           if (uuidRetry) {
-            const got = await fetchBillingChargePdfPublic(uuidRetry);
+            const got = await fetchBillingChargePdfPublic(uuidRetry, {
+              preferredReferer: res.url,
+            });
             if (
               got?.buffer &&
               isProbablyPdf(got.buffer, "application/pdf") &&

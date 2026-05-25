@@ -1126,7 +1126,7 @@ export function CobrancaDashboard() {
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Altere destinatários e texto. Enviamos texto simples e uma versão HTML com marca{" "}
-                  <span className="font-semibold text-[#0066cc]">Radio Ibiza</span>.
+                  <span className="font-semibold text-[#1b5e37] dark:text-emerald-300">Radio Ibiza</span>.
                 </p>
               </div>
               <button

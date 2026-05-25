@@ -17,6 +17,37 @@ function concatArrays(data: Record<string, unknown>, keys: string[]): unknown[] 
   return out;
 }
 
+const RX_BILLING_CHARGE_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Conta Azul Pro / iugu: `{ chargeRequests: [{ id, url: "…#/fatura/visualizar/…" }] }`.
+ * Só o `id` pode vir — montamos a URL da fatura para o extrator de UUID.
+ */
+function collectChargeRequestUrlRecords(root: Record<string, unknown>): unknown[] {
+  const out: unknown[] = [];
+  const visit = (from: Record<string, unknown>) => {
+    for (const key of ["chargeRequests", "charge_requests"] as const) {
+      const arr = from[key];
+      if (!Array.isArray(arr)) continue;
+      for (const raw of arr) {
+        if (!isRecord(raw)) continue;
+        const id = str(raw.id);
+        const url =
+          str(raw.url) ??
+          (id && RX_BILLING_CHARGE_ID.test(id)
+            ? `https://faturas.contaazul.com/#/fatura/visualizar/${id}`
+            : undefined);
+        if (url) out.push({ url, link: url, tipoSolicitacaoCobranca: "charge_request" });
+      }
+    }
+  };
+  visit(root);
+  if (isRecord(root.evento)) visit(root.evento as Record<string, unknown>);
+  if (isRecord(root.fatura)) visit(root.fatura as Record<string, unknown>);
+  return out;
+}
+
 /**
  * Conta Azul costuma responder em snake_case na doc; o JSON real pode vir camelCase.
  */
@@ -62,16 +93,37 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
     anexosIn.push(data.fatura);
   }
 
-  const solicIn = concatArrays(data, [
-    "solicitacoes_cobrancas",
-    "solicitacoesCobrancas",
-    "solicitacoesCobranca",
-    "cobrancas",
-    "solicitacoesPagamento",
-    "solicitacoes_pagamento",
-    "meios_cobranca",
-    "meiosCobranca",
-  ]);
+  const solicIn = [
+    ...collectChargeRequestUrlRecords(data),
+    ...concatArrays(data, [
+      "solicitacoes_cobrancas",
+      "solicitacoesCobrancas",
+      "solicitacoesCobranca",
+      "cobrancas",
+      "solicitacoesPagamento",
+      "solicitacoes_pagamento",
+      "meios_cobranca",
+      "meiosCobranca",
+      "parcelaSolicitacoes",
+      "parcela_solicitacoes",
+    ]),
+  ];
+
+  for (const k of [
+    "pagamentoElectronico",
+    "pagamento_eletronico",
+    "meioPagamentoEletronico",
+    "meio_pagamento_eletronico",
+    "integracaoCobranca",
+    "integracao_cobranca",
+    "cobrancaRegistrada",
+    "cobranca_registrada",
+    "dadosPagamentoExterno",
+    "dados_pagamento_externo",
+  ] as const) {
+    const o = data[k];
+    if (isRecord(o)) solicIn.push(o);
+  }
 
   const anexos: CaInstallmentDetail["anexos"] = [];
   const seenAnexo = new Set<string>();
@@ -135,7 +187,20 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
       str(s.urlBoleto) ??
       str(s.url_boleto) ??
       str(s.urlPagamento) ??
-      str(s.url_pagamento);
+      str(s.url_pagamento) ??
+      str(s.urlPortal) ??
+      str(s.url_portal) ??
+      str(s.urlPaginaFatura) ??
+      str(s.url_pagina_fatura) ??
+      str(s.paginaPagamentoUrl) ??
+      str(s.pagina_pagamento_url) ??
+      str(s.urlCliente) ??
+      str(s.url_cliente) ??
+      str(s.externo_link) ??
+      str(s.externoLink) ??
+      str(s.linkExterno) ??
+      str(s.link_externo) ??
+      (isRecord(s.faturaLink) ? str(s.faturaLink.url) : undefined);
     const tipo =
       str(s.tipo_solicitacao_cobranca) ??
       str(s.tipoSolicitacaoCobranca) ??

@@ -63,7 +63,9 @@ export async function resolveParcelaTipoResource(
     const billingChargeId = extractBillingChargeFileUuid(detail, parcelaLinks);
     if (billingChargeId) {
       try {
-        const pdf = await fetchBillingChargePdfPublic(billingChargeId);
+        const pdf = await fetchBillingChargePdfPublic(billingChargeId, {
+          preferredReferer: parcelaLinks.boletoUrl ?? null,
+        });
         if (pdf?.buffer && pdf.buffer.length >= 500) {
           return {
             kind: "buffer",

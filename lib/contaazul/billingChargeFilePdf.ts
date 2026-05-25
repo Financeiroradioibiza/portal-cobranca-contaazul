@@ -5,10 +5,7 @@ import type { CaInstallmentDetail } from "./types";
 /**
  * Ao abrir um boleto «novo» (faturas.contaazul.com), o browser chama algo como GET
  * `https://public.contaazul.com/payments/billing/charge/file/{uuid}` → PDF.
- * Esse método costuma responder sem Bearer quando o `{uuid}` da cobrança é conhecido;
- * tiramos o uuid da SPA (`#/fatura/visualizar/{uuid}`) ou de URLs já nesse formato.
  */
-/** Base até `/file` (sem o uuid no fim); override só se Conta Azul mudar domínio. */
 const PUBLIC_CHARGE_FILE_BASE =
   process.env.CONTA_AZUL_PUBLIC_BILLING_CHARGE_FILE_BASE?.replace(/\/$/, "") ||
   "https://public.contaazul.com/payments/billing/charge/file";
@@ -34,6 +31,44 @@ function tryDecodeUrl(s: string): string {
   } catch {
     return s;
   }
+}
+
+function walkStrings(v: unknown, out: string[]): void {
+  if (typeof v === "string") {
+    out.push(v);
+    return;
+  }
+  if (v === null || v === undefined) return;
+  if (Array.isArray(v)) {
+    for (const x of v) walkStrings(x, out);
+    return;
+  }
+  if (typeof v === "object") {
+    for (const x of Object.values(v)) walkStrings(x, out);
+  }
+}
+
+/** Strings que devem estar ligadas ao link da cobrança (evita apanhar outros UUID na parcela). */
+function billingHint(s: string): boolean {
+  return /\bfaturas\.contaazul\.com\b|\bpublic\.contaazul\.com\b\/payments\/billing|#\/?fatura\/visualizar|charge\/file|iugu|cobran(?:ça|ca)\b/i.test(
+    s,
+  );
+}
+
+/**
+ * Fallback: qualquer texto aninhado no JSON da parcela que contenha URL/hint de cobrança + UUID válido.
+ */
+export function extractBillingChargeUuidFromDetailBillingStrings(
+  detail: CaInstallmentDetail,
+): string | null {
+  const strings: string[] = [];
+  walkStrings(detail, strings);
+  for (const s of strings) {
+    if (!billingHint(s)) continue;
+    const id = extractBillingChargeUuidFromUrlString(s);
+    if (id) return id;
+  }
+  return null;
 }
 
 /** Tenta tirar um UUID da cobrança até de URLs só com fragment ou percent-encoded. */
@@ -89,14 +124,19 @@ export function extractBillingChargeFileUuid(
     const loose = extractBillingChargeUuidFromUrlString(raw);
     if (loose) return loose;
   }
-  return null;
+
+  return extractBillingChargeUuidFromDetailBillingStrings(detail);
 }
 
 export type BillingChargePdfResult = { buffer: Buffer; disposition: string | null };
 
-/** GET ao endpoint público; devolve o PDF se Content-Type/corpo parecerem válidos (>500 bytes, %PDF-). */
+const UA_MAC_CHROME =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+/** GET público ao PDF da cobrança; tenta vários Referer — o Akamai/CDN por vezes exige o mesmo contexto da página da fatura. */
 export async function fetchBillingChargePdfPublic(
   uuid: string,
+  opts?: { preferredReferer?: string | null },
 ): Promise<BillingChargePdfResult | null> {
   const id = uuid.trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
@@ -104,37 +144,68 @@ export async function fetchBillingChargePdfPublic(
   }
 
   const url = `${PUBLIC_CHARGE_FILE_BASE}/${encodeURIComponent(id)}`;
-  try {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 28000);
 
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
+  type TryOpt = { referer: string; secFetch: boolean };
+  const trials: TryOpt[] = [];
+  const seen = new Set<string>();
+  function pushTrial(r: string, secFetch: boolean) {
+    const ref = r.trim();
+    if (!ref) return;
+    const k = `${ref}__${secFetch ? "1" : "0"}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    trials.push({ referer: ref, secFetch });
+  }
+
+  pushTrial(opts?.preferredReferer ?? "", true);
+  pushTrial("https://faturas.contaazul.com/?tipo=boleto", true);
+  pushTrial("https://faturas.contaazul.com/", true);
+  pushTrial("https://faturas.contaazul.com/", false);
+  pushTrial(opts?.preferredReferer ?? "", false);
+
+  async function attempt(t: TryOpt): Promise<BillingChargePdfResult | null> {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 26000);
+
+    try {
+      const hdrs: Record<string, string> = {
         Accept: "application/pdf,application/octet-stream,*/*",
         Origin: "https://faturas.contaazul.com",
-        Referer: "https://faturas.contaazul.com/",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        "sec-fetch-site": "same-site",
-      },
-      redirect: "follow",
-      cache: "no-store",
-      signal: ctl.signal,
-    }).finally(() => clearTimeout(t));
+        Referer: t.referer,
+        "User-Agent": UA_MAC_CHROME,
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+      };
+      if (t.secFetch) hdrs["sec-fetch-site"] = "same-site";
 
-    if (!res.ok) return null;
+      const res = await fetch(url, {
+        method: "GET",
+        headers: hdrs,
+        redirect: "follow",
+        cache: "no-store",
+        signal: ctl.signal,
+      });
 
-    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
-    if (ct.includes("json") || ct.includes("text/html")) return null;
+      if (!res.ok) return null;
 
-    const disposition = res.headers.get("content-disposition");
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 500) return null;
-    if (!buf.subarray(0, 5).equals(Buffer.from("%PDF-"))) return null;
+      const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+      if (ct.includes("json") || ct.includes("text/html")) return null;
 
-    return { buffer: buf, disposition };
-  } catch {
-    return null;
+      const disposition = res.headers.get("content-disposition");
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 500) return null;
+      if (!buf.subarray(0, 5).equals(Buffer.from("%PDF-"))) return null;
+
+      return { buffer: buf, disposition };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  for (const trial of trials) {
+    const out = await attempt(trial);
+    if (out) return out;
+  }
+  return null;
 }
