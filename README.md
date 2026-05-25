@@ -52,6 +52,11 @@ npm run dev
 
 Documentação: [Solicitando código](https://developers.contaazul.com/requestingcode), [Trocar por token](https://developers.contaazul.com/changecode).
 
+### Planilha Rio — erro Prisma «Transaction not found» na sync ou timeout HTML na importação MARCA
+
+- **Prisma (`Transaction API error … Transaction ID is invalid`)**: costuma aparecer quando a competência tem muitas linhas/PDVs e a transação leva vários segundos com centenas de `create()` — o servidor Postgres (Neon pooler) fecha a sessão antes do commit. Mantenha o código actualizado (**sync** já usa `createMany` em blocos e timeouts longos) e use **`DATABASE_URL` pooled** do Neon.
+- **`Inactivity Timeout` / página HTML ao importar MARCA+PDVs ou ao sincronizar com contratos+e-mail marcados**: no **Netlify plano gratuito** o tempo máximo habitual da função é **~10 s**; mesmo com código optimizado pode não chegar quando há muitos clientes **e** marca «Contratos CA» ou «Enriquecer cadastro» ligados na sync. Experimente primeiro **sync sem** essas duas opções; depois aumente timeout no Netlify (**Pro** permite pedir até **26 s**) ou use **`npm run dev`**/`localhost` já com `.env`, que não tem esse tecto HTTP.
+
 ## Netlify
 
 1. Crie um banco Postgres (Neon) e copie `DATABASE_URL`.

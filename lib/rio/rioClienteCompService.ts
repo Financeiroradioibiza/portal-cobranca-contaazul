@@ -422,13 +422,16 @@ export async function syncRioCompMonthFromContaAzul(
     a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" }),
   );
 
-  let sortOrder = 0;
-  await prisma.$transaction(async (tx) => {
-    await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
-    await tx.rioCompGrupo.deleteMany({ where: { monthId: month.id } });
-    for (const d of drafts) {
-      const created = await tx.rioCompClienteLinha.create({
-        data: {
+  /** Import/sync grandes: criar cliente-a-cliente dentro da transação interactiva faz o Prisma/Neon expirar → createMany em blocos. */
+  const PDV_CREATEMANY_CHUNK = 750;
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
+      await tx.rioCompGrupo.deleteMany({ where: { monthId: month.id } });
+
+      await tx.rioCompClienteLinha.createMany({
+        data: drafts.map((d, sortOrder) => ({
           monthId: month.id,
           caPersonId: d.caPersonId,
           grupoSite: d.grupoSite,
@@ -443,28 +446,52 @@ export async function syncRioCompMonthFromContaAzul(
           movimento: d.movimento,
           observacoesLinha: d.observacoesLinha,
           sortOrder,
-        },
+        })),
       });
-      sortOrder += 1;
-      let pi = 0;
-      for (const p of d.pdvsSeed) {
-        await tx.rioCompPdv.create({
-          data: {
-            clienteId: created.id,
+
+      const createdLinhas = await tx.rioCompClienteLinha.findMany({
+        where: { monthId: month.id },
+        select: { id: true, caPersonId: true },
+      });
+      const clienteIdByCa = new Map(
+        createdLinhas.map((l) => [l.caPersonId, l.id]),
+      );
+
+      const pdvsToInsert: { clienteId: string; nome: string; notes: string; sortOrder: number }[] =
+        [];
+
+      for (const d of drafts) {
+        const clienteId = clienteIdByCa.get(d.caPersonId);
+        if (!clienteId) continue;
+        let pi = 0;
+        for (const p of d.pdvsSeed) {
+          pdvsToInsert.push({
+            clienteId,
             nome: p.nome.trim() ? p.nome : `PDV ${pi + 1}`,
             notes: p.notes,
             sortOrder: p.sortOrder ?? pi,
-          },
-        });
-        pi++;
+          });
+          pi++;
+        }
       }
-    }
-    await tx.rioCompMonth.update({
-      where: { id: month.id },
-      data: { lastSyncedAt: new Date() },
-    });
-    await reconcileRioCompGrupoLinksTx(tx, month.id);
-  });
+
+      for (let o = 0; o < pdvsToInsert.length; o += PDV_CREATEMANY_CHUNK) {
+        const slice = pdvsToInsert.slice(o, o + PDV_CREATEMANY_CHUNK);
+        if (slice.length) await tx.rioCompPdv.createMany({ data: slice });
+      }
+
+      await tx.rioCompMonth.update({
+        where: { id: month.id },
+        data: { lastSyncedAt: new Date() },
+      });
+
+      await reconcileRioCompGrupoLinksTx(tx, month.id);
+    },
+    {
+      timeout: 240_000,
+      maxWait: 45_000,
+    },
+  );
 
   const out = await getRioCompMonthWithLinhas(yearMonth);
   return {
@@ -802,51 +829,82 @@ export async function applyMarcaPdvCsvLayoutToMonth(
   const monthId = bundleBefore.month.id;
   const pool = bundleBefore.linhas;
 
+  type PrepLayout = {
+    clienteId: string;
+    marca: string;
+    categoriaSite: string;
+    numeroPdvSite: number;
+    pdvs: Array<{ nome: string; sortOrder: number }>;
+  };
+
+  const prepRows: PrepLayout[] = [];
+
+  for (const row of parsed.rows) {
+    const { linha, note } = pickLinhaForMarcaCsvNome(row.nomeMatch, pool, usedIds);
+    if (!linha) {
+      unmatchedLabels.push(row.nomeMatch);
+      continue;
+    }
+    if (note) {
+      warningsOut.push(`«${row.nomeMatch}»: ${note}`);
+    }
+    usedIds.add(linha.id);
+    appliedCount += 1;
+    prepRows.push({
+      clienteId: linha.id,
+      marca: normMarcaNome(row.marca),
+      categoriaSite: row.categoriaSite,
+      numeroPdvSite: row.numeroPdvSite,
+      pdvs: row.pdvs,
+    });
+  }
+
+  /** Uma só transação pesada bem mais curta que N×delete+loop create por cliente (evita P2028 / Neon). createMany cortado em troços. */
+  const PDV_LAYOUT_CHUNK = 750;
+
   await prisma.$transaction(
     async (tx) => {
-      for (const row of parsed.rows) {
-        const { linha, note } = pickLinhaForMarcaCsvNome(row.nomeMatch, pool, usedIds);
-        if (!linha) {
-          unmatchedLabels.push(row.nomeMatch);
-          continue;
-        }
-        if (note) {
-          warningsOut.push(`«${row.nomeMatch}»: ${note}`);
-        }
+      if (!prepRows.length) {
+        await reconcileRioCompGrupoLinksTx(tx, monthId);
+        return;
+      }
 
-        const marca = normMarcaNome(row.marca);
-        await tx.rioCompClienteLinha.update({
-          where: { id: linha.id, monthId },
-          data: {
-            grupoSite: marca,
-            categoriaSite: row.categoriaSite,
-            numeroPdvSite: row.numeroPdvSite,
-          },
-        });
+      const clienteIds = prepRows.map((p) => p.clienteId);
+      await tx.rioCompPdv.deleteMany({ where: { clienteId: { in: clienteIds } } });
 
-        await tx.rioCompPdv.deleteMany({ where: { clienteId: linha.id } });
-
-        for (let pi = 0; pi < row.pdvs.length; pi++) {
-          const p = row.pdvs[pi]!;
-          await tx.rioCompPdv.create({
-            data: {
-              clienteId: linha.id,
-              nome: p.nome.trim() ? p.nome : `PDV ${pi + 1}`,
-              notes: "",
-              sortOrder: p.sortOrder ?? pi,
-            },
+      const flatPdvs: { clienteId: string; nome: string; notes: string; sortOrder: number }[] = [];
+      for (const pr of prepRows) {
+        for (let pi = 0; pi < pr.pdvs.length; pi++) {
+          const p = pr.pdvs[pi]!;
+          flatPdvs.push({
+            clienteId: pr.clienteId,
+            nome: p.nome.trim() ? p.nome : `PDV ${pi + 1}`,
+            notes: "",
+            sortOrder: p.sortOrder ?? pi,
           });
         }
+      }
+      for (let o = 0; o < flatPdvs.length; o += PDV_LAYOUT_CHUNK) {
+        const slice = flatPdvs.slice(o, o + PDV_LAYOUT_CHUNK);
+        if (slice.length) await tx.rioCompPdv.createMany({ data: slice });
+      }
 
-        usedIds.add(linha.id);
-        appliedCount += 1;
+      for (const pr of prepRows) {
+        await tx.rioCompClienteLinha.update({
+          where: { id: pr.clienteId, monthId },
+          data: {
+            grupoSite: pr.marca,
+            categoriaSite: pr.categoriaSite,
+            numeroPdvSite: pr.numeroPdvSite,
+          },
+        });
       }
 
       await reconcileRioCompGrupoLinksTx(tx, monthId);
     },
     {
-      timeout: 120_000,
-      maxWait: 25_000,
+      timeout: 240_000,
+      maxWait: 45_000,
     },
   );
 
