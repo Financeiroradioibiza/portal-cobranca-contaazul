@@ -3,6 +3,7 @@ import {
   extractBillingChargeUuidFromUrlString,
   fetchBillingChargePdfPublic,
 } from "@/lib/contaazul/billingChargeFilePdf";
+import { listBoletoLinksForInstallmentEmail } from "@/lib/contaazul/boletoLinksForEmail";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
 import type { SaleRow } from "@/lib/types";
@@ -114,11 +115,16 @@ export async function collectOpenChargesEmailAssets(
             content: pdf,
             contentType: "application/pdf",
           });
-        } else {
+        } else if (tipo !== "boleto") {
           linkLines.push(`- ${labelShort}: ${res.url}`);
         }
         continue;
       }
+    }
+
+    /** Sempre lista todos os links de boleto (Conta Azul público normalizado + banco/registradora). */
+    for (const row of listBoletoLinksForInstallmentEmail(detail)) {
+      linkLines.push(`- ${s.comp} · venc. ${s.due} · ${row.label}: ${row.href}`);
     }
   }
 

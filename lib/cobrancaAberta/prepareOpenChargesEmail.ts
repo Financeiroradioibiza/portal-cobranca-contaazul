@@ -28,12 +28,21 @@ export function parseSaleRowsBody(raw: unknown): SaleRow[] | { error: string } {
 }
 
 /**
- * Texto para `{{DOCUMENTOS}}` — sem listar ficheiros nem links técnicos.
- * Só mensagem curta se ainda faltar algum PDF após tentativas no servidor.
+ * Texto para `{{DOCUMENTOS}}`: links diretos aos boletos detectados (+ frase quando necessário).
  */
 export function buildMinimalDocumentosVar(linkLines: string[]): string {
   if (linkLines.length === 0) return "";
-  return "Se precisar de algum boleto que não tenha vindo em anexo, responda a este e-mail e encaminhamos o PDF.";
+  const hasBoleto = linkLines.some((l) => /boleto/i.test(l));
+  const header = hasBoleto
+    ? "Links dos boletos (quando houver fatura digital e banco, aparecem as duas linhas):"
+    : "Links adicionais:";
+  return [
+    header,
+    "",
+    ...linkLines,
+    "",
+    "Os PDFs podem já estar em anexo; use os URLs no browser quando precisar.",
+  ].join("\n");
 }
 
 export type PrepareOpenChargesArgs = {
