@@ -483,12 +483,15 @@ export async function replaceRioCompMonthFromImportedRows(
     a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" }),
   );
 
-  await prisma.$transaction(async (tx) => {
-    await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
-    let sortOrder = 0;
-    for (const d of drafts) {
-      const created = await tx.rioCompClienteLinha.create({
-        data: {
+  /** Import grandes: milhares de `create` numa só transação fazem Neon/pool ou o timeout do Prisma fecharem antes do fim → "Transaction not found". */
+  const PDV_CREATEMANY_CHUNK = 750;
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
+
+      await tx.rioCompClienteLinha.createMany({
+        data: drafts.map((d, sortOrder) => ({
           monthId: month.id,
           caPersonId: d.caPersonId,
           grupoSite: d.grupoSite,
@@ -503,27 +506,50 @@ export async function replaceRioCompMonthFromImportedRows(
           movimento: d.movimento,
           observacoesLinha: d.observacoesLinha,
           sortOrder,
-        },
+        })),
       });
-      sortOrder += 1;
-      let pi = 0;
-      for (const p of d.pdvsSeed) {
-        await tx.rioCompPdv.create({
-          data: {
-            clienteId: created.id,
+
+      const createdLinhas = await tx.rioCompClienteLinha.findMany({
+        where: { monthId: month.id },
+        select: { id: true, caPersonId: true },
+      });
+      const clienteIdByCa = new Map(
+        createdLinhas.map((l) => [l.caPersonId, l.id]),
+      );
+
+      const pdvsToInsert: { clienteId: string; nome: string; notes: string; sortOrder: number }[] =
+        [];
+
+      for (const d of drafts) {
+        const clienteId = clienteIdByCa.get(d.caPersonId);
+        if (!clienteId) continue;
+        let pi = 0;
+        for (const p of d.pdvsSeed) {
+          pdvsToInsert.push({
+            clienteId,
             nome: p.nome.trim() ? p.nome : `PDV ${pi + 1}`,
             notes: p.notes,
-            sortOrder: p.sortOrder || pi,
-          },
-        });
-        pi++;
+            sortOrder: p.sortOrder ?? pi,
+          });
+          pi++;
+        }
       }
-    }
-    await tx.rioCompMonth.update({
-      where: { id: month.id },
-      data: { lastSyncedAt: new Date() },
-    });
-  });
+
+      for (let o = 0; o < pdvsToInsert.length; o += PDV_CREATEMANY_CHUNK) {
+        const slice = pdvsToInsert.slice(o, o + PDV_CREATEMANY_CHUNK);
+        if (slice.length) await tx.rioCompPdv.createMany({ data: slice });
+      }
+
+      await tx.rioCompMonth.update({
+        where: { id: month.id },
+        data: { lastSyncedAt: new Date() },
+      });
+    },
+    {
+      timeout: 180_000,
+      maxWait: 30_000,
+    },
+  );
 
   const full = await getRioCompMonthWithLinhas(yearMonth);
   if (!full) throw new Error("rio_month_missing_after_import");
