@@ -6,6 +6,7 @@ import { applyCobrancaAbertaPlaceholders } from "./cobrancaAbertaEmailDefaults";
 import { getOrCreateCobrancaAbertaEmailTemplate } from "./cobrancaAbertaEmailTemplateService";
 import { buildCobrancaAbertaEmailHtml } from "./cobrancaAbertaHtml";
 import { collectOpenChargesEmailAssets } from "./collectOpenChargesEmailAssets";
+import { parcelaLinhaCsvParaEmail } from "./parcelaLinhaEmail";
 
 export function parseSaleRowsBody(raw: unknown): SaleRow[] | { error: string } {
   if (!Array.isArray(raw)) return { error: "sales_not_array" };
@@ -77,12 +78,7 @@ export async function prepareOpenChargesEmail(
 
   const tpl = await getOrCreateCobrancaAbertaEmailTemplate();
   const totalNum = args.sales.reduce((s, x) => s + x.value, 0);
-  const tabela = args.sales
-    .map(
-      (x) =>
-        `- ${x.comp} | Vencimento: ${x.due} | ${x.summary || "—"} | ${formatBRL(x.value)}`,
-    )
-    .join("\n");
+  const tabela = args.sales.map((x) => parcelaLinhaCsvParaEmail(x)).join("\n");
 
   const bundle = await collectOpenChargesEmailAssets(args.token, args.clientId, args.sales);
   const docVar = buildMinimalDocumentosVar(bundle.linkLines);
