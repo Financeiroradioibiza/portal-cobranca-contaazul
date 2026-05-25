@@ -57,9 +57,19 @@ Documentação: [Solicitando código](https://developers.contaazul.com/requestin
 1. Crie um banco Postgres (Neon) e copie `DATABASE_URL`.
 2. Repo no GitHub/GitLab → **Import** na Netlify.
 3. **Environment variables**: variáveis do portal + Postgres + **integração opcional Painel** (`RADIO_PAINEL_*`, ver tabela nas variáveis de ambiente).
-4. Build (já em [`netlify.toml`](netlify.toml)): `npx prisma migrate deploy && npm run build`
+4. Build (config em [`netlify.toml`](netlify.toml)): primeiro roda [`scripts/netlify-migrate.mjs`](scripts/netlify-migrate.mjs) — `prisma migrate deploy` com **várias tentativas** (útil quando o Neon “acorda”); depois `npm run build`.
 5. No Portal Conta Azul, cadastre a mesma `CONTA_AZUL_REDIRECT_URI` de produção.
 6. Primeiro deploy: authorize o app com um usuário **do ERP Conta Azul** (não o login do portal desenvolvedor).
+
+### Netlify + Neon — erro `P1001` / Can't reach database
+
+Se o deploy falhar no passo migrate:
+
+- No painel Neon, copie **`DATABASE_URL` da conexão pooled** (“**Pooled**” — o host inclui habitualmente **`pooler`** quando o Neon assim o etiqueta).
+- Confirme `?sslmode=require` na URL se o modelo do Neon não a trouxer já.
+- Garanta que o projeto Neon **não está em pausa** e que **não há restrição de IP** bloqueando os builders Netlify.
+
+**Último recurso:** variável Netlify `SKIP_PRISMA_MIGRATE=1` (só temporário) faz o build ignorar migrações; rode `npx prisma migrate deploy` localmente contra o mesmo banco e remova essa flag de seguida.
 
 ## Rate limit
 
