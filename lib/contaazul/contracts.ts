@@ -93,12 +93,14 @@ async function listContractsOneClient(
 ): Promise<void> {
   let pagina = 1;
   for (;;) {
+    /** Só ATIVOS: sem isto vêm todos os históricos — com muitos INATIVO o paginador pára em 500 e some contrato ativo (ex.: 6515). */
     const qs = new URLSearchParams({
       data_inicio,
       data_fim,
       pagina: String(pagina),
       tamanho_pagina: "50",
       cliente_id: clienteId,
+      status: "ATIVO",
     });
 
     const { ok, items } = await fetchContractPage(accessToken, qs);

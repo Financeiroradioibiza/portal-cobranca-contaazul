@@ -6,6 +6,7 @@ import { applyCobrancaAbertaPlaceholders } from "./cobrancaAbertaEmailDefaults";
 import { getOrCreateCobrancaAbertaEmailTemplate } from "./cobrancaAbertaEmailTemplateService";
 import { buildCobrancaAbertaEmailHtml } from "./cobrancaAbertaHtml";
 import { collectOpenChargesEmailAssets } from "./collectOpenChargesEmailAssets";
+import { buildMinimalDocumentosVar } from "./documentosPlaintext";
 import { parcelaLinhaCsvParaEmail } from "./parcelaLinhaEmail";
 
 export function parseSaleRowsBody(raw: unknown): SaleRow[] | { error: string } {
@@ -28,23 +29,6 @@ export function parseSaleRowsBody(raw: unknown): SaleRow[] | { error: string } {
   return out;
 }
 
-/**
- * Texto para `{{DOCUMENTOS}}`: links diretos aos boletos detectados (+ frase quando necessário).
- */
-export function buildMinimalDocumentosVar(linkLines: string[]): string {
-  if (linkLines.length === 0) return "";
-  const hasBoleto = linkLines.some((l) => /boleto/i.test(l));
-  const header = hasBoleto
-    ? "Links dos boletos (quando houver fatura digital e banco, aparecem as duas linhas):"
-    : "Links adicionais:";
-  return [
-    header,
-    "",
-    ...linkLines,
-    "",
-    "Os PDFs podem já estar em anexo; use os URLs no browser quando precisar.",
-  ].join("\n");
-}
 
 export type PrepareOpenChargesArgs = {
   token: string;
@@ -104,7 +88,10 @@ export async function prepareOpenChargesEmail(
     args.bodyOverride !== undefined ? args.bodyOverride : bodyTemplated;
   const bodyPlain = bodyPlainRaw.replace(/\n{3,}/g, "\n\n").trimEnd();
 
-  const html = buildCobrancaAbertaEmailHtml({ bodyPlain });
+  const html = buildCobrancaAbertaEmailHtml({
+    bodyPlain,
+    documentosHtmlLinkLines: bundle.linkLines,
+  });
 
   return {
     to,

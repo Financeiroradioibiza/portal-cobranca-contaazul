@@ -1,4 +1,10 @@
 import { COMPANY_NAME } from "@/lib/brand";
+import {
+  COBR_DOCUMENTOS_BTN_SLOT,
+  buildDocumentosBoletoButtonsHtml,
+  spliceDocumentosFingerprintForHtml,
+} from "./documentosButtonsEmail";
+import { buildMinimalDocumentosVar } from "./documentosPlaintext";
 
 /** Alinhado à identidade de e-mails internos («Radio Ibiza» + Departamento Financeiro — verde). */
 const HEADER_GREEN = "#1b5e37";
@@ -114,13 +120,49 @@ function paragraphFromBlock(block: string): string {
   return `<p style="margin:0 0 18px;line-height:1.65;color:#333333;font-size:15px;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">${escapeHtml(trimmed).replace(/\n/g, "<br/>")}</p>`;
 }
 
+function splitOnce(haystack: string, needle: string): [string, string] {
+  const i = haystack.indexOf(needle);
+  if (i < 0) return [haystack, ""];
+  return [haystack.slice(0, i), haystack.slice(i + needle.length)];
+}
+
+function sectionsToInnerHtml(segment: string): string {
+  const norm = segment.trimEnd();
+  if (!norm.trim()) return "";
+  const blocks = norm.replace(/\r\n/g, "\n").split(/\n{2,}/);
+  return blocks.map(paragraphFromBlock).join("");
+}
+
 /**
  * HTML com identidade próxima da cobrança interna Radio Ibiza (cabeçalho verde, resumo listado à cinza quando aplicável).
+ * Bloco `{{DOCUMENTOS}}` vira botões “Download do boleto / Pix” no HTML; o texto com URLs mantém-se só no `text/plain`.
  */
-export function buildCobrancaAbertaEmailHtml(opts: { bodyPlain: string; companyName?: string }): string {
+export function buildCobrancaAbertaEmailHtml(opts: {
+  bodyPlain: string;
+  companyName?: string;
+  /** Linhas `- … : https…` geradas em `collectOpenChargesEmailAssets`. */
+  documentosHtmlLinkLines?: string[];
+}): string {
   const company = opts.companyName ?? COMPANY_NAME;
-  const blocks = opts.bodyPlain.trimEnd().replace(/\r\n/g, "\n").split(/\n{2,}/);
-  const inner = blocks.map(paragraphFromBlock).join("");
+  const linkLines = opts.documentosHtmlLinkLines ?? [];
+
+  const fingerprint = linkLines.length ? buildMinimalDocumentosVar(linkLines) : "";
+  const docBtnsHtml = linkLines.length ? buildDocumentosBoletoButtonsHtml(linkLines) : "";
+
+  let bodyForParsing = opts.bodyPlain;
+  if (fingerprint && docBtnsHtml) {
+    bodyForParsing = spliceDocumentosFingerprintForHtml(opts.bodyPlain, fingerprint);
+  }
+
+  let inner: string;
+  if (docBtnsHtml && bodyForParsing.includes(COBR_DOCUMENTOS_BTN_SLOT)) {
+    const [pre, post] = splitOnce(bodyForParsing, COBR_DOCUMENTOS_BTN_SLOT);
+    inner = `${sectionsToInnerHtml(pre)}${docBtnsHtml}${sectionsToInnerHtml(post)}`;
+  } else {
+    inner = `${sectionsToInnerHtml(bodyForParsing)}${
+      docBtnsHtml && !bodyForParsing.includes(COBR_DOCUMENTOS_BTN_SLOT) ? docBtnsHtml : ""
+    }`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
