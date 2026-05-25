@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test:billing-pdf": "bash scripts/test-billing-charge-pdf.sh",
     "postinstall": "prisma generate",
-    "portal:hash-password": "node scripts/portal-hash-password.mjs"
+    "portal:hash-password": "node scripts/portal-hash-password.mjs",
+    "rio:apply-marca-layout": "esbuild scripts/rio-apply-marca-pdv-layout.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-marca-layout.run.cjs && node .rio-marca-layout.run.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -32,6 +33,8 @@
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
+    "esbuild": "^0.28.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "prisma": "5.22.0",

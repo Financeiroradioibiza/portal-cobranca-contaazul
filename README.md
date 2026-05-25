@@ -54,8 +54,30 @@ Documentação: [Solicitando código](https://developers.contaazul.com/requestin
 
 ### Planilha Rio — erro Prisma «Transaction not found» na sync ou timeout HTML na importação MARCA
 
-- **Prisma (`Transaction API error … Transaction ID is invalid`)**: costuma aparecer quando a competência tem muitas linhas/PDVs e a transação leva vários segundos com centenas de `create()` — o servidor Postgres (Neon pooler) fecha a sessão antes do commit. Mantenha o código actualizado (**sync** já usa `createMany` em blocos e timeouts longos) e use **`DATABASE_URL` pooled** do Neon.
-- **`Inactivity Timeout` / página HTML ao importar MARCA+PDVs ou ao sincronizar com contratos+e-mail marcados**: no **Netlify plano gratuito** o tempo máximo habitual da função é **~10 s**; mesmo com código optimizado pode não chegar quando há muitos clientes **e** marca «Contratos CA» ou «Enriquecer cadastro» ligados na sync. Experimente primeiro **sync sem** essas duas opções; depois aumente timeout no Netlify (**Pro** permite pedir até **26 s**) ou use **`npm run dev`**/`localhost` já com `.env`, que não tem esse tecto HTTP.
+- **Prisma (`Transaction API error … Transaction ID is invalid`)**: costuma aparecer quando a competência tem muitas linhas/PDVs e a transação leva vários segundos com centenas de `create()` — o servidor Postgres (Neon pooler) fecha a sessão antes do commit. Mantenha o código atualizado (**sync** já usa `createMany` em blocos e timeouts longos) e use **`DATABASE_URL` pooled** do Neon.
+- **`Inactivity Timeout` no site (HTML)** ao importar MARCA ou ao sincronizar com lista grande: na **Netlify Free** corta habitualmente aos **~10 s** — não aumenta só com código; o botão MARCA pode servir para ficheiros curtos ou plano rápido. Para **carga inicial** use o comando abaixo no teu computador (**fala só com Postgres**, sem esse teto HTTP).
+- **Sync CA + «Enriquecer cadastro»** também pode estoirar esse limite — **desmarca** primeiro enriquecer e contratos, sincroniza (lista básica), depois aumenta tempo no Netlify (Pro até ~**26 s** com pedido ao suporte) ou usa **`npm run dev`** já com `.env`.
+
+### Planilha Rio — MARCA + PDVs pela linha de comando (evita timeout Netlify)
+
+1. Coloque no `.env` local o **`DATABASE_URL` Pooled do Neon**, o **mesmo** que o portal em produção usa.
+2. A competência (YYYYMM) já deve ter linhas de cliente (nome fantasia / ids CA) como farias antes de clicar «MARCA + PDVs» no site.
+
+Ficheiro versionado neste repo: **`data/rio-marca-pdv-planilha-inicial.csv`** (exportação MARCA/col. A‑H).
+
+```bash
+# Exemplo: maio de 2026 ⇒ 202605
+npm run rio:apply-marca-layout -- 202605
+
+# Outro CSV
+npm run rio:apply-marca-layout -- 202605 "/caminho/outro.csv"
+```
+
+O npm script faz **esbuild** sobre o `.ts` e corre o bundle gerado em `.rio-marca-layout.run.cjs` (local, ignorado no git).
+
+O comando mostra um resumo e lista nomes da planilha que **não** cruzaram com `nome_fantasia` já na base — normalmente por texto diferente do que a CA gravou.
+
+**Contratos CA / detalhes por API** continuam sendo muitos pedidos; sem refactor em vários pedidos pelo browser dá timeout em hospedagens curtas — use sync **rápida** primeiro, ou trabalhe em **`localhost`**.
 
 ## Netlify
 
