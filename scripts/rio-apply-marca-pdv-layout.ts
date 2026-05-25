@@ -1,6 +1,6 @@
 /**
  * Aplica MARCA + PDVs a partir do CSV «planilha interna» contra o Postgres já configurado
- * (`DATABASE_URL` no `.env` ou variável exportada na shell).
+ * (`DATABASE_URL` no `.env` / `.env.local` ou na shell).
  *
  * Isto não passa pela Netlify: não há limite HTTP de ~10s; uso típico após já existirem
  * linhas na competência (uuid CA + nome fantasia) por sync rápido ou CSV de clientes.
@@ -9,12 +9,17 @@
  *   npm run rio:apply-marca-layout -- 202611
  *   npm run rio:apply-marca-layout -- 202611 ./meu-arquivo.csv
  */
-import "dotenv/config";
+import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { applyMarcaPdvCsvLayoutToMonth } from "@/lib/rio/rioClienteCompService";
+/** Antes do Prisma: variáveis têm de estar já em `process.env`. */
+function loadCliEnv(): void {
+  const root = process.cwd();
+  dotenv.config({ path: path.join(root, ".env") });
+  dotenv.config({ path: path.join(root, ".env.local") });
+}
 
 const DEFAULT_REL = path.join("data", "rio-marca-pdv-planilha-inicial.csv");
 
@@ -24,6 +29,8 @@ function parseYm(raw: string | undefined): number | null {
 }
 
 async function main() {
+  loadCliEnv();
+
   const ymArg = process.argv[2];
   const ym = parseYm(ymArg);
   if (!ym) {
@@ -37,13 +44,37 @@ async function main() {
     process.exit(1);
   }
 
-  const durl = process.env.DATABASE_URL?.trim();
-  if (!durl) {
+  let durl = process.env.DATABASE_URL?.trim();
+  /** Alguns setups deixam só `DATABASE_POOL_URL` (Neon pooled) no `.env.local`. */
+  if (
+    (!durl || /postgresql:\/\/[^\s:@]+@(localhost|127\.0\.0\.1)[:\/?]/i.test(durl)) &&
+    process.env.DATABASE_POOL_URL?.trim()
+  ) {
+    durl = process.env.DATABASE_POOL_URL!.trim();
+  }
+
+  if (!durl || durl.includes("postgres://USERNAME") || /example\.invalid/i.test(durl)) {
     console.error(
-      "Defina DATABASE_URL (ex.: copie «Pooled» do Neon para o `.env` deste projecto).",
+      "Defina DATABASE_URL com a connection string (**Pooled**) do Neon (igual ao que tens na Netlify).",
+    );
+    console.error(
+      "  Coloca-a em `.env.local` ou `.env` na raiz deste repo (.env primeiro; `.env.local` sobrepõe).",
+    );
+    console.error(
+      "  Alternativa opcional para este comando: variável só pooled `DATABASE_POOL_URL=...` ",
     );
     process.exit(1);
   }
+
+  if (/postgresql:\/\/[^\s:@]+@(localhost|127\.0\.0\.1)[:\/?]/i.test(durl)) {
+    console.warn(
+      "[aviso] DATABASE_URL aponta a localhost — se querias Neon, corrige `.env.local`/`DATABASE_URL`; local só se o Postgres aí existe.",
+    );
+  }
+
+  process.env.DATABASE_URL = durl;
+
+  const { applyMarcaPdvCsvLayoutToMonth } = await import("@/lib/rio/rioClienteCompService");
 
   const filePath = path.resolve(
     process.cwd(),

@@ -60,7 +60,7 @@ Documentação: [Solicitando código](https://developers.contaazul.com/requestin
 
 ### Planilha Rio — MARCA + PDVs pela linha de comando (evita timeout Netlify)
 
-1. Coloque no `.env` local o **`DATABASE_URL` Pooled do Neon**, o **mesmo** que o portal em produção usa.
+1. Na raiz do repo, defina **`DATABASE_URL`** (Neon **Pooled**, o mesmo texto que tens nas variáveis da Netlify) em **`.env.local`** e/ou **`.env`**. O comando lê primeiro **`.env`** e depois sobrepõe com **`.env.local`**. Se `DATABASE_URL` estiver ausente ou ainda em `localhost` de exemplo mas tiveres a URL pooled noutra variável, podes usar **`DATABASE_POOL_URL=...`** (só para este script).
 2. A competência (YYYYMM) já deve ter linhas de cliente (nome fantasia / ids CA) como farias antes de clicar «MARCA + PDVs» no site.
 
 Ficheiro versionado neste repo: **`data/rio-marca-pdv-planilha-inicial.csv`** (exportação MARCA/col. A‑H).
