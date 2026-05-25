@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
+import { defaultPeriodMonths, formatBRL } from "@/lib/format";
 import {
   formatYearMonthLabel,
   currentBrazilYearMonth,
@@ -38,6 +39,49 @@ function hydrate(rows: RioPlanilhaRow[]): Vm[] {
     editorKey: r.id,
     parentEditorKey: r.parentId,
   }));
+}
+
+type CaOpenClient = {
+  id: string;
+  fantasy: string;
+  cnpj: string;
+  email: string;
+  parcelasAbertas: number;
+  totalAberto: number;
+};
+
+function rowVmFromCaImport(c: CaOpenClient, sortOrder: number, monthId: string): Vm {
+  const rk = crypto.randomUUID();
+  const doc = c.cnpj === "—" || !c.cnpj?.trim() ? null : c.cnpj.trim();
+  return {
+    id: rk,
+    monthId,
+    band: "ativos",
+    kind: "pdv",
+    tituloSecao: null,
+    marca: "",
+    numOrdem: null,
+    pdvNome: c.fantasy,
+    cnpjDocumento: doc,
+    status: `${c.parcelasAbertas} parcela(s) em aberto`,
+    valorTexto: formatBRL(c.totalAberto),
+    qtdeTexto: String(c.parcelasAbertas),
+    categoria: "",
+    email: !c.email?.trim() || c.email === "—" ? null : c.email.trim(),
+    dataInstall: null,
+    grupoCobranca: c.fantasy,
+    razao: c.fantasy,
+    dataCancel: null,
+    notes: `Importação Conta Azul — soma em aberto no período: ${formatBRL(c.totalAberto)}.`,
+    contaAzulPersonId: c.id,
+    chargeMode: "cliente_ca_proprio",
+    sortOrder,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    parentId: null,
+    editorKey: rk,
+    parentEditorKey: null,
+  };
 }
 
 /** Linha modelo para um novo UUID (substitui `id`/`monthId` no mount). */
@@ -89,6 +133,7 @@ export function PlanilhaRioPanel() {
   const [editing, setEditing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [importingCa, setImportingCa] = useState(false);
 
   const [linkEk, setLinkEk] = useState<string | null>(null);
   const [buscaCa, setBuscaCa] = useState("");
@@ -232,6 +277,71 @@ export function PlanilhaRioPanel() {
       ];
     });
   };
+
+  const importCaOpenClients = useCallback(async () => {
+    if (!monthIdLookup.trim()) {
+      setMsg("Aguarde carregar o mês ou atualize a página.");
+      return;
+    }
+
+    setImportingCa(true);
+    setMsg(null);
+    try {
+      const p = defaultPeriodMonths(18);
+      const res = await fetch(
+        `/api/rio-planilha/contaazul/open-clients?start=${encodeURIComponent(p.start)}&end=${encodeURIComponent(p.end)}`,
+        { credentials: "include" },
+      );
+      const { data, rawText } = await readJsonFromResponse<{
+        clients?: CaOpenClient[];
+        period?: { start: string; end: string };
+        error?: string;
+      }>(res);
+      if (res.status === 401) {
+        setMsg("Conecte o Conta Azul no painel principal e volte a esta página.");
+        return;
+      }
+      if (!res.ok || !Array.isArray(data?.clients)) {
+        setMsg(data?.error ?? rawText.slice(0, 260) ?? "Falha ao buscar dados no CA.");
+        return;
+      }
+
+      const list = data.clients;
+      if (list.length === 0) {
+        setMsg(
+          `Sem parcelas em aberto entre ${data.period?.start ?? p.start} e ${data.period?.end ?? p.end} (janela igual à busca de contas a receber no CA).`,
+        );
+        return;
+      }
+
+      const baseSource = editing ? draft : committed;
+      const base = baseSource.map((v) => ({ ...v }));
+
+      const seen = new Set(base.map((r) => r.contaAzulPersonId).filter(Boolean));
+      let sortMx = base.length ? Math.max(...base.map((r) => r.sortOrder || 0)) : 0;
+      let added = 0;
+      const next = [...base];
+
+      for (const c of list) {
+        if (seen.has(c.id)) continue;
+        sortMx += 1;
+        seen.add(c.id);
+        next.push(rowVmFromCaImport(c, sortMx, monthIdLookup));
+        added += 1;
+      }
+
+      setDraft(next);
+      setEditing(true);
+      setMsg(
+        added > 0
+          ? `${added} linha(s) em «CLIENTES ATIVOS» (${data.period?.start} → ${data.period?.end}). Clique em «Salvar».`
+          : "Nada novo — todos já tinham o mesmo vínculo Conta Azul.",
+      );
+    } finally {
+      setImportingCa(false);
+    }
+  }, [monthIdLookup, editing, draft, committed]);
+
   const saveDraft = async () => {
     setSaving(true);
     setMsg(null);
@@ -402,6 +512,15 @@ export function PlanilhaRioPanel() {
             >
               Voltar ao painel
             </Link>
+            <button
+              type="button"
+              disabled={loading || importingCa || saving}
+              onClick={() => void importCaOpenClients()}
+              className="rounded-lg border border-sky-600 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-500 dark:bg-sky-950/50 dark:text-sky-50 dark:hover:bg-sky-900/60"
+              title="Últimos 18 meses — clientes com pelo menos uma parcela em aberto (nao_pago > 0) no Conta Azul"
+            >
+              {importingCa ? "Consultando CA…" : "Trazer clientes CA (em aberto)"}
+            </button>
             {!editing ? (
               <button
                 type="button"
@@ -771,8 +890,10 @@ export function PlanilhaRioPanel() {
       </div>
 
       <p className="mt-4 max-w-3xl text-[11px] text-slate-500 dark:text-slate-400">
-        Padrão de início: <strong>Mai/2026</strong> (variável <code>RIO_PLANILHA_START_YM</code>=<code>202605</code>).
-        Importação do Excel e diffs automáticos com o Conta Azul podem vir numa segunda fase.
+        Padrão de início: <strong>Mai/2026</strong> (<code>RIO_PLANILHA_START_YM</code>=<code>202605</code>). Use{" "}
+        <strong>Trazer clientes CA</strong>
+        para listar cadastros com parcela em aberto (CA, últimos 18 meses) — agrupe PDVs sob matriz manualmente se
+        precisar. Importação direta do Excel pode vir depois.
       </p>
     </div>
   );
