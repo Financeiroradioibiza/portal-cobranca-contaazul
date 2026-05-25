@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
@@ -90,6 +90,12 @@ export function RioClientesCompPanel() {
   const [newPdvName, setNewPdvName] = useState<Record<string, string>>({});
   /** Buscar contrato na CA por cliente deixa o pedido muito longo (timeout no Netlify/proxy). */
   const [syncIncludeContracts, setSyncIncludeContracts] = useState(false);
+  /** Muitas chamadas GET /v1/pessoas?ids… (e-mail cobrança, razão, valor) — típico gatilho de timeout sem contratos. */
+  const [syncIncludePersonDetails, setSyncIncludePersonDetails] = useState(false);
+  const fileImportRef = useRef<HTMLInputElement | null>(null);
+  const [importing, setImporting] = useState(false);
+  /** Import CSV: cruzar com mês anterior → entrada/saída como no sync pela API */
+  const [importInferMovement, setImportInferMovement] = useState(true);
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months", { credentials: "include" });
@@ -156,7 +162,10 @@ export function RioClientesCompPanel() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ includeContracts: syncIncludeContracts }),
+        body: JSON.stringify({
+          includeContracts: syncIncludeContracts,
+          includePersonDetails: syncIncludePersonDetails,
+        }),
       });
       const { data, rawText, parseError } = await readJsonFromResponse<{
         linhas?: RioLinha[];
@@ -164,6 +173,7 @@ export function RioClientesCompPanel() {
         count?: number;
         caPersonListingCount?: number;
         syncedContractsFromCa?: boolean;
+        syncedPersonDetailsFromCa?: boolean;
       }>(res);
       if (!res.ok) {
         const proxyHtml =
@@ -172,7 +182,7 @@ export function RioClientesCompPanel() {
             /too much time has passed/i.test(rawText));
         if (proxyHtml) {
           setMsg(
-            "O servidor ou a rede cortaram o pedido por tempo (timeout). Na Planilha Rio isso costuma acontecer ao buscar contratos na Conta Azul para muitos clientes: deixe desmarcada a opção «Atualizar números de contrato…» e sincronize de novo; no Netlify um plano mais alto ou timeout maior também ajuda.",
+            "O servidor ou a rede cortaram o pedido por tempo (timeout). Isto pode ser: (1) muitos clientes e várias chamadas à Conta Azul (detalhes de pessoa ou contratos); (2) limite ~10 s no Netlify Free / ~26 s no plano seguinte — deixe as duas caixas abaixo desmarcadas e sincronize (só traz lista básica). Depois, se precisares de e-mails e contratos vindos da CA, marca primeiro «Enriquecer cadastro», sincroniza; só então marca «Contratos». Em alternativa aumenta o tempo limite das funções no Netlify.",
           );
           return;
         }
@@ -196,14 +206,68 @@ export function RioClientesCompPanel() {
         data?.syncedContractsFromCa ?
           " Contratos CA atualizados nesta sync."
         : " Contratos: mantidos do que já estava na competência (sync sem busca em /contratos).";
-      setMsg(`Sincronizado: ${n} linhas.${listedHint}${contrHint}`);
+      const detailHint =
+        data?.syncedPersonDetailsFromCa ?
+          " Dados extra (e-mail cobrança, etc.) atualizados via API de pessoas."
+        : " E-mail/razão/valor: só listagem básica nesta sync (sem enriquecimento por ID).";
+      setMsg(`Sincronizado: ${n} linhas.${listedHint}${contrHint}${detailHint}`);
       await loadMonths();
     } catch {
       setMsg("Falha na sincronização.");
     } finally {
       setSyncing(false);
     }
-  }, [activeYm, syncIncludeContracts]);
+  }, [activeYm, syncIncludeContracts, syncIncludePersonDetails]);
+
+  const runImportFile = useCallback(
+    async (file: File) => {
+      if (
+        !window.confirm(
+          "Importar substitui todas as linhas e PDVs desta competência pelo ficheiro. Não há ligação à API Conta Azul neste passo. Continuar?",
+        )
+      )
+        return;
+      setImporting(true);
+      setMsg(null);
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("inferMovement", importInferMovement ? "1" : "0");
+        const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/import`, {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        });
+        const { data, rawText } = await readJsonFromResponse<{
+          linhas?: RioLinha[];
+          error?: string;
+          count?: number;
+          warnings?: string[];
+          inferMovementVsPriorMonth?: boolean;
+        }>(res);
+        if (!res.ok) {
+          setMsg(data?.error || rawText.slice(0, 220) || `Erro ${res.status}`);
+          return;
+        }
+        setLinhas(data?.linhas ?? []);
+        setMonthInfo((m) => ({ lastSyncedAt: new Date().toISOString() }));
+        const w = Array.isArray(data?.warnings) ? data!.warnings.filter(Boolean) : [];
+        const warnTxt = w.length ? ` Avisos: ${w.join(" ")}` : "";
+        const inferTxt =
+          data?.inferMovementVsPriorMonth ?
+            " Movimento entrada/saída/estável calculado face ao mês anterior na base."
+          : " Movimento ficou só o definido nas colunas do ficheiro.";
+        setMsg(`Importado: ${data?.count ?? data?.linhas?.length ?? 0} linhas.${inferTxt}${warnTxt}`);
+        await loadMonths();
+        await loadMonth(activeYm);
+      } catch {
+        setMsg("Falha ao importar ficheiro.");
+      } finally {
+        setImporting(false);
+      }
+    },
+    [activeYm, loadMonth, loadMonths, importInferMovement],
+  );
 
   const patchLinha = useCallback(
     async (id: string, body: Record<string, unknown>) => {
@@ -353,10 +417,11 @@ export function RioClientesCompPanel() {
             Planilha Rio — clientes ativos Conta Azul
           </h1>
           <p className="mt-1 max-w-[52rem] text-sm text-slate-600 dark:text-slate-400">
-            Mockup inicial: cada competência guarda uma fotografia dos <strong>clientes ativos</strong> vindos da
-            Conta Azul. Ao sincronizar, comparamos com o <strong>mês civil anterior</strong> já gravado aqui para
-            marcar <em>entrada</em>/<em>saida</em> (somente informação no portal). Grupo, categoria e PDVs você edita
-            no site — importação em massa de PDVs será o próximo passo.
+            Mockup inicial: cada competência guarda uma fotografia dos <strong>clientes</strong> (sync API ou{" "}
+            <strong>importação CSV/Excel</strong>). Ao sincronizar pela API, comparamos com o{" "}
+            <strong>mês civil anterior</strong> já gravado aqui para marcar <em>entrada</em>/<em>saida</em>; importação
+            de ficheiro <strong>não usa</strong> a Conta Azul e substitui as linhas desta competência. Grupo, categoria e
+            PDVs você edita no site — importação em massa só de PDVs será o próximo passo.
           </p>
           <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-500">
             {monthInfo?.lastSyncedAt ?
@@ -373,7 +438,21 @@ export function RioClientesCompPanel() {
         </div>
       : null}
 
-      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-6 sm:gap-y-2">
+        <label className="flex max-w-md cursor-pointer items-start gap-2 text-xs text-slate-600 dark:text-slate-400">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={syncIncludePersonDetails}
+            onChange={(e) => setSyncIncludePersonDetails(e.target.checked)}
+          />
+          <span>
+            <strong>Enriquecer cadastro</strong> na CA (e-mail cobrança, razão social quando a API trouxer,
+            etc.) — faz muitas chamadas <code className="rounded bg-slate-100 px-0.5 dark:bg-slate-800">/v1/pessoas</code>;{" "}
+            <em>sem isto</em> a sync usa só a listagem (mais rápida; e-mail fica vazio na 1.ª vez ou repete o que já
+            estava nesta competência).
+          </span>
+        </label>
         <label className="flex max-w-md cursor-pointer items-start gap-2 text-xs text-slate-600 dark:text-slate-400">
           <input
             type="checkbox"
@@ -388,7 +467,7 @@ export function RioClientesCompPanel() {
         </label>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-sm">
           <span className="text-slate-600 dark:text-slate-400">Competência</span>
           <select
@@ -420,6 +499,32 @@ export function RioClientesCompPanel() {
         >
           {syncing ? "Sincronizando…" : "Sincronizar Conta Azul"}
         </button>
+        <input
+          ref={fileImportRef}
+          type="file"
+          accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void runImportFile(f);
+          }}
+        />
+        <button
+          type="button"
+          className="rounded-lg border border-amber-700 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60"
+          disabled={importing}
+          onClick={() => fileImportRef.current?.click()}
+        >
+          {importing ? "A importar…" : "Importar CSV / Excel"}
+        </button>
+        <a
+          href="/planilha-rio-import-exemplo.csv"
+          download
+          className="inline-flex items-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          Modelo CSV
+        </a>
         <button
           type="button"
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
@@ -434,6 +539,22 @@ export function RioClientesCompPanel() {
         >
           Novo mês seguinte (+1)
         </button>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <label className="flex max-w-xl cursor-pointer items-start gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={importInferMovement}
+            onChange={(e) => setImportInferMovement(e.target.checked)}
+          />
+          <span>
+            Ao importar CSV/Excel (ex.: export Cliente da Conta Azul), marcar <strong>entrada</strong>/
+            <strong>saida</strong> usando o snapshot do <strong>mês civil anterior</strong> já gravado aqui —
+            recomendado para voltar a importar todos os meses.
+          </span>
+        </label>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -462,8 +583,8 @@ export function RioClientesCompPanel() {
             : linhas.length === 0 ?
               <tr>
                 <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
-                  Nenhuma linha. Crie o mês e use <strong>Sincronizar Conta Azul</strong> (é preciso estar conectado ao
-                  ERP).
+                  Nenhuma linha. Use <strong>Importar CSV / Excel</strong> (export «Cliente» da Conta Azul) ou{" "}
+                  <strong>Sincronizar Conta Azul</strong>.
                 </td>
               </tr>
             : linhas.map((r) => (

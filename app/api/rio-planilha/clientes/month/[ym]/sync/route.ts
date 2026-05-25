@@ -21,18 +21,23 @@ export async function POST(req: Request, context: Ctx) {
   }
 
   let includeContracts = process.env.RIO_SYNC_CONTRACTS_DEFAULT === "1";
+  let includePersonDetails = process.env.RIO_SYNC_PERSON_DETAILS_DEFAULT === "1";
   try {
-    const b = (await req.json()) as { includeContracts?: unknown } | null;
-    if (b && typeof b === "object" && b !== null && "includeContracts" in b) {
-      includeContracts = Boolean(b.includeContracts);
+    const b = (await req.json()) as {
+      includeContracts?: unknown;
+      includePersonDetails?: unknown;
+    } | null;
+    if (b && typeof b === "object" && b !== null) {
+      if ("includeContracts" in b) includeContracts = Boolean(b.includeContracts);
+      if ("includePersonDetails" in b) includePersonDetails = Boolean(b.includePersonDetails);
     }
   } catch {
     /* corpo vazio ou não-JSON */
   }
 
   try {
-    const { month, linhas, caPersonListingCount, syncedContractsFromCa } =
-      await syncRioCompMonthFromContaAzul(token, ym, { includeContracts });
+    const { month, linhas, caPersonListingCount, syncedContractsFromCa, syncedPersonDetailsFromCa } =
+      await syncRioCompMonthFromContaAzul(token, ym, { includeContracts, includePersonDetails });
     return NextResponse.json({
       ok: true,
       month,
@@ -40,6 +45,7 @@ export async function POST(req: Request, context: Ctx) {
       count: linhas.length,
       caPersonListingCount,
       syncedContractsFromCa,
+      syncedPersonDetailsFromCa,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "sync_failed";

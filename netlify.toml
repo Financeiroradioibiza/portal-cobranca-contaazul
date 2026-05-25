@@ -11,8 +11,9 @@
   NEXT_DISABLE_NETLIFY_EDGE = "true"
 
 # Timeout de função Netlify (~10s Free, ~26s Pro). `maxDuration` no route ajuda no Vercel/pro.
-# Planilha Rio: deixe `RIO_SYNC_CONTRACTS_DEFAULT` desligado para sync rápido sem varrer /v1/contratos por cliente.
+# Planilha Rio: deixe `RIO_SYNC_*_DEFAULT` comentados para sync rápido (/contratos ou /pessoas?ids só se marcar no painel).
 # RIO_SYNC_CONTRACTS_DEFAULT="1"
+# RIO_SYNC_PERSON_DETAILS_DEFAULT="1"
 
 # Não declare [[plugins]] @netlify/plugin-nextjs aqui se o site já usa
 # "Next.js" no painel da Netlify — plugin duplicado causa "Build failed due to a plugin error".

@@ -1,0 +1,2 @@
+ca_person_id;cliente;razao_social;documento;email_cobranca;contratos;grupo_site;categoria;numero_pdv_site;valor;observacoes;movimento
+;Loja Exemplo SA;Loja Exemplo SA;12.345.678/0001-90;cobranca@exemplo.com;4512;Grupo 1;moda;3;2500;;estavel

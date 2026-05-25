@@ -3,6 +3,8 @@ import { cobrancaPlusPrincipalEmailsJoined } from "@/lib/contaazul/personBilling
 import { fetchActiveContractNumbersByClientIds } from "@/lib/contaazul/contracts";
 import { prisma } from "@/lib/prisma";
 import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeClientesCa";
+import type { ParsedRioFileRow } from "@/lib/rio/rioCompFileImport";
+import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
 
@@ -151,6 +153,11 @@ export type SyncRioCompFromCaOptions = {
    * Com false, repete números de contrato já guardados nesta competência quando existiam.
    */
   includeContracts?: boolean;
+  /**
+   * Se true, chamadas extras `/v1/pessoas?ids=…` para e-mail cobrança, razão social, etc.
+   * Com muitos clientes também estoura timeout no Netlify Free (~10s).
+   */
+  includePersonDetails?: boolean;
 };
 
 /**
@@ -166,6 +173,7 @@ export async function syncRioCompMonthFromContaAzul(
   linhas: RioCompLinhaOut[];
   caPersonListingCount: number;
   syncedContractsFromCa: boolean;
+  syncedPersonDetailsFromCa: boolean;
 }> {
   const month = await ensureRioCompMonth(yearMonth);
 
@@ -182,6 +190,7 @@ export async function syncRioCompMonthFromContaAzul(
         categoriaSite: r.categoriaSite,
         observacoesLinha: r.observacoesLinha,
         contratosAtivosTexto: r.contratosAtivosTexto,
+        emailCobranca: r.emailCobranca,
         pdvs: r.pdvs.map((p) => ({ nome: p.nome, notes: p.notes, sortOrder: p.sortOrder })),
       },
     ]),
@@ -197,10 +206,13 @@ export async function syncRioCompMonthFromContaAzul(
   const summaries = await fetchActiveClientePersonSummaries(accessToken);
   const activeIds = new Set(summaries.map((s) => s.id));
 
-  const detailMap = await enrichPersonRowsByIdsBatch(
-    accessToken,
-    summaries.map((s) => s.id),
-  );
+  const includePersonDetails = options?.includePersonDetails === true;
+  const detailMap = includePersonDetails
+    ? await enrichPersonRowsByIdsBatch(
+        accessToken,
+        summaries.map((s) => s.id),
+      )
+    : new Map<string, Record<string, unknown>>();
 
   const includeContracts = options?.includeContracts === true;
   const contractsMap = includeContracts
@@ -219,7 +231,9 @@ export async function syncRioCompMonthFromContaAzul(
 
   for (const s of summaries) {
     const raw = detailMap.get(s.id) ?? {};
-    const email = cobrancaPlusPrincipalEmailsJoined(raw) || null;
+    const email = includePersonDetails
+      ? (cobrancaPlusPrincipalEmailsJoined(raw) || null)
+      : (preserved.get(s.id)?.emailCobranca ?? null);
     const nomeFantasia = nomeFantasiaFromRaw(raw) || s.nomeLista;
     const razao = razaoFromRaw(raw) || nomeFantasia;
     const doc = documentoFromRaw(raw, s.documento);
@@ -322,7 +336,198 @@ export async function syncRioCompMonthFromContaAzul(
   });
 
   const out = await getRioCompMonthWithLinhas(yearMonth);
-  return { ...out!, caPersonListingCount: summaries.length, syncedContractsFromCa: includeContracts };
+  return {
+    ...out!,
+    caPersonListingCount: summaries.length,
+    syncedContractsFromCa: includeContracts,
+    syncedPersonDetailsFromCa: includePersonDetails,
+  };
+}
+
+/**
+ * Substitui **todas** as linhas (e PDVs) da competência por dados de ficheiro CSV/xlsx.
+ * Não chama a API Conta Azul. Inferência **entrada | estável | saída** (default): iguala ao sync
+ * cruzando com o **mês civil anterior** gravado neste portal.
+ */
+export async function replaceRioCompMonthFromImportedRows(
+  yearMonth: number,
+  rows: ParsedRioFileRow[],
+  options?: { inferMovementVsPriorMonth?: boolean },
+): Promise<{ month: RioCompMonth; linhas: RioCompLinhaOut[] }> {
+  const infer = options?.inferMovementVsPriorMonth !== false;
+  const month = await ensureRioCompMonth(yearMonth);
+
+  const existingRows = await prisma.rioCompClienteLinha.findMany({
+    where: { monthId: month.id },
+    include: { pdvs: true },
+  });
+  const preserved = new Map(
+    existingRows.map((r) => [
+      r.caPersonId,
+      {
+        grupoSite: r.grupoSite,
+        numeroPdvSite: r.numeroPdvSite,
+        categoriaSite: r.categoriaSite,
+        observacoesLinha: r.observacoesLinha,
+        contratosAtivosTexto: r.contratosAtivosTexto,
+        emailCobranca: r.emailCobranca,
+        pdvs: r.pdvs.map((p) => ({ nome: p.nome, notes: p.notes, sortOrder: p.sortOrder })),
+      },
+    ]),
+  );
+
+  const prevYm = shiftYearMonth(yearMonth, -1);
+  const prevMonth = await prisma.rioCompMonth.findUnique({
+    where: { yearMonth: prevYm },
+    include: { linhas: { include: { pdvs: true } } },
+  });
+  const prevIds = new Set((prevMonth?.linhas ?? []).map((x) => x.caPersonId));
+
+  type PdvSeed = { nome: string; notes: string; sortOrder: number };
+  type ImportDraft = {
+    caPersonId: string;
+    grupoSite: string;
+    nomeFantasia: string;
+    razaoSocial: string;
+    documento: string | null;
+    emailCobranca: string | null;
+    valorClienteTexto: string;
+    numeroPdvSite: number;
+    categoriaSite: string;
+    contratosAtivosTexto: string;
+    movimento: RioClienteCompMovimento;
+    observacoesLinha: string;
+    pdvsSeed: PdvSeed[];
+  };
+
+  const drafts: ImportDraft[] = [];
+
+  rows.forEach((r, ix) => {
+    const cid = r.caPersonId.trim().slice(0, 120);
+    const caPersonId = cid.length ? cid : fallbackCaPersonIdFromDocument(r.documento, ix + 2);
+    const prevP = preserved.get(caPersonId);
+    const mov: RioClienteCompMovimento = infer
+      ? !prevMonth
+        ? "entrada"
+        : prevIds.has(caPersonId)
+          ? "estavel"
+          : "entrada"
+      : r.movimento;
+
+    const grupoSite = r.grupoSite.trim().length ? r.grupoSite : (prevP?.grupoSite ?? "");
+    const categoriaSite =
+      r.categoriaSite.trim().length ? r.categoriaSite.slice(0, 120) : (prevP?.categoriaSite ?? "");
+    const numeroPdvSite = r.numeroPdvSite > 0 ? r.numeroPdvSite : (prevP?.numeroPdvSite ?? 0);
+    const valorClienteTexto = r.valorClienteTexto.trim().slice(0, 200);
+    const contratosAtivosTexto =
+      r.contratosAtivosTexto.trim().length ?
+        r.contratosAtivosTexto.slice(0, 400)
+      : (prevP?.contratosAtivosTexto ?? "");
+    const observacoesLinha =
+      r.observacoesLinha.trim().length ? r.observacoesLinha : (prevP?.observacoesLinha ?? "");
+    const emailCobranca =
+      r.emailCobranca && r.emailCobranca.trim() ?
+        r.emailCobranca.trim()
+      : (prevP?.emailCobranca ?? null);
+    const pdvsSeed = prevP?.pdvs?.length ? prevP.pdvs : [];
+
+    drafts.push({
+      caPersonId,
+      grupoSite,
+      nomeFantasia: r.nomeFantasia,
+      razaoSocial: r.razaoSocial,
+      documento: r.documento,
+      emailCobranca,
+      valorClienteTexto,
+      numeroPdvSite,
+      categoriaSite,
+      contratosAtivosTexto,
+      movimento: mov,
+      observacoesLinha,
+      pdvsSeed,
+    });
+  });
+
+  const activeIds = new Set(drafts.map((d) => d.caPersonId));
+
+  if (infer && prevMonth) {
+    for (const prevLinha of prevMonth.linhas) {
+      if (activeIds.has(prevLinha.caPersonId)) continue;
+      const prevPres = preserved.get(prevLinha.caPersonId);
+      drafts.push({
+        caPersonId: prevLinha.caPersonId,
+        grupoSite: prevPres?.grupoSite ?? prevLinha.grupoSite,
+        nomeFantasia: prevLinha.nomeFantasia,
+        razaoSocial: prevLinha.razaoSocial,
+        documento: prevLinha.documento,
+        emailCobranca: prevLinha.emailCobranca,
+        valorClienteTexto: prevLinha.valorClienteTexto,
+        numeroPdvSite: prevPres?.numeroPdvSite ?? prevLinha.numeroPdvSite,
+        categoriaSite: prevPres?.categoriaSite ?? prevLinha.categoriaSite,
+        contratosAtivosTexto: "",
+        movimento: "saida",
+        observacoesLinha: prevPres?.observacoesLinha ?? prevLinha.observacoesLinha,
+        pdvsSeed:
+          prevPres?.pdvs?.length ?
+            prevPres.pdvs
+          : prevLinha.pdvs.map((p) => ({
+              nome: p.nome,
+              notes: p.notes,
+              sortOrder: p.sortOrder,
+            })),
+      });
+    }
+  }
+
+  drafts.sort((a, b) =>
+    a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" }),
+  );
+
+  await prisma.$transaction(async (tx) => {
+    await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
+    let sortOrder = 0;
+    for (const d of drafts) {
+      const created = await tx.rioCompClienteLinha.create({
+        data: {
+          monthId: month.id,
+          caPersonId: d.caPersonId,
+          grupoSite: d.grupoSite,
+          nomeFantasia: d.nomeFantasia,
+          razaoSocial: d.razaoSocial,
+          documento: d.documento,
+          emailCobranca: d.emailCobranca,
+          valorClienteTexto: d.valorClienteTexto,
+          numeroPdvSite: d.numeroPdvSite,
+          categoriaSite: d.categoriaSite,
+          contratosAtivosTexto: d.contratosAtivosTexto,
+          movimento: d.movimento,
+          observacoesLinha: d.observacoesLinha,
+          sortOrder,
+        },
+      });
+      sortOrder += 1;
+      let pi = 0;
+      for (const p of d.pdvsSeed) {
+        await tx.rioCompPdv.create({
+          data: {
+            clienteId: created.id,
+            nome: p.nome.trim() ? p.nome : `PDV ${pi + 1}`,
+            notes: p.notes,
+            sortOrder: p.sortOrder || pi,
+          },
+        });
+        pi++;
+      }
+    }
+    await tx.rioCompMonth.update({
+      where: { id: month.id },
+      data: { lastSyncedAt: new Date() },
+    });
+  });
+
+  const full = await getRioCompMonthWithLinhas(yearMonth);
+  if (!full) throw new Error("rio_month_missing_after_import");
+  return full;
 }
 
 export async function patchRioCompClienteLinha(
