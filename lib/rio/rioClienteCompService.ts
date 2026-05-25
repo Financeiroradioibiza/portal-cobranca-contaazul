@@ -152,7 +152,11 @@ type LinhaUpsertDraft = {
 export async function syncRioCompMonthFromContaAzul(
   accessToken: string,
   yearMonth: number,
-): Promise<{ month: RioCompMonth; linhas: RioCompLinhaOut[] }> {
+): Promise<{
+  month: RioCompMonth;
+  linhas: RioCompLinhaOut[];
+  caPersonListingCount: number;
+}> {
   const month = await ensureRioCompMonth(yearMonth);
 
   const existingRows = await prisma.rioCompClienteLinha.findMany({
@@ -190,6 +194,10 @@ export async function syncRioCompMonthFromContaAzul(
   const contractsMap = await fetchActiveContractNumbersByClientIds(
     accessToken,
     summaries.map((s) => s.id),
+    {
+      includeTodosSupplement: false,
+      clientConcurrency: 6,
+    },
   );
 
   const drafts: LinhaUpsertDraft[] = [];
@@ -302,7 +310,7 @@ export async function syncRioCompMonthFromContaAzul(
   });
 
   const out = await getRioCompMonthWithLinhas(yearMonth);
-  return out!;
+  return { ...out!, caPersonListingCount: summaries.length };
 }
 
 export async function patchRioCompClienteLinha(

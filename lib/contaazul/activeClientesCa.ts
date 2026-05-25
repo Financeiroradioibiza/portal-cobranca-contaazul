@@ -32,12 +32,21 @@ function isClientePerfis(perfs: string[]): boolean {
   return perfs.some((p) => p.includes("CLIENTE"));
 }
 
-/** Perfil cliente + marcação ativa (quando a API enviar `ativo`, exigimos `true`). */
+/**
+ * Perfil cliente + marcação ativa (quando a API enviar `ativo`, exigimos `true`).
+ *
+ * A listagem com `tipo_perfil=Cliente` costuma omitir o array `perfis`; nesse caso
+ * confiamos no filtro do servidor — só excluímos por perfil quando há valores
+ * explícitos que **não** indicam cliente.
+ */
 function rowIsClienteAtivo(row: Record<string, unknown>): boolean {
   if (!str(row.id)) return false;
   const ativoKnown = typeof row.ativo === "boolean";
   if (ativoKnown && row.ativo !== true) return false;
-  if (!isClientePerfis(perfisUpper(row))) return false;
+
+  const perfs = perfisUpper(row);
+  if (!isClientePerfis(perfs) && perfs.length > 0) return false;
+
   return true;
 }
 

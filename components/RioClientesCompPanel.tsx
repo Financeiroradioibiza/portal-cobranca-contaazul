@@ -158,14 +158,26 @@ export function RioClientesCompPanel() {
         linhas?: RioLinha[];
         error?: string;
         count?: number;
+        caPersonListingCount?: number;
       }>(res);
       if (!res.ok) {
-        setMsg(data?.error || rawText.slice(0, 220) || `Erro ${res.status}`);
+        const code = data?.error;
+        const friendly =
+          code === "conta_azul_disconnected" ?
+            "Conta Azul desconectada: reconecte o portal (integração OAuth) e tente de novo."
+          : ((code ?? rawText.slice(0, 220)) || `Erro ${res.status}`);
+        setMsg(friendly);
         return;
       }
       setLinhas(data?.linhas ?? []);
       setMonthInfo((m) => ({ lastSyncedAt: new Date().toISOString() }));
-      setMsg(`Sincronizado: ${data?.count ?? data?.linhas?.length ?? 0} linhas.`);
+      const n = data?.count ?? data?.linhas?.length ?? 0;
+      const listed = data?.caPersonListingCount;
+      const listedHint =
+        typeof listed === "number" ?
+          ` (${listed} registros «Cliente» na listagem CA${listed === 0 ? " — nada retornado pela API neste critério" : ""})`
+        : "";
+      setMsg(`Sincronizado: ${n} linhas.${listedHint}`);
       await loadMonths();
     } catch {
       setMsg("Falha na sincronização.");

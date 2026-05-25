@@ -150,6 +150,17 @@ async function listContractsOneClientPaged(
   }
 }
 
+export type FetchActiveContractsOpts = {
+  /**
+   * Segunda passagem `status=TODOS` cobre inconsistências da API mas dobra chamadas por cliente.
+   * Desativar no sync Rio (muitos clientes) para não saturar quota/tempo da Conta Azul.
+   * @default true
+   */
+  includeTodosSupplement?: boolean;
+  /** Paralelismo por cliente; valores baixos reduzem risco de 429/throttle. @default CLIENT_FETCH_CONCURRENCY */
+  clientConcurrency?: number;
+};
+
 async function listContractsOneClient(
   accessToken: string,
   clienteId: string,
@@ -157,6 +168,7 @@ async function listContractsOneClient(
   data_fim: string,
   want: Set<string>,
   acc: Map<string, Set<string>>,
+  opts: { includeTodosSupplement: boolean },
 ): Promise<void> {
   await listContractsOneClientPaged(
     accessToken,
@@ -168,6 +180,7 @@ async function listContractsOneClient(
     "ATIVO",
     contractsMaxPagesAtivo(),
   );
+  if (!opts.includeTodosSupplement) return;
   await listContractsOneClientPaged(
     accessToken,
     clienteId,
@@ -187,6 +200,7 @@ async function listContractsOneClient(
 export async function fetchActiveContractNumbersByClientIds(
   accessToken: string,
   clientIds: string[],
+  opts?: FetchActiveContractsOpts,
 ): Promise<Map<string, string>> {
   const want = new Set(clientIds.filter(Boolean));
   if (want.size === 0) return new Map();
@@ -204,12 +218,22 @@ export async function fetchActiveContractNumbersByClientIds(
   const data_fim = new Date(end.getTime() + 86400000 * Math.round(365.25 * 20)).toISOString().slice(0, 10);
 
   const idList = [...want];
+  const includeTodosSupplement = opts?.includeTodosSupplement !== false;
+  const concurrencyRaw = opts?.clientConcurrency ?? CLIENT_FETCH_CONCURRENCY;
+  const concurrency =
+    typeof concurrencyRaw === "number" &&
+    Number.isFinite(concurrencyRaw) &&
+    concurrencyRaw >= 1
+      ? Math.min(24, concurrencyRaw | 0)
+      : CLIENT_FETCH_CONCURRENCY;
 
-  for (let i = 0; i < idList.length; i += CLIENT_FETCH_CONCURRENCY) {
-    const slice = idList.slice(i, i + CLIENT_FETCH_CONCURRENCY);
+  for (let i = 0; i < idList.length; i += concurrency) {
+    const slice = idList.slice(i, i + concurrency);
     await Promise.all(
       slice.map((cid) =>
-        listContractsOneClient(accessToken, cid, data_inicio, data_fim, want, acc),
+        listContractsOneClient(accessToken, cid, data_inicio, data_fim, want, acc, {
+          includeTodosSupplement,
+        }),
       ),
     );
   }

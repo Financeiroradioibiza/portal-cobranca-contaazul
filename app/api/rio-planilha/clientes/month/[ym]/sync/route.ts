@@ -21,12 +21,16 @@ export async function POST(_req: Request, context: Ctx) {
   }
 
   try {
-    const { month, linhas } = await syncRioCompMonthFromContaAzul(token, ym);
+    const { month, linhas, caPersonListingCount } = await syncRioCompMonthFromContaAzul(
+      token,
+      ym,
+    );
     return NextResponse.json({
       ok: true,
       month,
       linhas,
       count: linhas.length,
+      caPersonListingCount,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "sync_failed";
