@@ -1,7 +1,10 @@
 import nodemailer from "nodemailer";
 
-/** Cópia interna (BCC) por defeito em todos os SMTP de pedidos de OC. */
+/** Endereços adicionados em BCC onde o cliente de e-mail preserva cópia oculta ao destinatário principal. */
 const INTERNAL_COBRANCA_BCC_DEFAULT = "cobranca@radioibiza.com.br";
+
+/** Cc visível nos envios (financeiro sempre em cópia, pedido operacional). */
+const INTERNAL_COBRANCA_CC_DEFAULT = "cobranca@radioibiza.com.br";
 
 function envStr(name: string): string | undefined {
   const v = process.env[name];
@@ -13,11 +16,36 @@ function emailLooksValid(email: string): boolean {
 }
 
 /**
- * Lista BCC sempre adicionada (não aparece para o cliente nos campos Para/Cc habituais do webmail deste lado).
- * - Principal: env `OC_EMAIL_BCC_COBRANCA` ou `cobranca@radioibiza.com.br`
- * - Extra opcional: `OC_EMAIL_BCC_EXTRA` separado por vírgulas
+ * Endereços em Cc (visíveis no cliente de e-mail).
+ * Principal: env `OC_EMAIL_CC_COBRANCA` ou cobranca@radioibiza.com.br; extras opcionais em `OC_EMAIL_CC_EXTRA`.
  */
-function internalAlwaysBcc(toLowerSet: ReadonlySet<string>): string[] {
+function internalAlwaysCc(excludeLowerSet: ReadonlySet<string>): string[] {
+  const primaryRaw = envStr("OC_EMAIL_CC_COBRANCA") ?? INTERNAL_COBRANCA_CC_DEFAULT;
+  const extraRaw = envStr("OC_EMAIL_CC_EXTRA");
+  const parts: string[] = [];
+  for (const fragment of [...primaryRaw.split(/[,;]/), ...(extraRaw ? extraRaw.split(/[,;]/) : [])]) {
+    const t = fragment.trim();
+    if (!t.length) continue;
+    if (!emailLooksValid(t)) continue;
+    parts.push(t);
+  }
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const addr of parts) {
+    const k = addr.toLowerCase();
+    if (excludeLowerSet.has(k)) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(addr);
+  }
+  return out;
+}
+
+/**
+ * Lista BCC adicional, sem repetir Para nem Cc já cobertos.
+ */
+function internalAlwaysBcc(excludeLowerSet: ReadonlySet<string>): string[] {
   const primaryRaw = envStr("OC_EMAIL_BCC_COBRANCA") ?? INTERNAL_COBRANCA_BCC_DEFAULT;
   const extraRaw = envStr("OC_EMAIL_BCC_EXTRA");
   const parts: string[] = [];
@@ -32,7 +60,7 @@ function internalAlwaysBcc(toLowerSet: ReadonlySet<string>): string[] {
   const out: string[] = [];
   for (const addr of parts) {
     const k = addr.toLowerCase();
-    if (toLowerSet.has(k)) continue;
+    if (excludeLowerSet.has(k)) continue;
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(addr);
@@ -69,7 +97,7 @@ export type EmailAttachment = {
 };
 
 /**
- * Envio genérico (texto + opcional HTML + anexos). Mesmos BCC internos que OC.
+ * Envio genérico (texto + opcional HTML + anexos). Cc padrão ao financeiro (+ env); BCC sem duplicar Cc/Para.
  */
 export async function sendEmailViaSmtp(opts: {
   to: string[];
@@ -107,11 +135,15 @@ export async function sendEmailViaSmtp(opts: {
   });
 
   const toLower = new Set(opts.to.map((a) => a.toLowerCase()));
-  const alwaysBcc = internalAlwaysBcc(toLower);
+  const alwaysCc = internalAlwaysCc(toLower);
+  const ccLower = new Set(alwaysCc.map((a) => a.toLowerCase()));
+  const denyBcc = new Set<string>([...toLower, ...ccLower]);
+  const alwaysBcc = internalAlwaysBcc(denyBcc);
 
   await transporter.sendMail({
     from: `"${fromName.replace(/"/g, "\\\"")}" <${fromAddr}>`,
     to: opts.to.join(", "),
+    ...(alwaysCc.length ? { cc: alwaysCc.join(", ") } : {}),
     ...(alwaysBcc.length ? { bcc: alwaysBcc.join(", ") } : {}),
     subject: opts.subject,
     text: opts.text,

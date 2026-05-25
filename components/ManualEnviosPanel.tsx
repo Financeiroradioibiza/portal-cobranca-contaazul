@@ -622,9 +622,9 @@ export function ManualEnviosPanel() {
         ) : (
           <p className="mb-3 rounded-md border border-emerald-800/40 bg-emerald-950/30 px-2 py-1.5 text-xs text-emerald-100">
             SMTP parametrizado no servidor — o botão por linha abaixo usa o modelo salvo. Todo envio leva sempre{" "}
-            <strong>cópia oculta (BCC)</strong> para{" "}
-            <code className="rounded bg-emerald-900/60 px-1 text-[10px]">cobranca@radioibiza.com.br</code> (exceto se já
-            for o único «Para»).
+            <strong>Cc</strong> para{" "}
+            <code className="rounded bg-emerald-900/60 px-1 text-[10px]">cobranca@radioibiza.com.br</code>{" "}
+            (+ BCC internos opcionais em <code className="text-[10px]">OC_EMAIL_BCC_*</code>, sem duplicar Cc/Para).
           </p>
         )}
         <p className="mb-2 text-[11px] text-slate-600 dark:text-slate-400">

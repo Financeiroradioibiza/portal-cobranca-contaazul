@@ -330,7 +330,9 @@ export function CobrancaDashboard() {
     async (c: ClientRow) => {
       const dest = parseEmailAddresses(c.email === "—" ? "" : c.email);
       if (!dest.length) {
-        setActionMsg("Este cadastro não tem e-mail válido na Conta Azul.");
+        setActionMsg(
+          "Não há e-mail de cobrança/faturamento nem principal válido neste cadastro Conta Azul.",
+        );
         return;
       }
       if (!smtpCobOpenCharges) {
@@ -567,7 +569,8 @@ export function CobrancaDashboard() {
           </h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             Ordenação ajustável: mais parcelas vencidas, ou maior / menor valor total em aberto por
-            cliente. Fonte: API Conta Azul (contas a receber + cadastro de pessoas).
+            cliente — coluna «E-mail»: cobrança/faturamento + principal/outros na API, sem repetir destinatários. Envios
+            SMTP levam sempre <strong>Cc cobranca@radioibiza.com.br</strong> (configurável).
           </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
             Período (vencimento): {start} a {end}. Apenas parcelas com vencimento{" "}

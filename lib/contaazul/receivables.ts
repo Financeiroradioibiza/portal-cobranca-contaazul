@@ -1,7 +1,7 @@
 import { caFetch } from "./caHttp";
+import { mergeEmailStringsPreferFirst } from "@/lib/format";
 import {
-  billingEmailJoined,
-  billingEmailsFromPersonDetail,
+  cobrancaPlusPrincipalEmailsJoined,
   fetchPersonDetail,
 } from "./personBilling";
 import type {
@@ -105,8 +105,6 @@ export async function fetchPeopleByIds(
   const batchSize = 40;
   /** Várias requisições /v1/pessoas em paralelo. */
   const PEOPLE_PARALLEL = 3;
-  /** Quando GET por ids não envia «contato de cobrança e faturamento», buscar detalhe para o e-mail certo (evita ficar só no principal). */
-  const needPersonDetailForEmail = new Set<string>();
 
   const batches: string[][] = [];
   for (let i = 0; i < unique.length; i += batchSize) {
@@ -134,13 +132,10 @@ export async function fetchPeopleByIds(
               id: p.id,
               nome: p.nome,
               documento: p.documento ?? null,
-              /** Preferimos contatos de cobrança/faturamento (`personBilling`). */
-              email: billingEmailJoined(raw, p.email ?? null),
+              /** Cobrança/faturamento + principal/outros (`outros_contatos`), sem repetir destinatários. */
+              email: cobrancaPlusPrincipalEmailsJoined(raw),
             };
             map.set(p.id, row);
-            if (billingEmailsFromPersonDetail(raw).length === 0) {
-              needPersonDetailForEmail.add(p.id);
-            }
           }
         } catch {
           // Filtro pode variar na API; segue com nome da parcela.
@@ -153,7 +148,8 @@ export async function fetchPeopleByIds(
     16,
     Math.max(1, Number(process.env.CA_PERSON_DETAIL_CONCURRENCY ?? "10") || 10),
   );
-  const detailIds = [...needPersonDetailForEmail];
+  /** GET `/v1/pessoas/:id` traz `contato_cobranca_faturamento` de forma estável — a lista por ids costuma omitir/reduzir. */
+  const detailIds = [...map.keys()];
   for (let i = 0; i < detailIds.length; i += detailParallel) {
     const slice = detailIds.slice(i, i + detailParallel);
     await Promise.all(
@@ -162,10 +158,14 @@ export async function fetchPeopleByIds(
           const detail = await fetchPersonDetail(accessToken, id);
           const cur = map.get(id);
           if (!cur) return;
-          const email = billingEmailJoined(detail, cur.email ?? null);
-          if (email) map.set(id, { ...cur, email });
+          /** Preferimos o detalhe; depois o que já tínhamos da listagem; dedupe preservando ordem. */
+          const merged = mergeEmailStringsPreferFirst(
+            cobrancaPlusPrincipalEmailsJoined(detail),
+            cur.email ?? "",
+          );
+          map.set(id, { ...cur, email: merged });
         } catch {
-          /* mantém e-mail da listagem */
+          /* Mantém apenas o já extraído da listagem. */
         }
       }),
     );

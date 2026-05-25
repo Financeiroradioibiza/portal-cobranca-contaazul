@@ -42,6 +42,24 @@ export function parseEmailAddresses(raw: string): string[] {
   return out;
 }
 
+/**
+ * Concatena dois blocos de texto com e-mails (ordem preservada: primeiro `a`, depois `b`; sem duplicar endereços
+ * mesmo com formato diferente, comparação case-insensitive).
+ */
+export function mergeEmailStringsPreferFirst(a: string | null | undefined, b: string | null | undefined): string {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  for (const block of [a ?? "", b ?? ""]) {
+    for (const em of parseEmailAddresses(block)) {
+      const k = em.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      ordered.push(em);
+    }
+  }
+  return ordered.join("; ");
+}
+
 export function toISODate(d: Date) {
   return d.toISOString().slice(0, 10);
 }

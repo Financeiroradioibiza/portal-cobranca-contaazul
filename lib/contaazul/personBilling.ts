@@ -1,5 +1,6 @@
 import { caFetch } from "./caHttp";
 import type { CaPeopleSearchResponse, CaPerson } from "./types";
+import { parseEmailAddresses } from "@/lib/format";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -215,6 +216,52 @@ export function billingEmailsFromPersonDetail(raw: unknown): string[] {
   if (!out.length && typeof ccf.email === "string" && ccf.email.trim()) out.push(ccf.email.trim());
 
   return [...new Set(out)];
+}
+
+/**
+ * Igual aos e-mails concatenados por `billingEmailsFromPersonDetail`, mas **sem** recurso ao
+ * principal / outros contatos — para telas onde só faz sentido falar com cobrança e faturamento.
+ */
+export function billingEmailOnlyJoined(raw: unknown): string | null {
+  const list = billingEmailsFromPersonDetail(raw);
+  if (!list.length) return null;
+  return list.join("; ");
+}
+
+/**
+ * Lista usada quando precisamos de «cobrança/faturamento + geral»: primeiro contatos da CCF na Conta Azul,
+ * depois e-mail principal e demais (`outros_contatos`), sempre sem repetir destinatários.
+ */
+export function cobrancaPlusPrincipalEmailsJoined(raw: unknown): string {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const pushBlock = (s: string | undefined) => {
+    if (!s?.trim()) return;
+    for (const addr of parseEmailAddresses(s.trim())) {
+      const k = addr.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      ordered.push(addr);
+    }
+  };
+
+  for (const e of billingEmailsFromPersonDetail(raw)) pushBlock(e);
+
+  const o = asRecord(raw);
+  if (o) {
+    const main = str(o.email) ?? str(o.e_mail) ?? "";
+    if (main) pushBlock(main.replace(/\s*,\s*/g, ";"));
+    const outros = (o.outros_contatos ?? o.outrosContatos) as unknown;
+    if (Array.isArray(outros)) {
+      for (const oc of outros) {
+        if (!isRecord(oc)) continue;
+        const em = str(oc.email ?? oc.endereco_email ?? oc.enderecoEmail);
+        if (em) pushBlock(em.replace(/\s*,\s*/g, ";"));
+      }
+    }
+  }
+
+  return ordered.join("; ");
 }
 
 export function billingEmailJoined(raw: unknown, fallbackMainEmail?: string | null): string | null {
