@@ -185,3 +185,73 @@ model RioPlanilhaRow {
   @@index([monthId, band, sortOrder])
   @@map("rio_planilha_row")
 }
+
+/// --- Planilha Rio v2 — competências com clientes ativos Conta Azul + PDVs geridos no portal ---
+
+enum RioClienteCompMovimento {
+  estavel
+  entrada
+  saida
+}
+
+model RioCompMonth {
+  id           String    @id @default(cuid())
+  yearMonth    Int       @unique @map("year_month")
+  lastSyncedAt DateTime? @map("last_synced_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  linhas RioCompClienteLinha[]
+
+  @@map("rio_comp_month")
+}
+
+model RioCompClienteLinha {
+  id       String       @id @default(cuid())
+  monthId  String       @map("month_id")
+  month    RioCompMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+
+  caPersonId String @map("ca_person_id")
+
+  /// Agrupamento interno — não existe no ERP.
+  grupoSite String @default("") @map("grupo_site") @db.Text
+
+  nomeFantasia   String @default("") @map("nome_fantasia") @db.Text
+  razaoSocial    String @default("") @map("razao_social") @db.Text
+  documento      String? @db.VarChar(64)
+  emailCobranca  String? @map("email_cobranca") @db.Text
+
+  // Texto livre (ex.: valor vindo da API CA ou traco)
+  valorClienteTexto String @default("") @map("valor_cliente_texto") @db.VarChar(200)
+
+  numeroPdvSite Int    @default(0) @map("numero_pdv_site")
+  categoriaSite String @default("") @map("categoria_site") @db.VarChar(120)
+
+  /// Número(s) de contratos ATIVO no CA quando sincronizou (lista separada por vírgulas).
+  contratosAtivosTexto String @default("") @map("contratos_ativos_texto") @db.VarChar(400)
+
+  movimento RioClienteCompMovimento @default(estavel)
+
+  observacoesLinha String @default("") @map("observacoes_linha") @db.Text
+  sortOrder        Int                   @default(0) @map("sort_order")
+
+  pdvs RioCompPdv[]
+
+  @@unique([monthId, caPersonId])
+  @@index([monthId, sortOrder])
+  @@map("rio_comp_cliente_linha")
+}
+
+model RioCompPdv {
+  id        String              @id @default(cuid())
+  clienteId String              @map("cliente_id")
+  cliente   RioCompClienteLinha @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  nome      String @default("") @db.Text
+  notes     String @default("") @db.Text
+  sortOrder Int    @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clienteId, sortOrder])
+  @@map("rio_comp_pdv")
+}
