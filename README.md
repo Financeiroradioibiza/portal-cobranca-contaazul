@@ -69,6 +69,13 @@ Ficheiro versionado neste repo: **`data/rio-marca-pdv-planilha-inicial.csv`** (e
 # Exemplo: maio de 2026 ⇒ 202605
 npm run rio:apply-marca-layout -- 202605
 
+# URL do Neon (pooled) sem guardar no .env — uso único (entre aspas!)
+npm run rio:apply-marca-layout -- --database-url="postgresql://…pooler…neon.tech/…?sslmode=require" 202605
+
+# Ou só a string num ficheiro (uma linha, sem espaços extra)
+echo 'postgresql://…' > neon-url.txt
+npm run rio:apply-marca-layout -- --database-url-file=./neon-url.txt 202605
+
 # Outro CSV
 npm run rio:apply-marca-layout -- 202605 "/caminho/outro.csv"
 ```

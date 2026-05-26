@@ -1,12 +1,14 @@
 /**
  * Aplica MARCA + PDVs a partir do CSV «planilha interna» contra o Postgres já configurado
- * (`DATABASE_URL` no `.env` / `.env.local` ou na shell).
+ * (`DATABASE_URL` no `.env` / `.env.local`, na shell, ou opcionalmente `--database-url=`).
  *
  * Isto não passa pela Netlify: não há limite HTTP de ~10s; uso típico após já existirem
  * linhas na competência (uuid CA + nome fantasia) por sync rápido ou CSV de clientes.
  *
  * Exemplos:
  *   npm run rio:apply-marca-layout -- 202611
+ *   npm run rio:apply-marca-layout -- --database-url="postgresql://...@....pooler.neon.tech/..." 202611
+ *   npm run rio:apply-marca-layout -- --database-url-file=./neon-pooled.url 202611
  *   npm run rio:apply-marca-layout -- 202611 ./meu-arquivo.csv
  */
 import dotenv from "dotenv";
@@ -59,16 +61,72 @@ function looksInvalidDbPlaceholder(durl: string): boolean {
   );
 }
 
-function parseYm(raw: string | undefined): number | null {
-  if (!raw || !/^\d{6}$/.test(raw.trim())) return null;
-  return Number(raw.trim());
+type ParsedCli = {
+  ym: number | null;
+  csvPath: string | undefined;
+  databaseUrlOverride: string | undefined;
+};
+
+/** Argumentos após `npm run … -- …` (process.argv.slice(2)). */
+function parseArgv(argv: string[]): ParsedCli {
+  const positionals: string[] = [];
+  let databaseUrlOverride: string | undefined;
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--database-url") {
+      databaseUrlOverride = (argv[++i] ?? "").trim();
+      continue;
+    }
+    if (a.startsWith("--database-url=")) {
+      databaseUrlOverride = a.slice("--database-url=".length).trim();
+      continue;
+    }
+    if (a === "--database-url-file") {
+      const rel = (argv[++i] ?? "").trim();
+      const p = path.resolve(process.cwd(), rel);
+      if (!fs.existsSync(p)) {
+        throw new Error(`Ficheiro não encontrado: ${p} (--database-url-file)`);
+      }
+      databaseUrlOverride = fs.readFileSync(p, "utf8").trim();
+      continue;
+    }
+    if (a.startsWith("--database-url-file=")) {
+      const rel = a.slice("--database-url-file=".length).trim();
+      const p = path.resolve(process.cwd(), rel);
+      if (!fs.existsSync(p)) {
+        throw new Error(`Ficheiro não encontrado: ${p} (--database-url-file=…)`);
+      }
+      databaseUrlOverride = fs.readFileSync(p, "utf8").trim();
+      continue;
+    }
+    positionals.push(a);
+  }
+
+  let ym: number | null = null;
+  for (const p of positionals) {
+    if (/^\d{6}$/.test(p)) {
+      ym = Number(p);
+      break;
+    }
+  }
+
+  const ymStr = ym != null ? String(ym) : null;
+  let csvPath: string | undefined;
+  for (const p of positionals) {
+    if (ymStr && p === ymStr) continue;
+    csvPath = p;
+    break;
+  }
+
+  return { ym, csvPath, databaseUrlOverride };
 }
 
 async function main() {
   loadCliEnv();
 
-  const ymArg = process.argv[2];
-  const ym = parseYm(ymArg);
+  const cli = parseArgv(process.argv.slice(2));
+  const ym = cli.ym;
   if (!ym) {
     console.error(
       "Uso: npm run rio:apply-marca-layout -- YYYYMM [caminho-do-csv opcional]",
@@ -77,10 +135,13 @@ async function main() {
       `  Ex.: npm run rio:apply-marca-layout -- ${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, "0")}`,
     );
     console.error(`  CSV por defeito: ${DEFAULT_REL}`);
+    console.error(
+      "  URL Neon (**pooled**) sem .env.local: `--database-url=…` ou `--database-url-file=./neon-url.txt`",
+    );
     process.exit(1);
   }
 
-  let durl = process.env.DATABASE_URL?.trim();
+  let durl = cli.databaseUrlOverride?.trim() || process.env.DATABASE_URL?.trim();
 
   /** Se `.env` ainda está com exemplo `localhost` ou vazio mas tens Neon noutra variável. */
   if (
@@ -103,7 +164,13 @@ async function main() {
       "Sem URL de Postgres válida: copia **`DATABASE_URL` (pooled Neon)** da Netlify para `.env.local` na raiz do repo.",
     );
     console.error(
-      "  Alternativas (qualquer uma): `DATABASE_POOL_URL`, `NEON_DATABASE_URL`.",
+      "  Alternativas: `DATABASE_POOL_URL`, `NEON_DATABASE_URL` no `.env`, ou na linha de comando:",
+    );
+    console.error(
+      `    npm run rio:apply-marca-layout -- --database-url="<COLA_AQUI_POOLER_NEON>" ${ym}`,
+    );
+    console.error(
+      `    npm run rio:apply-marca-layout -- --database-url-file=./neon-url.txt ${ym}`,
     );
     console.error(
       '  Leram-se `.env` e depois `.env.local`; o segundo ganha.',
@@ -132,7 +199,10 @@ async function main() {
       '  Ou defina `DATABASE_POOL_URL=…` só com esse URL pooled.',
     );
     console.error(
-      "  Postgres local mesmo? Então antes: export RIO_CLI_ALLOW_LOCAL_POSTGRES=1",
+      `  Ou sem editar .env: npm run rio:apply-marca-layout -- --database-url="<NEON pooled>" ${ym}`,
+    );
+    console.error(
+      "  Postgres local mesmo? export RIO_CLI_ALLOW_LOCAL_POSTGRES=1 antes do comando.",
     );
     process.exit(1);
   }
@@ -142,10 +212,7 @@ async function main() {
 
   const { applyMarcaPdvCsvLayoutToMonth } = await import("@/lib/rio/rioClienteCompService");
 
-  const filePath = path.resolve(
-    process.cwd(),
-    process.argv[3] ?? DEFAULT_REL,
-  );
+  const filePath = path.resolve(process.cwd(), cli.csvPath ?? DEFAULT_REL);
   const base = path.basename(filePath);
 
   if (!fs.existsSync(filePath)) {
