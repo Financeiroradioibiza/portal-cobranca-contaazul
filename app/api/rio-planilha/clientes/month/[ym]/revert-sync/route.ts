@@ -4,7 +4,7 @@ import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeCliente
 import { formatYearMonthLabel, parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { getRioCompMonthWithLinhas } from "@/lib/rio/rioClienteCompService";
 import { prisma } from "@/lib/prisma";
-import { revertRioViradaToDonorClone } from "@/lib/rio/cloneRioCompMonth";
+import { revertRioCompMonthToDonorClone } from "@/lib/rio/cloneRioCompMonth";
 import {
   purgeRioCaLinhasNotInActiveSet,
   restoreRioCompMonthFromPreSyncSnapshot,
@@ -19,7 +19,8 @@ type Ctx = { params: Promise<{ ym: string }> };
 /**
  * POST — desfaz o último «Sincronizar Conta Azul»:
  * 1) se existir `pre_sync_snapshot`, restaura o mês inteiro;
- * 2) senão remove linhas CA que não estão ativos na Conta Azul agora.
+ * 2) senão repõe a partir do mês anterior na base (ex.: maio ← abril);
+ * 3) senão remove só clientes inativos na CA.
  */
 export async function POST(_req: Request, context: Ctx) {
   const token = await getValidAccessToken();
@@ -51,21 +52,23 @@ export async function POST(_req: Request, context: Ctx) {
       });
     }
 
-    if (isRioTurnoverMonth(ym)) {
-      try {
-        const reset = await revertRioViradaToDonorClone(ym);
-        return NextResponse.json({
-          ok: true,
-          mode: "donor_clone" as const,
-          donorYearMonth: reset.donorYearMonth,
-          grupos: reset.grupos,
-          linhas: reset.linhas,
-          message: `Virada desfeita: ${reset.linhaCount} linhas repostas a partir de ${formatYearMonthLabel(reset.donorYearMonth)} (cópia estável, sem entradas da CA). Pode voltar a usar «Virada do mês» só com ativos.`,
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "";
-        if (!msg.startsWith("donor_month_not_found")) throw e;
-      }
+    try {
+      const reset = await revertRioCompMonthToDonorClone(ym);
+      const virada = isRioTurnoverMonth(ym);
+      return NextResponse.json({
+        ok: true,
+        mode: "donor_clone" as const,
+        donorYearMonth: reset.donorYearMonth,
+        grupos: reset.grupos,
+        linhas: reset.linhas,
+        message:
+          virada ?
+            `Virada desfeita: ${reset.linhaCount} linhas repostas a partir de ${formatYearMonthLabel(reset.donorYearMonth)}. Pode usar «Virada do mês» de novo (só ativos).`
+          : `Sync desfeito: ${reset.linhaCount} linhas repostas a partir de ${formatYearMonthLabel(reset.donorYearMonth)}. O sync antigo em maio apagava tudo — isto repõe a cópia do mês anterior na base.`,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (!msg.startsWith("donor_month_not_found")) throw e;
     }
 
     const active = await fetchActiveClientePersonSummaries(token);

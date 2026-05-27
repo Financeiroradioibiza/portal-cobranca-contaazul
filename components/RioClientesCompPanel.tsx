@@ -457,7 +457,7 @@ export function RioClientesCompPanel() {
       !window.confirm(
         "Desfazer a última virada/sync desta competência?\n\n" +
           "• Com backup automático: volta ao instante antes do clique.\n" +
-          "• Junho+ sem backup: repõe a cópia do mês anterior (ex.: maio), como antes da virada de 27/05.\n" +
+          "• Sem backup: repõe a partir do mês anterior na base (maio ← abril, junho ← maio, etc.).\n" +
           "• Senão: remove só clientes inativos na CA.",
       )
     ) {

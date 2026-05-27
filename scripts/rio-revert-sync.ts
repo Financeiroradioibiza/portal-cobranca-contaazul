@@ -6,12 +6,11 @@ import { config } from "dotenv";
 import { prisma } from "../lib/prisma";
 import { getValidAccessToken } from "../lib/contaazul/session";
 import { fetchActiveClientePersonSummaries } from "../lib/contaazul/activeClientesCa";
-import { revertRioViradaToDonorClone } from "../lib/rio/cloneRioCompMonth";
+import { revertRioCompMonthToDonorClone } from "../lib/rio/cloneRioCompMonth";
 import {
   purgeRioCaLinhasNotInActiveSet,
   restoreRioCompMonthFromPreSyncSnapshot,
 } from "../lib/rio/rioCompSyncSnapshot";
-import { isRioTurnoverMonth } from "../lib/rio/rioTurnover";
 
 config();
 
@@ -38,18 +37,16 @@ async function main() {
     return;
   }
 
-  if (isRioTurnoverMonth(ym)) {
-    try {
-      const reset = await revertRioViradaToDonorClone(ym);
-      console.log("mode=donor_clone", {
-        donorYearMonth: reset.donorYearMonth,
-        linhas: reset.linhas.length,
-      });
-      return;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "";
-      if (!msg.startsWith("donor_month_not_found")) throw e;
-    }
+  try {
+    const reset = await revertRioCompMonthToDonorClone(ym);
+    console.log("mode=donor_clone", {
+      donorYearMonth: reset.donorYearMonth,
+      linhas: reset.linhaCount,
+    });
+    return;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (!msg.startsWith("donor_month_not_found")) throw e;
   }
 
   const token = await getValidAccessToken();

@@ -114,10 +114,10 @@ export async function cloneRioCompMonthFromDonor(targetYm: number) {
 }
 
 /**
- * Desfaz virada do mês sem snapshot: repõe a competência como cópia do mês anterior
- * (MARCA + clientes + PDVs), sem blocos sistema entrada/saída da CA.
+ * Sem snapshot: repõe a competência como cópia do mês civil anterior
+ * (MARCA + clientes + PDVs). Útil após sync destrutivo em maio ou virada em junho+.
  */
-export async function revertRioViradaToDonorClone(targetYm: number) {
+export async function revertRioCompMonthToDonorClone(targetYm: number) {
   const donorYm = donorYearMonthFor(targetYm);
   const donor = await prisma.rioCompMonth.findUnique({
     where: { yearMonth: donorYm },
@@ -207,3 +207,6 @@ export async function revertRioViradaToDonorClone(targetYm: number) {
     ...full,
   };
 }
+
+/** @deprecated use revertRioCompMonthToDonorClone */
+export const revertRioViradaToDonorClone = revertRioCompMonthToDonorClone;
