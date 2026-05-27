@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
-import { matchRioImportRowsByDocumento, refreshRioMonthLinkedFromCa } from "@/lib/rio/rioCaPersonLink";
-import { getRioCompMonthWithLinhas } from "@/lib/rio/rioClienteCompService";
+import {
+  RIO_CA_REFRESH_BATCH_SIZE,
+  matchRioImportRowsByDocumentoBatch,
+  refreshRioMonthLinkedFromCaBatch,
+} from "@/lib/rio/rioCaPersonLink";
 
 const CA_HINT_PT =
   "Sem sessão OAuth Conta Azul no servidor. Abra o painel principal (/), reconecte o Conta Azul neste mesmo domínio.";
@@ -11,9 +14,9 @@ const CA_HINT_PT =
 type Ctx = { params: Promise<{ ym: string }> };
 
 /**
- * POST body opcional:
- * `{ "matchByDocument": true }` — tenta vincular linhas importadas pelo CNPJ/CPF;
- * sem body — só atualiza e-mail/razão/etc. das linhas já vinculadas à CA.
+ * POST body:
+ * `{ "offset": 0, "limit": 10, "mode": "refresh" | "match" }`
+ * — atualiza vínculos CA em lotes (evita timeout). `match` = casar CNPJ/CPF só no lote.
  */
 export async function POST(req: Request, context: Ctx) {
   const { ym: rawYm } = await context.params;
@@ -22,12 +25,27 @@ export async function POST(req: Request, context: Ctx) {
     return NextResponse.json({ error: "invalid_year_month" }, { status: 400 });
   }
 
-  let matchByDocument = false;
+  let offset = 0;
+  let limit = RIO_CA_REFRESH_BATCH_SIZE;
+  let mode: "refresh" | "match" = "refresh";
   try {
-    const b = (await req.json()) as { matchByDocument?: unknown };
-    matchByDocument = b?.matchByDocument === true;
+    const b = (await req.json()) as {
+      offset?: unknown;
+      limit?: unknown;
+      mode?: unknown;
+      /** legado */
+      matchByDocument?: unknown;
+    };
+    if (typeof b?.offset === "number" && Number.isFinite(b.offset) && b.offset >= 0) {
+      offset = Math.floor(b.offset);
+    }
+    if (typeof b?.limit === "number" && Number.isFinite(b.limit) && b.limit > 0) {
+      limit = Math.min(25, Math.floor(b.limit));
+    }
+    if (b?.mode === "match" || b?.matchByDocument === true) mode = "match";
+    else if (b?.mode === "refresh") mode = "refresh";
   } catch {
-    matchByDocument = false;
+    /* defaults */
   }
 
   const token = await getValidAccessToken();
@@ -44,18 +62,32 @@ export async function POST(req: Request, context: Ctx) {
   }
 
   try {
-    const matchStats = matchByDocument ?
-      await matchRioImportRowsByDocumento(month.id, token)
-    : null;
-    const refreshStats = await refreshRioMonthLinkedFromCa(month.id, token);
-    const full = await getRioCompMonthWithLinhas(ym);
+    if (mode === "match") {
+      const batch = await matchRioImportRowsByDocumentoBatch(month.id, token, offset, limit);
+      return NextResponse.json({
+        ok: true,
+        mode: "match" as const,
+        matchStats: {
+          matched: batch.matched,
+          ambiguous: batch.ambiguous,
+          notFound: batch.notFound,
+        },
+        progress: batch.progress,
+        updatedLinhas: batch.updatedLinhas,
+      });
+    }
 
+    const batch = await refreshRioMonthLinkedFromCaBatch(month.id, token, offset, limit);
     return NextResponse.json({
       ok: true,
-      refreshStats,
-      matchStats,
-      grupos: full?.grupos ?? [],
-      linhas: full?.linhas ?? [],
+      mode: "refresh" as const,
+      refreshStats: {
+        updated: batch.updated,
+        failed: batch.failed,
+        batchSize: batch.progress.batchTo - batch.progress.batchFrom + 1,
+      },
+      progress: batch.progress,
+      updatedLinhas: batch.updatedLinhas,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro";

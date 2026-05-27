@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RIO_CA_REFRESH_BATCH_SIZE } from "@/lib/rio/rioCaPersonLink";
 import * as XLSX from "xlsx";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
@@ -782,58 +783,131 @@ export function RioClientesCompPanel() {
     [linkModalLinha, postRefreshCaLinha],
   );
 
-  const refreshLinkedFromCa = useCallback(
-    async (matchByDocument: boolean) => {
-      setRefreshingCa(true);
-      setMsg(null);
-      try {
+  const caRefreshRunId = useRef(0);
+
+  const mergeLinhasFromCaBatch = useCallback((updates: RioLinha[]) => {
+    if (!updates.length) return;
+    setLinhas((prev) => {
+      const byId = new Map(updates.map((u) => [u.id, u]));
+      return prev.map((l) => {
+        const u = byId.get(l.id);
+        return u ? { ...u, pdvs: u.pdvs?.length ? u.pdvs : l.pdvs } : l;
+      });
+    });
+  }, []);
+
+  const runCaBatchPhase = useCallback(
+    async (
+      mode: "refresh" | "match",
+      runId: number,
+      acc: { updated: number; failed: number; matched: number; ambiguous: number; notFound: number },
+    ) => {
+      let offset = 0;
+      const limit = RIO_CA_REFRESH_BATCH_SIZE;
+
+      while (true) {
+        if (caRefreshRunId.current !== runId) return;
+
         const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/refresh-linked-ca`, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchByDocument }),
+          body: JSON.stringify({ offset, limit, mode }),
         });
         const { data, rawText } = await readJsonFromResponse<{
-          refreshStats?: { updated: number; failed: number; total: number };
-          matchStats?: {
-            matched: number;
-            ambiguous: number;
-            notFound: number;
-            alreadyLinked: number;
+          refreshStats?: { updated: number; failed: number };
+          matchStats?: { matched: number; ambiguous: number; notFound: number };
+          progress?: {
+            batchNumber: number;
+            batchCount: number;
+            batchFrom: number;
+            batchTo: number;
+            globalTotal: number;
+            hasMore: boolean;
           };
-          linhas?: RioLinha[];
-          grupos?: RioGrupo[];
+          updatedLinhas?: RioLinha[];
           error?: string;
           message?: string;
           connected?: boolean;
         }>(res);
+
         if (!res.ok) {
-          setMsg(
+          throw new Error(
             data?.message || data?.error || rawText.slice(0, 220) || "Falha ao atualizar vínculos.",
           );
-          return;
         }
-        if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
-        if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
-        const rs = data?.refreshStats;
-        const ms = data?.matchStats;
-        const parts: string[] = [];
-        if (ms && matchByDocument) {
-          parts.push(
-            `Casados por CNPJ/CPF: ${ms.matched}. Já vinculados: ${ms.alreadyLinked}. Ambíguos/duplicados: ${ms.ambiguous}. Sem match: ${ms.notFound}.`,
+
+        if (Array.isArray(data?.updatedLinhas)) mergeLinhasFromCaBatch(data.updatedLinhas);
+
+        const p = data?.progress;
+        if (p) {
+          const label =
+            mode === "match" ? "Casar CNPJ → CA" : "Atualizar vinculados CA";
+          if (p.globalTotal === 0) {
+            setMsg(
+              mode === "match" ?
+                "Nenhuma linha com CNPJ/CPF para casar neste lote."
+              : "Nenhum cliente vinculado à CA para atualizar.",
+            );
+            return;
+          }
+          setMsg(
+            `${label} — ação ${p.batchNumber} de ${p.batchCount}: clientes ${p.batchFrom}–${p.batchTo} de ${p.globalTotal}…`,
           );
         }
-        if (rs) {
-          parts.push(
-            `Atualizados da CA: ${rs.updated} de ${rs.total}${rs.failed ? ` (${rs.failed} falha)` : ""}.`,
-          );
+
+        if (mode === "refresh" && data?.refreshStats) {
+          acc.updated += data.refreshStats.updated;
+          acc.failed += data.refreshStats.failed;
         }
-        setMsg(parts.join(" ") || "Atualização concluída.");
-      } finally {
-        setRefreshingCa(false);
+        if (mode === "match" && data?.matchStats) {
+          acc.matched += data.matchStats.matched;
+          acc.ambiguous += data.matchStats.ambiguous;
+          acc.notFound += data.matchStats.notFound;
+        }
+
+        if (!p?.hasMore) break;
+        offset += limit;
+        await new Promise((r) => setTimeout(r, 0));
       }
     },
-    [activeYm],
+    [activeYm, mergeLinhasFromCaBatch],
+  );
+
+  const refreshLinkedFromCa = useCallback(
+    async (matchByDocument: boolean) => {
+      const runId = ++caRefreshRunId.current;
+      setRefreshingCa(true);
+      setMsg(null);
+      const acc = { updated: 0, failed: 0, matched: 0, ambiguous: 0, notFound: 0 };
+
+      try {
+        if (matchByDocument) {
+          await runCaBatchPhase("match", runId, acc);
+          if (caRefreshRunId.current !== runId) return;
+        }
+        await runCaBatchPhase("refresh", runId, acc);
+        if (caRefreshRunId.current !== runId) return;
+
+        const parts: string[] = [];
+        if (matchByDocument) {
+          parts.push(
+            `Casados por CNPJ/CPF: ${acc.matched}. Ambíguos/duplicados: ${acc.ambiguous}. Sem match: ${acc.notFound}.`,
+          );
+        }
+        parts.push(
+          `Atualizados da CA: ${acc.updated}${acc.failed ? ` (${acc.failed} falha)` : ""}.`,
+        );
+        setMsg(parts.join(" ") || "Atualização concluída.");
+      } catch (e) {
+        if (caRefreshRunId.current === runId) {
+          setMsg(e instanceof Error ? e.message : "Falha ao atualizar vínculos.");
+        }
+      } finally {
+        if (caRefreshRunId.current === runId) setRefreshingCa(false);
+      }
+    },
+    [runCaBatchPhase],
   );
 
   const criarMarca = useCallback(async () => {
@@ -1176,7 +1250,7 @@ export function RioClientesCompPanel() {
           disabled={refreshingCa || linhas.length === 0}
           className="rounded-lg border border-sky-700 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-600 dark:bg-sky-950/50 dark:text-sky-100"
           onClick={() => void refreshLinkedFromCa(false)}
-          title="Atualiza e-mail, razão e documento das linhas já vinculadas à CA"
+          title="Atualiza e-mail, contrato e valor das linhas vinculadas — 10 clientes por vez em segundo plano"
         >
           {refreshingCa ? "Atualizando CA…" : "Atualizar vinculados CA"}
         </button>
@@ -1185,7 +1259,7 @@ export function RioClientesCompPanel() {
           disabled={refreshingCa || linhas.length === 0}
           className="rounded-lg border border-violet-700 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-950 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-100"
           onClick={() => void refreshLinkedFromCa(true)}
-          title="Tenta vincular linhas importadas sem UUID, pelo CNPJ/CPF na API"
+          title="Casa CNPJ/CPF e depois atualiza vinculados — 10 clientes por lote"
         >
           Casar CNPJ → CA
         </button>

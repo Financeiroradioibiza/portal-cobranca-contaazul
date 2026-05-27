@@ -60,6 +60,61 @@ export function rioCaUnlinkedPersonId(linhaId: string): string {
   return `import:unlinked:${linhaId}`;
 }
 
+/** Tamanho de cada lote ao atualizar vínculos CA (evita timeout no Netlify). */
+export const RIO_CA_REFRESH_BATCH_SIZE = 10;
+
+export type RioCaBatchProgress = {
+  offset: number;
+  limit: number;
+  globalTotal: number;
+  batchNumber: number;
+  batchCount: number;
+  batchFrom: number;
+  batchTo: number;
+  hasMore: boolean;
+};
+
+function buildBatchProgress(
+  offset: number,
+  limit: number,
+  globalTotal: number,
+  sliceLen: number,
+): RioCaBatchProgress {
+  const batchNumber = Math.floor(offset / limit) + 1;
+  const batchCount = globalTotal > 0 ? Math.ceil(globalTotal / limit) : 0;
+  return {
+    offset,
+    limit,
+    globalTotal,
+    batchNumber,
+    batchCount,
+    batchFrom: globalTotal === 0 ? 0 : offset + 1,
+    batchTo: offset + sliceLen,
+    hasMore: offset + sliceLen < globalTotal,
+  };
+}
+
+async function linkedLinhasOrdered(monthId: string) {
+  const linhas = await prisma.rioCompClienteLinha.findMany({
+    where: { monthId },
+    select: { id: true, caPersonId: true },
+    orderBy: [{ sortOrder: "asc" }, { nomeFantasia: "asc" }, { id: "asc" }],
+  });
+  return linhas.filter((l) => isRioCaPersonLinked(l.caPersonId));
+}
+
+async function unlinkedLinhasWithDocumento(monthId: string) {
+  const linhas = await prisma.rioCompClienteLinha.findMany({
+    where: { monthId },
+    select: { id: true, caPersonId: true, documento: true },
+    orderBy: [{ sortOrder: "asc" }, { nomeFantasia: "asc" }, { id: "asc" }],
+  });
+  return linhas.filter((l) => {
+    if (isRioCaPersonLinked(l.caPersonId)) return false;
+    return onlyDigits(l.documento ?? "").length >= 8;
+  });
+}
+
 async function linhaToOut(linhaId: string): Promise<RioCompLinhaOut> {
   const raw = await prisma.rioCompClienteLinha.findUniqueOrThrow({
     where: { id: linhaId },
@@ -151,11 +206,7 @@ export async function refreshRioMonthLinkedFromCa(
   monthId: string,
   accessToken: string,
 ): Promise<{ updated: number; failed: number; total: number }> {
-  const linhas = await prisma.rioCompClienteLinha.findMany({
-    where: { monthId },
-    select: { id: true, caPersonId: true },
-  });
-  const linked = linhas.filter((l) => isRioCaPersonLinked(l.caPersonId));
+  const linked = await linkedLinhasOrdered(monthId);
   let updated = 0;
   let failed = 0;
   for (const l of linked) {
@@ -169,6 +220,40 @@ export async function refreshRioMonthLinkedFromCa(
   return { updated, failed, total: linked.length };
 }
 
+/** Atualiza um lote de linhas já vinculadas à CA (ordem da planilha). */
+export async function refreshRioMonthLinkedFromCaBatch(
+  monthId: string,
+  accessToken: string,
+  offset: number,
+  limit: number,
+): Promise<{
+  updated: number;
+  failed: number;
+  progress: RioCaBatchProgress;
+  updatedLinhas: RioCompLinhaOut[];
+}> {
+  const linked = await linkedLinhasOrdered(monthId);
+  const globalTotal = linked.length;
+  const slice = linked.slice(offset, offset + limit);
+  const progress = buildBatchProgress(offset, limit, globalTotal, slice.length);
+
+  let updated = 0;
+  let failed = 0;
+  const updatedLinhas: RioCompLinhaOut[] = [];
+
+  for (const l of slice) {
+    try {
+      const out = await applyCaPersonToRioLinha(l.id, monthId, l.caPersonId, accessToken);
+      updatedLinhas.push(out);
+      updated += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  return { updated, failed, progress, updatedLinhas };
+}
+
 function onlyDigits(s: string): string {
   return s.replace(/\D/g, "");
 }
@@ -178,26 +263,18 @@ export async function matchRioImportRowsByDocumento(
   monthId: string,
   accessToken: string,
 ): Promise<{ matched: number; ambiguous: number; notFound: number; alreadyLinked: number }> {
-  const linhas = await prisma.rioCompClienteLinha.findMany({
+  const all = await prisma.rioCompClienteLinha.findMany({
     where: { monthId },
     select: { id: true, caPersonId: true, documento: true },
   });
-
+  const alreadyLinked = all.filter((l) => isRioCaPersonLinked(l.caPersonId)).length;
+  const candidates = await unlinkedLinhasWithDocumento(monthId);
   let matched = 0;
   let ambiguous = 0;
   let notFound = 0;
-  let alreadyLinked = 0;
 
-  for (const l of linhas) {
-    if (isRioCaPersonLinked(l.caPersonId)) {
-      alreadyLinked += 1;
-      continue;
-    }
+  for (const l of candidates) {
     const digits = onlyDigits(l.documento ?? "");
-    if (digits.length < 8) {
-      notFound += 1;
-      continue;
-    }
     const hits = await searchPeopleByText(accessToken, digits);
     if (hits.length === 0) {
       notFound += 1;
@@ -218,4 +295,52 @@ export async function matchRioImportRowsByDocumento(
   }
 
   return { matched, ambiguous, notFound, alreadyLinked };
+}
+
+/** Casamento CNPJ/CPF em lote (mesma ordem da planilha). */
+export async function matchRioImportRowsByDocumentoBatch(
+  monthId: string,
+  accessToken: string,
+  offset: number,
+  limit: number,
+): Promise<{
+  matched: number;
+  ambiguous: number;
+  notFound: number;
+  progress: RioCaBatchProgress;
+  updatedLinhas: RioCompLinhaOut[];
+}> {
+  const candidates = await unlinkedLinhasWithDocumento(monthId);
+  const globalTotal = candidates.length;
+  const slice = candidates.slice(offset, offset + limit);
+  const progress = buildBatchProgress(offset, limit, globalTotal, slice.length);
+
+  let matched = 0;
+  let ambiguous = 0;
+  let notFound = 0;
+  const updatedLinhas: RioCompLinhaOut[] = [];
+
+  for (const l of slice) {
+    const digits = onlyDigits(l.documento ?? "");
+    const hits = await searchPeopleByText(accessToken, digits);
+    if (hits.length === 0) {
+      notFound += 1;
+      continue;
+    }
+    if (hits.length > 1) {
+      ambiguous += 1;
+      continue;
+    }
+    try {
+      const out = await applyCaPersonToRioLinha(l.id, monthId, hits[0]!.id, accessToken);
+      updatedLinhas.push(out);
+      matched += 1;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.startsWith("ca_person_already_linked")) ambiguous += 1;
+      else notFound += 1;
+    }
+  }
+
+  return { matched, ambiguous, notFound, progress, updatedLinhas };
 }

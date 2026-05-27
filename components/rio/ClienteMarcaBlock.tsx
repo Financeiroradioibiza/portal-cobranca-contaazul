@@ -1,6 +1,12 @@
 "use client";
 
 import { Fragment, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import {
+  RIO_CATEGORIA_OPTS,
+  categoriaSiteLabel,
+  categoriaSiteOptionClass,
+  categoriaSiteSelectClass,
+} from "@/lib/rio/categoriaSiteStyles";
 import { parsePdvNamesFromMultilineText, sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { readPdvDropFromDataTransfer } from "@/components/rio/PdvNomePoolColumn";
@@ -60,8 +66,6 @@ export type RioLinhaCb = {
   sortOrder: number;
   pdvs: RioPdvCb[];
 };
-
-const CAT_OPTS = ["", "moda", "shopping", "hotelaria", "gastronomia", "outro"];
 
 export function badgeMov(m: MovRioCb) {
   if (m === "entrada") {
@@ -224,15 +228,16 @@ function SortClientRow(props: {
             onBlur={(e) => void props.patchLinha(r.id, { numeroPdvSite: Number(e.target.value) || 0 })}
           />
         </td>
-        <td className="max-w-[7rem] px-0">
+        <td className="max-w-[7.5rem] px-0">
           <select
-            className="box-border h-7 max-w-[7rem] truncate rounded border border-slate-200 bg-transparent px-1 text-[10px] dark:border-slate-700"
-            defaultValue={r.categoriaSite || ""}
+            className={categoriaSiteSelectClass(r.categoriaSite)}
+            value={r.categoriaSite || ""}
             onChange={(e) => void props.patchLinha(r.id, { categoriaSite: e.target.value })}
+            title={categoriaSiteLabel(r.categoriaSite)}
           >
-            {CAT_OPTS.map((c) => (
-              <option key={c || "__"} value={c}>
-                {c || "—"}
+            {RIO_CATEGORIA_OPTS.map((c) => (
+              <option key={c || "__"} value={c} className={categoriaSiteOptionClass(c)}>
+                {categoriaSiteLabel(c)}
               </option>
             ))}
           </select>
