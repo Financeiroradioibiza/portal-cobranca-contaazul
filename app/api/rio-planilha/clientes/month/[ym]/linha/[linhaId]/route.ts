@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { patchRioCompClienteLinha, reconcileRioCompGrupoLinks } from "@/lib/rio/rioClienteCompService";
+import { patchRioCompClienteLinha } from "@/lib/rio/rioClienteCompService";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
 
@@ -70,9 +70,6 @@ export async function PATCH(request: Request, context: Ctx) {
   }
 
   await patchRioCompClienteLinha(linha.id, patch);
-  if (patch.grupoSite !== undefined || Object.prototype.hasOwnProperty.call(patch, "rioGrupoId")) {
-    await reconcileRioCompGrupoLinks(month.id);
-  }
   const raw = await prisma.rioCompClienteLinha.findUniqueOrThrow({
     where: { id: linha.id },
     include: {

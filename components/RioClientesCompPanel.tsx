@@ -573,24 +573,54 @@ export function RioClientesCompPanel() {
       const targetId = marcaSel.trim().length ? marcaSel : null;
       const ln = linhas.find((x) => x.id === linhaId);
       if (!ln) return;
-      const { map: mc, orphans: oc } = stripLineFromBuckets(buckets, orphans, linhaId);
-      let moved: RioLinha = {
+
+      const g = targetId ? grupoOrd.find((gg) => gg.id === targetId) : null;
+      if (targetId && !g) {
+        setMsg("MARCA não encontrada — recarregue a página e tente de novo.");
+        return;
+      }
+
+      const targetList = targetId ? (buckets.get(targetId) ?? []) : orphans;
+      const sortOrder = targetList.reduce((m, l) => Math.max(m, l.sortOrder ?? 0), -1) + 1;
+
+      const optimistic: RioLinha = {
         ...ln,
         rioGrupoId: targetId,
-        grupo: targetId ? (grupoOrd.find((g) => g.id === targetId) ?? null) : null,
-        grupoSite: targetId ? (grupoOrd.find((g) => g.id === targetId)?.nome ?? ln.grupoSite) : "",
+        grupo: g ?? null,
+        grupoSite: g?.nome ?? "",
+        sortOrder,
       };
-      if (targetId) {
-        const lst = [...(mc.get(targetId) ?? [])];
-        lst.push(moved);
-        mc.set(targetId, lst);
-        await persistBuckets(mc, oc);
-      } else {
-        const oc2 = [...oc, moved];
-        await persistBuckets(mc, oc2);
+      setLinhas((prev) => prev.map((x) => (x.id === linhaId ? optimistic : x)));
+
+      const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/linha/${linhaId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rioGrupoId: targetId, sortOrder }),
+      });
+      const { data, rawText } = await readJsonFromResponse<{
+        linha?: RioLinha;
+        error?: string;
+      }>(res);
+
+      if (!res.ok || !data?.linha) {
+        setLinhas((prev) => prev.map((x) => (x.id === linhaId ? ln : x)));
+        setMsg(
+          data?.error === "grupo_not_found" ?
+            "MARCA inválida nesta competência."
+          : (data?.error || rawText.slice(0, 200) || "Não foi possível mudar a MARCA do cliente."),
+        );
+        return;
       }
+
+      setLinhas((prev) =>
+        prev.map((x) =>
+          x.id === linhaId ? { ...data.linha!, pdvs: data.linha!.pdvs ?? x.pdvs } : x,
+        ),
+      );
+      setMsg(null);
     },
-    [buckets, orphans, grupoOrd, linhas, persistBuckets],
+    [activeYm, buckets, orphans, grupoOrd, linhas],
   );
 
   const deslocarBlocoMarca = useCallback(

@@ -155,7 +155,7 @@ async function needsGrupoLegacyAttach(monthId: string): Promise<boolean> {
 export async function reconcileRioCompGrupoLinksTx(tx: Prisma.TransactionClient, monthId: string) {
   const linhasDb = await tx.rioCompClienteLinha.findMany({
     where: { monthId },
-    select: { id: true, grupoSite: true },
+    select: { id: true, grupoSite: true, rioGrupoId: true },
   });
 
   let gruposExisting = await tx.rioCompGrupo.findMany({
@@ -187,11 +187,16 @@ export async function reconcileRioCompGrupoLinksTx(tx: Prisma.TransactionClient,
     }
   }
 
+  /** Só linhas legadas (texto em grupo_site, ainda sem FK) — não apaga escolha manual no dropdown. */
   for (const l of linhasDb) {
+    if (l.rioGrupoId) continue;
     const t = normMarcaNome(l.grupoSite);
+    if (!t) continue;
+    const gid = byNome.get(t)?.id ?? null;
+    if (!gid) continue;
     await tx.rioCompClienteLinha.update({
       where: { id: l.id },
-      data: { rioGrupoId: t ? (byNome.get(t)?.id ?? null) : null },
+      data: { rioGrupoId: gid },
     });
   }
 }
