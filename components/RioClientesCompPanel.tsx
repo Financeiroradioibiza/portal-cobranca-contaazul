@@ -10,6 +10,7 @@ import {
   type RioGrupoCb,
   type RioLinhaCb,
 } from "@/components/rio/ClienteMarcaBlock";
+import { PdvNomePoolColumn } from "@/components/rio/PdvNomePoolColumn";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
@@ -86,6 +87,14 @@ export function RioClientesCompPanel() {
   const [importing, setImporting] = useState(false);
   /** Import CSV: cruzar com mês anterior → entrada/saída como no sync pela API */
   const [importInferMovement, setImportInferMovement] = useState(true);
+  const [caServerConnected, setCaServerConnected] = useState<boolean | null>(null);
+  const [linkModalLinha, setLinkModalLinha] = useState<RioLinha | null>(null);
+  const [buscaCa, setBuscaCa] = useState("");
+  const [hitsCa, setHitsCa] = useState<{ id: string; nome: string; documento?: string | null }[]>([]);
+  const [linkModalNotice, setLinkModalNotice] = useState<string | null>(null);
+  const [caLinkBusy, setCaLinkBusy] = useState(false);
+  const [refreshingCa, setRefreshingCa] = useState(false);
+  const [pdvPoolText, setPdvPoolText] = useState("");
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months", { credentials: "include" });
@@ -133,6 +142,49 @@ export function RioClientesCompPanel() {
   useEffect(() => {
     void loadMonth(activeYm);
   }, [activeYm, loadMonth]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      const res = await fetch("/api/contaazul/status", { credentials: "include" });
+      const { data, parseError } = await readJsonFromResponse<{ connected?: boolean }>(res);
+      if (canceled || parseError || !data) return;
+      if (typeof data.connected === "boolean") setCaServerConnected(data.connected);
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!linkModalLinha) {
+      setHitsCa([]);
+      setLinkModalNotice(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const q = buscaCa.trim();
+      if (q.length < 2) {
+        setHitsCa([]);
+        return;
+      }
+      const res = await fetch(
+        `/api/manual-envios/contaazul/pessoas?q=${encodeURIComponent(q)}`,
+        { credentials: "include" },
+      );
+      const { data } = await readJsonFromResponse<{
+        connected?: boolean | null;
+        message?: string;
+        caError?: string;
+        pessoas?: { id: string; nome: string; documento?: string | null }[];
+      }>(res);
+      setHitsCa(data?.pessoas ?? []);
+      if (data?.connected === false && data.message) setLinkModalNotice(data.message);
+      else if (data?.caError) setLinkModalNotice(`Falha na API: ${data.caError}`);
+      else setLinkModalNotice(null);
+    }, 380);
+    return () => clearTimeout(t);
+  }, [buscaCa, linkModalLinha]);
 
   const ensureMonthShell = useCallback(async () => {
     const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}`, {
@@ -345,6 +397,49 @@ export function RioClientesCompPanel() {
     [activeYm],
   );
 
+  const addPdvsBulk = useCallback(
+    async (linhaId: string, names: string[]) => {
+      if (!names.length) return;
+      const res = await fetch(
+        `/api/rio-planilha/clientes/month/${activeYm}/linha/${encodeURIComponent(linhaId)}/pdvs/bulk`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ names }),
+        },
+      );
+      const { data, rawText } = await readJsonFromResponse<{
+        pdvs?: RioPdv[];
+        createdCount?: number;
+        skippedCount?: number;
+        error?: string;
+      }>(res);
+      if (!res.ok) {
+        setMsg(data?.error || rawText.slice(0, 200) || "Falha ao adicionar PDVs.");
+        return;
+      }
+      if (Array.isArray(data?.pdvs)) {
+        setLinhas((prev) =>
+          prev.map((l) => (l.id === linhaId ? { ...l, pdvs: data!.pdvs! } : l)),
+        );
+      }
+      setExpanded((prev) => {
+        const nx = new Set(prev);
+        nx.add(linhaId);
+        return nx;
+      });
+      const created = data?.createdCount ?? 0;
+      const skipped = data?.skippedCount ?? 0;
+      setMsg(
+        created || skipped ?
+          `PDVs em «${linhas.find((l) => l.id === linhaId)?.nomeFantasia ?? "cliente"}»: +${created}${skipped ? ` (${skipped} ignorados — já existiam)` : ""}.`
+        : "Nenhum PDV novo.",
+      );
+    },
+    [activeYm, linhas],
+  );
+
   const addPdv = useCallback(
     async (linhaId: string) => {
       const nome = (newPdvName[linhaId] ?? "").trim();
@@ -521,13 +616,146 @@ export function RioClientesCompPanel() {
     [activeYm, grupoOrd],
   );
 
+  const postRefreshCaLinha = useCallback(
+    async (linhaId: string, body: Record<string, unknown>) => {
+      setCaLinkBusy(true);
+      try {
+        const res = await fetch(
+          `/api/rio-planilha/clientes/month/${activeYm}/linha/${encodeURIComponent(linhaId)}/refresh-ca`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(body),
+          },
+        );
+        const { data, rawText } = await readJsonFromResponse<{
+          connected?: boolean;
+          message?: string;
+          billingEmailsEmptyHint?: string | null;
+          error?: string;
+          detail?: string | null;
+          linha?: RioLinha;
+        }>(res);
+        if (data?.connected === false && data.message) {
+          setMsg(data.message);
+          return false;
+        }
+        if (!res.ok) {
+          const err =
+            data?.error === "ca_person_already_linked" ?
+              `Esta pessoa CA já está noutra linha deste mês${data.detail ? `: ${data.detail}` : ""}.`
+            : (data?.error || rawText).slice(0, 240);
+          setMsg(err || "Falha ao vincular.");
+          return false;
+        }
+        if (data?.billingEmailsEmptyHint) setMsg(data.billingEmailsEmptyHint);
+        if (data?.linha) {
+          setLinhas((prev) =>
+            prev.map((x) =>
+              x.id === linhaId ? { ...data.linha!, pdvs: data.linha!.pdvs ?? x.pdvs } : x,
+            ),
+          );
+        }
+        return true;
+      } finally {
+        setCaLinkBusy(false);
+      }
+    },
+    [activeYm],
+  );
+
+  const onOpenCaLink = useCallback((r: RioLinha) => {
+    setBuscaCa(r.documento?.replace(/\D/g, "").slice(0, 14) || r.nomeFantasia.split(" ").slice(0, 4).join(" "));
+    setLinkModalNotice(null);
+    setLinkModalLinha(r);
+  }, []);
+
+  const onToggleCaLink = useCallback(
+    async (r: RioLinha) => {
+      if (!window.confirm(`Desvincular «${r.nomeFantasia}» da Conta Azul nesta competência?`)) return;
+      const ok = await postRefreshCaLinha(r.id, { personId: "" });
+      if (ok) setMsg("Vínculo CA removido nesta linha.");
+    },
+    [postRefreshCaLinha],
+  );
+
+  const onSelectCaHit = useCallback(
+    async (hit: { id: string; nome: string }) => {
+      if (!linkModalLinha) return;
+      const ok = await postRefreshCaLinha(linkModalLinha.id, { personId: hit.id });
+      if (ok) {
+        setLinkModalLinha(null);
+        setBuscaCa("");
+        setMsg(`Vinculado a «${hit.nome}» — e-mail e dados vêm da Conta Azul.`);
+      }
+    },
+    [linkModalLinha, postRefreshCaLinha],
+  );
+
+  const refreshLinkedFromCa = useCallback(
+    async (matchByDocument: boolean) => {
+      setRefreshingCa(true);
+      setMsg(null);
+      try {
+        const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/refresh-linked-ca`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchByDocument }),
+        });
+        const { data, rawText } = await readJsonFromResponse<{
+          refreshStats?: { updated: number; failed: number; total: number };
+          matchStats?: {
+            matched: number;
+            ambiguous: number;
+            notFound: number;
+            alreadyLinked: number;
+          };
+          linhas?: RioLinha[];
+          grupos?: RioGrupo[];
+          error?: string;
+          message?: string;
+          connected?: boolean;
+        }>(res);
+        if (!res.ok) {
+          setMsg(
+            data?.message || data?.error || rawText.slice(0, 220) || "Falha ao atualizar vínculos.",
+          );
+          return;
+        }
+        if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
+        if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
+        const rs = data?.refreshStats;
+        const ms = data?.matchStats;
+        const parts: string[] = [];
+        if (ms && matchByDocument) {
+          parts.push(
+            `Casados por CNPJ/CPF: ${ms.matched}. Já vinculados: ${ms.alreadyLinked}. Ambíguos/duplicados: ${ms.ambiguous}. Sem match: ${ms.notFound}.`,
+          );
+        }
+        if (rs) {
+          parts.push(
+            `Atualizados da CA: ${rs.updated} de ${rs.total}${rs.failed ? ` (${rs.failed} falha)` : ""}.`,
+          );
+        }
+        setMsg(parts.join(" ") || "Atualização concluída.");
+      } finally {
+        setRefreshingCa(false);
+      }
+    },
+    [activeYm],
+  );
+
   const criarMarca = useCallback(async () => {
-    const nome = window.prompt("Nome da MARCA (tipo coluna MARCA no PDF):")?.trim();
+    const raw = window.prompt("Nome da MARCA (tipo coluna MARCA no PDF):");
+    if (raw === null) return;
+    const nome = raw.trim();
     const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/grupos`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nome: nome ?? "" }),
+      body: JSON.stringify({ nome: nome || "Nova MARCA" }),
     });
     const { data, rawText } = await readJsonFromResponse<{ linhas?: RioLinha[]; grupos?: RioGrupo[] }>(res);
     if (!res.ok) {
@@ -628,6 +856,68 @@ export function RioClientesCompPanel() {
 
   return (
     <div className="mx-auto max-w-[1600px] px-3 py-6 sm:px-5">
+      {linkModalLinha ?
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="max-h-[min(560px,90vh)] w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <div>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Vincular «{linkModalLinha.nomeFantasia}» à Conta Azul
+                </p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Busque pelo nome ou CNPJ. O e-mail de cobrança passa a vir só da CA.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-400"
+                onClick={() => {
+                  setLinkModalLinha(null);
+                  setBuscaCa("");
+                }}
+              >
+                Fechar
+              </button>
+            </div>
+            <div className="space-y-2 p-4">
+              <input
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+                placeholder="Nome ou CNPJ (só números)…"
+                value={buscaCa}
+                autoFocus
+                disabled={caLinkBusy}
+                onChange={(e) => setBuscaCa(e.target.value)}
+              />
+              {linkModalNotice ?
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                  {linkModalNotice}
+                </p>
+              : null}
+              <div className="max-h-[min(360px,50vh)] space-y-1 overflow-y-auto">
+                {hitsCa.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    disabled={caLinkBusy}
+                    className="w-full rounded border border-transparent px-2 py-2 text-left text-sm hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40"
+                    onClick={() => void onSelectCaHit(h)}
+                  >
+                    <span className="font-medium">{h.nome}</span>
+                    {h.documento ?
+                      <span className="ml-2 text-xs text-slate-500">{h.documento}</span>
+                    : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      : null}
+
       <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link
@@ -640,10 +930,10 @@ export function RioClientesCompPanel() {
             Planilha Rio — clientes ativos Conta Azul
           </h1>
           <p className="mt-1 max-w-[52rem] text-sm text-slate-600 dark:text-slate-400">
-            Cada competência guarda uma fotografia dos clientes (<strong>sincronizar Conta Azul</strong> ou{" "}
-            <strong>importar CSV/Excel</strong>). Organiza por <strong>MARCA</strong> (como a coluna do teu PDF RIO — verdes
-            agregadores / PDVs CA em lista amarela numerada ao expandir). Arraste ≡ para ordenar clientes dentro de cada
-            MARCA; use ⧉ para copiar nome, CNPJ e e-mail separados por tab.
+            Cada competência guarda clientes por <strong>importar CSV/Excel</strong> (export Conta Azul) ou{" "}
+            <strong>sincronizar Conta Azul</strong>. Use <strong>Vincular CA</strong> (ou «Casar por CNPJ») para a
+            planilha seguir o cadastro CA como fonte única de e-mail e dados. Organize por <strong>MARCA</strong> («Nova
+            MARCA» + coluna «Marca bloco»). PDVs amarelos ao expandir o cliente.
           </p>
           <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-500">
             {monthInfo?.lastSyncedAt ?
@@ -657,6 +947,24 @@ export function RioClientesCompPanel() {
       {msg ?
         <div className="mb-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
           {msg}
+        </div>
+      : null}
+
+      {caServerConnected === false ?
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40">
+          <strong>Conta Azul desconectada.</strong> Vincular e atualizar e-mails exige OAuth no{" "}
+          <Link href="/" className="font-semibold underline">
+            painel principal
+          </Link>
+          .
+        </div>
+      : null}
+
+      {!loading && linhas.length > 0 && grupoOrd.length === 0 ?
+        <div className="mb-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          Ainda não há blocos <strong>MARCA</strong> nesta competência. Clique em{" "}
+          <strong>Nova MARCA</strong> ou importe a coluna <code className="text-xs">grupo</code> /{" "}
+          <code className="text-xs">grupo_site</code> no CSV — depois atribua cada cliente na coluna «Marca bloco».
         </div>
       : null}
 
@@ -776,6 +1084,24 @@ export function RioClientesCompPanel() {
         </button>
         <button
           type="button"
+          disabled={refreshingCa || linhas.length === 0}
+          className="rounded-lg border border-sky-700 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-600 dark:bg-sky-950/50 dark:text-sky-100"
+          onClick={() => void refreshLinkedFromCa(false)}
+          title="Atualiza e-mail, razão e documento das linhas já vinculadas à CA"
+        >
+          {refreshingCa ? "Atualizando CA…" : "Atualizar vinculados CA"}
+        </button>
+        <button
+          type="button"
+          disabled={refreshingCa || linhas.length === 0}
+          className="rounded-lg border border-violet-700 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-950 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-100"
+          onClick={() => void refreshLinkedFromCa(true)}
+          title="Tenta vincular linhas importadas sem UUID, pelo CNPJ/CPF na API"
+        >
+          Casar CNPJ → CA
+        </button>
+        <button
+          type="button"
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
           onClick={() => void exportExcel()}
         >
@@ -806,27 +1132,54 @@ export function RioClientesCompPanel() {
         </label>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <table className="min-w-[1180px] w-full border-collapse text-sm">
+      <div className="flex items-start gap-2">
+      <div className="min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="max-h-[min(72vh,calc(100dvh-12rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <table className="min-w-[1240px] w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-              <th className="sticky left-0 z-[2] w-16 bg-slate-50 px-1 py-1 dark:bg-slate-900">⇅ / ⧉</th>
-              <th className="border-l px-1 py-1">Marca bloco</th>
-              <th className="border-l px-1 py-1">Cliente CA</th>
-              <th className="px-1 py-1">CNPJ</th>
-              <th className="border-l px-1 py-1 text-center">Mov.</th>
-              <th className="px-1 py-1 text-center">Contrato</th>
-              <th className="px-1 py-1">Valor</th>
-              <th className="px-1 py-1">Nº PDV</th>
-              <th className="px-1 py-1">Categoria</th>
-              <th className="px-1 py-1">E-mail cobrança</th>
-              <th className="px-1 py-1">Razão social</th>
+              <th className="sticky left-0 top-0 z-[3] w-16 border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900 dark:shadow-[0_1px_0_0_rgb(51_65_85)]">
+                ⇅ / ⧉
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-l border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Marca bloco
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-l border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Cliente
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                CNPJ
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-l border-slate-200 bg-slate-50 px-1 py-1 text-center shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Mov.
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 text-center shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Contrato
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Valor
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Nº PDV
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Categoria
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Vínculo CA
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                E-mail cobrança
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Razão social
+              </th>
             </tr>
           </thead>
           {loading ?
             <tbody>
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-sm text-slate-500">
+                <td colSpan={12} className="px-3 py-8 text-center text-sm text-slate-500">
                   Carregando…
                 </td>
               </tr>
@@ -834,7 +1187,7 @@ export function RioClientesCompPanel() {
           : linhas.length === 0 ?
             <tbody>
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-sm text-slate-500">
+                <td colSpan={12} className="px-3 py-8 text-center text-sm text-slate-500">
                   Nenhuma linha. Use <strong>Importar CSV / Excel</strong> ou <strong>Sincronizar Conta Azul</strong>.
                   Depois crie MARCA («Nova MARCA») e distribua os clientes.
                 </td>
@@ -856,6 +1209,9 @@ export function RioClientesCompPanel() {
                   onRenameMarca={(gid, nome) => void renomearMarca(gid, nome.trim())}
                   onDeleteMarca={(gid) => void apagarMarcaVazia(gid)}
                   onShiftMarca={(i, d) => void deslocarBlocoMarca(i, d)}
+                  onOpenCaLink={onOpenCaLink}
+                  onToggleCaLink={onToggleCaLink}
+                  onAddPdvsBulk={addPdvsBulk}
                   expanded={expanded}
                   setExpanded={setExpanded}
                   patchLinha={patchLinha}
@@ -881,6 +1237,9 @@ export function RioClientesCompPanel() {
                   onRenameMarca={() => {}}
                   onDeleteMarca={() => {}}
                   onShiftMarca={() => {}}
+                  onOpenCaLink={onOpenCaLink}
+                  onToggleCaLink={onToggleCaLink}
+                  onAddPdvsBulk={addPdvsBulk}
                   expanded={expanded}
                   setExpanded={setExpanded}
                   patchLinha={patchLinha}
@@ -895,6 +1254,11 @@ export function RioClientesCompPanel() {
             </>
           )}
         </table>
+        </div>
+      </div>
+      {linhas.length > 0 ?
+        <PdvNomePoolColumn text={pdvPoolText} onTextChange={setPdvPoolText} />
+      : null}
       </div>
 
       <p className="mt-4 text-center text-[11px] text-slate-500 dark:text-slate-500">

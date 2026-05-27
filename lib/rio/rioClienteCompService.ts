@@ -1052,6 +1052,39 @@ export async function createRioCompPdv(linhaId: string, nome: string) {
   });
 }
 
+/** Um nome por linha; ignora vazios e duplicados (case-insensitive) já existentes na linha. */
+export async function createRioCompPdvsBulk(
+  linhaId: string,
+  namesRaw: string[],
+): Promise<{ created: RioCompPdv[]; skipped: number }> {
+  const names = [...new Set(namesRaw.map((n) => n.trim()).filter(Boolean))];
+  const existing = await prisma.rioCompPdv.findMany({
+    where: { clienteId: linhaId },
+    select: { nome: true, sortOrder: true },
+    orderBy: [{ sortOrder: "desc" }, { id: "desc" }],
+  });
+  const normExisting = new Set(existing.map((e) => e.nome.trim().toLowerCase()));
+  let order = (existing[0]?.sortOrder ?? -1) + 1;
+  const created: RioCompPdv[] = [];
+  let skipped = 0;
+
+  for (const nome of names) {
+    const key = nome.toLowerCase();
+    if (normExisting.has(key)) {
+      skipped += 1;
+      continue;
+    }
+    const p = await prisma.rioCompPdv.create({
+      data: { clienteId: linhaId, nome: nome.slice(0, 500), sortOrder: order },
+    });
+    order += 1;
+    normExisting.add(key);
+    created.push(p);
+  }
+
+  return { created, skipped };
+}
+
 export async function patchRioCompPdv(
   pdvId: string,
   data: Partial<{ nome: string; notes: string; sortOrder: number }>,

@@ -1,6 +1,11 @@
 "use client";
 
-import { Fragment, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { Fragment, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { parsePdvNamesFromMultilineText } from "@/lib/rio/pdvNames";
+import { readPdvDropFromDataTransfer } from "@/components/rio/PdvNomePoolColumn";
+import { CopyTextButton } from "@/components/CopyTextButton";
+import { parseEmailAddresses } from "@/lib/format";
+import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import {
   DndContext,
   type DragEndEvent,
@@ -99,6 +104,9 @@ function SortClientRow(props: {
   onExpand: () => void;
   isOpen: boolean;
   patchLinha: (linhaId: string, patch: Record<string, unknown>) => void;
+  onOpenCaLink: (r: RioLinhaCb) => void;
+  onToggleCaLink: (r: RioLinhaCb) => void;
+  onAddPdvsBulk: (linhaId: string, names: string[]) => void | Promise<void>;
   ym: number;
   setLinhas: Dispatch<SetStateAction<RioLinhaCb[]>>;
   addPdv: (linhaId: string) => void;
@@ -107,7 +115,15 @@ function SortClientRow(props: {
   newPdv: string;
   setNewPdv: (nome: string) => void;
 }) {
-  const { r, gruposTodos, onMarcaSel, onExpand, isOpen } = props;
+  const { r, gruposTodos, onMarcaSel, onExpand, isOpen, onOpenCaLink, onToggleCaLink, onAddPdvsBulk } =
+    props;
+  const [pdvDropOver, setPdvDropOver] = useState(false);
+  const [pastePdvs, setPastePdvs] = useState("");
+  const vinculado = isRioCaPersonLinked(r.caPersonId);
+  const emails = parseEmailAddresses((r.emailCobranca ?? "").trim());
+  const emailsJoined = emails.join("\n");
+  const emailPreview =
+    emails.length === 0 ? "—" : emails.length > 1 ? `${emails[0]} (+${emails.length - 1})` : emails[0];
   const sid = String(r.id);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sid });
   const sty: CSSProperties = {
@@ -160,7 +176,17 @@ function SortClientRow(props: {
 
   return (
     <>
-      <tr ref={setNodeRef} style={sty} className="h-[2rem] border-b border-slate-100 bg-white align-middle dark:border-slate-900 dark:bg-slate-950">
+      <tr
+        ref={setNodeRef}
+        style={sty}
+        className="h-[2rem] border-b border-slate-100 bg-white align-middle dark:border-slate-900 dark:bg-slate-950"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const names = readPdvDropFromDataTransfer(e.dataTransfer);
+          if (names.length) void onAddPdvsBulk(r.id, names);
+        }}
+      >
         <td className="sticky left-0 z-[1] w-16 border-r border-slate-100 bg-inherit px-0 dark:border-slate-800">
           <span className="flex items-center">
             <button
@@ -237,8 +263,55 @@ function SortClientRow(props: {
             ))}
           </select>
         </td>
-        <td className="max-w-[12rem] truncate px-1 text-[10px]" title={(r.emailCobranca ?? "").trim() || undefined}>
-          {(r.emailCobranca ?? "").trim() || "—"}
+        <td className="whitespace-nowrap px-0.5">
+          {vinculado ?
+            <button
+              type="button"
+              className="rounded border border-emerald-600 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500 dark:bg-emerald-950/50 dark:text-emerald-200"
+              title="Clique para desvincular da Conta Azul"
+              onClick={() => onToggleCaLink(r)}
+            >
+              Vinculado CA
+            </button>
+          : <button
+              type="button"
+              className="rounded border border-red-600 bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-800 hover:bg-red-100 dark:border-red-500 dark:bg-red-950/50 dark:text-red-200"
+              title="Vincular a uma pessoa no Conta Azul"
+              onClick={() => onOpenCaLink(r)}
+            >
+              Vincular CA
+            </button>
+          }
+        </td>
+        <td className="max-w-[9rem] px-0.5">
+          <div className="flex min-w-0 items-center gap-0.5">
+            {emails.length === 0 ?
+              <span className="truncate text-[10px] text-slate-400">—</span>
+            : <details className="min-w-0 flex-1">
+                <summary
+                  className="cursor-pointer list-none truncate text-[10px] text-sky-800 hover:underline dark:text-sky-400 [&::-webkit-details-marker]:hidden"
+                  title={emailsJoined}
+                >
+                  {emailPreview}
+                </summary>
+                <ul className="mt-0.5 max-w-[12rem] list-none space-y-0.5 border-t border-slate-200 pt-0.5 text-[10px] dark:border-slate-700">
+                  {emails.map((em) => (
+                    <li key={em} className="truncate">
+                      <a href={`mailto:${em}`} className="text-sky-700 dark:text-sky-400">
+                        {em}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            }
+            <CopyTextButton
+              variant="icon"
+              text={emailsJoined}
+              label="Copiar e-mails"
+              className="!h-6 !w-6 shrink-0"
+            />
+          </div>
         </td>
         <td className="max-w-[14rem] truncate px-1 text-[10px] text-slate-600 dark:text-slate-400" title={r.razaoSocial}>
           {r.razaoSocial || "—"}
@@ -246,10 +319,33 @@ function SortClientRow(props: {
       </tr>
       {isOpen ?
         <tr className="border-b border-slate-100 bg-slate-50 dark:border-slate-900 dark:bg-amber-950/15">
-          <td colSpan={11} className="px-3 py-2">
-            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-950/95 dark:text-amber-400">
-              PDVs Conta Azul (amarelos · numerados no PDF · arrastar ♦)
-            </p>
+          <td colSpan={12} className="px-3 py-2">
+            <div
+              className={
+                "rounded-lg border-2 border-dashed p-2 transition-colors " +
+                (pdvDropOver ?
+                  "border-amber-500 bg-amber-100/80 dark:border-amber-400 dark:bg-amber-950/50"
+                : "border-amber-700/35 bg-transparent dark:border-amber-800/50")
+              }
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setPdvDropOver(true);
+              }}
+              onDragLeave={(e) => {
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                setPdvDropOver(false);
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                setPdvDropOver(false);
+                const names = readPdvDropFromDataTransfer(e.dataTransfer);
+                if (names.length) void onAddPdvsBulk(r.id, names);
+              }}
+            >
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-950/95 dark:text-amber-400">
+                Solte aqui PDVs da coluna à direita (ou cole a lista abaixo)
+              </p>
             <DndContext sensors={pdvSensors} collisionDetection={closestCorners} onDragEnd={(e) => void onPdvDragEnd(e)}>
               <SortableContext items={pdvIds} strategy={verticalListSortingStrategy}>
                 <ul className="mb-2 max-w-[52rem] space-y-1">
@@ -262,10 +358,37 @@ function SortClientRow(props: {
                 </ul>
               </SortableContext>
             </DndContext>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="min-w-[12rem] flex-1">
+                <label className="mb-0.5 block text-[10px] font-medium text-amber-950/90 dark:text-amber-200/90">
+                  Colar vários PDVs (um por linha)
+                </label>
+                <textarea
+                  rows={4}
+                  value={pastePdvs}
+                  onChange={(e) => setPastePdvs(e.target.value)}
+                  placeholder={"Loja A\nLoja B"}
+                  className="w-full resize-y rounded border border-amber-800/30 bg-white px-2 py-1 font-mono text-[10px] dark:border-amber-900/50 dark:bg-slate-950"
+                />
+              </div>
+              <button
+                type="button"
+                className="rounded border border-amber-800 bg-amber-200 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-300 dark:border-amber-600 dark:bg-amber-900 dark:text-amber-50"
+                onClick={() => {
+                  const names = parsePdvNamesFromMultilineText(pastePdvs);
+                  if (names.length) {
+                    void onAddPdvsBulk(r.id, names);
+                    setPastePdvs("");
+                  }
+                }}
+              >
+                Adicionar lista colada
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-amber-800/20 pt-2">
               <input
                 className="min-w-[13rem] rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
-                placeholder="Nome do novo PDV"
+                placeholder="Um PDV só (nome)"
                 value={props.newPdv}
                 onChange={(e) => props.setNewPdv(e.target.value)}
               />
@@ -274,8 +397,9 @@ function SortClientRow(props: {
                 className="rounded bg-slate-800 px-2 py-1 text-[11px] font-semibold text-white dark:bg-slate-100 dark:text-slate-900"
                 onClick={() => void props.addPdv(r.id)}
               >
-                Adicionar PDV
+                + 1 PDV
               </button>
+            </div>
             </div>
           </td>
         </tr>
@@ -330,6 +454,9 @@ export function ClienteMarcaBlock(props: {
   onRenameMarca: (grupoId: string, nome: string) => void;
   onDeleteMarca: (grupoId: string) => void;
   onShiftMarca: (ix: number, delta: number) => void;
+  onOpenCaLink: (r: RioLinhaCb) => void;
+  onToggleCaLink: (r: RioLinhaCb) => void;
+  onAddPdvsBulk: (linhaId: string, names: string[]) => void | Promise<void>;
   expanded: Set<string>;
   setExpanded: Dispatch<SetStateAction<Set<string>>>;
   patchLinha: (id: string, body: Record<string, unknown>) => void;
@@ -352,6 +479,9 @@ export function ClienteMarcaBlock(props: {
     onRenameMarca,
     onDeleteMarca,
     onShiftMarca,
+    onOpenCaLink,
+    onToggleCaLink,
+    onAddPdvsBulk,
     expanded,
     setExpanded,
     patchLinha,
@@ -385,7 +515,7 @@ export function ClienteMarcaBlock(props: {
   return (
     <tbody className={"group-marca-" + (marca?.id ?? "none")}>
       <tr className={"border-x border-slate-800/85 " + bannerCls}>
-        <td colSpan={11} className="px-3 py-1">
+        <td colSpan={12} className="px-3 py-1">
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold">
             <span className="truncate tracking-wide">MARCA — {headerTitle}</span>
             {marca && typeof grupoIndex === "number" && typeof grupoCount === "number" && grupoCount > 1 ?
@@ -452,6 +582,9 @@ export function ClienteMarcaBlock(props: {
                 })
               }
               isOpen={expanded.has(r.id)}
+              onOpenCaLink={onOpenCaLink}
+              onToggleCaLink={onToggleCaLink}
+              onAddPdvsBulk={onAddPdvsBulk}
               patchLinha={patchLinha}
               setLinhas={setLinhas}
               addPdv={addPdv}
@@ -463,6 +596,14 @@ export function ClienteMarcaBlock(props: {
           ))}
         </SortableContext>
       </DndContext>
+      {marca && linhasOrdered.length === 0 ?
+        <tr className="border-b border-emerald-900/25 bg-emerald-950/10 dark:bg-emerald-950/25">
+          <td colSpan={12} className="px-3 py-2 text-[11px] italic text-emerald-900/90 dark:text-emerald-200/85">
+            Nenhum cliente neste bloco — na coluna «Marca bloco» escolha esta MARCA ou arraste clientes de «Sem
+            MARCA» para aqui (≡).
+          </td>
+        </tr>
+      : null}
     </tbody>
   );
 }
