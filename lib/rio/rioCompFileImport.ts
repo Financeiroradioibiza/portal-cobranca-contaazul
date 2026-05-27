@@ -1,4 +1,5 @@
 import type { RioClienteCompMovimento } from "@prisma/client";
+import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import * as XLSX from "xlsx";
 
 export type ParsedRioFileRow = {
@@ -179,7 +180,7 @@ export function parseRioClienteImportTable(
     const pieceCpf = iCpf >= 0 ? cell(iCpf) : "";
     const pieceDoc = iDoc >= 0 ? cell(iDoc) : "";
     const documentoMerged = [pieceCnpj, pieceCpf, pieceDoc].map((x) => x.trim()).find(Boolean);
-    const documento = documentoMerged ? documentoMerged.slice(0, 64) : null;
+    const documento = normalizeBrazilianTaxIdForStorage(documentoMerged);
 
     if (!nomeFantasia && !documento) continue;
 

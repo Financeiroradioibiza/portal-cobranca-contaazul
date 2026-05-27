@@ -14,7 +14,7 @@ import {
 } from "@/lib/rio/pdvNames";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { CopyTextButton } from "@/components/CopyTextButton";
-import { parseEmailAddresses } from "@/lib/format";
+import { displayBrazilianTaxId, parseEmailAddresses } from "@/lib/format";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import {
   DndContext,
@@ -133,6 +133,7 @@ function SortClientRow(props: {
   const [pdvDropOver, setPdvDropOver] = useState(false);
   const [pastePdvs, setPastePdvs] = useState("");
   const vinculado = isRioCaPersonLinked(r.caPersonId);
+  const docDisplay = displayBrazilianTaxId(r.documento);
   const emails = parseEmailAddresses((r.emailCobranca ?? "").trim());
   const emailsJoined = emails.join("\n");
   const emailPreview =
@@ -146,7 +147,7 @@ function SortClientRow(props: {
   };
 
   const copyCliente = async () => {
-    const t = [r.nomeFantasia.trim(), r.documento?.trim() ?? "", (r.emailCobranca ?? "").trim()]
+    const t = [r.nomeFantasia.trim(), docDisplay === "—" ? "" : docDisplay, (r.emailCobranca ?? "").trim()]
       .filter(Boolean)
       .join("\t");
     try {
@@ -254,8 +255,8 @@ function SortClientRow(props: {
             </>
           }
         </td>
-        <td className="whitespace-nowrap px-1 font-mono text-[10px]" title={(r.documento ?? "").slice(0, 120)}>
-          {r.documento ?? "—"}
+        <td className="whitespace-nowrap px-1 font-mono text-[10px]" title={docDisplay}>
+          {docDisplay}
         </td>
         <td className="border-l px-0 text-center">{badgeMov(r.movimento)}</td>
         <td className="px-0 text-center">{ctrCell(r.contratosAtivosTexto)}</td>

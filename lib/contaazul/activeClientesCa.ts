@@ -33,16 +33,33 @@ function isClientePerfis(perfs: string[]): boolean {
   return perfs.some((p) => p.includes("CLIENTE"));
 }
 
+/** Pessoa ativa na CA (`ativo` no item ou filtro da API). */
+function isRowAtivoCliente(row: Record<string, unknown>): boolean {
+  for (const key of ["ativo", "Ativo", "active"] as const) {
+    if (!(key in row)) continue;
+    const v = row[key];
+    if (v === false || v === 0) return false;
+    if (typeof v === "string") {
+      const s = v.trim().toLowerCase();
+      if (s === "false" || s === "0" || s === "inativo" || s === "inactive" || s === "n") {
+        return false;
+      }
+      if (s === "true" || s === "1" || s === "ativo" || s === "active" || s === "s") return true;
+    }
+    if (v === true || v === 1) return true;
+    return false;
+  }
+  const sit = str(row.situacao ?? row.situacao_cadastro ?? row.status).toLowerCase();
+  if (sit && (sit.includes("inativ") || sit === "i")) return false;
+  return true;
+}
+
 /**
- * Linha válida para listagem já filtrada por `tipo_perfil=Cliente`.
- *
- * - **Não** exigimos `ativo === true`: em payloads resumidos a CA costuma enviar `false`
- *   ou omitir o campo mesmo para cadastros que na UI aparecem ativos.
- * - **`perfis` vazio:** confiamos na filtragem do servidor (ver nota anterior).
- * - **`perfis` com valores que não indicam cliente:** excluímos (sem ambiguidade).
+ * Linha válida: perfil Cliente + **ativo** (API `ativo=true` e campo no JSON quando vier).
  */
 function rowPassesClienteFilteredList(row: Record<string, unknown>): boolean {
   if (!str(row.id)) return false;
+  if (!isRowAtivoCliente(row)) return false;
   const perfs = perfisUpper(row);
   if (!isClientePerfis(perfs) && perfs.length > 0) return false;
   return true;
@@ -88,8 +105,7 @@ export function activeClientMaxPages(): number {
 }
 
 /**
- * Lista pessoas com perfil **Cliente** (`tipo_perfil` na API).
- * Pagina até esgotar `totalItems`/páginas vazias. Não depende de `ativo` no JSON resumido.
+ * Lista pessoas com perfil **Cliente** e **ativo=true** na API Conta Azul.
  */
 export async function fetchActiveClientePersonSummaries(
   accessToken: string,
@@ -101,6 +117,7 @@ export async function fetchActiveClientePersonSummaries(
       pagina: String(pagina),
       tamanho_pagina: "200",
       tipo_perfil: "Cliente",
+      ativo: "true",
       tipo_ordenacao: "NOME",
       ordem_ordenacao: "ASC",
     });

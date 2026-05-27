@@ -27,6 +27,22 @@ export function formatBrazilianTaxId(raw: string): string {
   return t;
 }
 
+/** Exibição na planilha Rio e painéis (CNPJ `00.000.000/0000-00`, CPF `000.000.000-00`). */
+export function displayBrazilianTaxId(raw: string | null | undefined): string {
+  if (!raw?.trim()) return "—";
+  return formatBrazilianTaxId(raw);
+}
+
+/** Grava documento já mascarado quando for CNPJ/CPF válido (11 ou 14 dígitos). */
+export function normalizeBrazilianTaxIdForStorage(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const t = raw.trim();
+  if (!t) return null;
+  const d = onlyDigits(t);
+  if (d.length === 14 || d.length === 11) return formatBrazilianTaxId(d);
+  return t.slice(0, 64);
+}
+
 /** Extrai todos os endereços de e-mail encontrados na string (vírgula, texto misto etc.). */
 export function parseEmailAddresses(raw: string): string[] {
   if (!raw?.trim() || raw.trim() === "—") return [];

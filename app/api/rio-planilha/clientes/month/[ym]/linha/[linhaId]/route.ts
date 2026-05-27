@@ -4,6 +4,7 @@ import {
   getRioCompMonthWithLinhas,
   patchRioCompClienteLinha,
 } from "@/lib/rio/rioClienteCompService";
+import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
 
@@ -56,8 +57,7 @@ export async function PATCH(request: Request, context: Ctx) {
   if (typeof body.razaoSocial === "string") patch.razaoSocial = body.razaoSocial.trim().slice(0, 8000);
   if (body.documento === null) patch.documento = null;
   else if (typeof body.documento === "string") {
-    const d = body.documento.trim();
-    patch.documento = d ? d.slice(0, 64) : null;
+    patch.documento = normalizeBrazilianTaxIdForStorage(body.documento);
   }
 
   if (typeof body.grupoSite === "string") patch.grupoSite = body.grupoSite.slice(0, 8000);

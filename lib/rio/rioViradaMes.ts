@@ -2,6 +2,7 @@ import type { RioClienteCompMovimento } from "@prisma/client";
 import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeClientesCa";
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
 import { cobrancaPlusPrincipalEmailsJoined } from "@/lib/contaazul/personBilling";
+import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import {
@@ -42,7 +43,7 @@ function razaoFromRaw(row: Record<string, unknown>, fallback: string): string {
 
 function documentoFromRaw(row: Record<string, unknown>, fallback: string | null): string | null {
   const d = str(row.documento) || str(row.cnpj) || str(row.cpf);
-  return d ? d.slice(0, 64) : fallback;
+  return normalizeBrazilianTaxIdForStorage(d || fallback);
 }
 
 function valorClienteFromRaw(row: Record<string, unknown>): string {
@@ -110,6 +111,9 @@ export async function viradaRioCompMonthFromContaAzul(
   const month = await prisma.rioCompMonth.findUnique({ where: { yearMonth } });
   if (!month) throw new Error("month_not_found");
   if (month.closedAt) throw new Error("month_closed");
+
+  const { saveRioPreSyncSnapshot } = await import("@/lib/rio/rioCompSyncSnapshot");
+  await saveRioPreSyncSnapshot(month.id);
 
   const systemIds = await ensureRioSystemGrupos(month.id);
   const summaries = await fetchActiveClientePersonSummaries(accessToken);

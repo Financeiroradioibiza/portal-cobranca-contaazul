@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { donorYearMonthFor, isUserMarcaGrupo } from "@/lib/rio/rioTurnover";
@@ -109,6 +109,101 @@ export async function cloneRioCompMonthFromDonor(targetYm: number) {
   return {
     donorYearMonth: donorYm,
     closedDonor: true,
+    ...full,
+  };
+}
+
+/**
+ * Desfaz virada do mês sem snapshot: repõe a competência como cópia do mês anterior
+ * (MARCA + clientes + PDVs), sem blocos sistema entrada/saída da CA.
+ */
+export async function revertRioViradaToDonorClone(targetYm: number) {
+  const donorYm = donorYearMonthFor(targetYm);
+  const donor = await prisma.rioCompMonth.findUnique({
+    where: { yearMonth: donorYm },
+    include: {
+      grupos: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      linhas: {
+        orderBy: [{ sortOrder: "asc" }, { nomeFantasia: "asc" }],
+        include: { pdvs: { orderBy: [{ nome: "asc" }, { id: "asc" }] } },
+      },
+    },
+  });
+  if (!donor) throw new Error(`donor_month_not_found:${donorYm}`);
+
+  const target = await prisma.rioCompMonth.findUnique({ where: { yearMonth: targetYm } });
+  if (!target) throw new Error("month_not_found");
+  if (target.closedAt) throw new Error("month_closed");
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.rioCompClienteLinha.deleteMany({ where: { monthId: target.id } });
+      await tx.rioCompGrupo.deleteMany({ where: { monthId: target.id } });
+
+      const grupoMap = new Map<string, string>();
+      for (const g of donor.grupos.filter(isUserMarcaGrupo)) {
+        const ng = await tx.rioCompGrupo.create({
+          data: {
+            monthId: target.id,
+            nome: g.nome,
+            sortOrder: g.sortOrder,
+            systemTag: null,
+          },
+        });
+        grupoMap.set(g.id, ng.id);
+      }
+
+      let ord = 0;
+      for (const l of donor.linhas) {
+        const rioGrupoId =
+          l.rioGrupoId && grupoMap.has(l.rioGrupoId) ? grupoMap.get(l.rioGrupoId)! : null;
+        const nl = await tx.rioCompClienteLinha.create({
+          data: {
+            monthId: target.id,
+            rioGrupoId,
+            caPersonId: l.caPersonId,
+            grupoSite: l.grupoSite,
+            nomeFantasia: l.nomeFantasia,
+            razaoSocial: l.razaoSocial,
+            documento: l.documento,
+            emailCobranca: l.emailCobranca,
+            valorClienteTexto: l.valorClienteTexto,
+            valorPdvUnitarioTexto: l.valorPdvUnitarioTexto,
+            numeroPdvSite: l.numeroPdvSite,
+            categoriaSite: l.categoriaSite,
+            contratosAtivosTexto: l.contratosAtivosTexto,
+            movimento: "estavel",
+            observacoesLinha: l.observacoesLinha,
+            sortOrder: ord++,
+          },
+        });
+        let pi = 0;
+        for (const p of l.pdvs) {
+          await tx.rioCompPdv.create({
+            data: {
+              clienteId: nl.id,
+              nome: p.nome,
+              notes: p.notes,
+              sortOrder: pi++,
+              movimento: "estavel",
+            },
+          });
+        }
+      }
+    },
+    { timeout: 240_000, maxWait: 45_000 },
+  );
+
+  await prisma.rioCompMonth.update({
+    where: { id: target.id },
+    data: { preSyncSnapshot: Prisma.DbNull, lastSyncedAt: null },
+  });
+
+  const full = await getRioCompMonthWithLinhas(targetYm);
+  if (!full) throw new Error("hydrate_failed");
+  return {
+    donorYearMonth: donorYm,
+    linhaCount: full.linhas.length,
     ...full,
   };
 }

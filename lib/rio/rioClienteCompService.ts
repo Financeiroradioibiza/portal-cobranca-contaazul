@@ -16,6 +16,7 @@ import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
+import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
 
@@ -86,8 +87,7 @@ function razaoFromRaw(row: Record<string, unknown>): string {
 
 function documentoFromRaw(row: Record<string, unknown>, fallback: string | null): string | null {
   const d = str(row.documento) || str(row.cnpj) || str(row.cpf);
-  if (d) return d.slice(0, 64);
-  return fallback;
+  return normalizeBrazilianTaxIdForStorage(d || fallback);
 }
 
 /** Heurística leve — preenchemos quando a API expuser campos numéricos conhecidos. */
@@ -236,8 +236,10 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
 
   const baseLinhas = month.linhas.map((ln) => {
     const { rioGrupo, ...rest } = ln;
+    const row = rest as RioCompClienteLinha;
     const out: RioCompLinhaOut = {
-      ...(rest as RioCompClienteLinha),
+      ...row,
+      documento: normalizeBrazilianTaxIdForStorage(row.documento),
       pdvs: sortRioPdvsByNome(ln.pdvs),
       grupo: rioGrupo ? { ...rioGrupo } : null,
     };
@@ -314,6 +316,9 @@ export async function syncRioCompMonthFromContaAzul(
   syncedPersonDetailsFromCa: boolean;
 }> {
   const month = await ensureRioCompMonth(yearMonth);
+
+  const { saveRioPreSyncSnapshot } = await import("@/lib/rio/rioCompSyncSnapshot");
+  await saveRioPreSyncSnapshot(month.id);
 
   const existingRows = await prisma.rioCompClienteLinha.findMany({
     where: { monthId: month.id },
@@ -437,7 +442,9 @@ export async function syncRioCompMonthFromContaAzul(
   await prisma.$transaction(
     async (tx) => {
       await tx.rioCompClienteLinha.deleteMany({ where: { monthId: month.id } });
-      await tx.rioCompGrupo.deleteMany({ where: { monthId: month.id } });
+      await tx.rioCompGrupo.deleteMany({
+        where: { monthId: month.id, systemTag: { not: null } },
+      });
 
       await tx.rioCompClienteLinha.createMany({
         data: drafts.map((d, sortOrder) => ({
@@ -1152,10 +1159,9 @@ export async function createRioCompClienteLinha(
   }
 
   const nomeFantasia = (input?.nomeFantasia?.trim() || "Novo cliente").slice(0, 8000);
-  const documento =
-    input?.documento != null && String(input.documento).trim() ?
-      String(input.documento).trim().slice(0, 64)
-    : null;
+  const documento = normalizeBrazilianTaxIdForStorage(
+    input?.documento != null ? String(input.documento) : null,
+  );
 
   const maxSort = await prisma.rioCompClienteLinha.aggregate({
     where: { monthId },

@@ -19,6 +19,7 @@ import {
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { displayBrazilianTaxId } from "@/lib/format";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import { arrayMove } from "@dnd-kit/sortable";
 
@@ -81,6 +82,7 @@ export function RioClientesCompPanel() {
   const [grupos, setGrupos] = useState<RioGrupo[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [revertingSync, setRevertingSync] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [newPdvName, setNewPdvName] = useState<Record<string, string>>({});
@@ -445,6 +447,52 @@ export function RioClientesCompPanel() {
     turnoverMonth,
     runCaBatchPhase,
   ]);
+
+  const revertLastSync = useCallback(async () => {
+    if (monthClosed) {
+      setMsg("Esta competência está fechada.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Desfazer a última virada/sync desta competência?\n\n" +
+          "• Com backup automático: volta ao instante antes do clique.\n" +
+          "• Junho+ sem backup: repõe a cópia do mês anterior (ex.: maio), como antes da virada de 27/05.\n" +
+          "• Senão: remove só clientes inativos na CA.",
+      )
+    ) {
+      return;
+    }
+    setRevertingSync(true);
+    setMsg("Desfazendo último sync…");
+    try {
+      const res = await fetch(
+        `/api/rio-planilha/clientes/month/${activeYm}/revert-sync`,
+        { method: "POST", credentials: "include" },
+      );
+      const { data, rawText } = await readJsonFromResponse<{
+        ok?: boolean;
+        mode?: "snapshot" | "donor_clone" | "purge_inactive";
+        message?: string;
+        linhas?: RioLinha[];
+        grupos?: RioGrupo[];
+        removed?: number;
+        error?: string;
+      }>(res);
+      if (!res.ok) {
+        setMsg((data?.error ?? rawText.slice(0, 200)) || `Erro ${res.status}`);
+        return;
+      }
+      setLinhas(data?.linhas ?? []);
+      setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
+      setMsg(data?.message ?? "Sync desfeito.");
+      await loadMonths();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao desfazer sync.");
+    } finally {
+      setRevertingSync(false);
+    }
+  }, [activeYm, monthClosed, loadMonths]);
 
   const runImportFile = useCallback(
     async (file: File) => {
@@ -1160,7 +1208,7 @@ export function RioClientesCompPanel() {
       r.grupo?.nome ?? "",
       r.grupoSite,
       r.nomeFantasia,
-      r.documento ?? "",
+      displayBrazilianTaxId(r.documento) === "—" ? "" : displayBrazilianTaxId(r.documento),
       r.movimento,
       r.contratosAtivosTexto,
       r.valorClienteTexto,
@@ -1271,7 +1319,9 @@ export function RioClientesCompPanel() {
                   >
                     <span className="font-medium">{h.nome}</span>
                     {h.documento ?
-                      <span className="ml-2 text-xs text-slate-500">{h.documento}</span>
+                      <span className="ml-2 font-mono text-xs text-slate-500">
+                        {displayBrazilianTaxId(h.documento)}
+                      </span>
                     : null}
                   </button>
                 ))}
@@ -1411,6 +1461,15 @@ export function RioClientesCompPanel() {
           : turnoverMonth ?
             "Virada do mês"
           : "Sincronizar Conta Azul"}
+        </button>
+        <button
+          type="button"
+          className="rounded-lg border border-rose-700 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-950 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-600 dark:bg-rose-950/50 dark:text-rose-100 dark:hover:bg-rose-900/60"
+          disabled={syncing || revertingSync || monthClosed}
+          title="Remove importações do último sync ou restaura backup se existir"
+          onClick={() => void revertLastSync()}
+        >
+          {revertingSync ? "Desfazendo…" : "Desfazer último sync"}
         </button>
         <input
           ref={fileImportRef}

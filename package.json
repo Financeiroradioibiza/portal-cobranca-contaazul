@@ -10,7 +10,8 @@
     "test:billing-pdf": "bash scripts/test-billing-charge-pdf.sh",
     "postinstall": "prisma generate",
     "portal:hash-password": "node scripts/portal-hash-password.mjs",
-    "rio:apply-marca-layout": "esbuild scripts/rio-apply-marca-pdv-layout.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-marca-layout.run.cjs && node .rio-marca-layout.run.cjs"
+    "rio:apply-marca-layout": "esbuild scripts/rio-apply-marca-pdv-layout.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-marca-layout.run.cjs && node .rio-marca-layout.run.cjs",
+    "rio:revert-sync": "esbuild scripts/rio-revert-sync.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-revert-sync.run.cjs && node .rio-revert-sync.run.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

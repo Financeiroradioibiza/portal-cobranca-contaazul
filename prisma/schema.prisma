@@ -216,6 +216,8 @@ model RioCompMonth {
   yearMonth    Int       @unique @map("year_month")
   lastSyncedAt DateTime? @map("last_synced_at")
   closedAt     DateTime? @map("closed_at")
+  /// Backup imediato antes de «Sincronizar Conta Azul» (permite desfazer).
+  preSyncSnapshot Json? @map("pre_sync_snapshot")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   grupos RioCompGrupo[]

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
 import { billingEmailJoined, fetchPersonDetail, searchPeopleByText } from "@/lib/contaazul/personBilling";
+import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import {
   syncRioCompNumeroPdvSiteFromPdvs,
@@ -36,8 +37,7 @@ function razaoFromRaw(row: Record<string, unknown>): string {
 
 function documentoFromRaw(row: Record<string, unknown>, fallback: string | null): string | null {
   const d = str(row.documento) || str(row.cnpj) || str(row.cpf);
-  if (d) return d.slice(0, 64);
-  return fallback;
+  return normalizeBrazilianTaxIdForStorage(d || fallback);
 }
 
 function valorClienteFromRaw(row: Record<string, unknown>): string {
