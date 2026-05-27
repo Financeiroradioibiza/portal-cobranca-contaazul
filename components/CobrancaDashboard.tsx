@@ -663,7 +663,7 @@ export function CobrancaDashboard() {
   const connected = Boolean(status?.connected);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="mx-auto min-w-0 max-w-7xl px-4 py-8">
       {oauthBanner ? (
         <div
           className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100"
@@ -924,14 +924,14 @@ export function CobrancaDashboard() {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
           {connected
-            ? "Clique no nome do cliente para ver as parcelas e abrir boleto ou nota. Em «Painel» pode marcar BLOQUEIO e INATIVO (somente portal, gravado por cliente). Observações internas ficam à direita; o texto segue gravado mesmo que o cliente deixe a listagem. Ao tirar o foco ou fechar a aba/site, novo trecho pode ser registado automaticamente com data e horário (Horário Brasília)."
+            ? "Clique no nome do cliente para ver as parcelas e abrir boleto ou nota. A tabela é larga: use scroll horizontal para ver Painel e Observação. Em «Painel», expanda a célula (clique em «Painel — clique…») para marcar BLOQUEIO/INATIVO (somente portal, gravado por cliente); só aparecem etiquetas vermelhas quando estiverem ativos. Ao sair do campo observação, novo trecho pode ser registado automaticamente com data e horário (Horário Brasília). Observações ficam gravadas mesmo que o cliente deixe a listagem."
             : "Conecte o Conta Azul para carregar receitas. Cadastre OAuth e Postgres nas variáveis de ambiente."}
         </div>
-        <div className="overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[980px] border-separate border-spacing-0 text-xs">
+        <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+          <table className="w-full min-w-[1060px] border-separate border-spacing-0 text-xs">
             <thead>
               <tr className="bg-slate-50 text-left text-[0.6rem] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 <th className="border-b border-slate-200 px-2 py-2 dark:border-slate-700">
@@ -952,10 +952,10 @@ export function CobrancaDashboard() {
                 <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
                   Contrato ativo
                 </th>
-                <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
+                <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap pl-3 pr-5 dark:border-slate-700">
                   Painel
                 </th>
-                <th className="sticky right-0 z-20 min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
+                <th className="min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 pr-4 dark:border-slate-600 dark:bg-slate-800">
                   Observação
                 </th>
               </tr>
@@ -984,7 +984,7 @@ export function CobrancaDashboard() {
                   clientIndex % 2 === 0
                     ? "bg-slate-50/95 dark:bg-slate-950/50"
                     : "bg-slate-200/80 dark:bg-slate-800/90";
-                const stickyObs = `sticky right-0 z-10 min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.1)] dark:border-slate-600 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.3)] ${stripe}`;
+                const obsCellBg = `border-b border-l border-slate-200/90 min-w-[24rem] max-w-[32rem] px-2 py-1.5 pr-4 align-top dark:border-slate-700 ${stripe}`;
                 const noteLineCount = c.note.trim()
                   ? Math.min(4, Math.max(1, c.note.split(/\r?\n/).length))
                   : 1;
@@ -1082,43 +1082,62 @@ export function CobrancaDashboard() {
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800">
-                        <div className="flex flex-col gap-1.5 text-[0.6rem] font-semibold uppercase tracking-wide">
-                          <label className="flex cursor-pointer items-center gap-1.5 text-red-600 dark:text-red-500">
-                            <input
-                              type="checkbox"
-                              checked={c.painelBloqueio}
-                              disabled={painelBusyClientId === c.id}
-                              onChange={(e) =>
-                                void persistPainelField(
-                                  c.id,
-                                  "painelBloqueio",
-                                  e.target.checked,
-                                )
-                              }
-                              className="h-3.5 w-3.5 shrink-0 accent-red-600"
-                            />
-                            BLOQUEIO
-                          </label>
-                          <label className="flex cursor-pointer items-center gap-1.5 text-red-600 dark:text-red-500">
-                            <input
-                              type="checkbox"
-                              checked={c.painelInativo}
-                              disabled={painelBusyClientId === c.id}
-                              onChange={(e) =>
-                                void persistPainelField(
-                                  c.id,
-                                  "painelInativo",
-                                  e.target.checked,
-                                )
-                              }
-                              className="h-3.5 w-3.5 shrink-0 accent-red-600"
-                            />
-                            INATIVO
-                          </label>
-                        </div>
+                      <td className="border-b border-slate-200/90 px-2 py-1.5 pl-3 pr-6 align-middle dark:border-slate-800">
+                        <details className="min-w-[10.75rem]">
+                          <summary className="cursor-pointer select-none list-none rounded border border-transparent px-1 py-0.5 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 [&::-webkit-details-marker]:hidden dark:hover:border-slate-600 dark:hover:bg-slate-800/80">
+                            {c.painelBloqueio || c.painelInativo ? (
+                              <div className="flex flex-col gap-0.5 text-[0.6rem] font-semibold uppercase leading-tight tracking-wide text-red-600 dark:text-red-500">
+                                {c.painelBloqueio ? <span>BLOQUEIO</span> : null}
+                                {c.painelInativo ? <span>INATIVO</span> : null}
+                              </div>
+                            ) : (
+                              <span className="text-[0.62rem] text-slate-400 dark:text-slate-500">
+                                Painel — clique…
+                              </span>
+                            )}
+                          </summary>
+                          <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-600">
+                            <p className="mb-2 text-[0.55rem] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              Marcar no painel
+                            </p>
+                            <div className="flex flex-col gap-2 text-[0.6rem] font-semibold uppercase tracking-wide">
+                              <label className="flex cursor-pointer items-center gap-2 text-red-600 dark:text-red-500">
+                                <input
+                                  type="checkbox"
+                                  checked={c.painelBloqueio}
+                                  disabled={painelBusyClientId === c.id}
+                                  onChange={(e) =>
+                                    void persistPainelField(
+                                      c.id,
+                                      "painelBloqueio",
+                                      e.target.checked,
+                                    )
+                                  }
+                                  className="h-3.5 w-3.5 shrink-0 accent-red-600"
+                                />
+                                BLOQUEIO
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-2 text-red-600 dark:text-red-500">
+                                <input
+                                  type="checkbox"
+                                  checked={c.painelInativo}
+                                  disabled={painelBusyClientId === c.id}
+                                  onChange={(e) =>
+                                    void persistPainelField(
+                                      c.id,
+                                      "painelInativo",
+                                      e.target.checked,
+                                    )
+                                  }
+                                  className="h-3.5 w-3.5 shrink-0 accent-red-600"
+                                />
+                                INATIVO
+                              </label>
+                            </div>
+                          </div>
+                        </details>
                       </td>
-                      <td className={`px-2 py-1.5 align-top ${stickyObs}`}>
+                      <td className={obsCellBg}>
                         <textarea
                           rows={noteLineCount}
                           value={c.note}
