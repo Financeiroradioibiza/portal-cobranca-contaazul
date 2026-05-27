@@ -38,6 +38,7 @@ export function CobrancaDashboard() {
   const [cobEmailTplSaving, setCobEmailTplSaving] = useState(false);
   const [smtpCobOpenCharges, setSmtpCobOpenCharges] = useState(false);
   const [sendingCobEmailClientId, setSendingCobEmailClientId] = useState<string | null>(null);
+  const [painelBusyClientId, setPainelBusyClientId] = useState<string | null>(null);
   const [cobSendModalOpen, setCobSendModalOpen] = useState(false);
   const [cobSendPreviewLoading, setCobSendPreviewLoading] = useState(false);
   const [cobSendClient, setCobSendClient] = useState<ClientRow | null>(null);
@@ -186,7 +187,12 @@ export function CobrancaDashboard() {
 
           const rNotes = await notesPromise;
           if (loadGen !== receivablesLoadGenRef.current) return;
-          const pN = await readJsonFromResponse<{ byId?: Record<string, string>; error?: string }>(
+          type MetaRow = {
+            note: string;
+            painelBloqueio: boolean;
+            painelInativo: boolean;
+          };
+          const pN = await readJsonFromResponse<{ byId?: Record<string, MetaRow>; error?: string }>(
             rNotes,
           );
           if (loadGen !== receivablesLoadGenRef.current) return;
@@ -197,8 +203,8 @@ export function CobrancaDashboard() {
 
           if (mapN) {
             for (const id of ids) {
-              /** Sem linha na tabela ⇒ nota vazia. */
-              lastPersistedNotesRef.current[id] = mapN[id] ?? "";
+              const m = mapN[id];
+              lastPersistedNotesRef.current[id] = m?.note ?? "";
             }
           }
 
@@ -209,7 +215,11 @@ export function CobrancaDashboard() {
               ...c,
               activeContractNumbers:
                 mapC != null ? (mapC[c.id] ?? c.activeContractNumbers) : c.activeContractNumbers,
-              note: mapN != null ? (mapN[c.id] ?? c.note) : c.note,
+              note: mapN != null ? (mapN[c.id]?.note ?? c.note) : c.note,
+              painelBloqueio:
+                mapN != null ? (mapN[c.id]?.painelBloqueio ?? false) : c.painelBloqueio,
+              painelInativo:
+                mapN != null ? (mapN[c.id]?.painelInativo ?? false) : c.painelInativo,
             })),
           );
         })();
@@ -460,24 +470,128 @@ export function CobrancaDashboard() {
           setActionMsg("Não foi possível salvar dados do cliente.");
           return false;
         }
-        const parsed = await readJsonFromResponse<{ note?: string }>(res);
+        const parsed = await readJsonFromResponse<{
+          note?: string;
+          painelBloqueio?: boolean;
+          painelInativo?: boolean;
+        }>(res);
         if (parsed.parseError || !parsed.data || typeof parsed.data.note !== "string") {
           setActionMsg("Resposta inválida ao salvar (servidor não enviou JSON).");
           return false;
         }
-        const note = parsed.data.note;
+        const { note, painelBloqueio, painelInativo } = parsed.data;
         lastPersistedNotesRef.current[clientId] = note;
         dirtyNoteIdsRef.current.delete(clientId);
         setActionMsg(null);
         setClients((prev) =>
           prev.map((c) =>
-            c.id === clientId ? { ...c, note } : c,
+            c.id === clientId
+              ? {
+                  ...c,
+                  note,
+                  painelBloqueio:
+                    typeof painelBloqueio === "boolean" ? painelBloqueio : c.painelBloqueio,
+                  painelInativo:
+                    typeof painelInativo === "boolean" ? painelInativo : c.painelInativo,
+                }
+              : c,
           ),
         );
         return true;
       } catch {
         setActionMsg("Falha ao salvar. Verifique a conexão.");
         return false;
+      }
+    },
+    [],
+  );
+
+  const persistPainelField = useCallback(
+    async (
+      clientId: string,
+      field: "painelBloqueio" | "painelInativo",
+      next: boolean,
+    ) => {
+      const snap = clientsLatestRef.current.find((c) => c.id === clientId);
+      if (!snap) return;
+
+      setPainelBusyClientId(clientId);
+      setActionMsg(null);
+      setClients((prev) =>
+        prev.map((c) => (c.id === clientId ? { ...c, [field]: next } : c)),
+      );
+
+      try {
+        const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ [field]: next }),
+        });
+        const parsed = await readJsonFromResponse<{
+          note?: string;
+          painelBloqueio?: boolean;
+          painelInativo?: boolean;
+        }>(res);
+        if (!res.ok || parsed.parseError || !parsed.data) {
+          setActionMsg("Não foi possível salvar marcas do painel.");
+          setClients((prev) =>
+            prev.map((c) =>
+              c.id === clientId
+                ? {
+                    ...c,
+                    painelBloqueio: snap.painelBloqueio,
+                    painelInativo: snap.painelInativo,
+                  }
+                : c,
+            ),
+          );
+          return;
+        }
+        const d = parsed.data;
+        if (typeof d.note !== "string") {
+          setActionMsg("Resposta inválida ao salvar marcas do painel.");
+          setClients((prev) =>
+            prev.map((c) =>
+              c.id === clientId
+                ? {
+                    ...c,
+                    painelBloqueio: snap.painelBloqueio,
+                    painelInativo: snap.painelInativo,
+                  }
+                : c,
+            ),
+          );
+          return;
+        }
+        lastPersistedNotesRef.current[clientId] = d.note;
+        setClients((prev) =>
+          prev.map((c) =>
+            c.id === clientId
+              ? {
+                  ...c,
+                  note: d.note as string,
+                  painelBloqueio: Boolean(d.painelBloqueio),
+                  painelInativo: Boolean(d.painelInativo),
+                }
+              : c,
+          ),
+        );
+      } catch {
+        setActionMsg("Falha ao salvar. Verifique a conexão.");
+        setClients((prev) =>
+          prev.map((c) =>
+            c.id === clientId
+              ? {
+                  ...c,
+                  painelBloqueio: snap.painelBloqueio,
+                  painelInativo: snap.painelInativo,
+                }
+              : c,
+          ),
+        );
+      } finally {
+        setPainelBusyClientId(null);
       }
     },
     [],
@@ -813,11 +927,11 @@ export function CobrancaDashboard() {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
           {connected
-            ? "Clique no nome do cliente para ver as parcelas e abrir boleto ou nota. Observações internas ficam à direita; o texto segue gravado mesmo que o cliente deixe a listagem. Ao tirar o foco ou fechar a aba/site, novo trecho pode ser registado automaticamente com data e horário (Horário Brasília)."
+            ? "Clique no nome do cliente para ver as parcelas e abrir boleto ou nota. Em «Painel» pode marcar BLOQUEIO e INATIVO (somente portal, gravado por cliente). Observações internas ficam à direita; o texto segue gravado mesmo que o cliente deixe a listagem. Ao tirar o foco ou fechar a aba/site, novo trecho pode ser registado automaticamente com data e horário (Horário Brasília)."
             : "Conecte o Conta Azul para carregar receitas. Cadastre OAuth e Postgres nas variáveis de ambiente."}
         </div>
         <div className="overflow-x-auto overscroll-x-contain">
-          <table className="w-full min-w-[860px] border-separate border-spacing-0 text-xs">
+          <table className="w-full min-w-[980px] border-separate border-spacing-0 text-xs">
             <thead>
               <tr className="bg-slate-50 text-left text-[0.6rem] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 <th className="border-b border-slate-200 px-2 py-2 dark:border-slate-700">
@@ -838,6 +952,9 @@ export function CobrancaDashboard() {
                 <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
                   Contrato ativo
                 </th>
+                <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
+                  Painel
+                </th>
                 <th className="sticky right-0 z-20 min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 shadow-[-8px_0_12px_-6px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-800 dark:shadow-[-8px_0_12px_-6px_rgba(0,0,0,0.35)]">
                   Observação
                 </th>
@@ -847,7 +964,7 @@ export function CobrancaDashboard() {
               {clients.length === 0 && !loading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="border-b border-slate-200/90 px-4 py-8 text-center text-slate-500 dark:border-slate-800 dark:text-slate-400"
                   >
                     {connected
@@ -965,6 +1082,42 @@ export function CobrancaDashboard() {
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
+                      <td className="border-b border-slate-200/90 px-2 py-1.5 align-middle dark:border-slate-800">
+                        <div className="flex flex-col gap-1.5 text-[0.6rem] font-semibold uppercase tracking-wide">
+                          <label className="flex cursor-pointer items-center gap-1.5 text-red-600 dark:text-red-500">
+                            <input
+                              type="checkbox"
+                              checked={c.painelBloqueio}
+                              disabled={painelBusyClientId === c.id}
+                              onChange={(e) =>
+                                void persistPainelField(
+                                  c.id,
+                                  "painelBloqueio",
+                                  e.target.checked,
+                                )
+                              }
+                              className="h-3.5 w-3.5 shrink-0 accent-red-600"
+                            />
+                            BLOQUEIO
+                          </label>
+                          <label className="flex cursor-pointer items-center gap-1.5 text-red-600 dark:text-red-500">
+                            <input
+                              type="checkbox"
+                              checked={c.painelInativo}
+                              disabled={painelBusyClientId === c.id}
+                              onChange={(e) =>
+                                void persistPainelField(
+                                  c.id,
+                                  "painelInativo",
+                                  e.target.checked,
+                                )
+                              }
+                              className="h-3.5 w-3.5 shrink-0 accent-red-600"
+                            />
+                            INATIVO
+                          </label>
+                        </div>
+                      </td>
                       <td className={`px-2 py-1.5 align-top ${stickyObs}`}>
                         <textarea
                           rows={noteLineCount}
@@ -992,7 +1145,7 @@ export function CobrancaDashboard() {
                     {open ? (
                       <tr className={zebraExpand}>
                         <td
-                          colSpan={7}
+                          colSpan={8}
                           className="border-b border-slate-200/90 px-2 py-2 dark:border-slate-800"
                         >
                           <p className="mb-1.5 text-[0.65rem] font-medium text-slate-600 dark:text-slate-400">

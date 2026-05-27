@@ -9,6 +9,8 @@ export const mockClients: ClientRow[] = [
     email: "financeiro@distsul.com.br",
     activeContractNumbers: null,
     note: "",
+    painelBloqueio: false,
+    painelInativo: false,
     sales: [
       {
         id: "s1",
@@ -40,6 +42,8 @@ export const mockClients: ClientRow[] = [
     email: "cobranca@bompreco.com",
     activeContractNumbers: "1014",
     note: "Renegociar taxa em abril.",
+    painelBloqueio: false,
+    painelInativo: false,
     sales: [
       {
         id: "s4",
@@ -64,6 +68,8 @@ export const mockClients: ClientRow[] = [
     email: "faturamento@visaocara.com.br",
     activeContractNumbers: null,
     note: "",
+    painelBloqueio: false,
+    painelInativo: false,
     sales: [
       {
         id: "s6",

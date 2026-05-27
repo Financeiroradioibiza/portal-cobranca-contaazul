@@ -18,5 +18,8 @@ export type ClientRow = {
   activeContractNumbers: string | null;
   /** Somente portal; persistido no banco. */
   note: string;
+  /** Marcações manuais só no portal (persistidas por cliente). */
+  painelBloqueio: boolean;
+  painelInativo: boolean;
   sales: SaleRow[];
 };

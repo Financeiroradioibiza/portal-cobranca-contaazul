@@ -26,6 +26,10 @@ model ClientPortalMeta {
   clientId          String   @id @map("client_id")
   hasActiveContract Boolean  @default(false) @map("has_active_contract")
   note              String   @default("")
+  /// Portal only: marca manual «BLOQUEIO» na listagem principal.
+  painelBloqueio    Boolean  @default(false) @map("painel_bloqueio")
+  /// Portal only: marca manual «INATIVO» na listagem principal.
+  painelInativo     Boolean  @default(false) @map("painel_inativo")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("client_portal_meta")

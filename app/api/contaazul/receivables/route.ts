@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     ];
     const people = await fetchPeopleByIds(token, clientIds);
     const clients = buildDashboardClients(items, people);
-    // Notas do portal: POST /api/clients/notes-for (paralelo no cliente, menos trabalho aqui).
+    // Metadados do portal: POST /api/clients/notes-for (observações e marcas «Painel»; paralelo no cliente).
 
     return NextResponse.json({
       clients,

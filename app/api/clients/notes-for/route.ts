@@ -5,9 +5,15 @@ export const runtime = "nodejs";
 
 const MAX_IDS = 500;
 
+type ClientPortalMetaRowDto = {
+  note: string;
+  painelBloqueio: boolean;
+  painelInativo: boolean;
+};
+
 /**
- * POST { clientIds: string[] } → { byId: Record<clientId, note> }
- * Não remove metadados de outros clientes: observações permanecem mesmo fora da listagem actual.
+ * POST { clientIds: string[] } → { byId: Record<clientId, { note, painelBloqueio, painelInativo }> }
+ * Não remove metadados de outros clientes: observações e marcas do painel permanecem mesmo fora da listagem actual.
  * Separado da rota receivables para não acumular Prisma + Conta Azul no mesmo timeout.
  */
 export async function POST(request: Request) {
@@ -25,17 +31,26 @@ export async function POST(request: Request) {
 
   const unique = [...new Set(ids)].slice(0, MAX_IDS);
   if (unique.length === 0) {
-    return NextResponse.json({ byId: {} as Record<string, string> });
+    return NextResponse.json({ byId: {} as Record<string, ClientPortalMetaRowDto> });
   }
 
   try {
     const rows = await prisma.clientPortalMeta.findMany({
       where: { clientId: { in: unique } },
-      select: { clientId: true, note: true },
+      select: {
+        clientId: true,
+        note: true,
+        painelBloqueio: true,
+        painelInativo: true,
+      },
     });
-    const byId: Record<string, string> = {};
+    const byId: Record<string, ClientPortalMetaRowDto> = {};
     for (const r of rows) {
-      byId[r.clientId] = r.note ?? "";
+      byId[r.clientId] = {
+        note: r.note ?? "",
+        painelBloqueio: r.painelBloqueio,
+        painelInativo: r.painelInativo,
+      };
     }
     return NextResponse.json({ byId });
   } catch (e) {

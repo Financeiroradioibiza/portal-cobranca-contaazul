@@ -54,6 +54,8 @@ export function buildDashboardClients(
       email: p?.email?.trim() || "—",
       activeContractNumbers: null,
       note: "",
+      painelBloqueio: false,
+      painelInativo: false,
       sales,
     });
   }
