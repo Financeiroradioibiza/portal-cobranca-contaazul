@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeClientesCa";
-import { formatYearMonthLabel, parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
+import {
+  formatYearMonthLabel,
+  parseYearMonthParam,
+  shiftYearMonth,
+} from "@/lib/manualReminders/yearMonth";
 import { getRioCompMonthWithLinhas } from "@/lib/rio/rioClienteCompService";
 import { prisma } from "@/lib/prisma";
 import { revertRioCompMonthToDonorClone } from "@/lib/rio/cloneRioCompMonth";
@@ -71,6 +75,13 @@ export async function POST(_req: Request, context: Ctx) {
       if (!msg.startsWith("donor_month_not_found")) throw e;
     }
 
+    const donorYm = shiftYearMonth(ym, -1);
+    const donorMonth = await prisma.rioCompMonth.findUnique({
+      where: { yearMonth: donorYm },
+      select: { id: true },
+    });
+    const onlyThisMonth = !donorMonth;
+
     const active = await fetchActiveClientePersonSummaries(token);
     const activeIds = new Set(active.map((s) => s.id));
     const { removed } = await purgeRioCaLinhasNotInActiveSet(month.id, activeIds);
@@ -78,13 +89,18 @@ export async function POST(_req: Request, context: Ctx) {
     return NextResponse.json({
       ok: true,
       mode: "purge_inactive" as const,
+      onlyThisMonth: onlyThisMonth,
       removed,
       activeCaCount: active.length,
       grupos: full?.grupos ?? [],
       linhas: full?.linhas ?? [],
       message:
-        removed > 0 ?
-          `Removidas ${removed} linhas de clientes inativos na Conta Azul. Não havia backup do sync anterior — clientes manuais apagados no sync não voltam automaticamente.`
+        onlyThisMonth === true ?
+          removed > 0 ?
+            `Só existe ${formatYearMonthLabel(ym)} na base (não há mês anterior para repor o sync). Removidas ${removed} linhas de clientes inativos na Conta Azul. MARCAs apagadas no sync não voltam — recrie ou importe se precisar.`
+          : `Só existe ${formatYearMonthLabel(ym)} na base. Nenhuma linha inativa da CA para remover agora (${active.length} ativos na listagem).`
+        : removed > 0 ?
+          `Removidas ${removed} linhas de clientes inativos na Conta Azul. Não havia backup do sync anterior.`
         : "Nenhuma linha inativa encontrada para remover.",
     });
   } catch (e) {

@@ -448,19 +448,26 @@ export function RioClientesCompPanel() {
     runCaBatchPhase,
   ]);
 
+  const singleMonthInBase = months.length <= 1;
+
   const revertLastSync = useCallback(async () => {
     if (monthClosed) {
       setMsg("Esta competência está fechada.");
       return;
     }
-    if (
-      !window.confirm(
-        "Desfazer a última virada/sync desta competência?\n\n" +
+    const confirmText =
+      singleMonthInBase ?
+        "Só existe esta competência na base (não há mês anterior).\n\n" +
+          "O sync de maio não pode ser «desfeito» por completo. O que dá para fazer agora:\n" +
+          "• remover linhas de clientes **inativos** na Conta Azul importados no sync;\n" +
+          "• manter clientes manuais e linhas que ainda estão ativos na CA.\n\n" +
+          "MARCAs apagadas no sync **não** voltam sozinhas — recrie ou importe um ficheiro.\n\n" +
+          "Continuar?"
+      : "Desfazer a última virada/sync desta competência?\n\n" +
           "• Com backup automático: volta ao instante antes do clique.\n" +
-          "• Sem backup: repõe a partir do mês anterior na base (maio ← abril, junho ← maio, etc.).\n" +
-          "• Senão: remove só clientes inativos na CA.",
-      )
-    ) {
+          "• Sem backup: repõe a partir do mês anterior na base.\n" +
+          "• Senão: remove só clientes inativos na CA.";
+    if (!window.confirm(confirmText)) {
       return;
     }
     setRevertingSync(true);
@@ -492,7 +499,7 @@ export function RioClientesCompPanel() {
     } finally {
       setRevertingSync(false);
     }
-  }, [activeYm, monthClosed, loadMonths]);
+  }, [activeYm, monthClosed, loadMonths, singleMonthInBase]);
 
   const runImportFile = useCallback(
     async (file: File) => {
@@ -1372,6 +1379,14 @@ export function RioClientesCompPanel() {
         </div>
       : null}
 
+      {singleMonthInBase && !monthClosed ?
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          Só há <strong>{formatYearMonthLabel(activeYm)}</strong> na base — não existe mês anterior para repor o sync de
+          27/05. Use <strong>Remover inativos do sync</strong> para tirar clientes inativos da Conta Azul; MARCAs
+          apagadas no sync precisam ser recriadas ou importadas de CSV/Excel.
+        </div>
+      : null}
+
       {turnoverMonth && !monthClosed ?
         <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
           A partir desta competência: use <strong>Virada do mês</strong> para comparar com a Conta Azul (entradas/saídas
@@ -1469,7 +1484,11 @@ export function RioClientesCompPanel() {
           title="Remove importações do último sync ou restaura backup se existir"
           onClick={() => void revertLastSync()}
         >
-          {revertingSync ? "Desfazendo…" : "Desfazer último sync"}
+          {revertingSync ?
+            "A limpar…"
+          : singleMonthInBase ?
+            "Remover inativos do sync"
+          : "Desfazer último sync"}
         </button>
         <input
           ref={fileImportRef}
