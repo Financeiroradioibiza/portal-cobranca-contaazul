@@ -11,6 +11,7 @@ import {
   parseOcEmailRecipients,
   renderOcEmailText,
 } from "@/lib/manualReminders/ocEmailRender";
+import { parseEmailAddresses } from "@/lib/format";
 import {
   currentBrazilYearMonth,
   formatPriorBrazilMonthBillingLabel,
@@ -36,6 +37,26 @@ type LinhaPayload = {
   sortOrder: number;
   updatedAt: string;
 };
+
+function ocStatusSelectClass(status: LinhaPayload["status"]): string {
+  const base =
+    "w-full max-w-[11rem] rounded border px-1 py-0.5 text-[11px] font-semibold leading-tight";
+  switch (status) {
+    case "pendente":
+      return `${base} border-red-400 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950/50 dark:text-red-200`;
+    case "solicitado_ordem":
+      return `${base} border-orange-400 bg-orange-50 text-orange-900 dark:border-orange-700 dark:bg-orange-950/40 dark:text-orange-100`;
+    case "enviado":
+      return `${base} border-emerald-500 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-100`;
+    default:
+      return `${base} border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900`;
+  }
+}
+
+const TH_STICKY =
+  "sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-2 py-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-slate-600 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:shadow-[0_1px_0_0_rgb(51_65_85)]";
+
+const TD_SLIM = "align-middle px-2 py-0.5";
 
 type MonthMeta = { id: string; yearMonth: number };
 
@@ -81,6 +102,8 @@ export function ManualEnviosPanel() {
   const [ocSmtpConfigured, setOcSmtpConfigured] = useState(false);
   const [ocEmailTemplateLoading, setOcEmailTemplateLoading] = useState(true);
   const [ocEmailSaving, setOcEmailSaving] = useState(false);
+  /** Modelo OC: fechado por defeito; abrir só para editar ou pré-visualizar. */
+  const [ocEmailTplOpen, setOcEmailTplOpen] = useState(false);
   const [ocSendingRowId, setOcSendingRowId] = useState<string | null>(null);
   const [ocListagemBusyRowId, setOcListagemBusyRowId] = useState<string | null>(null);
   const [ocPreviewClienteNome, setOcPreviewClienteNome] = useState("");
@@ -599,12 +622,6 @@ export function ManualEnviosPanel() {
     enviado: "NFe / envio ao cliente feito",
   };
 
-  const dueTodayLabel = (day: number) => (
-    <span title="Todo mês repetir esta data para lembrar o pedido de OC">
-      dia {day}
-    </span>
-  );
-
   return (
     <div className="mx-auto max-w-[120rem] px-4 py-8">
       {linkModalRowId ? (
@@ -808,106 +825,125 @@ export function ManualEnviosPanel() {
       ) : null}
 
       <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-950/40">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+        <button
+          type="button"
+          onClick={() => setOcEmailTplOpen((v) => !v)}
+          className="flex w-full items-start justify-between gap-2 text-left"
+        >
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Modelo do e-mail (pedido de OC)
             </p>
-            <p className="text-sm text-slate-700 dark:text-slate-300">
-              Texto padrão da <strong>{COMPANY_NAME}</strong>, com o nome do cliente. O envio real usa SMTP da Locaweb
-              (<code className="rounded bg-slate-100 px-1 text-xs dark:bg-slate-800">cobranca@radioibiza.com.br</code>{" "}
-              quando configurado no servidor).
+            <p className="mt-0.5 text-sm text-slate-700 dark:text-slate-300">
+              Texto padrão da <strong>{COMPANY_NAME}</strong> —{" "}
+              {ocSmtpConfigured ? (
+                <span className="text-emerald-700 dark:text-emerald-400">SMTP ativo</span>
+              ) : (
+                <span className="text-amber-800 dark:text-amber-200">SMTP não configurado</span>
+              )}
+              . {ocEmailTplOpen ? "Clique para recolher." : "Clique para editar assunto, corpo e pré-visualizar."}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={ocEmailSaving || ocEmailTemplateLoading}
-              onClick={() => void persistOcEmailTemplate()}
-              className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50 dark:bg-slate-200 dark:text-slate-900"
-            >
-              {ocEmailSaving ? "Salvando…" : "Salvar modelo"}
-            </button>
-          </div>
-        </div>
-        {!ocSmtpConfigured ? (
-          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-50">
-            <strong>SMTP ainda não ligado aqui:</strong> defina{" "}
-            <code className="text-[11px]">OC_EMAIL_SMTP_*</code> e <code className="text-[11px]">OC_EMAIL_FROM</code> no
-            ambiente — veja `.env.example` (host/porta vêm do painel Locaweb da caixa postal).
-          </p>
-        ) : (
-          <p className="mb-3 rounded-md border border-emerald-800/40 bg-emerald-950/30 px-2 py-1.5 text-xs text-emerald-100">
-            SMTP parametrizado no servidor — o botão por linha abaixo usa o modelo salvo. Todo envio leva sempre{" "}
-            <strong>Cc</strong> para{" "}
-            <code className="rounded bg-emerald-900/60 px-1 text-[10px]">cobranca@radioibiza.com.br</code>{" "}
-            (+ BCC internos opcionais em <code className="text-[10px]">OC_EMAIL_BCC_*</code>, sem duplicar Cc/Para).
-          </p>
-        )}
-        <p className="mb-2 text-[11px] text-slate-600 dark:text-slate-400">
-          Variáveis:{" "}
-          <code className="mr-2 rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{clienteNome}}"}</code>
-          <code className="mr-2 rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{mesLabel}}"}</code>
-          <code className="mr-2 rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{empresaNome}}"}</code>
-          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{cnpjDocumento}}"}</code>
-          <span className="mt-1 block text-slate-500 dark:text-slate-500">
-            No envio (e nesta prévia),{" "}
-            <code className="rounded bg-slate-100 px-0.5 text-[10px] dark:bg-slate-800">{"{{mesLabel}}"}</code> é sempre a
-            competência de <strong>mês anterior</strong> ao dia de hoje (horário Brasil), ex.: 1º de maio →{" "}
-            <strong>{formatPriorBrazilMonthBillingLabel()}</strong>.
+          <span className="shrink-0 pt-0.5 text-[0.65rem] text-slate-500" aria-hidden>
+            {ocEmailTplOpen ? "▴" : "▾"}
           </span>
-        </p>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Assunto</label>
-              <input
-                value={ocEmailSubject}
-                disabled={ocEmailTemplateLoading}
-                onChange={(e) => setOcEmailSubject(e.target.value)}
-                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
-              />
+        </button>
+        {ocEmailTplOpen ? (
+          <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+            <div className="mb-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={ocEmailSaving || ocEmailTemplateLoading}
+                onClick={() => void persistOcEmailTemplate()}
+                className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50 dark:bg-slate-200 dark:text-slate-900"
+              >
+                {ocEmailSaving ? "Salvando…" : "Salvar modelo"}
+              </button>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                Corpo (texto)
-              </label>
-              <textarea
-                value={ocEmailBody}
-                disabled={ocEmailTemplateLoading}
-                rows={14}
-                onChange={(e) => setOcEmailBody(e.target.value)}
-                className="w-full resize-y rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs leading-relaxed dark:border-slate-600 dark:bg-slate-900"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
-              Nome do cliente só para pré-visualizar
-            </label>
-            <input
-              value={ocPreviewClienteNome}
-              onChange={(e) => setOcPreviewClienteNome(e.target.value)}
-              placeholder="Ex.: nome do cliente (apenas exemplo na pré-visualização)"
-              className="mb-3 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
-            />
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/70">
-              <p className="mb-2 text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">Pré-visualização</p>
-              <p className="mb-2 text-xs font-semibold text-slate-900 dark:text-slate-50">{ocPreviewSubjectRendered}</p>
-              <pre className="whitespace-pre-wrap break-words font-sans text-xs text-slate-800 dark:text-slate-100">
-                {ocEmailTemplateLoading ? "Carregando modelo…" : ocPreviewBodyRendered}
-              </pre>
-              <div className="mt-2">
-                <CopyTextButton
-                  variant="text"
-                  label="Copiar pré-visualização do corpo do pedido OC"
-                  text={ocPreviewBodyRendered}
-                  className="text-[11px] text-sky-700 underline-offset-2 hover:underline dark:text-sky-400"
+            {!ocSmtpConfigured ? (
+              <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-50">
+                <strong>SMTP ainda não ligado aqui:</strong> defina{" "}
+                <code className="text-[11px]">OC_EMAIL_SMTP_*</code> e <code className="text-[11px]">OC_EMAIL_FROM</code>{" "}
+                no ambiente — veja `.env.example` (host/porta vêm do painel Locaweb da caixa postal).
+              </p>
+            ) : (
+              <p className="mb-3 rounded-md border border-emerald-800/40 bg-emerald-950/30 px-2 py-1.5 text-xs text-emerald-100">
+                SMTP parametrizado no servidor — o botão por linha abaixo usa o modelo salvo. Todo envio leva sempre{" "}
+                <strong>Cc</strong> para{" "}
+                <code className="rounded bg-emerald-900/60 px-1 text-[10px]">cobranca@radioibiza.com.br</code>{" "}
+                (+ BCC internos opcionais em <code className="text-[10px]">OC_EMAIL_BCC_*</code>, sem duplicar Cc/Para).
+              </p>
+            )}
+            <p className="mb-2 text-[11px] text-slate-600 dark:text-slate-400">
+              Variáveis:{" "}
+              <code className="mr-2 rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{clienteNome}}"}</code>
+              <code className="mr-2 rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{mesLabel}}"}</code>
+              <code className="mr-2 rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{empresaNome}}"}</code>
+              <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{cnpjDocumento}}"}</code>
+              <span className="mt-1 block text-slate-500 dark:text-slate-500">
+                No envio (e nesta prévia),{" "}
+                <code className="rounded bg-slate-100 px-0.5 text-[10px] dark:bg-slate-800">{"{{mesLabel}}"}</code> é sempre a
+                competência de <strong>mês anterior</strong> ao dia de hoje (horário Brasil), ex.: 1º de maio →{" "}
+                <strong>{formatPriorBrazilMonthBillingLabel()}</strong>.
+              </span>
+            </p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Assunto</label>
+                  <input
+                    value={ocEmailSubject}
+                    disabled={ocEmailTemplateLoading}
+                    onChange={(e) => setOcEmailSubject(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Corpo (texto)
+                  </label>
+                  <textarea
+                    value={ocEmailBody}
+                    disabled={ocEmailTemplateLoading}
+                    rows={14}
+                    onChange={(e) => setOcEmailBody(e.target.value)}
+                    className="w-full resize-y rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs leading-relaxed dark:border-slate-600 dark:bg-slate-900"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Nome do cliente só para pré-visualizar
+                </label>
+                <input
+                  value={ocPreviewClienteNome}
+                  onChange={(e) => setOcPreviewClienteNome(e.target.value)}
+                  placeholder="Ex.: nome do cliente (apenas exemplo na pré-visualização)"
+                  className="mb-3 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
                 />
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/70">
+                  <p className="mb-2 text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">
+                    Pré-visualização
+                  </p>
+                  <p className="mb-2 text-xs font-semibold text-slate-900 dark:text-slate-50">
+                    {ocPreviewSubjectRendered}
+                  </p>
+                  <pre className="whitespace-pre-wrap break-words font-sans text-xs text-slate-800 dark:text-slate-100">
+                    {ocEmailTemplateLoading ? "Carregando modelo…" : ocPreviewBodyRendered}
+                  </pre>
+                  <div className="mt-2">
+                    <CopyTextButton
+                      variant="text"
+                      label="Copiar pré-visualização do corpo do pedido OC"
+                      text={ocPreviewBodyRendered}
+                      className="text-[11px] text-sky-700 underline-offset-2 hover:underline dark:text-sky-400"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        ) : null}
       </section>
 
       <section className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
@@ -983,314 +1019,332 @@ export function ManualEnviosPanel() {
         </div>
       </section>
 
-      <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
-        <table className="min-w-[1040px] w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/80">
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">Dia OC</th>
-              <th className="min-w-[12rem] px-3 py-2 font-semibold">Cliente (Conta Azul)</th>
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">CNPJ</th>
-              <th className="px-3 py-2 font-semibold text-center">Pedir OC</th>
-              <th className="min-w-[10rem] px-3 py-2 font-semibold text-center">Arquivo</th>
-              <th className="min-w-[9rem] px-3 py-2 font-semibold">Status</th>
-              <th className="min-w-[11rem] px-3 py-2 font-semibold">E-mail cobrança (CA)</th>
-              <th className="min-w-[8rem] px-3 py-2 font-semibold">Tarefa (plan.)</th>
-              <th className="min-w-[10rem] px-3 py-2 font-semibold">Notas internas</th>
-              <th className="min-w-[7rem] px-3 py-2 font-semibold">SMTP OC</th>
-              <th className="px-3 py-2 font-semibold">Vínculo / linha</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
+        <div className="max-h-[min(72vh,calc(100dvh-11rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+          <table className="min-w-[960px] w-full border-separate border-spacing-0 text-left text-xs">
+            <thead>
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-slate-500">
-                  Carregando…
-                </td>
+                <th className={`${TH_STICKY} w-14 whitespace-nowrap`}>Dia OC</th>
+                <th className={`${TH_STICKY} min-w-[11rem] whitespace-nowrap`}>Cliente (Conta Azul)</th>
+                <th className={`${TH_STICKY} whitespace-nowrap`}>CNPJ</th>
+                <th className={`${TH_STICKY} text-center`}>Pedir OC</th>
+                <th className={`${TH_STICKY} min-w-[7rem] text-center`}>
+                  <span className="block">Arquivo</span>
+                  <span className="mt-0.5 block text-[0.55rem] font-normal normal-case leading-tight text-slate-500 dark:text-slate-500">
+                    Marcar para pedir OC com listagem.
+                  </span>
+                </th>
+                <th className={`${TH_STICKY} min-w-[9rem]`}>Status</th>
+                <th className={`${TH_STICKY} min-w-[10rem]`}>E-mail cobrança (CA)</th>
+                <th className={`${TH_STICKY} min-w-[8rem]`}>Notas internas</th>
+                <th className={`${TH_STICKY} min-w-[6.5rem] whitespace-nowrap`}>SMTP OC</th>
+                <th className={`${TH_STICKY} min-w-[7.5rem]`}>Vínculo / linha</th>
               </tr>
-            ) : linhas.length === 0 ? (
-              <tr>
-                <td colSpan={11} className="px-3 py-10 text-center text-slate-500">
-                  Este mês está vazio. Use &quot;Novo mês seguinte&quot; ou recrie a partir dos templates pelo
-                  API.
-                </td>
-              </tr>
-            ) : (
-              linhas.map((row, idx) => {
-                const stripe =
-                  idx % 2 === 0
-                    ? "bg-white dark:bg-slate-950/20"
-                    : "bg-slate-50/80 dark:bg-slate-950/55";
-                return (
-                  <tr
-                    key={`${row.id}-${row.updatedAt}`}
-                    className={`border-b border-slate-100 dark:border-slate-800 ${stripe}`}
-                  >
-                    <td className="align-top px-3 py-2">
-                      <input
-                        defaultValue={row.emissionDay}
-                        aria-label={`Dia de emissão / lembrete — ${row.clienteNome}`}
-                        className="w-14 rounded border border-slate-300 px-1 py-0.5 dark:border-slate-600 dark:bg-slate-900"
-                        type="number"
-                        min={1}
-                        max={31}
-                        onBlur={(e) => {
-                          const v = Number(e.target.value);
-                          if (!Number.isFinite(v) || v < 1 || v > 31) return void loadMonthRows(activeYm);
-                          void patchRow(row.id, { emissionDay: Math.floor(v) }).then((ok) => {
-                            if (ok) void loadMonthRows(activeYm);
-                          });
-                        }}
-                      />
-                      <div className="mt-1 text-[10px] text-slate-500">{dueTodayLabel(row.emissionDay)}</div>
-                    </td>
-                    <td className="align-top px-3 py-2">
-                      <textarea
-                        rows={3}
-                        defaultValue={row.clienteNome}
-                        className="w-full resize-y rounded border border-slate-300 px-2 py-1 dark:border-slate-600 dark:bg-slate-900"
-                        onBlur={(e) => {
-                          const nome = e.target.value.trim();
-                          if (!nome) return void loadMonthRows(activeYm);
-                          void patchRow(row.id, { clienteNome: nome }).then((ok) => {
-                            if (ok) void loadMonthRows(activeYm);
-                          });
-                        }}
-                      />
-                    </td>
-                    <td className="align-top px-3 py-2">
-                      <input
-                        defaultValue={row.cnpjDocumento ?? ""}
-                        aria-label={`CNPJ — ${row.clienteNome}`}
-                        className="w-36 rounded border border-slate-300 px-1 py-0.5 dark:border-slate-600 dark:bg-slate-900"
-                        placeholder="opcional"
-                        onBlur={(e) => {
-                          const raw = e.target.value.trim();
-                          void patchRow(row.id, {
-                            cnpjDocumento: raw.length ? raw : null,
-                          }).then(() => loadMonthRows(activeYm));
-                        }}
-                      />
-                    </td>
-                    <td className="align-top px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        defaultChecked={row.solicitarPedirOc}
-                        aria-label={`Enviar e-mail pedindo OC — ${row.clienteNome}`}
-                        className="h-4 w-4 accent-sky-600"
-                        onChange={(e) => {
-                          void patchRow(row.id, { solicitarPedirOc: e.target.checked }).then((ok) => {
-                            if (ok) void loadMonthRows(activeYm);
-                          });
-                        }}
-                      />
-                    </td>
-                    <td className="max-w-[12rem] align-top px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        defaultChecked={row.anexarListagemClientesOc ?? false}
-                        aria-label={`Todo mês: anexar listagem/imagem ao e-mail OC — ${row.clienteNome}`}
-                        className="h-4 w-4 accent-amber-600"
-                        onChange={(e) => {
-                          void patchRow(row.id, { anexarListagemClientesOc: e.target.checked }).then(
-                            (ok) => {
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
+                    Carregando…
+                  </td>
+                </tr>
+              ) : linhas.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="px-3 py-10 text-center text-slate-500">
+                    Este mês está vazio. Use &quot;Novo mês seguinte&quot; ou recrie a partir dos templates pelo
+                    API.
+                  </td>
+                </tr>
+              ) : (
+                linhas.map((row, idx) => {
+                  const stripe =
+                    idx % 2 === 0
+                      ? "bg-white dark:bg-slate-950/20"
+                      : "bg-slate-50/80 dark:bg-slate-950/55";
+                  const emails = parseEmailAddresses(
+                    row.emailCobranca === null || row.emailCobranca === "" ? "" : row.emailCobranca,
+                  );
+                  const emailsJoined = emails.join("\n");
+                  const emailPreview =
+                    emails.length === 0
+                      ? "—"
+                      : emails.length > 1
+                        ? `${emails[0]} (+${emails.length - 1})`
+                        : emails[0];
+                  const vinculado = Boolean(row.contaAzulPersonId?.trim());
+
+                  return (
+                    <tr
+                      key={`${row.id}-${row.updatedAt}`}
+                      className={`border-b border-slate-100 dark:border-slate-800 ${stripe}`}
+                    >
+                      <td className={TD_SLIM}>
+                        <input
+                          defaultValue={row.emissionDay}
+                          aria-label={`Dia de emissão / lembrete — ${row.clienteNome}`}
+                          className="w-12 rounded border border-slate-300 px-1 py-0.5 text-center tabular-nums dark:border-slate-600 dark:bg-slate-900"
+                          type="number"
+                          min={1}
+                          max={31}
+                          onBlur={(e) => {
+                            const v = Number(e.target.value);
+                            if (!Number.isFinite(v) || v < 1 || v > 31) return void loadMonthRows(activeYm);
+                            void patchRow(row.id, { emissionDay: Math.floor(v) }).then((ok) => {
                               if (ok) void loadMonthRows(activeYm);
-                            },
-                          );
-                        }}
-                      />
-                      {row.anexarListagemClientesOc ?? false ? (
-                        <div className="mt-2 space-y-1 text-left">
-                          <label className="block text-[10px] leading-tight text-slate-600 dark:text-slate-400">
-                            <span className="font-semibold text-slate-700 dark:text-slate-300">
-                              Listagem mês anterior
-                            </span>{" "}
-                            (CSV, Excel ou imagem até 4&nbsp;MB; renovar cada competência)
-                          </label>
+                            });
+                          }}
+                        />
+                      </td>
+                      <td className={`${TD_SLIM} min-w-[11rem] max-w-none`}>
+                        <input
+                          type="text"
+                          defaultValue={row.clienteNome}
+                          title={row.clienteNome}
+                          className="min-w-[11rem] w-full max-w-none rounded border border-slate-300 px-1.5 py-0.5 whitespace-nowrap dark:border-slate-600 dark:bg-slate-900"
+                          onBlur={(e) => {
+                            const nome = e.target.value.trim();
+                            if (!nome) return void loadMonthRows(activeYm);
+                            void patchRow(row.id, { clienteNome: nome }).then((ok) => {
+                              if (ok) void loadMonthRows(activeYm);
+                            });
+                          }}
+                        />
+                      </td>
+                      <td className={TD_SLIM}>
+                        <input
+                          defaultValue={row.cnpjDocumento ?? ""}
+                          aria-label={`CNPJ — ${row.clienteNome}`}
+                          className="w-32 rounded border border-slate-300 px-1 py-0.5 tabular-nums dark:border-slate-600 dark:bg-slate-900"
+                          placeholder="opcional"
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            void patchRow(row.id, {
+                              cnpjDocumento: raw.length ? raw : null,
+                            }).then(() => loadMonthRows(activeYm));
+                          }}
+                        />
+                      </td>
+                      <td className={`${TD_SLIM} text-center`}>
+                        <input
+                          type="checkbox"
+                          defaultChecked={row.solicitarPedirOc}
+                          aria-label={`Enviar e-mail pedindo OC — ${row.clienteNome}`}
+                          className="h-3.5 w-3.5 accent-sky-600"
+                          onChange={(e) => {
+                            void patchRow(row.id, { solicitarPedirOc: e.target.checked }).then((ok) => {
+                              if (ok) void loadMonthRows(activeYm);
+                            });
+                          }}
+                        />
+                      </td>
+                      <td className={`${TD_SLIM} text-center align-top`}>
+                        <div className="inline-flex flex-col items-center gap-0.5">
                           <input
-                            type="file"
-                            accept=".csv,.pdf,.xls,.xlsx,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                            disabled={
-                              ocListagemBusyRowId === row.id ||
-                              ocSendingRowId === row.id
-                            }
-                            className="block w-full cursor-pointer text-[10px] file:mr-2 file:rounded file:border file:border-slate-300 file:bg-white file:px-1 file:py-0.5 dark:file:border-slate-600 dark:file:bg-slate-900"
+                            type="checkbox"
+                            defaultChecked={row.anexarListagemClientesOc ?? false}
+                            aria-label={`Todo mês: anexar listagem/imagem ao e-mail OC — ${row.clienteNome}`}
+                            className="h-3.5 w-3.5 accent-amber-600"
                             onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              e.target.value = "";
-                              if (f) void uploadOcListagemFile(row.id, f);
+                              void patchRow(row.id, { anexarListagemClientesOc: e.target.checked }).then(
+                                (ok) => {
+                                  if (ok) void loadMonthRows(activeYm);
+                                },
+                              );
                             }}
                           />
-                          {row.ocListagemAnexoPresente ? (
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-emerald-800 dark:text-emerald-400">
-                              <span className="font-medium break-all">
-                                {row.listagemClienteArquivoNome ?? "Ficheiro pronto"}
-                              </span>
-                              <button
-                                type="button"
-                                disabled={ocListagemBusyRowId === row.id}
-                                className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-                                onClick={() => void clearOcListagemFile(row.id)}
-                              >
-                                Remover anexo
-                              </button>
+                          {row.anexarListagemClientesOc ?? false ? (
+                            <div className="mt-0.5 w-[7.5rem] space-y-0.5 text-left">
+                              <input
+                                type="file"
+                                accept=".csv,.pdf,.xls,.xlsx,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                                disabled={
+                                  ocListagemBusyRowId === row.id || ocSendingRowId === row.id
+                                }
+                                className="block w-full cursor-pointer text-[9px] file:mr-1 file:rounded file:border file:border-slate-300 file:bg-white file:px-0.5 file:py-0 dark:file:border-slate-600 dark:file:bg-slate-900"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (f) void uploadOcListagemFile(row.id, f);
+                                }}
+                              />
+                              {row.ocListagemAnexoPresente ? (
+                                <div className="flex items-center gap-0.5 text-[9px] text-emerald-800 dark:text-emerald-400">
+                                  <span className="min-w-0 truncate font-medium" title={row.listagemClienteArquivoNome ?? undefined}>
+                                    {row.listagemClienteArquivoNome ?? "OK"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={ocListagemBusyRowId === row.id}
+                                    className="shrink-0 rounded border border-slate-300 px-1 py-0 text-[9px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-400"
+                                    onClick={() => void clearOcListagemFile(row.id)}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-[9px] text-amber-800 dark:text-amber-300">Falta ficheiro</span>
+                              )}
                             </div>
-                          ) : (
-                            <p className="text-[10px] leading-tight text-amber-900 dark:text-amber-300">
-                              Envie antes de disparar SMTP — obrigatório para esta linha.
-                            </p>
-                          )}
+                          ) : null}
                         </div>
-                      ) : (
-                        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                          Marcar para pedir OC com listagem.
-                        </p>
-                      )}
-                    </td>
-                    <td className="align-top px-3 py-2">
-                      <select
-                        value={row.status}
-                        aria-label={`Status — ${row.clienteNome}`}
-                        className="w-full rounded border border-slate-300 px-1 py-1 text-xs dark:border-slate-600 dark:bg-slate-900"
-                        onChange={(e) => {
-                          const v = e.target.value as LinhaPayload["status"];
-                          void patchRow(row.id, { status: v }).then((ok) => {
-                            if (ok) void loadMonthRows(activeYm);
-                          });
-                        }}
-                      >
-                        <option value="pendente">{statusLabels.pendente}</option>
-                        <option value="solicitado_ordem">{statusLabels.solicitado_ordem}</option>
-                        <option value="enviado">{statusLabels.enviado}</option>
-                      </select>
-                    </td>
-                    <td className="align-top px-3 py-2">
-                      <textarea
-                        rows={4}
-                        defaultValue={row.emailCobranca ?? ""}
-                        className="w-full resize-y rounded border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-xs dark:border-slate-700 dark:bg-slate-900"
-                        placeholder="Sincronize com CA ou cole manualmente"
-                        onBlur={(e) => {
-                          const txt = e.target.value.trim();
-                          void patchRow(row.id, {
-                            emailCobranca: txt.length ? txt : null,
-                          }).then(() => loadMonthRows(activeYm));
-                        }}
-                      />
-                      {row.emailCobranca ? (
-                        <div className="mt-1">
+                      </td>
+                      <td className={TD_SLIM}>
+                        <select
+                          value={row.status}
+                          aria-label={`Status — ${row.clienteNome}`}
+                          className={ocStatusSelectClass(row.status)}
+                          onChange={(e) => {
+                            const v = e.target.value as LinhaPayload["status"];
+                            void patchRow(row.id, { status: v }).then((ok) => {
+                              if (ok) void loadMonthRows(activeYm);
+                            });
+                          }}
+                        >
+                          <option value="pendente">{statusLabels.pendente}</option>
+                          <option value="solicitado_ordem">{statusLabels.solicitado_ordem}</option>
+                          <option value="enviado">{statusLabels.enviado}</option>
+                        </select>
+                      </td>
+                      <td className={TD_SLIM}>
+                        <div className="flex min-w-0 max-w-[11rem] items-center gap-0.5">
+                          {emails.length === 0 ? (
+                            <details className="min-w-0 flex-1">
+                              <summary className="cursor-pointer list-none truncate text-[11px] text-slate-400 [&::-webkit-details-marker]:hidden">
+                                —
+                              </summary>
+                              <div className="mt-1 border-t border-slate-200 pt-1 dark:border-slate-700">
+                                <input
+                                  type="text"
+                                  defaultValue=""
+                                  placeholder="Cole e-mails"
+                                  className="w-full rounded border border-slate-300 px-1 py-0.5 font-mono text-[10px] dark:border-slate-600 dark:bg-slate-900"
+                                  onBlur={(e) => {
+                                    const txt = e.target.value.trim();
+                                    void patchRow(row.id, {
+                                      emailCobranca: txt.length ? txt : null,
+                                    }).then(() => loadMonthRows(activeYm));
+                                  }}
+                                />
+                              </div>
+                            </details>
+                          ) : (
+                            <details className="min-w-0 flex-1">
+                              <summary
+                                className="cursor-pointer list-none truncate text-[11px] text-[#0066cc] hover:underline dark:text-sky-400 [&::-webkit-details-marker]:hidden"
+                                title={emailsJoined}
+                              >
+                                {emailPreview}
+                              </summary>
+                              <div className="mt-1 max-w-[14rem] space-y-0.5 border-t border-slate-200 pt-1 text-[10px] dark:border-slate-700">
+                                <ul className="list-none space-y-0.5">
+                                  {emails.map((em) => (
+                                    <li key={em} className="truncate">
+                                      <a
+                                        href={`mailto:${em}`}
+                                        className="text-[#0066cc] hover:underline dark:text-sky-400"
+                                      >
+                                        {em}
+                                      </a>
+                                    </li>
+                                  ))}
+                                </ul>
+                                <input
+                                  type="text"
+                                  defaultValue={row.emailCobranca ?? ""}
+                                  className="w-full rounded border border-slate-300 px-1 py-0.5 font-mono text-[10px] dark:border-slate-600 dark:bg-slate-900"
+                                  onBlur={(e) => {
+                                    const txt = e.target.value.trim();
+                                    void patchRow(row.id, {
+                                      emailCobranca: txt.length ? txt : null,
+                                    }).then(() => loadMonthRows(activeYm));
+                                  }}
+                                />
+                              </div>
+                            </details>
+                          )}
                           <CopyTextButton
-                            variant="text"
-                            label="Copiar e-mails OC desta linha"
-                            text={row.emailCobranca}
-                            className="text-[11px] text-sky-700 underline-offset-4 hover:underline dark:text-sky-400"
+                            variant="icon"
+                            text={emailsJoined}
+                            label="Copiar e-mails desta linha"
+                            className="!h-6 !w-6 shrink-0"
                           />
                         </div>
-                      ) : null}
-                    </td>
-                    <td className="align-top px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
-                      {row.spreadsheetHint ?? "—"}
-                    </td>
-                    <td className="align-top px-3 py-2">
-                      <textarea
-                        rows={3}
-                        defaultValue={row.notes}
-                        aria-label={`Notas — ${row.clienteNome}`}
-                        className="w-full resize-y rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900"
-                        onBlur={(e) => {
-                          void patchRow(row.id, { notes: e.target.value }).then((ok) => {
-                            if (ok) void loadMonthRows(activeYm);
-                          });
-                        }}
-                      />
-                    </td>
-                    <td className="align-top px-3 py-2">
-                      <button
-                        type="button"
-                        disabled={ocSendingRowId !== null || ocEmailTemplateLoading}
-                        title={
-                          ocSmtpConfigured
-                            ? "Envia texto do modelo ao e-mail cobrança desta linha (Locaweb SMTP)"
-                            : "Configure SMTP no servidor"
-                        }
-                        onClick={() => void sendOcEmailForRow(row)}
-                        className="w-full rounded border border-indigo-500 bg-indigo-50 px-2 py-1.5 text-[11px] font-semibold text-indigo-950 hover:bg-indigo-100 disabled:opacity-45 dark:border-indigo-400 dark:bg-indigo-950/50 dark:text-indigo-50 dark:hover:bg-indigo-900/70"
-                      >
-                        {ocSendingRowId === row.id ? "Enviando…" : "Disparar e-mail OC"}
-                      </button>
-                      {!row.solicitarPedirOc ? (
-                        <p className="mt-1 text-[10px] text-slate-500">
-                          Checkbox «Pedir OC» desmarcado — ainda assim pode disparar manualmente.
-                        </p>
-                      ) : null}
-                      {(row.anexarListagemClientesOc ?? false) &&
-                      !(row.ocListagemAnexoPresente ?? false) ? (
-                        <p className="mt-1 text-[10px] text-amber-800 dark:text-amber-200">
-                          «Arquivo»: envie a listagem deste mês antes de disparar SMTP.
-                        </p>
-                      ) : null}
-                    </td>
-                    <td className="space-y-1 align-top px-3 py-2">
-                      <button
-                        type="button"
-                        className="w-full rounded border border-sky-600 px-2 py-1 text-xs font-semibold text-sky-800 hover:bg-sky-50 dark:border-sky-500 dark:text-sky-300 dark:hover:bg-sky-950"
-                        onClick={() => {
-                          setBuscaCa(row.clienteNome.split(" ").slice(0, 4).join(" "));
-                          setLinkModalNotice(null);
-                          setLinkModalRowId(row.id);
-                        }}
-                      >
-                        Vincular CA
-                      </button>
-                      {row.contaAzulPersonId ? (
-                        <>
-                          <p className="font-mono text-[10px] text-slate-500 break-all" title={row.contaAzulPersonId}>
-                            {row.contaAzulPersonId.slice(0, 10)}…
-                          </p>
+                      </td>
+                      <td className={TD_SLIM}>
+                        <input
+                          type="text"
+                          defaultValue={row.notes}
+                          aria-label={`Notas — ${row.clienteNome}`}
+                          title={row.notes}
+                          className="w-full min-w-[7rem] max-w-[12rem] truncate rounded border border-slate-300 px-1.5 py-0.5 text-[11px] dark:border-slate-600 dark:bg-slate-900"
+                          onBlur={(e) => {
+                            void patchRow(row.id, { notes: e.target.value }).then((ok) => {
+                              if (ok) void loadMonthRows(activeYm);
+                            });
+                          }}
+                        />
+                      </td>
+                      <td className={TD_SLIM}>
+                        <button
+                          type="button"
+                          disabled={ocSendingRowId !== null || ocEmailTemplateLoading}
+                          title={
+                            ocSmtpConfigured
+                              ? "Envia texto do modelo ao e-mail cobrança desta linha (Locaweb SMTP)"
+                              : "Configure SMTP no servidor"
+                          }
+                          onClick={() => void sendOcEmailForRow(row)}
+                          className="whitespace-nowrap rounded border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-950 hover:bg-indigo-100 disabled:opacity-45 dark:border-indigo-400 dark:bg-indigo-950/50 dark:text-indigo-50 dark:hover:bg-indigo-900/70"
+                        >
+                          {ocSendingRowId === row.id ? "Enviando…" : "Disparar OC"}
+                        </button>
+                      </td>
+                      <td className={TD_SLIM}>
+                        <div className="flex min-w-[7.5rem] flex-col gap-0.5">
+                          {vinculado ? (
+                            <button
+                              type="button"
+                              className="whitespace-nowrap rounded border border-emerald-600 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-900/60"
+                              onClick={() => void postRefreshCaRow(row.id, { personId: "" })}
+                            >
+                              Vinculado CA
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="whitespace-nowrap rounded border border-red-600 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-800 hover:bg-red-100 dark:border-red-500 dark:bg-red-950/50 dark:text-red-200 dark:hover:bg-red-900/60"
+                              onClick={() => {
+                                setBuscaCa(row.clienteNome.split(" ").slice(0, 4).join(" "));
+                                setLinkModalNotice(null);
+                                setLinkModalRowId(row.id);
+                              }}
+                            >
+                              Vincular CA
+                            </button>
+                          )}
                           <button
                             type="button"
-                            className="block w-full text-left text-[11px] text-sky-700 underline underline-offset-2 hover:text-sky-900 dark:text-sky-400"
-                            onClick={() =>
-                              void (async () => {
-                                await postRefreshCaRow(row.id, {});
-                              })()
-                            }
+                            className="whitespace-nowrap rounded border border-red-200 px-2 py-0.5 text-[10px] font-semibold text-red-800 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                            onClick={() => {
+                              if (!confirm(`Remover "${row.clienteNome}" só deste mês?`)) return;
+                              void deleteRowReq(row.id).then((ok) => {
+                                if (ok) void loadMonthRows(activeYm);
+                              });
+                            }}
                           >
-                            Só atualizar e-mail CA
+                            Remover linha
                           </button>
-                          <button
-                            type="button"
-                            className="block text-[11px] text-red-700 hover:underline dark:text-red-400"
-                            onClick={() =>
-                              void (async () => {
-                                await postRefreshCaRow(row.id, { personId: "" });
-                              })()
-                            }
-                          >
-                            Limpar vínculo CA
-                          </button>
-                        </>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="w-full rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-800 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
-                        onClick={() => {
-                          if (!confirm(`Remover "${row.clienteNome}" só deste mês?`)) return;
-                          void deleteRowReq(row.id).then((ok) => {
-                            if (ok) void loadMonthRows(activeYm);
-                          });
-                        }}
-                      >
-                        Remover linha
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-        <p className="border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
-          Ordenação por dia da OC no mês, depois pela ordem original da planilha.
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t border-slate-200 px-4 py-1.5 text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          Ordenação por dia da OC no mês, depois pela ordem original da planilha. Cabeçalho fixo ao rolar a lista.
         </p>
       </section>
     </div>
