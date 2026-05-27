@@ -32,6 +32,19 @@ export async function POST(request: Request, context: Ctx) {
   if (!linha) return NextResponse.json({ error: "line_not_found" }, { status: 404 });
 
   const nome = typeof body.nome === "string" ? body.nome.trim() : "";
-  const pdv = await createRioCompPdv(linha.id, nome);
-  return NextResponse.json({ ok: true, pdv }, { status: 201 });
+  const { pdv, numeroPdvSite } = await createRioCompPdv(linha.id, nome);
+  const linhaVals = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: linha.id },
+    select: { valorClienteTexto: true, valorPdvUnitarioTexto: true },
+  });
+  return NextResponse.json(
+    {
+      ok: true,
+      pdv,
+      numeroPdvSite,
+      valorClienteTexto: linhaVals?.valorClienteTexto ?? "",
+      valorPdvUnitarioTexto: linhaVals?.valorPdvUnitarioTexto ?? "",
+    },
+    { status: 201 },
+  );
 }

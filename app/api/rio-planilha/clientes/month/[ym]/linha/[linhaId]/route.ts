@@ -37,6 +37,8 @@ export async function PATCH(request: Request, context: Ctx) {
     observacoesLinha: string;
     sortOrder: number;
     rioGrupoId: string | null;
+    valorClienteTexto: string;
+    valorPdvUnitarioTexto: string;
   }> = {};
 
   if (typeof body.grupoSite === "string") patch.grupoSite = body.grupoSite.slice(0, 8000);
@@ -46,6 +48,13 @@ export async function PATCH(request: Request, context: Ctx) {
 
   if (typeof body.numeroPdvSite === "number" && Number.isFinite(body.numeroPdvSite)) {
     patch.numeroPdvSite = Math.max(0, Math.floor(body.numeroPdvSite));
+  }
+
+  if (typeof body.valorClienteTexto === "string") {
+    patch.valorClienteTexto = body.valorClienteTexto.slice(0, 200);
+  }
+  if (typeof body.valorPdvUnitarioTexto === "string") {
+    patch.valorPdvUnitarioTexto = body.valorPdvUnitarioTexto.slice(0, 200);
   }
 
   if (typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)) {
@@ -73,7 +82,7 @@ export async function PATCH(request: Request, context: Ctx) {
   const raw = await prisma.rioCompClienteLinha.findUniqueOrThrow({
     where: { id: linha.id },
     include: {
-      pdvs: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      pdvs: { orderBy: [{ nome: "asc" }, { id: "asc" }] },
       rioGrupo: { select: { id: true, nome: true, sortOrder: true } },
     },
   });

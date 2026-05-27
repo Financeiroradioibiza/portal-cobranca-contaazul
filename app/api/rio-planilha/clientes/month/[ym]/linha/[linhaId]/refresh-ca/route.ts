@@ -73,6 +73,10 @@ export async function POST(req: Request, context: Ctx) {
         personId && !linha.emailCobranca?.trim() ?
           "Pessoa vinculada, mas sem e-mail de cobrança/faturamento no cadastro CA."
         : null,
+      contractValorEmptyHint:
+        personId && !linha.valorClienteTexto?.trim() && !linha.valorPdvUnitarioTexto?.trim() ?
+          "Sem valor em contrato ATIVO na CA — informe «Valor por PDV» no cliente expandido."
+        : null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "ca_erro";

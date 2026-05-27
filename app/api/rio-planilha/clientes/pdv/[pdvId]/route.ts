@@ -44,6 +44,18 @@ export async function DELETE(_req: Request, context: Ctx) {
   if (!pdvId?.trim()) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   const row = await authorizePdv(pdvId);
   if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  await deleteRioCompPdv(pdvId);
-  return NextResponse.json({ ok: true });
+  const result = await deleteRioCompPdv(pdvId);
+  const linhaVals = result?.clienteId ?
+    await prisma.rioCompClienteLinha.findUnique({
+      where: { id: result.clienteId },
+      select: { valorClienteTexto: true, valorPdvUnitarioTexto: true },
+    })
+  : null;
+  return NextResponse.json({
+    ok: true,
+    clienteId: result?.clienteId ?? row.cliente.id,
+    numeroPdvSite: result?.numeroPdvSite ?? 0,
+    valorClienteTexto: linhaVals?.valorClienteTexto ?? "",
+    valorPdvUnitarioTexto: linhaVals?.valorPdvUnitarioTexto ?? "",
+  });
 }

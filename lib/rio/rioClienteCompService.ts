@@ -13,6 +13,8 @@ import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeCliente
 import type { ParsedRioFileRow } from "@/lib/rio/rioCompFileImport";
 import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
 import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
+import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
 
@@ -208,7 +210,7 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
       grupos: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
       linhas: {
         include: {
-          pdvs: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+          pdvs: { orderBy: [{ nome: "asc" }, { id: "asc" }] },
           rioGrupo: { select: { id: true, nome: true, sortOrder: true } },
         },
       },
@@ -234,7 +236,7 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
     const { rioGrupo, ...rest } = ln;
     const out: RioCompLinhaOut = {
       ...(rest as RioCompClienteLinha),
-      pdvs: ln.pdvs,
+      pdvs: sortRioPdvsByNome(ln.pdvs),
       grupo: rioGrupo ? { ...rioGrupo } : null,
     };
     return out;
@@ -934,9 +936,35 @@ export async function patchRioCompClienteLinha(
     sortOrder: number;
     categoriaSite: string;
     observacoesLinha: string;
+    valorClienteTexto: string;
+    valorPdvUnitarioTexto: string;
   }>,
 ) {
-  const payload = { ...data };
+  const current = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: linhaId },
+    select: { numeroPdvSite: true, valorPdvUnitarioTexto: true },
+  });
+  if (!current) throw new Error("line_not_found");
+
+  const payload: typeof data = { ...data };
+  const nPdv = payload.numeroPdvSite ?? current.numeroPdvSite;
+
+  if (typeof payload.valorPdvUnitarioTexto === "string") {
+    payload.valorPdvUnitarioTexto = payload.valorPdvUnitarioTexto.slice(0, 200);
+    const total = valorClienteTextoFromPdvUnit(payload.valorPdvUnitarioTexto, nPdv);
+    if (total) payload.valorClienteTexto = total.slice(0, 200);
+  } else if (
+    typeof payload.numeroPdvSite === "number" &&
+    current.valorPdvUnitarioTexto.trim()
+  ) {
+    const total = valorClienteTextoFromPdvUnit(current.valorPdvUnitarioTexto, nPdv);
+    if (total) payload.valorClienteTexto = total.slice(0, 200);
+  }
+
+  if (typeof payload.valorClienteTexto === "string") {
+    payload.valorClienteTexto = payload.valorClienteTexto.slice(0, 200);
+  }
+
   await prisma.rioCompClienteLinha.update({
     where: { id: linhaId },
     data: payload,
@@ -1050,18 +1078,41 @@ export async function renameRioCompGrupo(monthId: string, grupoId: string, nomeR
   });
 }
 
+/** Atualiza `numero_pdv_site` para bater com a quantidade de PDVs cadastrados na linha. */
+export async function syncRioCompNumeroPdvSiteFromPdvs(linhaId: string): Promise<number> {
+  const linha = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: linhaId },
+    select: { valorPdvUnitarioTexto: true },
+  });
+  const count = await prisma.rioCompPdv.count({ where: { clienteId: linhaId } });
+  const valorClienteTexto =
+    linha?.valorPdvUnitarioTexto.trim() ?
+      valorClienteTextoFromPdvUnit(linha.valorPdvUnitarioTexto, count)
+    : undefined;
+  await prisma.rioCompClienteLinha.update({
+    where: { id: linhaId },
+    data: {
+      numeroPdvSite: count,
+      ...(valorClienteTexto !== undefined ? { valorClienteTexto: valorClienteTexto.slice(0, 200) } : {}),
+    },
+  });
+  return count;
+}
+
 export async function createRioCompPdv(linhaId: string, nome: string) {
   const n = await prisma.rioCompPdv.count({ where: { clienteId: linhaId } });
-  return prisma.rioCompPdv.create({
+  const pdv = await prisma.rioCompPdv.create({
     data: { clienteId: linhaId, nome: nome.trim() || `PDV ${n + 1}`, sortOrder: n },
   });
+  const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
+  return { pdv, numeroPdvSite };
 }
 
 /** Um nome por linha; ignora vazios e duplicados (case-insensitive) já existentes na linha. */
 export async function createRioCompPdvsBulk(
   linhaId: string,
   namesRaw: string[],
-): Promise<{ created: RioCompPdv[]; skipped: number }> {
+): Promise<{ created: RioCompPdv[]; skipped: number; numeroPdvSite: number }> {
   const names = [...new Set(namesRaw.map((n) => n.trim()).filter(Boolean))];
   const existing = await prisma.rioCompPdv.findMany({
     where: { clienteId: linhaId },
@@ -1087,7 +1138,8 @@ export async function createRioCompPdvsBulk(
     created.push(p);
   }
 
-  return { created, skipped };
+  const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
+  return { created, skipped, numeroPdvSite };
 }
 
 export async function patchRioCompPdv(
@@ -1098,5 +1150,12 @@ export async function patchRioCompPdv(
 }
 
 export async function deleteRioCompPdv(pdvId: string) {
+  const row = await prisma.rioCompPdv.findUnique({
+    where: { id: pdvId },
+    select: { clienteId: true },
+  });
+  if (!row) return null;
   await prisma.rioCompPdv.delete({ where: { id: pdvId } });
+  const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(row.clienteId);
+  return { clienteId: row.clienteId, numeroPdvSite };
 }

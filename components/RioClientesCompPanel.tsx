@@ -16,6 +16,7 @@ import {
   formatYearMonthLabel,
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
+import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import { arrayMove } from "@dnd-kit/sortable";
 
@@ -413,6 +414,8 @@ export function RioClientesCompPanel() {
         pdvs?: RioPdv[];
         createdCount?: number;
         skippedCount?: number;
+        numeroPdvSite?: number;
+        valorClienteTexto?: string;
         error?: string;
       }>(res);
       if (!res.ok) {
@@ -420,8 +423,22 @@ export function RioClientesCompPanel() {
         return;
       }
       if (Array.isArray(data?.pdvs)) {
+        const nPdv =
+          typeof data?.numeroPdvSite === "number" ? data.numeroPdvSite : data!.pdvs!.length;
         setLinhas((prev) =>
-          prev.map((l) => (l.id === linhaId ? { ...l, pdvs: data!.pdvs! } : l)),
+          prev.map((l) =>
+            l.id === linhaId ?
+              {
+                ...l,
+                pdvs: sortRioPdvsByNome(data!.pdvs!),
+                numeroPdvSite: nPdv,
+                valorClienteTexto:
+                  typeof data?.valorClienteTexto === "string" ?
+                    data.valorClienteTexto
+                  : l.valorClienteTexto,
+              }
+            : l,
+          ),
         );
       }
       setExpanded((prev) => {
@@ -452,13 +469,29 @@ export function RioClientesCompPanel() {
           body: JSON.stringify({ nome }),
         },
       );
-      const { data } = await readJsonFromResponse<{ pdv?: RioPdv }>(res);
+      const { data } = await readJsonFromResponse<{
+        pdv?: RioPdv;
+        numeroPdvSite?: number;
+        valorClienteTexto?: string;
+      }>(res);
       if (!res.ok || !data?.pdv) return;
       setNewPdvName((m) => ({ ...m, [linhaId]: "" }));
+      const nPdv =
+        typeof data.numeroPdvSite === "number" ? data.numeroPdvSite : undefined;
       setLinhas((prev) =>
-        prev.map((x) =>
-          x.id === linhaId ? { ...x, pdvs: [...x.pdvs, data.pdv!].sort((a, b) => a.sortOrder - b.sortOrder) } : x,
-        ),
+        prev.map((x) => {
+          if (x.id !== linhaId) return x;
+          const pdvs = sortRioPdvsByNome([...x.pdvs, data.pdv!]);
+          return {
+            ...x,
+            pdvs,
+            numeroPdvSite: nPdv ?? pdvs.length,
+            valorClienteTexto:
+              typeof data.valorClienteTexto === "string" ?
+                data.valorClienteTexto
+              : x.valorClienteTexto,
+          };
+        }),
       );
     },
     [activeYm, newPdvName],
@@ -476,7 +509,9 @@ export function RioClientesCompPanel() {
     setLinhas((prev) =>
       prev.map((ln) => ({
         ...ln,
-        pdvs: ln.pdvs.map((p) => (p.id === pdvId ? { ...p, nome: data.pdv!.nome } : p)),
+        pdvs: sortRioPdvsByNome(
+          ln.pdvs.map((p) => (p.id === pdvId ? { ...p, nome: data.pdv!.nome } : p)),
+        ),
       })),
     );
   }, []);
@@ -486,12 +521,31 @@ export function RioClientesCompPanel() {
       method: "DELETE",
       credentials: "include",
     });
+    const { data } = await readJsonFromResponse<{
+      clienteId?: string;
+      numeroPdvSite?: number;
+      valorClienteTexto?: string;
+    }>(res);
     if (!res.ok) return;
     setLinhas((prev) =>
-      prev.map((ln) => ({
-        ...ln,
-        pdvs: ln.pdvs.filter((p) => p.id !== pdvId),
-      })),
+      prev.map((ln) => {
+        const had = ln.pdvs.some((p) => p.id === pdvId);
+        if (!had) return ln;
+        const pdvs = sortRioPdvsByNome(ln.pdvs.filter((p) => p.id !== pdvId));
+        const nPdv =
+          data?.clienteId === ln.id && typeof data.numeroPdvSite === "number" ?
+            data.numeroPdvSite
+          : pdvs.length;
+        return {
+          ...ln,
+          pdvs,
+          numeroPdvSite: nPdv,
+          valorClienteTexto:
+            data?.clienteId === ln.id && typeof data.valorClienteTexto === "string" ?
+              data.valorClienteTexto
+            : ln.valorClienteTexto,
+        };
+      }),
     );
   }, []);
 
@@ -663,6 +717,7 @@ export function RioClientesCompPanel() {
           connected?: boolean;
           message?: string;
           billingEmailsEmptyHint?: string | null;
+          contractValorEmptyHint?: string | null;
           error?: string;
           detail?: string | null;
           linha?: RioLinha;
@@ -679,7 +734,11 @@ export function RioClientesCompPanel() {
           setMsg(err || "Falha ao vincular.");
           return false;
         }
-        if (data?.billingEmailsEmptyHint) setMsg(data.billingEmailsEmptyHint);
+        const hints = [data?.billingEmailsEmptyHint, data?.contractValorEmptyHint].filter(
+          (h): h is string => Boolean(h),
+        );
+        if (hints.length) setMsg(hints.join(" "));
+        else setMsg(null);
         if (data?.linha) {
           setLinhas((prev) =>
             prev.map((x) =>

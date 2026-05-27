@@ -252,6 +252,8 @@ model RioCompClienteLinha {
 
   // Texto livre (ex.: valor vindo da API CA ou traco)
   valorClienteTexto String @default("") @map("valor_cliente_texto") @db.VarChar(200)
+  /// Valor manual por PDV; total = unitário × numero_pdv_site
+  valorPdvUnitarioTexto String @default("") @map("valor_pdv_unitario_texto") @db.VarChar(200)
 
   numeroPdvSite Int    @default(0) @map("numero_pdv_site")
   categoriaSite String @default("") @map("categoria_site") @db.VarChar(120)

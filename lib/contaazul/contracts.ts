@@ -1,4 +1,5 @@
 import { CONTA_AZUL_API_BASE } from "./config";
+import { formatMoneyBr } from "@/lib/rio/valorClienteCalc";
 
 type Row = {
   status?: string;
@@ -47,24 +48,53 @@ function contractDisplayNumber(r: Record<string, unknown>): string | null {
   return null;
 }
 
+function contractValorFromRow(r: Record<string, unknown>): number | null {
+  const comp = r.composicao_valor ?? r.composicao_de_valor ?? r.composicaoValor;
+  if (comp && typeof comp === "object" && !Array.isArray(comp)) {
+    const o = comp as Record<string, unknown>;
+    for (const k of ["valor_liquido", "valorLiquido", "valor_bruto", "valorBruto"] as const) {
+      const v = o[k];
+      if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+    }
+  }
+  for (const k of [
+    "total_proximo_vencimento",
+    "totalProximoVencimento",
+    "total",
+    "valor_mensal",
+    "valorMensal",
+  ] as const) {
+    const v = r[k];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+
 function addRowsToAcc(
   items: Row[],
   want: Set<string>,
   acc: Map<string, Set<string>>,
+  valorAcc?: Map<string, number>,
 ) {
   for (const raw of items) {
     if (!raw || typeof raw !== "object") continue;
     const r = raw as Row;
-    const status = contractStatusUpper(r as Record<string, unknown>);
+    const rec = r as Record<string, unknown>;
+    const status = contractStatusUpper(rec);
     if (status !== "ATIVO") continue;
 
     const cid = r.cliente?.id ?? r.cliente_id ?? r.clienteId ?? "";
     if (!cid || !want.has(cid)) continue;
 
-    const num = contractDisplayNumber(r as Record<string, unknown>);
+    const num = contractDisplayNumber(rec);
     if (!num) continue;
     if (!acc.has(cid)) acc.set(cid, new Set());
     acc.get(cid)!.add(num);
+
+    if (valorAcc) {
+      const v = contractValorFromRow(rec);
+      if (v != null) valorAcc.set(cid, (valorAcc.get(cid) ?? 0) + v);
+    }
   }
 }
 
@@ -124,6 +154,7 @@ async function listContractsOneClientPaged(
   acc: Map<string, Set<string>>,
   statusContrato: "ATIVO" | "TODOS",
   maxPages: number,
+  valorAcc?: Map<string, number>,
 ): Promise<void> {
   let pagina = 1;
   for (;;) {
@@ -143,11 +174,22 @@ async function listContractsOneClientPaged(
     const { ok, items } = await fetchContractPage(accessToken, qs);
     if (!ok) return;
 
-    addRowsToAcc(items, want, acc);
+    addRowsToAcc(items, want, acc, valorAcc);
     if (items.length < 50) break;
     pagina += 1;
     if (pagina > maxPages) break;
   }
+}
+
+function contractDateRange(): { data_inicio: string; data_fim: string } {
+  const end = new Date();
+  const start = new Date();
+  start.setFullYear(start.getFullYear() - 30);
+  const data_inicio = start.toISOString().slice(0, 10);
+  const data_fim = new Date(end.getTime() + 86400000 * Math.round(365.25 * 20))
+    .toISOString()
+    .slice(0, 10);
+  return { data_inicio, data_fim };
 }
 
 export type FetchActiveContractsOpts = {
@@ -169,6 +211,7 @@ async function listContractsOneClient(
   want: Set<string>,
   acc: Map<string, Set<string>>,
   opts: { includeTodosSupplement: boolean },
+  valorAcc?: Map<string, number>,
 ): Promise<void> {
   await listContractsOneClientPaged(
     accessToken,
@@ -179,6 +222,7 @@ async function listContractsOneClient(
     acc,
     "ATIVO",
     contractsMaxPagesAtivo(),
+    valorAcc,
   );
   if (!opts.includeTodosSupplement) return;
   await listContractsOneClientPaged(
@@ -190,7 +234,34 @@ async function listContractsOneClient(
     acc,
     "TODOS",
     contractsMaxPagesTodosSupplement(),
+    valorAcc,
   );
+}
+
+/** Contratos ATIVOS de um cliente: números e soma do valor mensal (lista / composicao_valor). */
+export async function fetchActiveContractSummaryForClient(
+  accessToken: string,
+  clientId: string,
+): Promise<{ numeros: string; valorTexto: string } | null> {
+  const cid = clientId.trim();
+  if (!cid) return null;
+  const want = new Set([cid]);
+  const acc = new Map<string, Set<string>>();
+  const valorAcc = new Map<string, number>();
+  const { data_inicio, data_fim } = contractDateRange();
+  await listContractsOneClient(accessToken, cid, data_inicio, data_fim, want, acc, {
+    includeTodosSupplement: false,
+  }, valorAcc);
+  const nums = acc.get(cid);
+  const valorSum = valorAcc.get(cid);
+  if (!nums?.size && (valorSum == null || valorSum <= 0)) return null;
+  return {
+    numeros:
+      nums?.size ?
+        [...nums].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(", ")
+      : "",
+    valorTexto: valorSum != null && valorSum > 0 ? formatMoneyBr(valorSum) : "",
+  };
 }
 
 /**
@@ -207,15 +278,7 @@ export async function fetchActiveContractNumbersByClientIds(
 
   const acc = new Map<string, Set<string>>();
 
-  const end = new Date();
-  const start = new Date();
-  /**
-   * A Conta Azul exige intervalo na listagem. Janelas curtas em `data_fim` omitiam contratos com próximos
-   * vencimentos/emissões muito à frente; ~20 anos evita falsos «sem contrato ativo» na integração.
-   */
-  start.setFullYear(start.getFullYear() - 30);
-  const data_inicio = start.toISOString().slice(0, 10);
-  const data_fim = new Date(end.getTime() + 86400000 * Math.round(365.25 * 20)).toISOString().slice(0, 10);
+  const { data_inicio, data_fim } = contractDateRange();
 
   const idList = [...want];
   const includeTodosSupplement = opts?.includeTodosSupplement !== false;

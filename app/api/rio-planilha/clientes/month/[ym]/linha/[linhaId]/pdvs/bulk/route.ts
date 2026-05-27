@@ -46,16 +46,24 @@ export async function POST(request: Request, context: Ctx) {
   });
   if (!linha) return NextResponse.json({ error: "line_not_found" }, { status: 404 });
 
-  const { created, skipped } = await createRioCompPdvsBulk(linha.id, names);
+  const { created, skipped, numeroPdvSite } = await createRioCompPdvsBulk(linha.id, names);
   const pdvs = await prisma.rioCompPdv.findMany({
     where: { clienteId: linha.id },
-    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    orderBy: [{ nome: "asc" }, { id: "asc" }],
+  });
+
+  const linhaVals = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: linha.id },
+    select: { valorClienteTexto: true, valorPdvUnitarioTexto: true },
   });
 
   return NextResponse.json({
     ok: true,
     createdCount: created.length,
     skippedCount: skipped,
+    numeroPdvSite,
+    valorClienteTexto: linhaVals?.valorClienteTexto ?? "",
+    valorPdvUnitarioTexto: linhaVals?.valorPdvUnitarioTexto ?? "",
     pdvs,
   });
 }

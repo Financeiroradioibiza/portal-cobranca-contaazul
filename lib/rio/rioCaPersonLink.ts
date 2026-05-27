@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { billingEmailJoined, fetchPersonDetail } from "@/lib/contaazul/personBilling";
-import { searchPeopleByText } from "@/lib/contaazul/personBilling";
+import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
+import { billingEmailJoined, fetchPersonDetail, searchPeopleByText } from "@/lib/contaazul/personBilling";
+import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import type { RioCompLinhaOut } from "@/lib/rio/rioClienteCompService";
 
 function asRecord(o: unknown): Record<string, unknown> | null {
@@ -63,13 +64,14 @@ async function linhaToOut(linhaId: string): Promise<RioCompLinhaOut> {
   const raw = await prisma.rioCompClienteLinha.findUniqueOrThrow({
     where: { id: linhaId },
     include: {
-      pdvs: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      pdvs: { orderBy: [{ nome: "asc" }, { id: "asc" }] },
       rioGrupo: { select: { id: true, nome: true, sortOrder: true } },
     },
   });
   const { rioGrupo: rg, ...core } = raw;
   return {
     ...core,
+    pdvs: sortRioPdvsByNome(raw.pdvs),
     grupo: rg ? { id: rg.id, nome: rg.nome, sortOrder: rg.sortOrder } : null,
   };
 }
@@ -113,7 +115,20 @@ export async function applyCaPersonToRioLinha(
   const nomeFantasia = nomeFantasiaFromRaw(rec) || linha.nomeFantasia;
   const razaoSocial = razaoFromRaw(rec) || linha.razaoSocial;
   const documento = documentoFromRaw(rec, linha.documento);
-  const valor = valorClienteFromRaw(rec) || linha.valorClienteTexto;
+
+  let valorClienteTexto = linha.valorClienteTexto;
+  let valorPdvUnitarioTexto = linha.valorPdvUnitarioTexto;
+  let contratosAtivosTexto = linha.contratosAtivosTexto;
+
+  const contract = await fetchActiveContractSummaryForClient(accessToken, pid);
+  if (contract?.numeros) contratosAtivosTexto = contract.numeros.slice(0, 400);
+  if (contract?.valorTexto) {
+    valorClienteTexto = contract.valorTexto.slice(0, 200);
+    valorPdvUnitarioTexto = "";
+  } else {
+    const valorPessoa = valorClienteFromRaw(rec);
+    if (valorPessoa) valorClienteTexto = valorPessoa.slice(0, 200);
+  }
 
   await prisma.rioCompClienteLinha.update({
     where: { id: linhaId },
@@ -123,7 +138,9 @@ export async function applyCaPersonToRioLinha(
       razaoSocial: razaoSocial.slice(0, 8000),
       documento,
       emailCobranca: email,
-      valorClienteTexto: valor.slice(0, 200),
+      valorClienteTexto,
+      valorPdvUnitarioTexto,
+      contratosAtivosTexto,
     },
   });
 

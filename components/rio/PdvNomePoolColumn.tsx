@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { parsePdvNamesFromMultilineText } from "@/lib/rio/pdvNames";
+import { parsePdvNamesFromMultilineText, sortPdvNamesAlphabetically } from "@/lib/rio/pdvNames";
 
 const MIME_ONE = "application/x-rio-pdv-nome";
 const MIME_BULK = "application/x-rio-pdv-bulk";
@@ -44,7 +44,10 @@ type Props = {
 };
 
 export function PdvNomePoolColumn({ text, onTextChange }: Props) {
-  const names = useMemo(() => parsePdvNamesFromMultilineText(text), [text]);
+  const names = useMemo(
+    () => sortPdvNamesAlphabetically(parsePdvNamesFromMultilineText(text)),
+    [text],
+  );
 
   return (
     <aside className="sticky top-2 flex w-[11.5rem] shrink-0 flex-col gap-2 self-start rounded-xl border border-amber-400/70 bg-amber-50/90 p-2 shadow-sm dark:border-amber-800/80 dark:bg-amber-950/40">

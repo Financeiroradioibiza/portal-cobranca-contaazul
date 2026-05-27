@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
-import { parsePdvNamesFromMultilineText } from "@/lib/rio/pdvNames";
+import { parsePdvNamesFromMultilineText, sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { readPdvDropFromDataTransfer } from "@/components/rio/PdvNomePoolColumn";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { parseEmailAddresses } from "@/lib/format";
@@ -50,6 +51,7 @@ export type RioLinhaCb = {
   documento: string | null;
   emailCobranca: string | null;
   valorClienteTexto: string;
+  valorPdvUnitarioTexto: string;
   numeroPdvSite: number;
   categoriaSite: string;
   contratosAtivosTexto: string;
@@ -143,36 +145,7 @@ function SortClientRow(props: {
     }
   };
 
-  const pdvsSorted = [...r.pdvs].sort(
-    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id.localeCompare(b.id),
-  );
-
-  const pdvSensor = useSensor(PointerSensor, { activationConstraint: { distance: 4 } });
-  const pdvKeySensor = useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates });
-  const pdvSensors = useSensors(pdvSensor, pdvKeySensor);
-
-  const pdvIds = pdvsSorted.map((p) => `pdv-${r.id}-${p.id}`);
-
-  const onPdvDragEnd = async (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const i0 = pdvIds.indexOf(String(active.id));
-    const i1 = pdvIds.indexOf(String(over.id));
-    if (i0 < 0 || i1 < 0) return;
-    const ord = pdvsSorted.map((p) => p.id);
-    const next = arrayMove(ord, i0, i1);
-    const res = await fetch(`/api/rio-planilha/clientes/month/${props.ym}/linha/${r.id}/pdvs/reorder`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderedPdvIds: next }),
-    });
-    type R = { linhas?: RioLinhaCb[] };
-    const payload = await res.json().catch(() => null);
-    if (res.ok && payload && Array.isArray((payload as R).linhas)) {
-      props.setLinhas((payload as R).linhas!);
-    }
-  };
+  const pdvsSorted = sortRioPdvsByNome(r.pdvs);
 
   return (
     <>
@@ -243,6 +216,7 @@ function SortClientRow(props: {
         </td>
         <td className="px-0.5">
           <input
+            key={`n-pdv-${r.id}-${r.numeroPdvSite}`}
             type="number"
             min={0}
             className="box-border h-7 w-[3rem] rounded border border-slate-200 bg-transparent px-0.5 text-[11px] dark:border-slate-700"
@@ -346,18 +320,11 @@ function SortClientRow(props: {
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-950/95 dark:text-amber-400">
                 Solte aqui PDVs da coluna à direita (ou cole a lista abaixo)
               </p>
-            <DndContext sensors={pdvSensors} collisionDetection={closestCorners} onDragEnd={(e) => void onPdvDragEnd(e)}>
-              <SortableContext items={pdvIds} strategy={verticalListSortingStrategy}>
-                <ul className="mb-2 max-w-[52rem] space-y-1">
-                  {pdvsSorted.map((p, pi) => {
-                    const pid = `pdv-${r.id}-${p.id}`;
-                    return (
-                      <PdvMini key={pid} pid={pid} indexVis={pi + 1} p={p} patchPdv={props.patchPdv} del={props.delPdv} />
-                    );
-                  })}
-                </ul>
-              </SortableContext>
-            </DndContext>
+            <ul className="mb-2 max-w-[52rem] space-y-1">
+              {pdvsSorted.map((p, pi) => (
+                <PdvMini key={p.id} indexVis={pi + 1} p={p} patchPdv={props.patchPdv} del={props.delPdv} />
+              ))}
+            </ul>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
               <div className="min-w-[12rem] flex-1">
                 <label className="mb-0.5 block text-[10px] font-medium text-amber-950/90 dark:text-amber-200/90">
@@ -385,6 +352,37 @@ function SortClientRow(props: {
                 Adicionar lista colada
               </button>
             </div>
+            <div className="mt-2 flex flex-col gap-2 border-t border-amber-800/20 pt-2 sm:flex-row sm:flex-wrap sm:items-end">
+              <div>
+                <label className="mb-0.5 block text-[10px] font-medium text-amber-950/90 dark:text-amber-200/90">
+                  Valor por PDV (manual)
+                </label>
+                <input
+                  key={`v-pdv-u-${r.id}-${r.valorPdvUnitarioTexto}`}
+                  className="w-[8.5rem] rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
+                  placeholder="ex. 150,00"
+                  defaultValue={r.valorPdvUnitarioTexto}
+                  onBlur={(e) =>
+                    void props.patchLinha(r.id, { valorPdvUnitarioTexto: e.target.value.trim() })
+                  }
+                />
+                <p className="mt-0.5 text-[10px] text-amber-950/80 dark:text-amber-200/75">
+                  Total na coluna «Valor»:{" "}
+                  <strong>
+                    {r.valorClienteTexto?.trim() ?
+                      r.valorClienteTexto
+                    : valorClienteTextoFromPdvUnit(r.valorPdvUnitarioTexto, r.numeroPdvSite) ||
+                      "—"}
+                  </strong>
+                  {r.numeroPdvSite > 0 && r.valorPdvUnitarioTexto.trim() ?
+                    <> ({r.numeroPdvSite} PDV × unit.)</>
+                  : null}
+                </p>
+                <p className="text-[10px] italic text-amber-950/70 dark:text-amber-200/65">
+                  Com CA vinculado, o valor pode vir do contrato ATIVO; se não houver, use valor por PDV.
+                </p>
+              </div>
+            </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-amber-800/20 pt-2">
               <input
                 className="min-w-[13rem] rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
@@ -409,24 +407,14 @@ function SortClientRow(props: {
 }
 
 function PdvMini(props: {
-  pid: string;
   indexVis: number;
   p: RioPdvCb;
   patchPdv: (pdvId: string, nome: string) => void;
   del: (pdvId: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: props.pid });
-  const sty: CSSProperties = { transform: CSS.Transform.toString(transform), transition };
   const { indexVis } = props;
   return (
-    <li
-      ref={setNodeRef}
-      style={sty}
-      className="flex flex-nowrap items-center gap-2 rounded-md border border-amber-900/45 bg-amber-100/80 px-2 py-0.5 text-[11px] dark:bg-amber-950/72 dark:border-amber-800/61"
-    >
-      <button type="button" className="cursor-grab text-amber-900 dark:text-amber-200" {...listeners} {...attributes} title="Arrastar PDV">
-        ♦
-      </button>
+    <li className="flex flex-nowrap items-center gap-2 rounded-md border border-amber-900/45 bg-amber-100/80 px-2 py-0.5 text-[11px] dark:bg-amber-950/72 dark:border-amber-800/61">
       <span className="w-6 shrink-0 text-right font-bold tabular-nums text-amber-950 dark:text-amber-100">{indexVis}</span>
       <input
         className="min-w-[12rem] flex-1 rounded border border-transparent bg-transparent px-1 py-0 text-[11px] hover:border-amber-800/52 dark:hover:border-amber-600"
