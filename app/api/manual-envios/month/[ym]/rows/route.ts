@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { ensureMonthSnapshot } from "@/lib/manualReminders/monthService";
+import { manualReminderLinhaApiSelect } from "@/lib/manualReminders/manualLinhaApiSelect";
+import { stripManualReminderRowBlob } from "@/lib/manualReminders/manualRowPayload";
 
 /**
  * Nova linha vazia (cliente novo) dentro do mês.
@@ -30,7 +32,8 @@ export async function POST(req: Request, context: { params: Promise<{ ym: string
       solicitarPedirOc: true,
       sortOrder: nextOrder,
     },
+    select: manualReminderLinhaApiSelect,
   });
 
-  return NextResponse.json({ row }, { status: 201 });
+  return NextResponse.json({ row: stripManualReminderRowBlob(row) }, { status: 201 });
 }

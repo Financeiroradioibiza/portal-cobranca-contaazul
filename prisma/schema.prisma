@@ -49,6 +49,8 @@ model ManualReminderTemplate {
   clienteNome     String   @map("cliente_nome")
   cnpjDocumento   String?  @map("cnpj_documento")
   solicitarPedirOc Boolean @default(true) @map("solicitar_pedir_oc")
+  /// Anexar listagem (clientes mês anterior) ao e-mail de pedido de OC, todo mês.
+  anexarListagemClientesOc Boolean @default(false) @map("anexar_listagem_clientes_oc")
   spreadsheetHint String?  @map("spreadsheet_hint")
   sortOrder       Int      @default(0) @map("sort_order")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -79,11 +81,16 @@ model ManualReminderRow {
   contaAzulPersonId  String?                 @map("conta_azul_person_id")
 
   solicitarPedirOc   Boolean                 @default(true) @map("solicitar_pedir_oc")
+  /// Listagem/imagem dos clientes (mês anterior) a anexar ao e-mail OC; renovar a cada competência.
+  anexarListagemClientesOc Boolean           @default(false) @map("anexar_listagem_clientes_oc")
   status             ManualReminderRowStatus @default(pendente)
 
   emailCobranca      String?                 @map("email_cobranca")
   spreadsheetHint    String?                 @map("spreadsheet_hint")
   notes              String                  @default("")
+  listagemClienteArquivo     Bytes?  @map("listagem_cliente_arquivo") @db.ByteA
+  listagemClienteArquivoNome String? @map("listagem_cliente_arquivo_nome") @db.VarChar(480)
+  listagemClienteArquivoMime String? @map("listagem_cliente_arquivo_mime") @db.VarChar(160)
 
   /// YYYYMMDD (TZ Brasil): último envio automático OC; impede segundo disparo no mesmo dia (reset ao voltar para pendente).
   autoOcSentYmd      Int?                    @map("auto_oc_sent_ymd")

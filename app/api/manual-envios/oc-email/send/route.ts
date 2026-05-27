@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { ManualReminderRowStatus } from "@prisma/client";
 import { isOcSmtpConfigured } from "@/lib/email/ocSmtp";
 import { transmitOcReminderSmtp } from "@/lib/manualReminders/ocReminderSend";
+import type { OcRowWithMonth } from "@/lib/manualReminders/ocReminderSend";
 import { parseOcEmailRecipients } from "@/lib/manualReminders/ocEmailRender";
+import { manualReminderLinhaComMesApiSelect } from "@/lib/manualReminders/manualLinhaApiSelect";
 import { prisma } from "@/lib/prisma";
 
 function validRowId(id: string): boolean {
@@ -42,10 +44,24 @@ export async function POST(request: Request) {
 
   const row = await prisma.manualReminderRow.findUnique({
     where: { id: rowId },
-    include: { month: true },
+    select: manualReminderLinhaComMesApiSelect,
   });
   if (!row) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  if (
+    row.anexarListagemClientesOc &&
+    !row.listagemClienteArquivoNome?.trim()
+  ) {
+    return NextResponse.json(
+      {
+        error: "oc_listagem_required",
+        message:
+          "Esta linha exige listagem/imagem mensal para o pedido OC. Envie um ficheiro na coluna «Arquivo» deste mês antes de disparar.",
+      },
+      { status: 400 },
+    );
   }
 
   if (!parseOcEmailRecipients(row.emailCobranca ?? "").length) {
@@ -61,7 +77,7 @@ export async function POST(request: Request) {
 
   let destinatarios: string[] = [];
   try {
-    destinatarios = await transmitOcReminderSmtp(row);
+    destinatarios = await transmitOcReminderSmtp(row as OcRowWithMonth);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "smtp_send_failed";
     return NextResponse.json({ error: "smtp_send_failed", message: msg.slice(0, 500) }, { status: 502 });

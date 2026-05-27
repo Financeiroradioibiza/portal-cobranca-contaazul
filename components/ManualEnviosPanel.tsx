@@ -25,6 +25,10 @@ type LinhaPayload = {
   cnpjDocumento: string | null;
   contaAzulPersonId: string | null;
   solicitarPedirOc: boolean;
+  anexarListagemClientesOc: boolean;
+  ocListagemAnexoPresente?: boolean;
+  listagemClienteArquivoNome?: string | null;
+  listagemClienteArquivoMime?: string | null;
   status: "pendente" | "solicitado_ordem" | "enviado";
   emailCobranca: string | null;
   spreadsheetHint: string | null;
@@ -78,7 +82,14 @@ export function ManualEnviosPanel() {
   const [ocEmailTemplateLoading, setOcEmailTemplateLoading] = useState(true);
   const [ocEmailSaving, setOcEmailSaving] = useState(false);
   const [ocSendingRowId, setOcSendingRowId] = useState<string | null>(null);
+  const [ocListagemBusyRowId, setOcListagemBusyRowId] = useState<string | null>(null);
   const [ocPreviewClienteNome, setOcPreviewClienteNome] = useState("");
+
+  /** Remover competência (DELETE /month/:ym com senha de login no portal). */
+  const [deleteMonthModalYm, setDeleteMonthModalYm] = useState<number | null>(null);
+  const [deleteMonthPwd, setDeleteMonthPwd] = useState("");
+  const [deleteMonthBusy, setDeleteMonthBusy] = useState(false);
+  const [deleteMonthModalErr, setDeleteMonthModalErr] = useState<string | null>(null);
 
   const reloadMonthsOnly = useCallback(async () => {
     const res = await fetch("/api/manual-envios/months", { credentials: "include" });
@@ -215,6 +226,91 @@ export function ManualEnviosPanel() {
     return () => clearTimeout(t);
   }, [buscaCa, linkModalRowId]);
 
+  const confirmDeleteMonth = useCallback(async () => {
+    if (deleteMonthModalYm === null) return;
+    setDeleteMonthBusy(true);
+    setDeleteMonthModalErr(null);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/manual-envios/month/${deleteMonthModalYm}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password: deleteMonthPwd }),
+      });
+      const { data, parseError, rawText } = await readJsonFromResponse<{
+        ok?: boolean;
+        months?: MonthMeta[];
+        error?: string;
+      }>(res);
+
+      if (parseError || !data) {
+        setDeleteMonthModalErr(rawText.trim().slice(0, 240) || "Resposta inválida.");
+        return;
+      }
+
+      if (!res.ok) {
+        const err =
+          data.error === "invalid_password"
+            ? "Senha incorreta (tem de ser a mesma do seu login neste portal)."
+            : data.error === "not_found"
+              ? "Esta competência já não existe (foi removida?)."
+              : (data.error || rawText).trim().slice(0, 240) || "Falha ao apagar.";
+        setDeleteMonthModalErr(err);
+        return;
+      }
+
+      if (!data.ok || !Array.isArray(data.months)) {
+        setDeleteMonthModalErr("Resposta incompleta do servidor.");
+        return;
+      }
+
+      setMonths(data.months);
+      setDeleteMonthModalYm(null);
+      setDeleteMonthPwd("");
+
+      if (data.months.length > 0) {
+        const nextYm = [...data.months].sort((a, b) => b.yearMonth - a.yearMonth)[0]!.yearMonth;
+        await loadMonthRows(nextYm);
+      } else {
+        const boot = await fetch("/api/manual-envios/months", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({}),
+        });
+        const bootParsed = await readJsonFromResponse<{
+          months?: MonthMeta[];
+          activeYearMonth?: number;
+          month?: { id: string; yearMonth: number; linhas: LinhaPayload[] };
+        }>(boot);
+        if (!bootParsed.parseError && bootParsed.data?.months) {
+          setMonths(bootParsed.data.months);
+          const y =
+            typeof bootParsed.data.activeYearMonth === "number"
+              ? bootParsed.data.activeYearMonth
+              : nowYm;
+          if (
+            bootParsed.data.month?.linhas?.length !== undefined &&
+            bootParsed.data.month.yearMonth === y
+          ) {
+            setLinhas(bootParsed.data.month.linhas);
+            setActiveYm(y);
+          } else {
+            await loadMonthRows(y);
+          }
+        } else {
+          setMsg(
+            "Todas as competências foram apagadas; não consegui recriar o período atual. Recarregue esta página.",
+          );
+          setLinhas([]);
+        }
+      }
+    } finally {
+      setDeleteMonthBusy(false);
+    }
+  }, [deleteMonthModalYm, deleteMonthPwd, loadMonthRows, nowYm]);
+
   const onEnsureNextMonth = useCallback(async () => {
     const latest = months[0]?.yearMonth ?? activeYm;
     const next = shiftYearMonth(latest, 1);
@@ -276,6 +372,55 @@ export function ManualEnviosPanel() {
     [activeYm, loadMonthRows],
   );
 
+  const uploadOcListagemFile = useCallback(
+    async (rowId: string, file: File) => {
+      setOcListagemBusyRowId(rowId);
+      setMsg(null);
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch(
+          `/api/manual-envios/rows/${encodeURIComponent(rowId)}/oc-listagem-arquivo`,
+          { method: "POST", body: fd, credentials: "include" },
+        );
+        const { data, rawText } = await readJsonFromResponse<{
+          error?: string;
+        }>(res);
+        if (!res.ok) {
+          const detail = (data?.error ?? rawText).trim().slice(0, 240);
+          setMsg(detail || `Falha ao enviar ficheiro (${res.status}).`);
+          return;
+        }
+        await loadMonthRows(activeYm);
+      } finally {
+        setOcListagemBusyRowId(null);
+      }
+    },
+    [activeYm, loadMonthRows],
+  );
+
+  const clearOcListagemFile = useCallback(
+    async (rowId: string) => {
+      setOcListagemBusyRowId(rowId);
+      setMsg(null);
+      try {
+        const res = await fetch(
+          `/api/manual-envios/rows/${encodeURIComponent(rowId)}/oc-listagem-arquivo`,
+          { method: "DELETE", credentials: "include" },
+        );
+        const { rawText } = await readJsonFromResponse<{ error?: string }>(res);
+        if (!res.ok) {
+          setMsg(rawText.trim().slice(0, 200) || "Falha ao remover anexo.");
+          return;
+        }
+        await loadMonthRows(activeYm);
+      } finally {
+        setOcListagemBusyRowId(null);
+      }
+    },
+    [activeYm, loadMonthRows],
+  );
+
   const ocPreviewVars = useMemo(
     () =>
       buildOcEmailVars({
@@ -322,6 +467,12 @@ export function ManualEnviosPanel() {
     const to = parseOcEmailRecipients(row.emailCobranca);
     if (!to.length) {
       setMsg("Defina pelo menos um e-mail na coluna de cobrança desta linha antes de disparar.");
+      return;
+    }
+    if ((row.anexarListagemClientesOc ?? false) && !(row.ocListagemAnexoPresente ?? false)) {
+      setMsg(
+        "Esta linha pede envio mensal da listagem/imagem («Arquivo»). Envie primeiro o ficheiro deste mês antes de disparar o e-mail OC.",
+      );
       return;
     }
     if (!ocSmtpConfigured) {
@@ -524,6 +675,72 @@ export function ManualEnviosPanel() {
         </div>
       ) : null}
 
+      {deleteMonthModalYm !== null ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-month-heading"
+        >
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-rose-200 bg-white shadow-xl dark:border-rose-900/70 dark:bg-slate-900">
+            <div className="border-b border-rose-100 px-4 py-3 dark:border-rose-900/50">
+              <p id="delete-month-heading" className="text-sm font-semibold text-rose-900 dark:text-rose-100">
+                Remover competência {formatYearMonthLabel(deleteMonthModalYm)}
+              </p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Esta ação não pode ser anulada — todas as linhas e anexos deste período são apagados. Digite a
+                <strong className="font-semibold text-slate-800 dark:text-slate-100"> sua senha de login neste portal</strong>{" "}
+                para confirmar.
+              </p>
+            </div>
+            <div className="space-y-3 px-4 py-4">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                Senha
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={deleteMonthPwd}
+                  onChange={(e) => setDeleteMonthPwd(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+                  placeholder="Mesma senha do login"
+                  disabled={deleteMonthBusy}
+                />
+              </label>
+              {deleteMonthModalErr ? (
+                <p
+                  role="alert"
+                  className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+                >
+                  {deleteMonthModalErr}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={deleteMonthBusy}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setDeleteMonthModalYm(null);
+                    setDeleteMonthPwd("");
+                    setDeleteMonthModalErr(null);
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteMonthBusy || !deleteMonthPwd.trim()}
+                  className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50 dark:bg-rose-700 dark:hover:bg-rose-600"
+                  onClick={() => void confirmDeleteMonth()}
+                >
+                  {deleteMonthBusy ? "Apagando…" : "Remover período"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-[#0066cc] dark:text-sky-400">
@@ -704,7 +921,7 @@ export function ManualEnviosPanel() {
               disabled={loading}
               onClick={() => void onEnsureNextMonth()}
               className="rounded-lg border border-dashed border-slate-400 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-500 dark:text-slate-300 dark:hover:bg-slate-900"
-              title="Cria o próximo mês com a lista mestre atual (templates seed + ajustes no banco mestre)."
+              title="Duplica linhas da competência anterior mais recente que já tenha clientes gravados — inclui vínculo Conta Azul e e-mail de cobrança. Se houve buraco entre meses, não fica só com templates seed. Mantém «Pedir OC» e «Arquivo»; não copia o binário da listagem. Primeira competência sem nada antes continua nos templates seed."
             >
               + Novo mês seguinte
             </button>
@@ -723,6 +940,19 @@ export function ManualEnviosPanel() {
               className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-105 dark:bg-emerald-700"
             >
               Nova linha
+            </button>
+            <button
+              type="button"
+              disabled={loading || months.length === 0}
+              onClick={() => {
+                setDeleteMonthModalYm(activeYm);
+                setDeleteMonthPwd("");
+                setDeleteMonthModalErr(null);
+              }}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200 dark:hover:bg-rose-950/70"
+              title={`Apaga todo o período ${formatYearMonthLabel(activeYm)} na base OC (senha de login exigida).`}
+            >
+              Apagar período atual
             </button>
           </div>
         </div>
@@ -754,13 +984,14 @@ export function ManualEnviosPanel() {
       </section>
 
       <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
-        <table className="min-w-[960px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1040px] w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/80">
               <th className="whitespace-nowrap px-3 py-2 font-semibold">Dia OC</th>
               <th className="min-w-[12rem] px-3 py-2 font-semibold">Cliente (Conta Azul)</th>
               <th className="whitespace-nowrap px-3 py-2 font-semibold">CNPJ</th>
               <th className="px-3 py-2 font-semibold text-center">Pedir OC</th>
+              <th className="min-w-[10rem] px-3 py-2 font-semibold text-center">Arquivo</th>
               <th className="min-w-[9rem] px-3 py-2 font-semibold">Status</th>
               <th className="min-w-[11rem] px-3 py-2 font-semibold">E-mail cobrança (CA)</th>
               <th className="min-w-[8rem] px-3 py-2 font-semibold">Tarefa (plan.)</th>
@@ -772,13 +1003,13 @@ export function ManualEnviosPanel() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={11} className="px-3 py-8 text-center text-slate-500">
                   Carregando…
                 </td>
               </tr>
             ) : linhas.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-3 py-10 text-center text-slate-500">
+                <td colSpan={11} className="px-3 py-10 text-center text-slate-500">
                   Este mês está vazio. Use &quot;Novo mês seguinte&quot; ou recrie a partir dos templates pelo
                   API.
                 </td>
@@ -852,6 +1083,68 @@ export function ManualEnviosPanel() {
                           });
                         }}
                       />
+                    </td>
+                    <td className="max-w-[12rem] align-top px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        defaultChecked={row.anexarListagemClientesOc ?? false}
+                        aria-label={`Todo mês: anexar listagem/imagem ao e-mail OC — ${row.clienteNome}`}
+                        className="h-4 w-4 accent-amber-600"
+                        onChange={(e) => {
+                          void patchRow(row.id, { anexarListagemClientesOc: e.target.checked }).then(
+                            (ok) => {
+                              if (ok) void loadMonthRows(activeYm);
+                            },
+                          );
+                        }}
+                      />
+                      {row.anexarListagemClientesOc ?? false ? (
+                        <div className="mt-2 space-y-1 text-left">
+                          <label className="block text-[10px] leading-tight text-slate-600 dark:text-slate-400">
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              Listagem mês anterior
+                            </span>{" "}
+                            (CSV, Excel ou imagem até 4&nbsp;MB; renovar cada competência)
+                          </label>
+                          <input
+                            type="file"
+                            accept=".csv,.pdf,.xls,.xlsx,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                            disabled={
+                              ocListagemBusyRowId === row.id ||
+                              ocSendingRowId === row.id
+                            }
+                            className="block w-full cursor-pointer text-[10px] file:mr-2 file:rounded file:border file:border-slate-300 file:bg-white file:px-1 file:py-0.5 dark:file:border-slate-600 dark:file:bg-slate-900"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              e.target.value = "";
+                              if (f) void uploadOcListagemFile(row.id, f);
+                            }}
+                          />
+                          {row.ocListagemAnexoPresente ? (
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-emerald-800 dark:text-emerald-400">
+                              <span className="font-medium break-all">
+                                {row.listagemClienteArquivoNome ?? "Ficheiro pronto"}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={ocListagemBusyRowId === row.id}
+                                className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                                onClick={() => void clearOcListagemFile(row.id)}
+                              >
+                                Remover anexo
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] leading-tight text-amber-900 dark:text-amber-300">
+                              Envie antes de disparar SMTP — obrigatório para esta linha.
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                          Marcar para pedir OC com listagem.
+                        </p>
+                      )}
                     </td>
                     <td className="align-top px-3 py-2">
                       <select
@@ -927,6 +1220,12 @@ export function ManualEnviosPanel() {
                       {!row.solicitarPedirOc ? (
                         <p className="mt-1 text-[10px] text-slate-500">
                           Checkbox «Pedir OC» desmarcado — ainda assim pode disparar manualmente.
+                        </p>
+                      ) : null}
+                      {(row.anexarListagemClientesOc ?? false) &&
+                      !(row.ocListagemAnexoPresente ?? false) ? (
+                        <p className="mt-1 text-[10px] text-amber-800 dark:text-amber-200">
+                          «Arquivo»: envie a listagem deste mês antes de disparar SMTP.
                         </p>
                       ) : null}
                     </td>

@@ -8,6 +8,7 @@ export type SeedTemplateRow = {
   cnpjDocumento?: string | null;
   tarefaNotaSpreadsheet?: string | null;
   solicitarPedirOc: boolean;
+  anexarListagemClientesOc?: boolean;
 };
 
 /**
@@ -30,6 +31,7 @@ export async function ensureTemplatesFromSeed(prisma: PrismaClient): Promise<{ c
         clienteNome: r.clienteNome.trim(),
         cnpjDocumento: r.cnpjDocumento?.trim() || null,
         solicitarPedirOc: Boolean(r.solicitarPedirOc),
+        anexarListagemClientesOc: Boolean(r.anexarListagemClientesOc),
         spreadsheetHint: hint,
         sortOrder: ix,
       };
@@ -56,6 +58,7 @@ export async function mergeTemplatesFromSeedFile(prisma: PrismaClient): Promise<
       clienteNome: r.clienteNome.trim(),
       cnpjDocumento: r.cnpjDocumento?.trim() || null,
       solicitarPedirOc: Boolean(r.solicitarPedirOc),
+      anexarListagemClientesOc: Boolean(r.anexarListagemClientesOc),
       spreadsheetHint: hint,
       sortOrder: order++,
     };

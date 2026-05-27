@@ -9,7 +9,9 @@ import {
   currentBrazilYearMonth,
 } from "@/lib/manualReminders/yearMonth";
 import { parseOcEmailRecipients } from "@/lib/manualReminders/ocEmailRender";
+import { manualReminderLinhaComMesApiSelect } from "@/lib/manualReminders/manualLinhaApiSelect";
 import { transmitOcReminderSmtp } from "@/lib/manualReminders/ocReminderSend";
+import type { OcRowWithMonth } from "@/lib/manualReminders/ocReminderSend";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +49,7 @@ async function handle(request: Request) {
       solicitarPedirOc: true,
       OR: [{ autoOcSentYmd: null }, { autoOcSentYmd: { not: todayYmd } }],
     },
-    include: { month: true },
+    select: manualReminderLinhaComMesApiSelect,
     orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
   });
 
@@ -60,8 +62,17 @@ async function handle(request: Request) {
       continue;
     }
 
+    if (row.anexarListagemClientesOc && !row.listagemClienteArquivoNome?.trim()) {
+      results.push({
+        rowId: row.id,
+        ok: false,
+        error: "missing_listagem_attachment",
+      });
+      continue;
+    }
+
     try {
-      await transmitOcReminderSmtp(row);
+      await transmitOcReminderSmtp(row as OcRowWithMonth);
     } catch (e) {
       const msg = e instanceof Error ? e.message.slice(0, 500) : "smtp_failed";
       results.push({ rowId: row.id, ok: false, error: msg });

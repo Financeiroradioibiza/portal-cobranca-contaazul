@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import { billingEmailJoined, fetchPersonDetail } from "@/lib/contaazul/personBilling";
+import { manualReminderLinhaApiSelect } from "@/lib/manualReminders/manualLinhaApiSelect";
+import { stripManualReminderRowBlob } from "@/lib/manualReminders/manualRowPayload";
 
 const CA_HINT_PT =
   "Sem sessão OAuth Conta Azul no servidor ou o refresh falhou. Abra o painel principal (/), reconecte o Conta Azul neste mesmo domínio e tente vincular de novo.";
@@ -52,12 +54,15 @@ export async function POST(req: Request, context: { params: Promise<{ rowId: str
 
   try {
     if (!personId) {
-      await prisma.manualReminderRow.update({
+      const row = await prisma.manualReminderRow.update({
         where: { id: rowId },
         data: { contaAzulPersonId: null, emailCobranca: null },
+        select: manualReminderLinhaApiSelect,
       });
-      const row = await prisma.manualReminderRow.findUnique({ where: { id: rowId } });
-      return NextResponse.json({ connected: true as const, row });
+      return NextResponse.json({
+        connected: true as const,
+        row: stripManualReminderRowBlob(row),
+      });
     }
 
     const raw = await fetchPersonDetail(token, personId);
@@ -69,11 +74,12 @@ export async function POST(req: Request, context: { params: Promise<{ rowId: str
         contaAzulPersonId: personId,
         emailCobranca: email,
       },
+      select: manualReminderLinhaApiSelect,
     });
 
     return NextResponse.json({
       connected: true as const,
-      row,
+      row: stripManualReminderRowBlob(row),
       emailPreview: row.emailCobranca,
       /** Diagnóstico leve quando o cadastro não tem contato cobrança preenchido */
       billingEmailsEmptyHint:

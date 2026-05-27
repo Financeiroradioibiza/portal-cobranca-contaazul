@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { ManualReminderRowStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { manualReminderLinhaApiSelect } from "@/lib/manualReminders/manualLinhaApiSelect";
+import { stripManualReminderRowBlob } from "@/lib/manualReminders/manualRowPayload";
 
 const MAX_NOTE = 20_000;
 const ALLOWED_STATUS = new Set<string>(Object.values(ManualReminderRowStatus));
@@ -59,6 +61,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ rowId
     patch.solicitarPedirOc = body.solicitarPedirOc;
   }
 
+  if (typeof body.anexarListagemClientesOc === "boolean") {
+    patch.anexarListagemClientesOc = body.anexarListagemClientesOc;
+    if (!body.anexarListagemClientesOc) {
+      patch.listagemClienteArquivo = null;
+      patch.listagemClienteArquivoNome = null;
+      patch.listagemClienteArquivoMime = null;
+    }
+  }
+
   if ("contaAzulPersonId" in body) {
     if (body.contaAzulPersonId === null || body.contaAzulPersonId === "") {
       patch.contaAzulPersonId = null;
@@ -104,8 +115,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ rowId
     const updated = await prisma.manualReminderRow.update({
       where: { id: rowId },
       data: patch,
+      select: manualReminderLinhaApiSelect,
     });
-    return NextResponse.json({ row: updated });
+    return NextResponse.json({ row: stripManualReminderRowBlob(updated) });
   } catch {
     return NextResponse.json({ error: "not_found_or_conflict" }, { status: 404 });
   }

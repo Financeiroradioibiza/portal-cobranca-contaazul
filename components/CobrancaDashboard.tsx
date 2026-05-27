@@ -39,6 +39,8 @@ export function CobrancaDashboard() {
   const [smtpCobOpenCharges, setSmtpCobOpenCharges] = useState(false);
   const [sendingCobEmailClientId, setSendingCobEmailClientId] = useState<string | null>(null);
   const [painelBusyClientId, setPainelBusyClientId] = useState<string | null>(null);
+  /** Painel `<details>`: um cliente expandido; fecha após guardar marca com sucesso. */
+  const [painelDetailsOpenClientId, setPainelDetailsOpenClientId] = useState<string | null>(null);
   const [cobSendModalOpen, setCobSendModalOpen] = useState(false);
   const [cobSendPreviewLoading, setCobSendPreviewLoading] = useState(false);
   const [cobSendClient, setCobSendClient] = useState<ClientRow | null>(null);
@@ -577,6 +579,7 @@ export function CobrancaDashboard() {
               : c,
           ),
         );
+        setPainelDetailsOpenClientId((openId) => (openId === clientId ? null : openId));
       } catch {
         setActionMsg("Falha ao salvar. Verifique a conexão.");
         setClients((prev) =>
@@ -1083,7 +1086,19 @@ export function CobrancaDashboard() {
                         )}
                       </td>
                       <td className="border-b border-slate-200/90 px-2 py-1.5 pl-3 pr-6 align-middle dark:border-slate-800">
-                        <details className="min-w-[10.75rem]">
+                        <details
+                          className="min-w-[10.75rem]"
+                          open={painelDetailsOpenClientId === c.id}
+                          onToggle={(e) => {
+                            if (e.currentTarget.open) {
+                              setPainelDetailsOpenClientId(c.id);
+                            } else {
+                              setPainelDetailsOpenClientId((prev) =>
+                                prev === c.id ? null : prev,
+                              );
+                            }
+                          }}
+                        >
                           <summary className="cursor-pointer select-none list-none rounded border border-transparent px-1 py-0.5 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 [&::-webkit-details-marker]:hidden dark:hover:border-slate-600 dark:hover:bg-slate-800/80">
                             {c.painelBloqueio || c.painelInativo ? (
                               <div className="flex flex-col gap-0.5 text-[0.6rem] font-semibold uppercase leading-tight tracking-wide text-red-600 dark:text-red-500">
