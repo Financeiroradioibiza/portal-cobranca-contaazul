@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { ensureRioCompMonth, listRioCompMonths } from "@/lib/rio/rioClienteCompService";
+import { cloneRioCompMonthFromDonor } from "@/lib/rio/cloneRioCompMonth";
+import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 
 export async function GET() {
@@ -30,7 +32,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_year_month" }, { status: 400 });
   }
 
+  const cloneFromPrevious = body.cloneFromPrevious !== false;
+
   try {
+    if (cloneFromPrevious && isRioTurnoverMonth(ym)) {
+      const full = await cloneRioCompMonthFromDonor(ym);
+      return NextResponse.json({
+        month: { id: full.month.id, yearMonth: full.month.yearMonth },
+        clonedFrom: full.donorYearMonth,
+        closedDonor: full.closedDonor,
+        grupos: full.grupos,
+        linhas: full.linhas,
+      });
+    }
     const month = await ensureRioCompMonth(ym);
     return NextResponse.json({ month: { id: month.id, yearMonth: month.yearMonth } });
   } catch (e) {

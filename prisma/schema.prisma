@@ -205,10 +205,17 @@ enum RioClienteCompMovimento {
   saida
 }
 
+enum RioPdvMovimento {
+  estavel
+  entrada
+  saida
+}
+
 model RioCompMonth {
   id           String    @id @default(cuid())
   yearMonth    Int       @unique @map("year_month")
   lastSyncedAt DateTime? @map("last_synced_at")
+  closedAt     DateTime? @map("closed_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   grupos RioCompGrupo[]
@@ -225,6 +232,8 @@ model RioCompGrupo {
 
   nome      String @default("") @map("nome") @db.Text
   sortOrder Int    @default(0) @map("sort_order")
+  /// Blocos fixos da virada: ca_entrada, ca_saida, pdv_entrada, pdv_saida
+  systemTag String? @map("system_tag") @db.VarChar(32)
 
   linhas RioCompClienteLinha[]
 
@@ -281,6 +290,7 @@ model RioCompPdv {
   nome      String @default("") @db.Text
   notes     String @default("") @db.Text
   sortOrder Int    @default(0) @map("sort_order")
+  movimento RioPdvMovimento @default(estavel)
 
   createdAt DateTime @default(now()) @map("created_at")
 

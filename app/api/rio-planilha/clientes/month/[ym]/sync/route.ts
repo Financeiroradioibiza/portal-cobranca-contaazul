@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { syncRioCompMonthFromContaAzul } from "@/lib/rio/rioClienteCompService";
+import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
+import { viradaRioCompMonthFromContaAzul } from "@/lib/rio/rioViradaMes";
 import { getValidAccessToken } from "@/lib/contaazul/session";
+import { prisma } from "@/lib/prisma";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 
 export const runtime = "nodejs";
@@ -36,6 +39,26 @@ export async function POST(req: Request, context: Ctx) {
   }
 
   try {
+    if (isRioTurnoverMonth(ym)) {
+      const virada = await viradaRioCompMonthFromContaAzul(token, ym, {
+        includeContracts,
+        includePersonDetails,
+      });
+      const month = await prisma.rioCompMonth.findUnique({ where: { yearMonth: ym } });
+      return NextResponse.json({
+        ok: true,
+        virada: true,
+        month,
+        grupos: virada.grupos,
+        linhas: virada.linhas,
+        count: virada.linhas.length,
+        caPersonListingCount: virada.caPersonListingCount,
+        viradaStats: virada.viradaStats,
+        syncedContractsFromCa: virada.syncedContractsFromCa,
+        syncedPersonDetailsFromCa: virada.syncedPersonDetailsFromCa,
+      });
+    }
+
     const {
       month,
       grupos,
@@ -46,6 +69,7 @@ export async function POST(req: Request, context: Ctx) {
     } = await syncRioCompMonthFromContaAzul(token, ym, { includeContracts, includePersonDetails });
     return NextResponse.json({
       ok: true,
+      virada: false,
       month,
       grupos,
       linhas,

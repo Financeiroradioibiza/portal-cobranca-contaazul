@@ -11,7 +11,8 @@ import {
   type RioGrupoCb,
   type RioLinhaCb,
 } from "@/components/rio/ClienteMarcaBlock";
-import { PdvNomePoolColumn } from "@/components/rio/PdvNomePoolColumn";
+import { PdvMovimentoMarcaBlock } from "@/components/rio/PdvMovimentoMarcaBlock";
+import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
@@ -72,7 +73,10 @@ export function RioClientesCompPanel() {
   const todayYm = useMemo(() => currentBrazilYearMonth(), []);
   const [months, setMonths] = useState<MonthMeta[]>([]);
   const [activeYm, setActiveYm] = useState<number>(todayYm);
-  const [monthInfo, setMonthInfo] = useState<{ lastSyncedAt: string | null } | null>(null);
+  const [monthInfo, setMonthInfo] = useState<{
+    lastSyncedAt: string | null;
+    closedAt: string | null;
+  } | null>(null);
   const [linhas, setLinhas] = useState<RioLinha[]>([]);
   const [grupos, setGrupos] = useState<RioGrupo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,7 +100,6 @@ export function RioClientesCompPanel() {
   const [linkModalNotice, setLinkModalNotice] = useState<string | null>(null);
   const [caLinkBusy, setCaLinkBusy] = useState(false);
   const [refreshingCa, setRefreshingCa] = useState(false);
-  const [pdvPoolText, setPdvPoolText] = useState("");
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months", { credentials: "include" });
@@ -112,7 +115,7 @@ export function RioClientesCompPanel() {
         credentials: "include",
       });
       const { data, rawText } = await readJsonFromResponse<{
-        month?: { lastSyncedAt?: string } | null;
+        month?: { lastSyncedAt?: string | null; closedAt?: string | null } | null;
         grupos?: RioGrupo[];
         linhas?: RioLinha[];
       }>(res);
@@ -124,7 +127,12 @@ export function RioClientesCompPanel() {
         return;
       }
       setMonthInfo(
-        data?.month ? { lastSyncedAt: data.month.lastSyncedAt ?? null } : { lastSyncedAt: null },
+        data?.month ?
+          {
+            lastSyncedAt: data.month.lastSyncedAt ?? null,
+            closedAt: data.month.closedAt ?? null,
+          }
+        : { lastSyncedAt: null, closedAt: null },
       );
       setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
       setLinhas(Array.isArray(data?.linhas) ? data!.linhas! : []);
@@ -202,17 +210,134 @@ export function RioClientesCompPanel() {
     await loadMonth(activeYm);
   }, [activeYm, loadMonth, loadMonths]);
 
+  const turnoverMonth = isRioTurnoverMonth(activeYm);
+  const monthClosed = Boolean(monthInfo?.closedAt);
+
+  const caRefreshRunId = useRef(0);
+
+  const mergeLinhasFromCaBatch = useCallback((updates: RioLinha[]) => {
+    if (!updates.length) return;
+    setLinhas((prev) => {
+      const byId = new Map(updates.map((u) => [u.id, u]));
+      return prev.map((l) => {
+        const u = byId.get(l.id);
+        return u ? { ...u, pdvs: u.pdvs?.length ? u.pdvs : l.pdvs } : l;
+      });
+    });
+  }, []);
+
+  const runCaBatchPhase = useCallback(
+    async (
+      mode: "refresh" | "match",
+      runId: number,
+      acc: { updated: number; failed: number; matched: number; ambiguous: number; notFound: number },
+      opts?: {
+        includePersonDetails?: boolean;
+        includeContracts?: boolean;
+        progressLabel?: string;
+      },
+    ) => {
+      let offset = 0;
+      const limit = RIO_CA_REFRESH_BATCH_SIZE;
+      const progressLabel = opts?.progressLabel ?? (mode === "match" ? "Casar CNPJ → CA" : "Atualizar vinculados CA");
+
+      while (true) {
+        if (caRefreshRunId.current !== runId) return;
+
+        const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/refresh-linked-ca`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            offset,
+            limit,
+            mode,
+            ...(mode === "refresh" ?
+              {
+                includePersonDetails: opts?.includePersonDetails ?? true,
+                includeContracts: opts?.includeContracts ?? true,
+              }
+            : {}),
+          }),
+        });
+        const { data, rawText } = await readJsonFromResponse<{
+          refreshStats?: { updated: number; failed: number };
+          matchStats?: { matched: number; ambiguous: number; notFound: number };
+          progress?: {
+            batchNumber: number;
+            batchCount: number;
+            batchFrom: number;
+            batchTo: number;
+            globalTotal: number;
+            hasMore: boolean;
+          };
+          updatedLinhas?: RioLinha[];
+          error?: string;
+          message?: string;
+          connected?: boolean;
+        }>(res);
+
+        if (!res.ok) {
+          throw new Error(
+            data?.message || data?.error || rawText.slice(0, 220) || "Falha ao atualizar vínculos.",
+          );
+        }
+
+        if (Array.isArray(data?.updatedLinhas)) mergeLinhasFromCaBatch(data.updatedLinhas);
+
+        const p = data?.progress;
+        if (p) {
+          if (p.globalTotal === 0) {
+            setMsg(
+              mode === "match" ?
+                "Nenhuma linha com CNPJ/CPF para casar neste lote."
+              : "Nenhum cliente vinculado à CA para atualizar.",
+            );
+            return;
+          }
+          setMsg(
+            `${progressLabel} — ação ${p.batchNumber} de ${p.batchCount}: clientes ${p.batchFrom}–${p.batchTo} de ${p.globalTotal}…`,
+          );
+        }
+
+        if (mode === "refresh" && data?.refreshStats) {
+          acc.updated += data.refreshStats.updated;
+          acc.failed += data.refreshStats.failed;
+        }
+        if (mode === "match" && data?.matchStats) {
+          acc.matched += data.matchStats.matched;
+          acc.ambiguous += data.matchStats.ambiguous;
+          acc.notFound += data.matchStats.notFound;
+        }
+
+        if (!p?.hasMore) break;
+        offset += limit;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    },
+    [activeYm, mergeLinhasFromCaBatch],
+  );
+
   const syncCa = useCallback(async () => {
+    if (monthClosed) {
+      setMsg("Esta competência está fechada — abra o mês seguinte para trabalhar.");
+      return;
+    }
+    const runId = ++caRefreshRunId.current;
     setSyncing(true);
-    setMsg(null);
+    setMsg(
+      turnoverMonth ?
+        "Virada do mês — passo 1: listagem de clientes ativos na CA…"
+      : "Sincronizar — passo 1: listagem básica na CA…",
+    );
     try {
       const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/sync`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          includeContracts: syncIncludeContracts,
-          includePersonDetails: syncIncludePersonDetails,
+          includeContracts: false,
+          includePersonDetails: false,
         }),
       });
       const { data, rawText, parseError } = await readJsonFromResponse<{
@@ -223,6 +348,8 @@ export function RioClientesCompPanel() {
         caPersonListingCount?: number;
         syncedContractsFromCa?: boolean;
         syncedPersonDetailsFromCa?: boolean;
+        virada?: boolean;
+        viradaStats?: { entrada: number; saida: number; estavel: number; novos: number };
       }>(res);
       if (!res.ok) {
         const proxyHtml =
@@ -245,29 +372,79 @@ export function RioClientesCompPanel() {
       }
       setLinhas(data?.linhas ?? []);
       setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
-      setMonthInfo((m) => ({ lastSyncedAt: new Date().toISOString() }));
+      setMonthInfo((m) => ({
+        lastSyncedAt: new Date().toISOString(),
+        closedAt: m?.closedAt ?? null,
+      }));
       const n = data?.count ?? data?.linhas?.length ?? 0;
       const listed = data?.caPersonListingCount;
       const listedHint =
         typeof listed === "number" ?
           ` (${listed} registros «Cliente» na listagem CA${listed === 0 ? " — nada retornado pela API neste critério" : ""})`
         : "";
+      const vs = data?.viradaStats;
+      const viradaHint =
+        data?.virada && vs ?
+          ` ${vs.estavel} estáveis, ${vs.entrada} entrando (novos ${vs.novos}), ${vs.saida} saindo.`
+        : "";
+
+      const acc = { updated: 0, failed: 0, matched: 0, ambiguous: 0, notFound: 0 };
+      const enrichLabel =
+        turnoverMonth ? "Virada do mês" : (
+          syncIncludePersonDetails && syncIncludeContracts ? "Sincronizar Conta Azul"
+        : syncIncludePersonDetails ? "Enriquecer cadastro"
+        : "Contratos CA");
+
+      if (syncIncludePersonDetails || syncIncludeContracts) {
+        if (caRefreshRunId.current !== runId) return;
+        await runCaBatchPhase("refresh", runId, acc, {
+          includePersonDetails: syncIncludePersonDetails,
+          includeContracts: syncIncludeContracts,
+          progressLabel: `${enrichLabel} — passo 2`,
+        });
+      }
+
+      if (caRefreshRunId.current !== runId) return;
+
+      const enrichParts: string[] = [];
+      if (syncIncludePersonDetails || syncIncludeContracts) {
+        enrichParts.push(
+          `Passo 2 (${RIO_CA_REFRESH_BATCH_SIZE} em ${RIO_CA_REFRESH_BATCH_SIZE}): ${acc.updated} atualizado(s)${acc.failed ? `, ${acc.failed} falha` : ""}.`,
+        );
+      }
       const contrHint =
-        data?.syncedContractsFromCa ?
-          " Contratos CA atualizados nesta sync."
-        : " Contratos: mantidos do que já estava na competência (sync sem busca em /contratos).";
+        syncIncludeContracts ? " Contratos CA atualizados em lotes."
+        : " Contratos: não buscados nesta sync.";
       const detailHint =
-        data?.syncedPersonDetailsFromCa ?
-          " Dados extra (e-mail cobrança, etc.) atualizados via API de pessoas."
-        : " E-mail/razão/valor: só listagem básica nesta sync (sem enriquecimento por ID).";
-      setMsg(`Sincronizado: ${n} linhas.${listedHint}${contrHint}${detailHint}`);
+        syncIncludePersonDetails ?
+          " Cadastro enriquecido em lotes (e-mail, razão, etc.)."
+        : " Cadastro: só listagem básica (passo 1).";
+
+      setMsg(
+        (data?.virada ? `Virada do mês: ${n} linhas.` : `Sincronizado: ${n} linhas.`) +
+          listedHint +
+          viradaHint +
+          contrHint +
+          detailHint +
+          (enrichParts.length ? ` ${enrichParts.join(" ")}` : ""),
+      );
       await loadMonths();
-    } catch {
-      setMsg("Falha na sincronização.");
+    } catch (e) {
+      if (caRefreshRunId.current === runId) {
+        setMsg(e instanceof Error ? e.message : "Falha na sincronização.");
+      }
     } finally {
-      setSyncing(false);
+      if (caRefreshRunId.current === runId) setSyncing(false);
     }
-  }, [activeYm, syncIncludeContracts, syncIncludePersonDetails, loadMonths]);
+  }, [
+    activeYm,
+    monthClosed,
+    syncIncludeContracts,
+    syncIncludePersonDetails,
+    loadMonths,
+    turnoverMonth,
+    runCaBatchPhase,
+  ]);
 
   const runImportFile = useCallback(
     async (file: File) => {
@@ -302,7 +479,10 @@ export function RioClientesCompPanel() {
         }
         setLinhas(data?.linhas ?? []);
         setGrupos(Array.isArray(data?.grupos) ? data!.grupos! : []);
-        setMonthInfo((m) => ({ lastSyncedAt: new Date().toISOString() }));
+        setMonthInfo((m) => ({
+        lastSyncedAt: new Date().toISOString(),
+        closedAt: m?.closedAt ?? null,
+      }));
         const w = Array.isArray(data?.warnings) ? data!.warnings.filter(Boolean) : [];
         const warnTxt = w.length ? ` Avisos: ${w.join(" ")}` : "";
         const inferTxt =
@@ -517,6 +697,46 @@ export function RioClientesCompPanel() {
     );
   }, []);
 
+  const delLinha = useCallback(
+    async (r: RioLinha) => {
+      if (monthClosed) {
+        setMsg("Competência fechada — não é possível apagar linhas.");
+        return;
+      }
+      if (
+        !window.confirm(
+          `Apagar «${r.nomeFantasia}» desta competência?\n\nRemove a linha e os PDVs internos. Não altera o cadastro na Conta Azul.`,
+        )
+      ) {
+        return;
+      }
+      const res = await fetch(
+        `/api/rio-planilha/clientes/month/${activeYm}/linha/${encodeURIComponent(r.id)}`,
+        { method: "DELETE", credentials: "include" },
+      );
+      const { data, rawText } = await readJsonFromResponse<{
+        linhas?: RioLinha[];
+        grupos?: RioGrupo[];
+        error?: string;
+      }>(res);
+      if (!res.ok) {
+        setMsg(data?.error || rawText.slice(0, 200) || "Falha ao apagar cliente.");
+        return;
+      }
+      if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
+      else setLinhas((prev) => prev.filter((l) => l.id !== r.id));
+      if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
+      setExpanded((prev) => {
+        const nx = new Set(prev);
+        nx.delete(r.id);
+        return nx;
+      });
+      setLinkModalLinha((cur) => (cur?.id === r.id ? null : cur));
+      setMsg(`Cliente «${r.nomeFantasia}» removido desta competência.`);
+    },
+    [activeYm, monthClosed],
+  );
+
   const delPdv = useCallback(async (pdvId: string) => {
     const res = await fetch(`/api/rio-planilha/clientes/pdv/${pdvId}`, {
       method: "DELETE",
@@ -554,6 +774,9 @@ export function RioClientesCompPanel() {
     () => [...grupos].sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)),
     [grupos],
   );
+
+  const systemGrupoOrd = useMemo(() => grupoOrd.filter((g) => g.systemTag), [grupoOrd]);
+  const userGrupoOrd = useMemo(() => grupoOrd.filter((g) => !g.systemTag), [grupoOrd]);
 
   const { map: buckets, orphans } = useMemo(() => bucketize(grupoOrd, linhas), [grupoOrd, linhas]);
 
@@ -680,10 +903,11 @@ export function RioClientesCompPanel() {
 
   const deslocarBlocoMarca = useCallback(
     async (ix: number, delta: number) => {
-      const ids = grupoOrd.map((g) => g.id);
+      const systemIds = systemGrupoOrd.map((g) => g.id);
+      const userIds = userGrupoOrd.map((g) => g.id);
       const j = ix + delta;
-      if (j < 0 || j >= ids.length) return;
-      const nextIds = arrayMove(ids, ix, j);
+      if (j < 0 || j >= userIds.length) return;
+      const nextIds = [...systemIds, ...arrayMove(userIds, ix, j)];
       const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/grupos`, {
         method: "PATCH",
         credentials: "include",
@@ -698,7 +922,7 @@ export function RioClientesCompPanel() {
       if (Array.isArray(data?.grupos)) setGrupos(data!.grupos!);
       if (Array.isArray(data?.linhas)) setLinhas(data!.linhas!);
     },
-    [activeYm, grupoOrd],
+    [activeYm, systemGrupoOrd, userGrupoOrd],
   );
 
   const postRefreshCaLinha = useCallback(
@@ -773,109 +997,29 @@ export function RioClientesCompPanel() {
   const onSelectCaHit = useCallback(
     async (hit: { id: string; nome: string }) => {
       if (!linkModalLinha) return;
-      const ok = await postRefreshCaLinha(linkModalLinha.id, { personId: hit.id });
+      const ok = await postRefreshCaLinha(linkModalLinha.id, {
+        personId: hit.id,
+        caNomeLista: hit.nome,
+      });
       if (ok) {
         setLinkModalLinha(null);
         setBuscaCa("");
-        setMsg(`Vinculado a «${hit.nome}» — e-mail e dados vêm da Conta Azul.`);
+        setMsg(`Vinculado a «${hit.nome}» — nome fantasia e dados importados da Conta Azul.`);
       }
     },
     [linkModalLinha, postRefreshCaLinha],
   );
 
-  const caRefreshRunId = useRef(0);
-
-  const mergeLinhasFromCaBatch = useCallback((updates: RioLinha[]) => {
-    if (!updates.length) return;
-    setLinhas((prev) => {
-      const byId = new Map(updates.map((u) => [u.id, u]));
-      return prev.map((l) => {
-        const u = byId.get(l.id);
-        return u ? { ...u, pdvs: u.pdvs?.length ? u.pdvs : l.pdvs } : l;
-      });
-    });
-  }, []);
-
-  const runCaBatchPhase = useCallback(
-    async (
-      mode: "refresh" | "match",
-      runId: number,
-      acc: { updated: number; failed: number; matched: number; ambiguous: number; notFound: number },
-    ) => {
-      let offset = 0;
-      const limit = RIO_CA_REFRESH_BATCH_SIZE;
-
-      while (true) {
-        if (caRefreshRunId.current !== runId) return;
-
-        const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/refresh-linked-ca`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ offset, limit, mode }),
-        });
-        const { data, rawText } = await readJsonFromResponse<{
-          refreshStats?: { updated: number; failed: number };
-          matchStats?: { matched: number; ambiguous: number; notFound: number };
-          progress?: {
-            batchNumber: number;
-            batchCount: number;
-            batchFrom: number;
-            batchTo: number;
-            globalTotal: number;
-            hasMore: boolean;
-          };
-          updatedLinhas?: RioLinha[];
-          error?: string;
-          message?: string;
-          connected?: boolean;
-        }>(res);
-
-        if (!res.ok) {
-          throw new Error(
-            data?.message || data?.error || rawText.slice(0, 220) || "Falha ao atualizar vínculos.",
-          );
-        }
-
-        if (Array.isArray(data?.updatedLinhas)) mergeLinhasFromCaBatch(data.updatedLinhas);
-
-        const p = data?.progress;
-        if (p) {
-          const label =
-            mode === "match" ? "Casar CNPJ → CA" : "Atualizar vinculados CA";
-          if (p.globalTotal === 0) {
-            setMsg(
-              mode === "match" ?
-                "Nenhuma linha com CNPJ/CPF para casar neste lote."
-              : "Nenhum cliente vinculado à CA para atualizar.",
-            );
-            return;
-          }
-          setMsg(
-            `${label} — ação ${p.batchNumber} de ${p.batchCount}: clientes ${p.batchFrom}–${p.batchTo} de ${p.globalTotal}…`,
-          );
-        }
-
-        if (mode === "refresh" && data?.refreshStats) {
-          acc.updated += data.refreshStats.updated;
-          acc.failed += data.refreshStats.failed;
-        }
-        if (mode === "match" && data?.matchStats) {
-          acc.matched += data.matchStats.matched;
-          acc.ambiguous += data.matchStats.ambiguous;
-          acc.notFound += data.matchStats.notFound;
-        }
-
-        if (!p?.hasMore) break;
-        offset += limit;
-        await new Promise((r) => setTimeout(r, 0));
-      }
-    },
-    [activeYm, mergeLinhasFromCaBatch],
-  );
-
   const refreshLinkedFromCa = useCallback(
     async (matchByDocument: boolean) => {
+      const enrichPerson = matchByDocument || syncIncludePersonDetails;
+      const enrichContracts = matchByDocument || syncIncludeContracts;
+      if (!matchByDocument && !enrichPerson && !enrichContracts) {
+        setMsg(
+          "Marque «Enriquecer cadastro» e/ou «Contratos» acima — a atualização da CA corre em lotes de 10 clientes.",
+        );
+        return;
+      }
       const runId = ++caRefreshRunId.current;
       setRefreshingCa(true);
       setMsg(null);
@@ -886,7 +1030,10 @@ export function RioClientesCompPanel() {
           await runCaBatchPhase("match", runId, acc);
           if (caRefreshRunId.current !== runId) return;
         }
-        await runCaBatchPhase("refresh", runId, acc);
+        await runCaBatchPhase("refresh", runId, acc, {
+          includePersonDetails: enrichPerson,
+          includeContracts: enrichContracts,
+        });
         if (caRefreshRunId.current !== runId) return;
 
         const parts: string[] = [];
@@ -907,7 +1054,7 @@ export function RioClientesCompPanel() {
         if (caRefreshRunId.current === runId) setRefreshingCa(false);
       }
     },
-    [runCaBatchPhase],
+    [runCaBatchPhase, syncIncludeContracts, syncIncludePersonDetails],
   );
 
   const criarMarca = useCallback(async () => {
@@ -929,6 +1076,36 @@ export function RioClientesCompPanel() {
     if (Array.isArray(data?.linhas)) setLinhas(data!.linhas!);
     setMsg("MARCA criada — atribua clientes pela coluna ou arraste dentro do bloco.");
   }, [activeYm]);
+
+  const criarCliente = useCallback(async () => {
+    if (monthClosed) {
+      setMsg("Competência fechada — não é possível adicionar clientes.");
+      return;
+    }
+    const raw = window.prompt("Nome do cliente (pode editar depois e vincular à Conta Azul):");
+    if (raw === null) return;
+    const nomeFantasia = raw.trim() || "Novo cliente";
+    const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/linhas`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nomeFantasia }),
+    });
+    const { data, rawText } = await readJsonFromResponse<{
+      linha?: RioLinha;
+      linhas?: RioLinha[];
+      grupos?: RioGrupo[];
+      error?: string;
+    }>(res);
+    if (!res.ok) {
+      setMsg(data?.error || rawText.slice(0, 200) || "Falha ao criar cliente.");
+      return;
+    }
+    if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
+    if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
+    else if (data?.linha) setLinhas((prev) => [...prev, data.linha!]);
+    setMsg(`Cliente «${nomeFantasia}» criado (Nº PDV = 1). Use «Vincular CA» quando quiser.`);
+  }, [activeYm, monthClosed]);
 
   const renomearMarca = useCallback(
     async (grupoId: string, novoNome: string) => {
@@ -1002,19 +1179,41 @@ export function RioClientesCompPanel() {
   const createMonth = useCallback(async () => {
     const base = months.length > 0 ? months[0].yearMonth : activeYm;
     const next = shiftYearMonth(base, 1);
+    const donor = shiftYearMonth(next, -1);
+    const clone = isRioTurnoverMonth(next);
+    if (
+      clone &&
+      !window.confirm(
+        `Criar ${formatYearMonthLabel(next)} copiando todo o trabalho de ${formatYearMonthLabel(donor)} (MARCA, PDVs, vínculos CA) e fechar ${formatYearMonthLabel(donor)}?`,
+      )
+    ) {
+      return;
+    }
     const res = await fetch("/api/rio-planilha/clientes/months", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ yearMonth: next }),
+      body: JSON.stringify({ yearMonth: next, cloneFromPrevious: clone }),
     });
+    const { data } = await readJsonFromResponse<{
+      error?: string;
+      clonedFrom?: number;
+      linhas?: RioLinha[];
+      grupos?: RioGrupo[];
+    }>(res);
     if (!res.ok) {
-      const { data } = await readJsonFromResponse<{ error?: string }>(res);
       setMsg(data?.error || "Falha ao criar competência.");
       return;
     }
+    if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
+    if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
     await loadMonths();
     setActiveYm(next);
+    setMsg(
+      clone && data?.clonedFrom ?
+        `${formatYearMonthLabel(next)} criado a partir de ${formatYearMonthLabel(data.clonedFrom)}. ${formatYearMonthLabel(data.clonedFrom)} foi fechado. Use «Virada do mês» para marcar entradas/saídas na CA.`
+      : `Competência ${formatYearMonthLabel(next)} criada.`,
+    );
   }, [months, activeYm, loadMonths]);
 
   return (
@@ -1032,7 +1231,8 @@ export function RioClientesCompPanel() {
                   Vincular «{linkModalLinha.nomeFantasia}» à Conta Azul
                 </p>
                 <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Busque pelo nome ou CNPJ. O e-mail de cobrança passa a vir só da CA.
+                  Busque pelo nome ou CNPJ. Ao vincular, o <strong>nome fantasia</strong> da linha passa a ser o da
+                  Conta Azul; e-mail e contratos vêm da CA.
                 </p>
               </div>
               <button
@@ -1096,12 +1296,15 @@ export function RioClientesCompPanel() {
             Cada competência guarda clientes por <strong>importar CSV/Excel</strong> (export Conta Azul) ou{" "}
             <strong>sincronizar Conta Azul</strong>. Use <strong>Vincular CA</strong> (ou «Casar por CNPJ») para a
             planilha seguir o cadastro CA como fonte única de e-mail e dados. Organize por <strong>MARCA</strong> («Nova
-            MARCA» + coluna «Marca bloco»). PDVs amarelos ao expandir o cliente.
+            MARCA» + coluna «Marca bloco»). PDVs ao expandir o cliente.
           </p>
           <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-500">
             {monthInfo?.lastSyncedAt ?
-              <>Última sincronização: {new Date(monthInfo.lastSyncedAt).toLocaleString("pt-BR")}</>
-            : <>Ainda não sincronizado nesta competência.</>}
+              <>Última virada/sync: {new Date(monthInfo.lastSyncedAt).toLocaleString("pt-BR")}</>
+            : <>Ainda sem virada do mês nesta competência.</>}
+            {monthInfo?.closedAt ?
+              <> · <strong className="text-amber-800 dark:text-amber-300">Mês fechado</strong></>
+            : null}
           </p>
         </div>
         <ThemeToggle />
@@ -1110,6 +1313,19 @@ export function RioClientesCompPanel() {
       {msg ?
         <div className="mb-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
           {msg}
+        </div>
+      : null}
+
+      {monthClosed ?
+        <div className="mb-3 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200">
+          Competência <strong>fechada</strong> (somente consulta). Crie o mês seguinte para continuar a editar.
+        </div>
+      : null}
+
+      {turnoverMonth && !monthClosed ?
+        <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+          A partir desta competência: use <strong>Virada do mês</strong> para comparar com a Conta Azul (entradas/saídas
+          de clientes e PDVs). Maio e meses anteriores mantêm o fluxo antigo.
         </div>
       : null}
 
@@ -1140,10 +1356,8 @@ export function RioClientesCompPanel() {
             onChange={(e) => setSyncIncludePersonDetails(e.target.checked)}
           />
           <span>
-            <strong>Enriquecer cadastro</strong> na CA (e-mail cobrança, razão social quando a API trouxer,
-            etc.) — faz muitas chamadas <code className="rounded bg-slate-100 px-0.5 dark:bg-slate-800">/v1/pessoas</code>;{" "}
-            <em>sem isto</em> a sync usa só a listagem (mais rápida; e-mail fica vazio na 1.ª vez ou repete o que já
-            estava nesta competência).
+            <strong>Enriquecer cadastro</strong> na CA (e-mail, razão, etc.) — após a listagem, atualiza{" "}
+            <strong>{RIO_CA_REFRESH_BATCH_SIZE} clientes por vez</strong> (igual «Atualizar vinculados»).
           </span>
         </label>
         <label className="flex max-w-md cursor-pointer items-start gap-2 text-xs text-slate-600 dark:text-slate-400">
@@ -1154,8 +1368,8 @@ export function RioClientesCompPanel() {
             onChange={(e) => setSyncIncludeContracts(e.target.checked)}
           />
           <span>
-            Atualizar <strong>números de contrato</strong> na Conta Azul (muito mais lento; pode dar{" "}
-            <em>timeout</em> no Netlify com muitos clientes).
+            Atualizar <strong>números de contrato</strong> na CA — também em lotes de{" "}
+            <strong>{RIO_CA_REFRESH_BATCH_SIZE}</strong> (evita timeout).
           </span>
         </label>
       </div>
@@ -1187,10 +1401,16 @@ export function RioClientesCompPanel() {
         <button
           type="button"
           className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"
-          disabled={syncing}
+          disabled={syncing || monthClosed}
           onClick={() => void syncCa()}
         >
-          {syncing ? "Sincronizando…" : "Sincronizar Conta Azul"}
+          {syncing ?
+            turnoverMonth ?
+              "Virada do mês…"
+            : "Sincronizando…"
+          : turnoverMonth ?
+            "Virada do mês"
+          : "Sincronizar Conta Azul"}
         </button>
         <input
           ref={fileImportRef}
@@ -1247,10 +1467,19 @@ export function RioClientesCompPanel() {
         </button>
         <button
           type="button"
+          disabled={monthClosed}
+          title={monthClosed ? "Mês fechado" : "Linha manual; depois vincule à Conta Azul"}
+          className="rounded-lg border border-teal-800 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-950 hover:bg-teal-100 disabled:opacity-50 dark:border-teal-600 dark:bg-teal-950/50 dark:text-teal-100 dark:hover:bg-teal-900/60"
+          onClick={() => void criarCliente()}
+        >
+          Novo cliente
+        </button>
+        <button
+          type="button"
           disabled={refreshingCa || linhas.length === 0}
           className="rounded-lg border border-sky-700 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-600 dark:bg-sky-950/50 dark:text-sky-100"
           onClick={() => void refreshLinkedFromCa(false)}
-          title="Atualiza e-mail, contrato e valor das linhas vinculadas — 10 clientes por vez em segundo plano"
+          title="Atualiza linhas vinculadas — 10 clientes por vez (usa as caixas Enriquecer / Contratos)"
         >
           {refreshingCa ? "Atualizando CA…" : "Atualizar vinculados CA"}
         </button>
@@ -1295,8 +1524,7 @@ export function RioClientesCompPanel() {
         </label>
       </div>
 
-      <div className="flex items-start gap-2">
-      <div className="min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="max-h-[min(72vh,calc(100dvh-12rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <table className="min-w-[1240px] w-full border-separate border-spacing-0 text-sm">
           <thead>
@@ -1358,13 +1586,48 @@ export function RioClientesCompPanel() {
             </tbody>
           : (
             <>
-              {grupoOrd.map((g, ix) => (
+              {systemGrupoOrd.map((g) =>
+                g.systemTag === "pdv_entrada" || g.systemTag === "pdv_saida" ?
+                  <PdvMovimentoMarcaBlock
+                    key={g.id}
+                    tag={g.systemTag as "pdv_entrada" | "pdv_saida"}
+                    titulo={g.nome}
+                    linhas={linhas}
+                  />
+                : <ClienteMarcaBlock
+                    key={g.id}
+                    ym={activeYm}
+                    marca={g}
+                    gruposTodos={grupoOrd}
+                    linhasOrdered={buckets.get(g.id) ?? []}
+                    onReorderLinhasSameMarca={(a, o) => void reorderMesmaMarca(g.id, a, o)}
+                    onMoveMarca={(lid, nid) => void moveLinhaEntreMarcas(lid, nid)}
+                    onRenameMarca={() => {}}
+                    onDeleteMarca={() => {}}
+                    onShiftMarca={() => {}}
+                    onOpenCaLink={onOpenCaLink}
+                    onToggleCaLink={onToggleCaLink}
+                    onAddPdvsBulk={addPdvsBulk}
+                    expanded={expanded}
+                    setExpanded={setExpanded}
+                    patchLinha={patchLinha}
+                    setLinhas={setLinhas}
+                    addPdv={addPdv}
+                    patchPdv={patchPdv}
+                  delPdv={delPdv}
+                  onDeleteLinha={(row) => void delLinha(row)}
+                  monthClosed={monthClosed}
+                  newPdvName={newPdvName}
+                  setNewPdvName={setNewPdvName}
+                />,
+              )}
+              {userGrupoOrd.map((g, ix) => (
                 <ClienteMarcaBlock
                   key={g.id}
                   ym={activeYm}
                   marca={g}
                   grupoIndex={ix}
-                  grupoCount={grupoOrd.length}
+                  grupoCount={userGrupoOrd.length}
                   gruposTodos={grupoOrd}
                   linhasOrdered={buckets.get(g.id) ?? []}
                   onReorderLinhasSameMarca={(a, o) => void reorderMesmaMarca(g.id, a, o)}
@@ -1382,6 +1645,8 @@ export function RioClientesCompPanel() {
                   addPdv={addPdv}
                   patchPdv={patchPdv}
                   delPdv={delPdv}
+                  onDeleteLinha={(row) => void delLinha(row)}
+                  monthClosed={monthClosed}
                   newPdvName={newPdvName}
                   setNewPdvName={setNewPdvName}
                 />
@@ -1410,6 +1675,8 @@ export function RioClientesCompPanel() {
                   addPdv={addPdv}
                   patchPdv={patchPdv}
                   delPdv={delPdv}
+                  onDeleteLinha={(row) => void delLinha(row)}
+                  monthClosed={monthClosed}
                   newPdvName={newPdvName}
                   setNewPdvName={setNewPdvName}
                 />
@@ -1418,10 +1685,6 @@ export function RioClientesCompPanel() {
           )}
         </table>
         </div>
-      </div>
-      {linhas.length > 0 ?
-        <PdvNomePoolColumn text={pdvPoolText} onTextChange={setPdvPoolText} />
-      : null}
       </div>
 
       <p className="mt-4 text-center text-[11px] text-slate-500 dark:text-slate-500">

@@ -2,7 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
 import { billingEmailJoined, fetchPersonDetail, searchPeopleByText } from "@/lib/contaazul/personBilling";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
-import type { RioCompLinhaOut } from "@/lib/rio/rioClienteCompService";
+import {
+  syncRioCompNumeroPdvSiteFromPdvs,
+  type RioCompLinhaOut,
+} from "@/lib/rio/rioClienteCompService";
 
 function asRecord(o: unknown): Record<string, unknown> | null {
   return typeof o === "object" && o !== null && !Array.isArray(o) ? (o as Record<string, unknown>) : null;
@@ -12,12 +15,17 @@ function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function nomeFantasiaFromRaw(row: Record<string, unknown>): string {
+/** Nome fantasia como na Conta Azul (detalhe ou listagem). */
+function nomeFantasiaFromCaRaw(
+  row: Record<string, unknown>,
+  nomeListaFallback?: string,
+): string {
   return (
     str(row.nome_fantasia) ||
     str(row.nomeFantasia) ||
     str(row.nome) ||
     str(row.name) ||
+    (nomeListaFallback?.trim() ?? "") ||
     ""
   );
 }
@@ -62,6 +70,13 @@ export function rioCaUnlinkedPersonId(linhaId: string): string {
 
 /** Tamanho de cada lote ao atualizar vínculos CA (evita timeout no Netlify). */
 export const RIO_CA_REFRESH_BATCH_SIZE = 10;
+
+export type RioCaLinhaRefreshOptions = {
+  includePersonDetails?: boolean;
+  includeContracts?: boolean;
+  /** Nome da listagem CA ao vincular (busca no modal). */
+  caNomeLista?: string;
+};
 
 export type RioCaBatchProgress = {
   offset: number;
@@ -120,14 +135,16 @@ async function linhaToOut(linhaId: string): Promise<RioCompLinhaOut> {
     where: { id: linhaId },
     include: {
       pdvs: { orderBy: [{ nome: "asc" }, { id: "asc" }] },
-      rioGrupo: { select: { id: true, nome: true, sortOrder: true } },
+      rioGrupo: { select: { id: true, nome: true, sortOrder: true, systemTag: true } },
     },
   });
   const { rioGrupo: rg, ...core } = raw;
   return {
     ...core,
     pdvs: sortRioPdvsByNome(raw.pdvs),
-    grupo: rg ? { id: rg.id, nome: rg.nome, sortOrder: rg.sortOrder } : null,
+    grupo: rg ?
+      { id: rg.id, nome: rg.nome, sortOrder: rg.sortOrder, systemTag: rg.systemTag }
+    : null,
   };
 }
 
@@ -136,7 +153,10 @@ export async function applyCaPersonToRioLinha(
   monthId: string,
   personId: string | null,
   accessToken: string,
+  options?: RioCaLinhaRefreshOptions,
 ): Promise<RioCompLinhaOut> {
+  const includePersonDetails = options?.includePersonDetails !== false;
+  const includeContracts = options?.includeContracts !== false;
   const linha = await prisma.rioCompClienteLinha.findFirst({
     where: { id: linhaId, monthId },
   });
@@ -154,6 +174,11 @@ export async function applyCaPersonToRioLinha(
   }
 
   const pid = personId.trim();
+  const linkingNewCa =
+    isRioCaPersonLinked(pid) && !isRioCaPersonLinked(linha.caPersonId);
+  const fetchCadastro = includePersonDetails || linkingNewCa;
+  const nomeListaHint = options?.caNomeLista?.trim() || "";
+
   const clash = await prisma.rioCompClienteLinha.findFirst({
     where: { monthId, caPersonId: pid, NOT: { id: linhaId } },
     select: { id: true, nomeFantasia: true },
@@ -164,25 +189,38 @@ export async function applyCaPersonToRioLinha(
     );
   }
 
-  const raw = await fetchPersonDetail(accessToken, pid);
-  const rec = asRecord(raw) ?? {};
-  const email = billingEmailJoined(raw);
-  const nomeFantasia = nomeFantasiaFromRaw(rec) || linha.nomeFantasia;
-  const razaoSocial = razaoFromRaw(rec) || linha.razaoSocial;
-  const documento = documentoFromRaw(rec, linha.documento);
-
+  let email = linha.emailCobranca;
+  let nomeFantasia = linha.nomeFantasia;
+  let razaoSocial = linha.razaoSocial;
+  let documento = linha.documento;
   let valorClienteTexto = linha.valorClienteTexto;
   let valorPdvUnitarioTexto = linha.valorPdvUnitarioTexto;
   let contratosAtivosTexto = linha.contratosAtivosTexto;
 
-  const contract = await fetchActiveContractSummaryForClient(accessToken, pid);
-  if (contract?.numeros) contratosAtivosTexto = contract.numeros.slice(0, 400);
-  if (contract?.valorTexto) {
-    valorClienteTexto = contract.valorTexto.slice(0, 200);
-    valorPdvUnitarioTexto = "";
-  } else {
-    const valorPessoa = valorClienteFromRaw(rec);
-    if (valorPessoa) valorClienteTexto = valorPessoa.slice(0, 200);
+  if (fetchCadastro) {
+    const raw = await fetchPersonDetail(accessToken, pid);
+    const rec = asRecord(raw) ?? {};
+    email = billingEmailJoined(raw);
+    const nf = nomeFantasiaFromCaRaw(rec, nomeListaHint);
+    nomeFantasia = nf || nomeListaHint || linha.nomeFantasia;
+    razaoSocial = razaoFromRaw(rec) || nomeFantasia;
+    documento = documentoFromRaw(rec, linha.documento);
+    if (!includeContracts) {
+      const valorPessoa = valorClienteFromRaw(rec);
+      if (valorPessoa) valorClienteTexto = valorPessoa.slice(0, 200);
+    }
+  } else if (linkingNewCa && nomeListaHint) {
+    nomeFantasia = nomeListaHint;
+    razaoSocial = nomeListaHint;
+  }
+
+  if (includeContracts) {
+    const contract = await fetchActiveContractSummaryForClient(accessToken, pid);
+    if (contract?.numeros) contratosAtivosTexto = contract.numeros.slice(0, 400);
+    if (contract?.valorTexto) {
+      valorClienteTexto = contract.valorTexto.slice(0, 200);
+      valorPdvUnitarioTexto = "";
+    }
   }
 
   await prisma.rioCompClienteLinha.update({
@@ -198,6 +236,8 @@ export async function applyCaPersonToRioLinha(
       contratosAtivosTexto,
     },
   });
+
+  await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
 
   return linhaToOut(linhaId);
 }
@@ -226,6 +266,7 @@ export async function refreshRioMonthLinkedFromCaBatch(
   accessToken: string,
   offset: number,
   limit: number,
+  options?: RioCaLinhaRefreshOptions,
 ): Promise<{
   updated: number;
   failed: number;
@@ -243,7 +284,13 @@ export async function refreshRioMonthLinkedFromCaBatch(
 
   for (const l of slice) {
     try {
-      const out = await applyCaPersonToRioLinha(l.id, monthId, l.caPersonId, accessToken);
+      const out = await applyCaPersonToRioLinha(
+        l.id,
+        monthId,
+        l.caPersonId,
+        accessToken,
+        options,
+      );
       updatedLinhas.push(out);
       updated += 1;
     } catch {

@@ -14,6 +14,7 @@ import type { ParsedRioFileRow } from "@/lib/rio/rioCompFileImport";
 import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
 import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
@@ -113,7 +114,7 @@ export async function ensureRioCompMonth(yearMonth: number): Promise<RioCompMont
   return prisma.rioCompMonth.create({ data: { yearMonth } });
 }
 
-export type RioCompGrupoDto = Pick<RioCompGrupo, "id" | "nome" | "sortOrder">;
+export type RioCompGrupoDto = Pick<RioCompGrupo, "id" | "nome" | "sortOrder" | "systemTag">;
 
 export type RioCompLinhaOut = RioCompClienteLinha & {
   pdvs: RioCompPdv[];
@@ -211,7 +212,7 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
       linhas: {
         include: {
           pdvs: { orderBy: [{ nome: "asc" }, { id: "asc" }] },
-          rioGrupo: { select: { id: true, nome: true, sortOrder: true } },
+          rioGrupo: { select: { id: true, nome: true, sortOrder: true, systemTag: true } },
         },
       },
     },
@@ -230,6 +231,7 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
     id: g.id,
     nome: g.nome,
     sortOrder: g.sortOrder,
+    systemTag: g.systemTag,
   }));
 
   const baseLinhas = month.linhas.map((ln) => {
@@ -932,6 +934,9 @@ export async function patchRioCompClienteLinha(
   data: Partial<{
     grupoSite: string;
     rioGrupoId: string | null;
+    nomeFantasia: string;
+    razaoSocial: string;
+    documento: string | null;
     numeroPdvSite: number;
     sortOrder: number;
     categoriaSite: string;
@@ -988,9 +993,10 @@ export async function createRioCompGrupo(monthId: string, nomeRaw?: string) {
 export async function deleteRioCompGrupoIfEmpty(monthId: string, grupoId: string) {
   const g = await prisma.rioCompGrupo.findFirst({
     where: { id: grupoId, monthId },
-    select: { id: true },
+    select: { id: true, systemTag: true },
   });
   if (!g) throw new Error("grupo_not_found");
+  if (g.systemTag) throw new Error("system_grupo_locked");
   const n = await prisma.rioCompClienteLinha.count({
     where: { monthId, rioGrupoId: grupoId },
   });
@@ -1082,27 +1088,128 @@ export async function renameRioCompGrupo(monthId: string, grupoId: string, nomeR
 export async function syncRioCompNumeroPdvSiteFromPdvs(linhaId: string): Promise<number> {
   const linha = await prisma.rioCompClienteLinha.findUnique({
     where: { id: linhaId },
-    select: { valorPdvUnitarioTexto: true },
+    select: { valorPdvUnitarioTexto: true, month: { select: { yearMonth: true } } },
   });
-  const count = await prisma.rioCompPdv.count({ where: { clienteId: linhaId } });
+  const countWhere =
+    linha?.month && isRioTurnoverMonth(linha.month.yearMonth) ?
+      { clienteId: linhaId, movimento: { not: "saida" as const } }
+    : { clienteId: linhaId };
+  const count = await prisma.rioCompPdv.count({ where: countWhere });
+  /** Sem PDVs internos na linha, mantém 1 no Nº PDV (faturamento / valor por PDV). */
+  const numeroPdvSite = Math.max(count, 1);
   const valorClienteTexto =
     linha?.valorPdvUnitarioTexto.trim() ?
-      valorClienteTextoFromPdvUnit(linha.valorPdvUnitarioTexto, count)
+      valorClienteTextoFromPdvUnit(linha.valorPdvUnitarioTexto, numeroPdvSite)
     : undefined;
   await prisma.rioCompClienteLinha.update({
     where: { id: linhaId },
     data: {
-      numeroPdvSite: count,
+      numeroPdvSite,
       ...(valorClienteTexto !== undefined ? { valorClienteTexto: valorClienteTexto.slice(0, 200) } : {}),
     },
   });
-  return count;
+  return numeroPdvSite;
+}
+
+/** Remove cliente e PDVs da competência (não apaga na Conta Azul). */
+export async function deleteRioCompClienteLinha(linhaId: string, monthId: string) {
+  const linha = await prisma.rioCompClienteLinha.findFirst({
+    where: { id: linhaId, monthId },
+    select: { id: true, month: { select: { closedAt: true } } },
+  });
+  if (!linha) throw new Error("line_not_found");
+  if (linha.month.closedAt) throw new Error("month_closed");
+  await prisma.rioCompClienteLinha.delete({ where: { id: linhaId } });
+}
+
+/** Linha manual na competência (sem CA); depois vincular com «Vincular CA». */
+export async function createRioCompClienteLinha(
+  monthId: string,
+  input?: {
+    nomeFantasia?: string;
+    documento?: string | null;
+    rioGrupoId?: string | null;
+  },
+): Promise<RioCompLinhaOut> {
+  const month = await prisma.rioCompMonth.findUnique({
+    where: { id: monthId },
+    select: { id: true, yearMonth: true, closedAt: true },
+  });
+  if (!month) throw new Error("month_not_found");
+  if (month.closedAt) throw new Error("month_closed");
+
+  let rioGrupoId: string | null = input?.rioGrupoId?.trim() || null;
+  let grupoSite = "";
+  if (rioGrupoId) {
+    const g = await prisma.rioCompGrupo.findFirst({
+      where: { id: rioGrupoId, monthId },
+      select: { id: true, nome: true, systemTag: true },
+    });
+    if (!g || g.systemTag) throw new Error("grupo_not_found");
+    grupoSite = g.nome;
+  } else {
+    rioGrupoId = null;
+  }
+
+  const nomeFantasia = (input?.nomeFantasia?.trim() || "Novo cliente").slice(0, 8000);
+  const documento =
+    input?.documento != null && String(input.documento).trim() ?
+      String(input.documento).trim().slice(0, 64)
+    : null;
+
+  const maxSort = await prisma.rioCompClienteLinha.aggregate({
+    where: { monthId },
+    _max: { sortOrder: true },
+  });
+  const sortOrder = (maxSort._max.sortOrder ?? -1) + 1;
+
+  const created = await prisma.rioCompClienteLinha.create({
+    data: {
+      monthId,
+      rioGrupoId,
+      grupoSite,
+      caPersonId: "pending",
+      nomeFantasia,
+      razaoSocial: nomeFantasia,
+      documento,
+      numeroPdvSite: 1,
+      movimento: isRioTurnoverMonth(month.yearMonth) ? "entrada" : "estavel",
+      sortOrder,
+    },
+  });
+
+  await prisma.rioCompClienteLinha.update({
+    where: { id: created.id },
+    data: { caPersonId: `import:unlinked:${created.id}` },
+  });
+
+  const full = await getRioCompMonthWithLinhas(month.yearMonth);
+  const out = full?.linhas.find((l) => l.id === created.id);
+  if (!out) throw new Error("hydrate_failed");
+  return out;
 }
 
 export async function createRioCompPdv(linhaId: string, nome: string) {
-  const n = await prisma.rioCompPdv.count({ where: { clienteId: linhaId } });
+  const linha = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: linhaId },
+    select: { month: { select: { yearMonth: true, closedAt: true } } },
+  });
+  if (linha?.month?.closedAt) throw new Error("month_closed");
+
+  const turnover = linha?.month && isRioTurnoverMonth(linha.month.yearMonth);
+  const n = await prisma.rioCompPdv.count({
+    where:
+      turnover ?
+        { clienteId: linhaId, movimento: { not: "saida" } }
+      : { clienteId: linhaId },
+  });
   const pdv = await prisma.rioCompPdv.create({
-    data: { clienteId: linhaId, nome: nome.trim() || `PDV ${n + 1}`, sortOrder: n },
+    data: {
+      clienteId: linhaId,
+      nome: nome.trim() || `PDV ${n + 1}`,
+      sortOrder: n,
+      movimento: turnover ? "entrada" : "estavel",
+    },
   });
   const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
   return { pdv, numeroPdvSite };
@@ -1152,10 +1259,23 @@ export async function patchRioCompPdv(
 export async function deleteRioCompPdv(pdvId: string) {
   const row = await prisma.rioCompPdv.findUnique({
     where: { id: pdvId },
-    select: { clienteId: true },
+    select: {
+      clienteId: true,
+      cliente: { select: { month: { select: { yearMonth: true, closedAt: true } } } },
+    },
   });
   if (!row) return null;
-  await prisma.rioCompPdv.delete({ where: { id: pdvId } });
+  if (row.cliente.month.closedAt) throw new Error("month_closed");
+
+  const turnover = isRioTurnoverMonth(row.cliente.month.yearMonth);
+  if (turnover) {
+    await prisma.rioCompPdv.update({
+      where: { id: pdvId },
+      data: { movimento: "saida" },
+    });
+  } else {
+    await prisma.rioCompPdv.delete({ where: { id: pdvId } });
+  }
   const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(row.clienteId);
   return { clienteId: row.clienteId, numeroPdvSite };
 }

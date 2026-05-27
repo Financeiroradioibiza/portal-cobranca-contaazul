@@ -1,4 +1,28 @@
-/** Um PDV por linha (coluna lateral ou colar no cliente). */
+const MIME_ONE = "application/x-rio-pdv-nome";
+const MIME_BULK = "application/x-rio-pdv-bulk";
+
+/** Lê nomes de PDV soltos na zona do cliente (arrastar ou colar). */
+export function readPdvDropFromDataTransfer(dt: DataTransfer): string[] {
+  const bulk = dt.getData(MIME_BULK);
+  if (bulk) {
+    try {
+      const parsed = JSON.parse(bulk) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((x): x is string => typeof x === "string");
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const one = dt.getData(MIME_ONE).trim();
+  if (one) return [one];
+  const plain = dt.getData("text/plain").trim();
+  if (plain.includes("\n")) return parsePdvNamesFromMultilineText(plain);
+  if (plain) return [plain];
+  return [];
+}
+
+/** Um PDV por linha (colar no cliente expandido). */
 export function parsePdvNamesFromMultilineText(text: string): string[] {
   return sortPdvNamesAlphabetically(
     [...new Set(text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean))],

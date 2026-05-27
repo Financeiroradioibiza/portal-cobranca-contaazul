@@ -7,9 +7,12 @@ import {
   categoriaSiteOptionClass,
   categoriaSiteSelectClass,
 } from "@/lib/rio/categoriaSiteStyles";
-import { parsePdvNamesFromMultilineText, sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import {
+  parsePdvNamesFromMultilineText,
+  readPdvDropFromDataTransfer,
+  sortRioPdvsByNome,
+} from "@/lib/rio/pdvNames";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
-import { readPdvDropFromDataTransfer } from "@/components/rio/PdvNomePoolColumn";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { parseEmailAddresses } from "@/lib/format";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
@@ -38,12 +41,14 @@ export type RioPdvCb = {
   nome: string;
   notes: string;
   sortOrder: number;
+  movimento?: "estavel" | "entrada" | "saida";
 };
 
 export type RioGrupoCb = {
   id: string;
   nome: string;
   sortOrder: number;
+  systemTag?: string | null;
 };
 
 export type RioLinhaCb = {
@@ -118,6 +123,8 @@ function SortClientRow(props: {
   addPdv: (linhaId: string) => void;
   patchPdv: (pdvId: string, nome: string) => void;
   delPdv: (pdvId: string) => void;
+  onDeleteLinha?: (r: RioLinhaCb) => void;
+  monthClosed?: boolean;
   newPdv: string;
   setNewPdv: (nome: string) => void;
 }) {
@@ -149,7 +156,9 @@ function SortClientRow(props: {
     }
   };
 
-  const pdvsSorted = sortRioPdvsByNome(r.pdvs);
+  const pdvsSorted = sortRioPdvsByNome(
+    r.pdvs.filter((p) => (p.movimento ?? "estavel") !== "saida"),
+  );
 
   return (
     <>
@@ -183,6 +192,16 @@ function SortClientRow(props: {
             >
               ⧉
             </button>
+            {props.onDeleteLinha && !props.monthClosed ?
+              <button
+                type="button"
+                title="Apagar esta linha da competência"
+                className="h-8 w-6 text-[11px] font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                onClick={() => void props.onDeleteLinha!(r)}
+              >
+                ×
+              </button>
+            : null}
           </span>
         </td>
         <td className="border-l border-emerald-900/38 bg-emerald-800/12 px-0.5 py-0 dark:bg-emerald-900/42">
@@ -201,14 +220,39 @@ function SortClientRow(props: {
           </select>
         </td>
         <td className="max-w-[15rem] min-w-[11rem] border-l border-emerald-900/35 bg-emerald-900/13 px-0.5 py-0 dark:bg-emerald-950/52">
-          <button
-            type="button"
-            className="block max-w-full truncate text-left text-[11px] font-semibold text-emerald-950 underline-offset-2 hover:underline dark:text-emerald-100"
-            title={r.nomeFantasia}
-            onClick={onExpand}
-          >
-            {r.nomeFantasia}
-          </button>
+          {vinculado ?
+            <button
+              type="button"
+              className="block max-w-full truncate text-left text-[11px] font-semibold text-emerald-950 underline-offset-2 hover:underline dark:text-emerald-100"
+              title={r.nomeFantasia}
+              onClick={onExpand}
+            >
+              {r.nomeFantasia}
+            </button>
+          : <>
+              <input
+                className="w-full min-w-0 rounded border border-emerald-700/45 bg-white/90 px-1 py-0.5 text-[11px] font-semibold text-emerald-950 dark:border-emerald-600/55 dark:bg-slate-950 dark:text-emerald-100"
+                defaultValue={r.nomeFantasia}
+                title="Nome antes de vincular à CA — ao vincular, passa a ser o nome fantasia da Conta Azul"
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v && v !== r.nomeFantasia.trim()) {
+                    void props.patchLinha(r.id, { nomeFantasia: v });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+              <button
+                type="button"
+                className="mt-0.5 block text-left text-[9px] text-emerald-800 underline dark:text-emerald-300"
+                onClick={onExpand}
+              >
+                PDVs / detalhes
+              </button>
+            </>
+          }
         </td>
         <td className="whitespace-nowrap px-1 font-mono text-[10px]" title={(r.documento ?? "").slice(0, 120)}>
           {r.documento ?? "—"}
@@ -323,7 +367,7 @@ function SortClientRow(props: {
               }}
             >
               <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-950/95 dark:text-amber-400">
-                Solte aqui PDVs da coluna à direita (ou cole a lista abaixo)
+                PDVs deste cliente — cole a lista abaixo ou arraste nomes para aqui
               </p>
             <ul className="mb-2 max-w-[52rem] space-y-1">
               {pdvsSorted.map((p, pi) => (
@@ -457,6 +501,8 @@ export function ClienteMarcaBlock(props: {
   addPdv: (linhaId: string) => void;
   patchPdv: (id: string, nome: string) => void;
   delPdv: (id: string) => void;
+  onDeleteLinha?: (r: RioLinhaCb) => void;
+  monthClosed?: boolean;
   newPdvName: Record<string, string>;
   setNewPdvName: Dispatch<SetStateAction<Record<string, string>>>;
 }) {
@@ -482,6 +528,8 @@ export function ClienteMarcaBlock(props: {
     addPdv,
     patchPdv,
     delPdv,
+    onDeleteLinha,
+    monthClosed,
     newPdvName,
     setNewPdvName,
   } = props;
@@ -501,9 +549,16 @@ export function ClienteMarcaBlock(props: {
 
   const headerTitle = marca ? marca.nome : "Sem MARCA";
 
-  const bannerCls = marca
-    ? "bg-emerald-800 text-emerald-50 dark:bg-emerald-950 dark:text-emerald-100 border-emerald-950/65"
+  const sysTag = marca?.systemTag ?? null;
+  const bannerCls =
+    sysTag === "ca_entrada" ?
+      "bg-sky-800 text-sky-50 border-sky-950/65 dark:bg-sky-950"
+    : sysTag === "ca_saida" ?
+      "bg-orange-800 text-orange-50 border-orange-950/65 dark:bg-orange-950"
+    : marca ?
+      "bg-emerald-800 text-emerald-50 dark:bg-emerald-950 dark:text-emerald-100 border-emerald-950/65"
     : "bg-slate-500 text-white dark:bg-slate-800 border-slate-700";
+  const isSystemCa = sysTag === "ca_entrada" || sysTag === "ca_saida";
 
   return (
     <tbody className={"group-marca-" + (marca?.id ?? "none")}>
@@ -529,7 +584,7 @@ export function ClienteMarcaBlock(props: {
                 </button>
               </span>
             : null}
-            {marca ?
+            {marca && !isSystemCa ?
               <>
                 <input
                   className="flex-1 min-w-[14rem] max-w-[42rem] rounded border border-emerald-200/43 bg-black/12 px-2 py-0.5 text-[11px] font-normal text-emerald-50 outline-none placeholder-emerald-200/73 dark:border-emerald-800/71 dark:bg-black/41"
@@ -548,6 +603,8 @@ export function ClienteMarcaBlock(props: {
                   Apagar marca vazia
                 </button>
               </>
+            : marca && isSystemCa ?
+              <span className="text-[10px] font-normal opacity-90">Bloco automático da virada do mês</span>
             : null}
             <span className="ms-auto shrink-0 text-[10px] font-normal uppercase opacity-80">
               {(marca ?? null) ?
@@ -583,6 +640,8 @@ export function ClienteMarcaBlock(props: {
               addPdv={addPdv}
               patchPdv={patchPdv}
               delPdv={delPdv}
+              onDeleteLinha={onDeleteLinha}
+              monthClosed={monthClosed}
               newPdv={newPdvName[r.id] ?? ""}
               setNewPdv={(s) => setNewPdvName((p) => ({ ...p, [r.id]: s }))}
             />

@@ -28,11 +28,15 @@ export async function POST(req: Request, context: Ctx) {
   let offset = 0;
   let limit = RIO_CA_REFRESH_BATCH_SIZE;
   let mode: "refresh" | "match" = "refresh";
+  let includePersonDetails = true;
+  let includeContracts = true;
   try {
     const b = (await req.json()) as {
       offset?: unknown;
       limit?: unknown;
       mode?: unknown;
+      includePersonDetails?: unknown;
+      includeContracts?: unknown;
       /** legado */
       matchByDocument?: unknown;
     };
@@ -44,6 +48,12 @@ export async function POST(req: Request, context: Ctx) {
     }
     if (b?.mode === "match" || b?.matchByDocument === true) mode = "match";
     else if (b?.mode === "refresh") mode = "refresh";
+    if ("includePersonDetails" in (b ?? {})) {
+      includePersonDetails = Boolean(b?.includePersonDetails);
+    }
+    if ("includeContracts" in (b ?? {})) {
+      includeContracts = Boolean(b?.includeContracts);
+    }
   } catch {
     /* defaults */
   }
@@ -77,7 +87,10 @@ export async function POST(req: Request, context: Ctx) {
       });
     }
 
-    const batch = await refreshRioMonthLinkedFromCaBatch(month.id, token, offset, limit);
+    const batch = await refreshRioMonthLinkedFromCaBatch(month.id, token, offset, limit, {
+      includePersonDetails,
+      includeContracts,
+    });
     return NextResponse.json({
       ok: true,
       mode: "refresh" as const,

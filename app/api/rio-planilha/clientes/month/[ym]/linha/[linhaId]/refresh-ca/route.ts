@@ -20,9 +20,14 @@ export async function POST(req: Request, context: Ctx) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  let body: { personId?: unknown } = {};
+  let body: {
+    personId?: unknown;
+    caNomeLista?: unknown;
+    includePersonDetails?: unknown;
+    includeContracts?: unknown;
+  } = {};
   try {
-    body = (await req.json()) as { personId?: unknown };
+    body = (await req.json()) as typeof body;
   } catch {
     body = {};
   }
@@ -65,7 +70,13 @@ export async function POST(req: Request, context: Ctx) {
   }
 
   try {
-    const linha = await applyCaPersonToRioLinha(linhaId, month.id, personId, token);
+    const caNomeLista = typeof body.caNomeLista === "string" ? body.caNomeLista : undefined;
+    const linha = await applyCaPersonToRioLinha(linhaId, month.id, personId, token, {
+      includePersonDetails:
+        "includePersonDetails" in body ? Boolean(body.includePersonDetails) : true,
+      includeContracts: "includeContracts" in body ? Boolean(body.includeContracts) : true,
+      caNomeLista,
+    });
     return NextResponse.json({
       connected: true as const,
       linha,
