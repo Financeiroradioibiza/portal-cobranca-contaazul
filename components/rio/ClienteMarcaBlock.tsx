@@ -17,6 +17,7 @@ import { CopyTextButton } from "@/components/CopyTextButton";
 import { displayBrazilianTaxId, parseEmailAddresses } from "@/lib/format";
 import {
   RIO_ORIGEM_CLIENTE_OPTS,
+  rioOrigemClienteHasEtiqueta,
   rioOrigemClienteSuffix,
   type RioOrigemCliente,
 } from "@/lib/rio/rioOrigemCliente";
@@ -415,8 +416,10 @@ function SortClientRow(props: {
                     ))}
                   </select>
                   <span className="text-[10px] text-amber-900/80 dark:text-amber-300/80">
-                    → {(origem === "APP" || origem === "OC") ?
-                      <span className="font-bold text-red-600 dark:text-red-500">({origem})</span>
+                    → {rioOrigemClienteHasEtiqueta(origem) ?
+                      <span className="font-bold text-red-600 dark:text-red-500">
+                        {rioOrigemClienteSuffix(origem)}
+                      </span>
                     : "sem etiqueta"}
                   </span>
                 </label>

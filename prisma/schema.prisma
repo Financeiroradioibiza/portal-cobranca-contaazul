@@ -257,7 +257,7 @@ model RioCompClienteLinha {
   grupoSite String @default("") @map("grupo_site") @db.Text
 
   nomeFantasia   String @default("") @map("nome_fantasia") @db.Text
-  /// APP ou OC — exibido em vermelho após o nome na coluna cliente.
+  /// APP, OC ou PERMUTA — exibido em vermelho após o nome na coluna cliente.
   origemCliente  String @default("") @map("origem_cliente") @db.VarChar(10)
   razaoSocial    String @default("") @map("razao_social") @db.Text
   documento      String? @db.VarChar(64)

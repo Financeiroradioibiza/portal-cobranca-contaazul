@@ -4,6 +4,8 @@ export const RIO_CATEGORIA_OPTS = [
   "moda",
   "shopping",
   "hotelaria",
+  "hotel",
+  "clinicas",
   "gastronomia",
   "outro",
 ] as const;
@@ -29,6 +31,18 @@ const STYLES: Record<
       "border-violet-500/75 bg-violet-100 text-violet-950 font-semibold shadow-sm dark:border-violet-500 dark:bg-violet-950/60 dark:text-violet-50",
     option: "bg-violet-100 text-violet-950",
     label: "Hotelaria",
+  },
+  hotel: {
+    select:
+      "border-teal-500/75 bg-teal-100 text-teal-950 font-semibold shadow-sm dark:border-teal-500 dark:bg-teal-950/60 dark:text-teal-50",
+    option: "bg-teal-100 text-teal-950",
+    label: "Hotel",
+  },
+  clinicas: {
+    select:
+      "border-cyan-500/75 bg-cyan-100 text-cyan-950 font-semibold shadow-sm dark:border-cyan-500 dark:bg-cyan-950/60 dark:text-cyan-50",
+    option: "bg-cyan-100 text-cyan-950",
+    label: "Clínicas",
   },
   gastronomia: {
     select:
