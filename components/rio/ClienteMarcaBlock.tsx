@@ -242,14 +242,22 @@ function SortClientRow(props: {
         </td>
         <td className="max-w-[15rem] min-w-[11rem] border-l border-emerald-900/35 bg-emerald-900/13 px-0.5 py-0 dark:bg-emerald-950/52">
           {vinculado ?
-            <button
-              type="button"
-              className="block max-w-full truncate text-left text-[11px] font-semibold text-emerald-950 underline-offset-2 hover:underline dark:text-emerald-100"
-              title={r.nomeFantasia + (rioOrigemClienteSuffix(origem) ? ` ${rioOrigemClienteSuffix(origem)}` : "")}
-              onClick={onExpand}
-            >
-              <ClienteNomeComOrigem nome={r.nomeFantasia} origem={origem} />
-            </button>
+            <div className="flex min-w-0 items-center gap-0.5">
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-emerald-950 underline-offset-2 hover:underline dark:text-emerald-100"
+                title={r.nomeFantasia + (rioOrigemClienteSuffix(origem) ? ` ${rioOrigemClienteSuffix(origem)}` : "")}
+                onClick={onExpand}
+              >
+                <ClienteNomeComOrigem nome={r.nomeFantasia} origem={origem} />
+              </button>
+              <CopyTextButton
+                size="compact"
+                variant="icon"
+                text={r.nomeFantasia.trim()}
+                label="Copiar nome do cliente"
+              />
+            </div>
           : <>
               <div className="flex min-w-0 flex-wrap items-baseline gap-0.5">
               <input
@@ -271,6 +279,12 @@ function SortClientRow(props: {
                   {rioOrigemClienteSuffix(origem)}
                 </span>
               : null}
+              <CopyTextButton
+                size="compact"
+                variant="icon"
+                text={r.nomeFantasia.trim()}
+                label="Copiar nome do cliente"
+              />
               </div>
               <button
                 type="button"
@@ -282,8 +296,16 @@ function SortClientRow(props: {
             </>
           }
         </td>
-        <td className="whitespace-nowrap px-1 font-mono text-[10px]" title={docDisplay}>
-          {docDisplay}
+        <td className="whitespace-nowrap px-0.5 font-mono text-[10px]">
+          <div className="flex items-center gap-0.5" title={docDisplay}>
+            <span className="min-w-0 truncate">{docDisplay}</span>
+            <CopyTextButton
+              size="compact"
+              variant="icon"
+              text={docDisplay !== "—" ? docDisplay : ""}
+              label="Copiar CNPJ/CPF"
+            />
+          </div>
         </td>
         <td className="border-l px-0 text-center">{badgeMov(r.movimento)}</td>
         <td className="px-0 text-center">{ctrCell(r.contratosAtivosTexto)}</td>
@@ -357,10 +379,10 @@ function SortClientRow(props: {
               </details>
             }
             <CopyTextButton
+              size="compact"
               variant="icon"
               text={emailsJoined}
               label="Copiar e-mails"
-              className="!h-6 !w-6 shrink-0"
             />
           </div>
         </td>

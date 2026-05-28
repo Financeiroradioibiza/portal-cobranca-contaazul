@@ -47,13 +47,26 @@ type Props = {
   className?: string;
   /** `icon`: botão só com símbolo (compacto). `text`: legado «Copiar» */
   variant?: "icon" | "text";
+  /** `compact`: menor (planilha Rio). */
+  size?: "default" | "compact";
 };
+
+const ICON_BTN_SIZE = {
+  default: "h-7 w-7",
+  compact: "h-5 w-5",
+} as const;
+
+const ICON_SIZE = {
+  default: "h-3.5 w-3.5",
+  compact: "h-3 w-3",
+} as const;
 
 export function CopyTextButton({
   text,
   label,
   className = "",
   variant = "icon",
+  size = "default",
 }: Props) {
   const [ok, setOk] = useState(false);
 
@@ -111,9 +124,11 @@ export function CopyTextButton({
       disabled={disabled}
       aria-label={`${label}${ok ? " — copiado" : ""}`}
       title={disabled ? undefined : ok ? `${label} — copiado` : label}
-      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 ${ok ? "border-emerald-500/70 text-emerald-600 dark:border-emerald-500/60 dark:text-emerald-400" : ""} ${className}`}
+      className={`inline-flex ${ICON_BTN_SIZE[size]} shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 ${ok ? "border-emerald-500/70 text-emerald-600 dark:border-emerald-500/60 dark:text-emerald-400" : ""} ${className}`}
     >
-      {ok ? <IconCheck className="h-3.5 w-3.5" /> : <IconClipboard />}
+      {ok ?
+        <IconCheck className={ICON_SIZE[size]} />
+      : <IconClipboard className={ICON_SIZE[size]} />}
     </button>
   );
 }
