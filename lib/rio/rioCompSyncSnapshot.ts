@@ -14,6 +14,7 @@ export type RioPreSyncSnapshot = {
     rioGrupoId: string | null;
     grupoSite: string;
     nomeFantasia: string;
+    origemCliente: string;
     razaoSocial: string;
     documento: string | null;
     emailCobranca: string | null;
@@ -55,6 +56,7 @@ export async function captureRioPreSyncSnapshot(monthId: string): Promise<RioPre
       rioGrupoId: l.rioGrupoId,
       grupoSite: l.grupoSite,
       nomeFantasia: l.nomeFantasia,
+      origemCliente: l.origemCliente,
       razaoSocial: l.razaoSocial,
       documento: l.documento,
       emailCobranca: l.emailCobranca,
@@ -131,6 +133,7 @@ export async function restoreRioCompMonthFromPreSyncSnapshot(yearMonth: number):
             rioGrupoId,
             grupoSite: l.grupoSite,
             nomeFantasia: l.nomeFantasia,
+            origemCliente: l.origemCliente ?? "",
             razaoSocial: l.razaoSocial,
             documento: l.documento,
             emailCobranca: l.emailCobranca,

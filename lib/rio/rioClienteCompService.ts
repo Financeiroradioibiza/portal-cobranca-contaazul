@@ -17,6 +17,7 @@ import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
+import { normalizeRioOrigemCliente } from "@/lib/rio/rioOrigemCliente";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
 
@@ -950,6 +951,7 @@ export async function patchRioCompClienteLinha(
     observacoesLinha: string;
     valorClienteTexto: string;
     valorPdvUnitarioTexto: string;
+    origemCliente: string;
   }>,
 ) {
   const current = await prisma.rioCompClienteLinha.findUnique({
@@ -975,6 +977,10 @@ export async function patchRioCompClienteLinha(
 
   if (typeof payload.valorClienteTexto === "string") {
     payload.valorClienteTexto = payload.valorClienteTexto.slice(0, 200);
+  }
+
+  if (typeof payload.origemCliente === "string") {
+    payload.origemCliente = normalizeRioOrigemCliente(payload.origemCliente);
   }
 
   await prisma.rioCompClienteLinha.update({

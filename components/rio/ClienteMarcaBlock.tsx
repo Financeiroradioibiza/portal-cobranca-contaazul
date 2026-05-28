@@ -15,6 +15,11 @@ import {
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { displayBrazilianTaxId, parseEmailAddresses } from "@/lib/format";
+import {
+  RIO_ORIGEM_CLIENTE_OPTS,
+  rioOrigemClienteSuffix,
+  type RioOrigemCliente,
+} from "@/lib/rio/rioOrigemCliente";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import {
   DndContext,
@@ -58,6 +63,7 @@ export type RioLinhaCb = {
   caPersonId: string;
   grupoSite: string;
   nomeFantasia: string;
+  origemCliente?: string;
   razaoSocial: string;
   documento: string | null;
   emailCobranca: string | null;
@@ -89,6 +95,18 @@ export function badgeMov(m: MovRioCb) {
   }
   return (
     <span className="inline-block min-w-[1rem] text-center text-[10px] text-slate-400 dark:text-slate-500">—</span>
+  );
+}
+
+function ClienteNomeComOrigem({ nome, origem }: { nome: string; origem?: string | null }) {
+  const suffix = rioOrigemClienteSuffix(origem);
+  return (
+    <span className="inline max-w-full truncate">
+      {nome}
+      {suffix ?
+        <span className="font-bold text-red-600 dark:text-red-500"> {suffix}</span>
+      : null}
+    </span>
   );
 }
 
@@ -133,6 +151,7 @@ function SortClientRow(props: {
   const [pdvDropOver, setPdvDropOver] = useState(false);
   const [pastePdvs, setPastePdvs] = useState("");
   const vinculado = isRioCaPersonLinked(r.caPersonId);
+  const origem = (r.origemCliente ?? "") as RioOrigemCliente;
   const docDisplay = displayBrazilianTaxId(r.documento);
   const emails = parseEmailAddresses((r.emailCobranca ?? "").trim());
   const emailsJoined = emails.join("\n");
@@ -225,14 +244,15 @@ function SortClientRow(props: {
             <button
               type="button"
               className="block max-w-full truncate text-left text-[11px] font-semibold text-emerald-950 underline-offset-2 hover:underline dark:text-emerald-100"
-              title={r.nomeFantasia}
+              title={r.nomeFantasia + (rioOrigemClienteSuffix(origem) ? ` ${rioOrigemClienteSuffix(origem)}` : "")}
               onClick={onExpand}
             >
-              {r.nomeFantasia}
+              <ClienteNomeComOrigem nome={r.nomeFantasia} origem={origem} />
             </button>
           : <>
+              <div className="flex min-w-0 flex-wrap items-baseline gap-0.5">
               <input
-                className="w-full min-w-0 rounded border border-emerald-700/45 bg-white/90 px-1 py-0.5 text-[11px] font-semibold text-emerald-950 dark:border-emerald-600/55 dark:bg-slate-950 dark:text-emerald-100"
+                className="min-w-0 flex-1 rounded border border-emerald-700/45 bg-white/90 px-1 py-0.5 text-[11px] font-semibold text-emerald-950 dark:border-emerald-600/55 dark:bg-slate-950 dark:text-emerald-100"
                 defaultValue={r.nomeFantasia}
                 title="Nome antes de vincular à CA — ao vincular, passa a ser o nome fantasia da Conta Azul"
                 onBlur={(e) => {
@@ -245,6 +265,12 @@ function SortClientRow(props: {
                   if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                 }}
               />
+              {rioOrigemClienteSuffix(origem) ?
+                <span className="shrink-0 font-bold text-red-600 dark:text-red-500">
+                  {rioOrigemClienteSuffix(origem)}
+                </span>
+              : null}
+              </div>
               <button
                 type="button"
                 className="mt-0.5 block text-left text-[9px] text-emerald-800 underline dark:text-emerald-300"
@@ -367,9 +393,34 @@ function SortClientRow(props: {
                 if (names.length) void onAddPdvsBulk(r.id, names);
               }}
             >
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-amber-950/95 dark:text-amber-400">
-                PDVs deste cliente — cole a lista abaixo ou arraste nomes para aqui
-              </p>
+              <div className="mb-2 flex flex-wrap items-center gap-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-amber-950/95 dark:text-amber-400">
+                  PDVs deste cliente — cole a lista abaixo ou arraste nomes para aqui
+                </p>
+                <label className="flex items-center gap-1.5 text-[10px] font-medium text-amber-950 dark:text-amber-200">
+                  <span className="shrink-0">Nome na coluna:</span>
+                  <select
+                    className="rounded border border-amber-800/40 bg-white px-2 py-0.5 text-[11px] font-semibold dark:border-amber-700/60 dark:bg-slate-950"
+                    value={origem}
+                    onChange={(e) =>
+                      void props.patchLinha(r.id, {
+                        origemCliente: e.target.value,
+                      })
+                    }
+                  >
+                    {RIO_ORIGEM_CLIENTE_OPTS.map((o) => (
+                      <option key={o.value || "__"} value={o.value}>
+                        {o.label === "—" ? "Nenhum" : o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-amber-900/80 dark:text-amber-300/80">
+                    → {(origem === "APP" || origem === "MANUAL") ?
+                      <span className="font-bold text-red-600 dark:text-red-500">({origem})</span>
+                    : "sem etiqueta"}
+                  </span>
+                </label>
+              </div>
             <ul className="mb-2 max-w-[52rem] space-y-1">
               {pdvsSorted.map((p, pi) => (
                 <PdvMini key={p.id} indexVis={pi + 1} p={p} patchPdv={props.patchPdv} del={props.delPdv} />

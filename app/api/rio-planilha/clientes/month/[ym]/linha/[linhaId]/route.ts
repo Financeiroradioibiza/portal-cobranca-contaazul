@@ -5,6 +5,7 @@ import {
   patchRioCompClienteLinha,
 } from "@/lib/rio/rioClienteCompService";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
+import { normalizeRioOrigemCliente } from "@/lib/rio/rioOrigemCliente";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
 
@@ -47,7 +48,12 @@ export async function PATCH(request: Request, context: Ctx) {
     rioGrupoId: string | null;
     valorClienteTexto: string;
     valorPdvUnitarioTexto: string;
+    origemCliente: string;
   }> = {};
+
+  if ("origemCliente" in body) {
+    patch.origemCliente = normalizeRioOrigemCliente(body.origemCliente);
+  }
 
   if (typeof body.nomeFantasia === "string") {
     const nf = body.nomeFantasia.trim().slice(0, 8000);
