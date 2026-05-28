@@ -12,6 +12,10 @@ import {
   readPdvDropFromDataTransfer,
   sortRioPdvsByNome,
 } from "@/lib/rio/pdvNames";
+import {
+  formatRioValorTotal,
+  sumRioLinhasTotals,
+} from "@/lib/rio/rioPlanilhaTotals";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { displayBrazilianTaxId, parseEmailAddresses } from "@/lib/format";
@@ -625,6 +629,7 @@ export function ClienteMarcaBlock(props: {
   };
 
   const headerTitle = marca ? marca.nome : "Sem MARCA";
+  const grupoTotals = sumRioLinhasTotals(linhasOrdered);
 
   const sysTag = marca?.systemTag ?? null;
   const bannerCls =
@@ -664,7 +669,7 @@ export function ClienteMarcaBlock(props: {
             {marca && !isSystemCa ?
               <>
                 <input
-                  className="flex-1 min-w-[14rem] max-w-[42rem] rounded border border-emerald-200/43 bg-black/12 px-2 py-0.5 text-[11px] font-normal text-emerald-50 outline-none placeholder-emerald-200/73 dark:border-emerald-800/71 dark:bg-black/41"
+                  className="w-[9.5rem] max-w-[12rem] shrink-0 rounded border border-emerald-200/43 bg-black/12 px-1.5 py-0.5 text-[11px] font-normal text-emerald-50 outline-none placeholder-emerald-200/73 dark:border-emerald-800/71 dark:bg-black/41"
                   defaultValue={marca.nome}
                   onBlur={(e) =>
                     marca && e.target.value.trim() !== marca.nome.trim() ?
@@ -674,7 +679,7 @@ export function ClienteMarcaBlock(props: {
                 />
                 <button
                   type="button"
-                  className="shrink-0 rounded border border-rose-200/71 px-2 py-0 text-[10px] font-semibold uppercase text-white hover:bg-rose-950/66"
+                  className="shrink-0 rounded border border-rose-200/71 px-1.5 py-0 text-[10px] font-semibold uppercase text-white hover:bg-rose-950/66"
                   onClick={() => void onDeleteMarca(marca.id)}
                 >
                   Apagar marca vazia
@@ -683,11 +688,18 @@ export function ClienteMarcaBlock(props: {
             : marca && isSystemCa ?
               <span className="text-[10px] font-normal opacity-90">Bloco automático da virada do mês</span>
             : null}
-            <span className="ms-auto shrink-0 text-[10px] font-normal uppercase opacity-80">
-              {(marca ?? null) ?
-                <>Arraste ≡ para ordenar nesta MARCA. Coluna MARCA mudar bloco reorganiza hierarquia.</>
-              : <>Linhas aqui ficam antes / depois dos blocos com MARCA segundo a ordem no painel.</>}
-            </span>
+            {linhasOrdered.length > 0 ?
+              <span className="ms-auto shrink-0 text-right text-[10px] font-semibold tabular-nums">
+                Subtotal:{" "}
+                <span className="font-bold">
+                  {formatRioValorTotal(grupoTotals.valorHasAny, grupoTotals.valorTotal)}
+                </span>
+                {" · "}
+                {grupoTotals.pdvTotal} PDV{grupoTotals.pdvTotal === 1 ? "" : "s"}
+                {" · "}
+                {grupoTotals.clientesAtivos} cliente{grupoTotals.clientesAtivos === 1 ? "" : "s"}
+              </span>
+            : null}
           </div>
         </td>
       </tr>

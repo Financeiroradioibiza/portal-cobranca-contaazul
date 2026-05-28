@@ -19,6 +19,7 @@ import {
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
 import { displayBrazilianTaxId } from "@/lib/format";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import { arrayMove } from "@dnd-kit/sortable";
@@ -835,6 +836,8 @@ export function RioClientesCompPanel() {
 
   const { map: buckets, orphans } = useMemo(() => bucketize(grupoOrd, linhas), [grupoOrd, linhas]);
 
+  const monthTotals = useMemo(() => sumRioLinhasTotals(linhas), [linhas]);
+
   const persistBuckets = useCallback(
     async (mapArg: Map<string, RioLinha[]>, orphansArg: RioLinha[]) => {
       const items: { id: string; rio_grupo_id: string | null; sort_order: number }[] = [];
@@ -1601,6 +1604,30 @@ export function RioClientesCompPanel() {
           </span>
         </label>
       </div>
+
+      {!loading && linhas.length > 0 ?
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/80">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Totais — {formatYearMonthLabel(activeYm)}
+          </div>
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm text-slate-800 dark:text-slate-100">
+            <span>
+              <span className="text-slate-500 dark:text-slate-400">Pontos ativos (Nº PDV):</span>{" "}
+              <strong className="tabular-nums">{monthTotals.pdvTotal}</strong>
+            </span>
+            <span>
+              <span className="text-slate-500 dark:text-slate-400">Valor mês:</span>{" "}
+              <strong className="tabular-nums text-emerald-800 dark:text-emerald-300">
+                {formatRioValorTotal(monthTotals.valorHasAny, monthTotals.valorTotal)}
+              </strong>
+            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              {monthTotals.clientesAtivos} cliente{monthTotals.clientesAtivos === 1 ? "" : "s"} ativo
+              {monthTotals.clientesAtivos === 1 ? "" : "s"} (sem saída)
+            </span>
+          </div>
+        </div>
+      : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="max-h-[min(72vh,calc(100dvh-12rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
