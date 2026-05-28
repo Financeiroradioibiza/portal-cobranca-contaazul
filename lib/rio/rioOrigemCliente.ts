@@ -1,15 +1,16 @@
 /** Etiqueta ao lado do nome do cliente na Planilha Rio. */
-export type RioOrigemCliente = "" | "APP" | "MANUAL";
+export type RioOrigemCliente = "" | "APP" | "OC";
 
 export const RIO_ORIGEM_CLIENTE_OPTS: ReadonlyArray<{ value: RioOrigemCliente; label: string }> = [
   { value: "", label: "—" },
   { value: "APP", label: "APP" },
-  { value: "MANUAL", label: "MANUAL" },
+  { value: "OC", label: "OC" },
 ];
 
 export function normalizeRioOrigemCliente(v: unknown): RioOrigemCliente {
   const t = typeof v === "string" ? v.trim().toUpperCase() : "";
-  return t === "APP" || t === "MANUAL" ? t : "";
+  if (t === "MANUAL") return "OC";
+  return t === "APP" || t === "OC" ? t : "";
 }
 
 export function rioOrigemClienteSuffix(origem: string | null | undefined): string | null {
