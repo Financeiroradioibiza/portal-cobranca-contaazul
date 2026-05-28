@@ -3,6 +3,7 @@ import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
 import { billingEmailJoined, fetchPersonDetail, searchPeopleByText } from "@/lib/contaazul/personBilling";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { mergeValorClienteFromContaAzul } from "@/lib/rio/valorClienteCalc";
 import {
   syncRioCompNumeroPdvSiteFromPdvs,
   type RioCompLinhaOut,
@@ -196,19 +197,16 @@ export async function applyCaPersonToRioLinha(
   let valorClienteTexto = linha.valorClienteTexto;
   let valorPdvUnitarioTexto = linha.valorPdvUnitarioTexto;
   let contratosAtivosTexto = linha.contratosAtivosTexto;
+  let rec: Record<string, unknown> | null = null;
 
   if (fetchCadastro) {
     const raw = await fetchPersonDetail(accessToken, pid);
-    const rec = asRecord(raw) ?? {};
+    rec = asRecord(raw) ?? {};
     email = billingEmailJoined(raw);
     const nf = nomeFantasiaFromCaRaw(rec, nomeListaHint);
     nomeFantasia = nf || nomeListaHint || linha.nomeFantasia;
     razaoSocial = razaoFromRaw(rec) || nomeFantasia;
     documento = documentoFromRaw(rec, linha.documento);
-    if (!includeContracts) {
-      const valorPessoa = valorClienteFromRaw(rec);
-      if (valorPessoa) valorClienteTexto = valorPessoa.slice(0, 200);
-    }
   } else if (linkingNewCa && nomeListaHint) {
     nomeFantasia = nomeListaHint;
     razaoSocial = nomeListaHint;
@@ -217,10 +215,20 @@ export async function applyCaPersonToRioLinha(
   if (includeContracts) {
     const contract = await fetchActiveContractSummaryForClient(accessToken, pid);
     if (contract?.numeros) contratosAtivosTexto = contract.numeros.slice(0, 400);
-    if (contract?.valorTexto) {
-      valorClienteTexto = contract.valorTexto.slice(0, 200);
-      valorPdvUnitarioTexto = "";
-    }
+    const valorPessoaCa = rec ? valorClienteFromRaw(rec) : "";
+    const hadContractValor = Boolean(contract?.valorTexto?.trim());
+    valorClienteTexto = mergeValorClienteFromContaAzul(
+      linha.valorClienteTexto,
+      contract?.valorTexto,
+      valorPessoaCa,
+    );
+    if (hadContractValor) valorPdvUnitarioTexto = "";
+  } else if (rec) {
+    valorClienteTexto = mergeValorClienteFromContaAzul(
+      linha.valorClienteTexto,
+      null,
+      valorClienteFromRaw(rec),
+    );
   }
 
   await prisma.rioCompClienteLinha.update({

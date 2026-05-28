@@ -15,7 +15,10 @@ import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
 import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
-import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
+import {
+  mergeValorClienteFromContaAzul,
+  valorClienteTextoFromPdvUnit,
+} from "@/lib/rio/valorClienteCalc";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { normalizeRioOrigemCliente } from "@/lib/rio/rioOrigemCliente";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
@@ -279,6 +282,7 @@ type LinhaUpsertDraft = {
   documento: string | null;
   emailCobranca: string | null;
   valorClienteTexto: string;
+  valorPdvUnitarioTexto: string;
   numeroPdvSite: number;
   categoriaSite: string;
   contratosAtivosTexto: string;
@@ -335,6 +339,8 @@ export async function syncRioCompMonthFromContaAzul(
         observacoesLinha: r.observacoesLinha,
         contratosAtivosTexto: r.contratosAtivosTexto,
         emailCobranca: r.emailCobranca,
+        valorClienteTexto: r.valorClienteTexto,
+        valorPdvUnitarioTexto: r.valorPdvUnitarioTexto,
         pdvs: r.pdvs.map((p) => ({ nome: p.nome, notes: p.notes, sortOrder: p.sortOrder })),
       },
     ]),
@@ -381,11 +387,16 @@ export async function syncRioCompMonthFromContaAzul(
     const nomeFantasia = nomeFantasiaFromRaw(raw) || s.nomeLista;
     const razao = razaoFromRaw(raw) || nomeFantasia;
     const doc = documentoFromRaw(raw, s.documento);
-    const valor = valorClienteFromRaw(raw);
+    const valorPessoaCa = includePersonDetails ? valorClienteFromRaw(raw) : "";
     const prev = preserved.get(s.id);
     const contratos = includeContracts
       ? ((contractsMap.get(s.id) ?? "").trim())
       : (prev?.contratosAtivosTexto ?? "").trim();
+    const valorClienteTexto = mergeValorClienteFromContaAzul(
+      prev?.valorClienteTexto ?? "",
+      null,
+      valorPessoaCa,
+    );
 
     drafts.push({
       caPersonId: s.id,
@@ -394,7 +405,8 @@ export async function syncRioCompMonthFromContaAzul(
       razaoSocial: razao,
       documento: doc,
       emailCobranca: email,
-      valorClienteTexto: valor,
+      valorClienteTexto,
+      valorPdvUnitarioTexto: prev?.valorPdvUnitarioTexto ?? "",
       numeroPdvSite: prev?.numeroPdvSite ?? 0,
       categoriaSite: prev?.categoriaSite ?? "",
       contratosAtivosTexto: contratos,
@@ -416,6 +428,7 @@ export async function syncRioCompMonthFromContaAzul(
         documento: prevLinha.documento,
         emailCobranca: prevLinha.emailCobranca,
         valorClienteTexto: prevLinha.valorClienteTexto,
+        valorPdvUnitarioTexto: prevPres?.valorPdvUnitarioTexto ?? prevLinha.valorPdvUnitarioTexto,
         numeroPdvSite: prevPres?.numeroPdvSite ?? prevLinha.numeroPdvSite,
         categoriaSite: prevPres?.categoriaSite ?? prevLinha.categoriaSite,
         contratosAtivosTexto: "",
@@ -457,6 +470,7 @@ export async function syncRioCompMonthFromContaAzul(
           documento: d.documento,
           emailCobranca: d.emailCobranca,
           valorClienteTexto: d.valorClienteTexto,
+          valorPdvUnitarioTexto: d.valorPdvUnitarioTexto,
           numeroPdvSite: d.numeroPdvSite,
           categoriaSite: d.categoriaSite,
           contratosAtivosTexto: d.contratosAtivosTexto,

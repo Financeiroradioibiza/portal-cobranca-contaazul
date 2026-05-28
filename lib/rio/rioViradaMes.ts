@@ -3,6 +3,7 @@ import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeCliente
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
 import { cobrancaPlusPrincipalEmailsJoined } from "@/lib/contaazul/personBilling";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
+import { mergeValorClienteFromContaAzul } from "@/lib/rio/valorClienteCalc";
 import { prisma } from "@/lib/prisma";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import {
@@ -171,17 +172,20 @@ export async function viradaRioCompMonthFromContaAzul(
         patch.documento = documentoFromRaw(rec, l.documento);
         patch.emailCobranca = cobrancaPlusPrincipalEmailsJoined(raw) || l.emailCobranca;
         const contract = await fetchActiveContractSummaryForClient(accessToken, l.caPersonId);
-        if (contract?.valorTexto) {
-          patch.valorClienteTexto = contract.valorTexto.slice(0, 200);
-        } else {
-          const v = valorClienteFromRaw(rec);
-          if (v) patch.valorClienteTexto = v.slice(0, 200);
-        }
+        patch.valorClienteTexto = mergeValorClienteFromContaAzul(
+          l.valorClienteTexto,
+          contract?.valorTexto,
+          valorClienteFromRaw(rec),
+        );
         if (contract?.numeros) patch.contratosAtivosTexto = contract.numeros.slice(0, 400);
       } else if (includeContracts) {
         const contract = await fetchActiveContractSummaryForClient(accessToken, l.caPersonId);
         if (contract?.numeros) patch.contratosAtivosTexto = contract.numeros.slice(0, 400);
-        if (contract?.valorTexto) patch.valorClienteTexto = contract.valorTexto.slice(0, 200);
+        patch.valorClienteTexto = mergeValorClienteFromContaAzul(
+          l.valorClienteTexto,
+          contract?.valorTexto,
+          null,
+        );
       }
 
       await prisma.rioCompClienteLinha.update({ where: { id: l.id }, data: patch });
