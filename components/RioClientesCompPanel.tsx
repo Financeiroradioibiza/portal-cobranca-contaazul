@@ -20,6 +20,7 @@ import {
 } from "@/lib/manualReminders/yearMonth";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
+import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
 import { displayBrazilianTaxId } from "@/lib/format";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import { arrayMove } from "@dnd-kit/sortable";
@@ -41,18 +42,8 @@ function bucketize(grupOrd: RioGrupo[], linhasAll: RioLinha[]) {
     else orphans.push(ln);
   }
 
-  map.forEach((arr) =>
-    arr.sort(
-      (a, b) =>
-        (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
-        a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" }),
-    ),
-  );
-  orphans.sort(
-    (a, b) =>
-      (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
-      a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" }),
-  );
+  map.forEach((arr) => arr.sort(compareRioLinhasByNomeFantasia));
+  orphans.sort(compareRioLinhasByNomeFantasia);
   return { map, orphans } as const;
 }
 
@@ -1161,7 +1152,9 @@ export function RioClientesCompPanel() {
     }
     if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
     if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
-    else if (data?.linha) setLinhas((prev) => [...prev, data.linha!]);
+    else if (data?.linha) {
+      setLinhas((prev) => [...prev, data.linha!].sort(compareRioLinhasByNomeFantasia));
+    }
     setMsg(`Cliente «${nomeFantasia}» criado (Nº PDV = 1). Use «Vincular CA» quando quiser.`);
   }, [activeYm, monthClosed]);
 

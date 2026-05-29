@@ -184,13 +184,19 @@ function SortClientRow(props: {
   const pdvsSorted = sortRioPdvsByNome(
     r.pdvs.filter((p) => (p.movimento ?? "estavel") !== "saida"),
   );
+  const temPdvs = r.pdvs.length > 0;
 
   return (
     <>
       <tr
         ref={setNodeRef}
         style={sty}
-        className="h-[2rem] border-b border-slate-100 bg-white align-middle dark:border-slate-900 dark:bg-slate-950"
+        className={
+          "h-[2rem] border-b align-middle " +
+          (temPdvs ?
+            "border-emerald-200/70 bg-emerald-50/90 dark:border-emerald-900/55 dark:bg-emerald-950/80"
+          : "border-slate-100 bg-white dark:border-slate-900 dark:bg-slate-950")
+        }
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
@@ -229,7 +235,13 @@ function SortClientRow(props: {
             : null}
           </span>
         </td>
-        <td className="border-l border-emerald-900/38 bg-emerald-800/12 px-0.5 py-0 dark:bg-emerald-900/42">
+        <td
+          className={
+            temPdvs ?
+              "border-l border-emerald-800/45 bg-emerald-700/20 px-0.5 py-0 dark:border-emerald-700/55 dark:bg-emerald-900/58"
+            : "border-l border-emerald-900/38 bg-emerald-800/12 px-0.5 py-0 dark:bg-emerald-900/42"
+          }
+        >
           <select
             className="box-border h-7 max-w-[8.75rem] truncate rounded border border-emerald-800/40 bg-transparent py-0 pl-1 text-[10px] leading-snug dark:border-emerald-700/65"
             value={r.rioGrupoId ?? ""}
@@ -244,7 +256,13 @@ function SortClientRow(props: {
             ))}
           </select>
         </td>
-        <td className="max-w-[15rem] min-w-[11rem] border-l border-emerald-900/35 bg-emerald-900/13 px-0.5 py-0 dark:bg-emerald-950/52">
+        <td
+          className={
+            temPdvs ?
+              "max-w-[15rem] min-w-[11rem] border-l border-emerald-800/40 bg-emerald-800/24 px-0.5 py-0 dark:border-emerald-800/50 dark:bg-emerald-950/68"
+            : "max-w-[15rem] min-w-[11rem] border-l border-emerald-900/35 bg-emerald-900/13 px-0.5 py-0 dark:bg-emerald-950/52"
+          }
+        >
           {vinculado ?
             <div className="flex min-w-0 items-center gap-0.5">
               <button

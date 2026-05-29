@@ -14,6 +14,7 @@ import type { ParsedRioFileRow } from "@/lib/rio/rioCompFileImport";
 import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
 import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import {
   mergeValorClienteFromContaAzul,
@@ -131,8 +132,7 @@ function sortClienteLinhasByGrupo(gruposSorted: RioCompGrupo[], raw: RioCompLinh
     const ga = a.rioGrupoId ? (idx.get(a.rioGrupoId) ?? 999999) : 999999;
     const gb = b.rioGrupoId ? (idx.get(b.rioGrupoId) ?? 999999) : 999999;
     if (ga !== gb) return ga - gb;
-    const sd = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-    return sd !== 0 ? sd : a.nomeFantasia.localeCompare(b.nomeFantasia, "pt-BR", { sensitivity: "base" });
+    return compareRioLinhasByNomeFantasia(a, b);
   });
 }
 
@@ -214,6 +214,7 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
     include: {
       grupos: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
       linhas: {
+        orderBy: [{ nomeFantasia: "asc" }, { id: "asc" }],
         include: {
           pdvs: { orderBy: [{ nome: "asc" }, { id: "asc" }] },
           rioGrupo: { select: { id: true, nome: true, sortOrder: true, systemTag: true } },

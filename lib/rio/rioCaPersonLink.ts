@@ -114,7 +114,7 @@ async function linkedLinhasOrdered(monthId: string) {
   const linhas = await prisma.rioCompClienteLinha.findMany({
     where: { monthId },
     select: { id: true, caPersonId: true },
-    orderBy: [{ sortOrder: "asc" }, { nomeFantasia: "asc" }, { id: "asc" }],
+    orderBy: [{ nomeFantasia: "asc" }, { id: "asc" }],
   });
   return linhas.filter((l) => isRioCaPersonLinked(l.caPersonId));
 }
@@ -123,7 +123,7 @@ async function unlinkedLinhasWithDocumento(monthId: string) {
   const linhas = await prisma.rioCompClienteLinha.findMany({
     where: { monthId },
     select: { id: true, caPersonId: true, documento: true },
-    orderBy: [{ sortOrder: "asc" }, { nomeFantasia: "asc" }, { id: "asc" }],
+    orderBy: [{ nomeFantasia: "asc" }, { id: "asc" }],
   });
   return linhas.filter((l) => {
     if (isRioCaPersonLinked(l.caPersonId)) return false;
