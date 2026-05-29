@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RIO_CA_REFRESH_BATCH_SIZE } from "@/lib/rio/rioCaPersonLink";
-import * as XLSX from "xlsx";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
 import {
@@ -20,8 +19,12 @@ import {
 } from "@/lib/manualReminders/yearMonth";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
-import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
+import {
+  compareRioLinhasByNomeFantasia,
+  sortRioCompGruposForDisplay,
+} from "@/lib/rio/sortRioCompLinhas";
 import { displayBrazilianTaxId } from "@/lib/format";
+import { downloadRioMonthStyledExcel } from "@/lib/rio/rioPlanilhaExport";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import { arrayMove } from "@dnd-kit/sortable";
 
@@ -94,6 +97,7 @@ export function RioClientesCompPanel() {
   const [linkModalNotice, setLinkModalNotice] = useState<string | null>(null);
   const [caLinkBusy, setCaLinkBusy] = useState(false);
   const [refreshingCa, setRefreshingCa] = useState(false);
+  const [exportingMonth, setExportingMonth] = useState(false);
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months", { credentials: "include" });
@@ -817,10 +821,7 @@ export function RioClientesCompPanel() {
     );
   }, []);
 
-  const grupoOrd = useMemo(
-    () => [...grupos].sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)),
-    [grupos],
-  );
+  const grupoOrd = useMemo(() => sortRioCompGruposForDisplay(grupos), [grupos]);
 
   const systemGrupoOrd = useMemo(() => grupoOrd.filter((g) => g.systemTag), [grupoOrd]);
   const userGrupoOrd = useMemo(() => grupoOrd.filter((g) => !g.systemTag), [grupoOrd]);
@@ -1192,40 +1193,21 @@ export function RioClientesCompPanel() {
     [activeYm],
   );
 
-  const exportExcel = useCallback(() => {
-    const head = [
-      "MARCA (bloco Rio)",
-      "Grupo texto (CSV)",
-      "Cliente",
-      "CNPJ",
-      "Movimento",
-      "Contratos ativos",
-      "Valor (CA)",
-      "Nº PDVs (site)",
-      "Categoria",
-      "E-mail cobrança",
-      "Razão social",
-      "PDVs (lista)",
-    ];
-    const rows = linhas.map((r) => [
-      r.grupo?.nome ?? "",
-      r.grupoSite,
-      r.nomeFantasia,
-      displayBrazilianTaxId(r.documento) === "—" ? "" : displayBrazilianTaxId(r.documento),
-      r.movimento,
-      r.contratosAtivosTexto,
-      r.valorClienteTexto,
-      String(r.numeroPdvSite),
-      r.categoriaSite,
-      r.emailCobranca ?? "",
-      r.razaoSocial,
-      r.pdvs.map((p) => p.nome).join(" | "),
-    ]);
-    const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Rio");
-    XLSX.writeFile(wb, `planilha-rio-${activeYm}.xlsx`);
-  }, [linhas, activeYm]);
+  const exportMonth = useCallback(async () => {
+    if (linhas.length === 0) return;
+    setExportingMonth(true);
+    try {
+      await downloadRioMonthStyledExcel({
+        yearMonth: activeYm,
+        grupos,
+        linhas,
+      });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao exportar o mês.");
+    } finally {
+      setExportingMonth(false);
+    }
+  }, [activeYm, grupos, linhas]);
 
   const createMonth = useCallback(async () => {
     const base = months.length > 0 ? months[0].yearMonth : activeYm;
@@ -1454,6 +1436,15 @@ export function RioClientesCompPanel() {
         </label>
         <button
           type="button"
+          className="rounded-lg border border-emerald-800 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"
+          disabled={exportingMonth || linhas.length === 0}
+          title="Excel formatado com cores da planilha (MARCA, totais, categorias)"
+          onClick={() => void exportMonth()}
+        >
+          {exportingMonth ? "Exportando…" : "Exportar mês"}
+        </button>
+        <button
+          type="button"
           className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
           onClick={() => void ensureMonthShell()}
         >
@@ -1565,13 +1556,6 @@ export function RioClientesCompPanel() {
           title="Casa CNPJ/CPF e depois atualiza vinculados — 10 clientes por lote"
         >
           Casar CNPJ → CA
-        </button>
-        <button
-          type="button"
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800"
-          onClick={() => void exportExcel()}
-        >
-          Exportar Excel
         </button>
         <button
           type="button"

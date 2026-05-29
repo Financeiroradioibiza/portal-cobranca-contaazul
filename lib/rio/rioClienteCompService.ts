@@ -14,7 +14,10 @@ import type { ParsedRioFileRow } from "@/lib/rio/rioCompFileImport";
 import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
 import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
-import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
+import {
+  compareRioLinhasByNomeFantasia,
+  sortRioCompGruposForDisplay,
+} from "@/lib/rio/sortRioCompLinhas";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import {
   mergeValorClienteFromContaAzul,
@@ -232,7 +235,8 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
 
   const { grupos: _omitG, linhas: _omitL, ...monthRow } = month;
 
-  const gruposBrief: RioCompGrupoDto[] = month.grupos.map((g) => ({
+  const gruposDisplay = sortRioCompGruposForDisplay(month.grupos);
+  const gruposBrief: RioCompGrupoDto[] = gruposDisplay.map((g) => ({
     id: g.id,
     nome: g.nome,
     sortOrder: g.sortOrder,
@@ -250,7 +254,7 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
     };
     return out;
   });
-  const linhas = sortClienteLinhasByGrupo(month.grupos, baseLinhas);
+  const linhas = sortClienteLinhasByGrupo(gruposDisplay, baseLinhas);
   return {
     month: monthRow,
     grupos: gruposBrief,

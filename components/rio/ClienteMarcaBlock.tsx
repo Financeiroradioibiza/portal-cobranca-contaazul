@@ -27,6 +27,10 @@ import {
 } from "@/lib/rio/rioOrigemCliente";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import {
+  downloadRioClientePdvsExcel,
+  printRioClientePdvsPdf,
+} from "@/lib/rio/rioPlanilhaExport";
+import {
   DndContext,
   type DragEndEvent,
   KeyboardSensor,
@@ -151,7 +155,7 @@ function SortClientRow(props: {
   newPdv: string;
   setNewPdv: (nome: string) => void;
 }) {
-  const { r, gruposTodos, onMarcaSel, onExpand, isOpen, onOpenCaLink, onToggleCaLink, onAddPdvsBulk } =
+  const { r, gruposTodos, onMarcaSel, onExpand, isOpen, onOpenCaLink, onToggleCaLink, onAddPdvsBulk, ym } =
     props;
   const [pdvDropOver, setPdvDropOver] = useState(false);
   const [pastePdvs, setPastePdvs] = useState("");
@@ -442,6 +446,26 @@ function SortClientRow(props: {
                 <p className="text-[10px] font-bold uppercase tracking-wider text-amber-950/95 dark:text-amber-400">
                   PDVs deste cliente — cole a lista abaixo ou arraste nomes para aqui
                 </p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    className="rounded border border-emerald-800 bg-emerald-700 px-2 py-0.5 text-[10px] font-semibold text-white hover:brightness-110"
+                    title="Excel com Radio Ibiza, cliente, PDVs do mês e valor total"
+                    onClick={() =>
+                      void downloadRioClientePdvsExcel({ yearMonth: ym, linha: r })
+                    }
+                  >
+                    Exportar Excel
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-slate-900 dark:border-slate-500 dark:bg-slate-700"
+                    title="Abre impressão — escolha «Salvar como PDF» no diálogo"
+                    onClick={() => printRioClientePdvsPdf({ yearMonth: ym, linha: r })}
+                  >
+                    Exportar PDF
+                  </button>
+                </div>
                 <label className="flex items-center gap-1.5 text-[10px] font-medium text-amber-950 dark:text-amber-200">
                   <span className="shrink-0">Nome na coluna:</span>
                   <select
