@@ -60,6 +60,7 @@ export async function PATCH(
     create: {
       clientId,
       hasActiveContract: false,
+      activeContractNumbers: "",
       note: hasNote ? body.note!.slice(0, MAX_NOTE) : "",
       painelBloqueio: hasBloqueio ? body.painelBloqueio! : false,
       painelInativo: hasInativo ? body.painelInativo! : false,

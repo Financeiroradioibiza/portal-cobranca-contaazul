@@ -105,6 +105,12 @@ Se o deploy falhar no passo migrate:
 
 **Último recurso:** variável Netlify `SKIP_PRISMA_MIGRATE=1` (só temporário) faz o build ignorar migrações; rode `npx prisma migrate deploy` localmente contra o mesmo banco e remova essa flag de seguida.
 
+## Painel cobrança — contratos em cache
+
+- **Atualizar** só traz parcelas vencidas da Conta Azul (sem buscar contratos).
+- Números de contrato ATIVO ficam em `client_portal_meta` (`active_contract_numbers`).
+- **Atualizar contratos** chama a CA em lotes de **10** clientes (`POST /api/clients/contracts-refresh-batch`) e grava no Postgres; se falhar no meio, clique de novo para **continuar** do último lote.
+
 ## Rate limit
 
 A Conta Azul indica limites da ordem de **600 req/min** por conta ERP; a sincronização pagina resultados de `contas-a-receber/buscar`.

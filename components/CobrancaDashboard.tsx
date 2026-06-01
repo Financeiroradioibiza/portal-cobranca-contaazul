@@ -10,6 +10,7 @@ import { defaultPeriodMonths, formatBrazilianTaxId, formatBRL, parseEmailAddress
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import type { ClientRow } from "@/lib/types";
 
+import { CONTRACTS_REFRESH_BATCH_SIZE } from "@/lib/clientPortalContracts";
 import { composePersistClienteNote } from "@/lib/portalClienteNote";
 
 type ConnStatus = {
@@ -50,8 +51,13 @@ export function CobrancaDashboard() {
   const [cobSendPdfCount, setCobSendPdfCount] = useState(0);
   const [cobSendHadGaps, setCobSendHadGaps] = useState(false);
   const [cobSendHtmlPreview, setCobSendHtmlPreview] = useState("");
-  /** Invalida merges de contratos quando período / refresh mudam antes da API responder. */
+  /** Invalida merges de metadados quando período / refresh mudam antes da API responder. */
   const receivablesLoadGenRef = useRef(0);
+  const contractsLoadGenRef = useRef(0);
+  /** Retoma «Atualizar contratos» após falha no meio da fila. */
+  const contractsResumeOffsetRef = useRef(0);
+  const [contractsBusy, setContractsBusy] = useState(false);
+  const [contractsProgress, setContractsProgress] = useState<string | null>(null);
   /** Observações: última versão confirmada pela API neste navegador (por cliente). */
   const lastPersistedNotesRef = useRef<Record<string, string>>({});
   /** Valor ao ganhar foco — usado para carimbar só o texto acrescentado em cada sessão. */
@@ -120,6 +126,8 @@ export function CobrancaDashboard() {
   const loadReceivables = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
+    contractsLoadGenRef.current += 1;
+    contractsResumeOffsetRef.current = 0;
     const loadGen = ++receivablesLoadGenRef.current;
     try {
       const q = new URLSearchParams({ start, end });
@@ -157,72 +165,50 @@ export function CobrancaDashboard() {
       if (list.length > 0) {
         void (async () => {
           const ids = list.map((c) => c.id);
-          /** Mesmo limite que `MAX_IDS` em `/api/contaazul/contracts-for-clients` */
-          const CONTRACT_CLIENT_IDS_BATCH = 400;
-
-          const notesPromise = fetch("/api/clients/notes-for", {
+          const rNotes = await fetch("/api/clients/notes-for", {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ clientIds: ids }),
           });
-
-          const mergedByClientId: Record<string, string> = {};
-          for (let off = 0; off < ids.length; off += CONTRACT_CLIENT_IDS_BATCH) {
-            const slice = ids.slice(off, off + CONTRACT_CLIENT_IDS_BATCH);
-            const rContracts = await fetch("/api/contaazul/contracts-for-clients", {
-              method: "POST",
-              credentials: "include",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ clientIds: slice }),
-            });
-            if (loadGen !== receivablesLoadGenRef.current) return;
-            const pC = await readJsonFromResponse<{
-              byClientId?: Record<string, string>;
-              error?: string;
-            }>(rContracts);
-            if (loadGen !== receivablesLoadGenRef.current) return;
-            if (rContracts.ok && !pC.parseError && pC.data?.byClientId) {
-              Object.assign(mergedByClientId, pC.data.byClientId);
-            }
-          }
-
-          const rNotes = await notesPromise;
           if (loadGen !== receivablesLoadGenRef.current) return;
           type MetaRow = {
             note: string;
             painelBloqueio: boolean;
             painelInativo: boolean;
+            activeContractNumbers: string | null;
+            contractsFetchedAt: string | null;
           };
           const pN = await readJsonFromResponse<{ byId?: Record<string, MetaRow>; error?: string }>(
             rNotes,
           );
           if (loadGen !== receivablesLoadGenRef.current) return;
 
-          const mapC =
-            Object.keys(mergedByClientId).length > 0 ? mergedByClientId : null;
           const mapN = rNotes.ok && !pN.parseError && pN.data?.byId ? pN.data.byId : null;
+          if (!mapN) return;
 
-          if (mapN) {
-            for (const id of ids) {
-              const m = mapN[id];
-              lastPersistedNotesRef.current[id] = m?.note ?? "";
-            }
+          for (const id of ids) {
+            const m = mapN[id];
+            lastPersistedNotesRef.current[id] = m?.note ?? "";
           }
 
-          if (!mapC && !mapN) return;
-
           setClients((prev) =>
-            prev.map((c) => ({
-              ...c,
-              activeContractNumbers:
-                mapC != null ? (mapC[c.id] ?? c.activeContractNumbers) : c.activeContractNumbers,
-              note: mapN != null ? (mapN[c.id]?.note ?? c.note) : c.note,
-              painelBloqueio:
-                mapN != null ? (mapN[c.id]?.painelBloqueio ?? false) : c.painelBloqueio,
-              painelInativo:
-                mapN != null ? (mapN[c.id]?.painelInativo ?? false) : c.painelInativo,
-            })),
+            prev.map((c) => {
+              const m = mapN[c.id];
+              const fetched = m?.contractsFetchedAt != null;
+              const cached = m?.activeContractNumbers;
+              return {
+                ...c,
+                activeContractNumbers: fetched ?
+                    cached && cached.length > 0 ?
+                      cached
+                    : null
+                  : c.activeContractNumbers,
+                note: m?.note ?? c.note,
+                painelBloqueio: m?.painelBloqueio ?? false,
+                painelInativo: m?.painelInativo ?? false,
+              };
+            }),
           );
         })();
       }
@@ -233,6 +219,101 @@ export function CobrancaDashboard() {
       setLoading(false);
     }
   }, [start, end, loadStatus]);
+
+  const refreshContractsBatched = useCallback(async () => {
+    const ids = clientsLatestRef.current.map((c) => c.id);
+    if (!ids.length) {
+      setActionMsg("Carregue a lista (Atualizar) antes de buscar contratos.");
+      return;
+    }
+    if (!status?.connected) {
+      setActionMsg("Conecte o Conta Azul antes de atualizar contratos.");
+      return;
+    }
+
+    const loadGen = ++contractsLoadGenRef.current;
+    setContractsBusy(true);
+    setContractsProgress(null);
+    setActionMsg(null);
+
+    let offset = contractsResumeOffsetRef.current;
+    const total = ids.length;
+    let hadError: string | null = null;
+
+    try {
+      while (offset < total) {
+        if (loadGen !== contractsLoadGenRef.current) return;
+
+        const doneSoFar = Math.min(offset + CONTRACTS_REFRESH_BATCH_SIZE, total);
+        setContractsProgress(`${doneSoFar} / ${total}`);
+
+        const res = await fetch("/api/clients/contracts-refresh-batch", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientIds: ids, offset }),
+        });
+        if (loadGen !== contractsLoadGenRef.current) return;
+
+        const parsed = await readJsonFromResponse<{
+          byClientId?: Record<string, string>;
+          nextOffset?: number;
+          done?: boolean;
+          error?: string;
+        }>(res);
+
+        if (loadGen !== contractsLoadGenRef.current) return;
+
+        if (!res.ok || parsed.parseError || !parsed.data) {
+          contractsResumeOffsetRef.current = offset;
+          hadError =
+            parsed.data?.error ||
+            (parsed.parseError ? "Resposta inválida ao buscar contratos." : `Erro ${res.status}`);
+          break;
+        }
+
+        const batch = parsed.data.byClientId ?? {};
+        if (Object.keys(batch).length > 0) {
+          setClients((prev) =>
+            prev.map((c) => {
+              const nums = batch[c.id];
+              if (nums === undefined) return c;
+              return {
+                ...c,
+                activeContractNumbers: nums.length > 0 ? nums : null,
+              };
+            }),
+          );
+        }
+
+        const nextOffset =
+          typeof parsed.data.nextOffset === "number" ? parsed.data.nextOffset : offset + CONTRACTS_REFRESH_BATCH_SIZE;
+        offset = nextOffset;
+        if (parsed.data.done) break;
+      }
+
+      if (loadGen !== contractsLoadGenRef.current) return;
+
+      if (hadError) {
+        setActionMsg(
+          offset > 0 ?
+            `${hadError} — gravado até ${offset}/${total}. Clique «Atualizar contratos» de novo para continuar.`
+          : hadError,
+        );
+      } else {
+        contractsResumeOffsetRef.current = 0;
+        setActionMsg(`Contratos atualizados na Conta Azul (${total} cliente${total === 1 ? "" : "s"}).`);
+      }
+    } catch (e) {
+      if (loadGen !== contractsLoadGenRef.current) return;
+      setActionMsg(e instanceof Error ? e.message : "Falha ao atualizar contratos.");
+    } finally {
+      if (loadGen === contractsLoadGenRef.current) {
+        setContractsBusy(false);
+        setContractsProgress(null);
+      }
+    }
+  }, [status?.connected]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -691,7 +772,9 @@ export function CobrancaDashboard() {
           </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
             Período (vencimento): {start} a {end}. Apenas parcelas com vencimento{" "}
-            <strong>antes de hoje</strong> e valor em aberto.
+            <strong>antes de hoje</strong> e valor em aberto. Contratos vêm do cache do portal — use{" "}
+            <strong>Atualizar contratos</strong> (lotes de {CONTRACTS_REFRESH_BATCH_SIZE}) para buscar na
+            Conta Azul.
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -728,11 +811,26 @@ export function CobrancaDashboard() {
             <button
               type="button"
               onClick={() => void onRefresh()}
-              disabled={loading}
+              disabled={loading || contractsBusy}
               className="rounded-lg bg-[#0066cc] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-105 disabled:opacity-60 dark:bg-sky-600"
             >
               {loading ? "Carregando…" : "Atualizar"}
             </button>
+            {connected ?
+              <button
+                type="button"
+                onClick={() => void refreshContractsBatched()}
+                disabled={loading || contractsBusy || clients.length === 0}
+                title={`Busca contratos ATIVO na Conta Azul em lotes de ${CONTRACTS_REFRESH_BATCH_SIZE} clientes e grava no portal`}
+                className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-950 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-950"
+              >
+                {contractsBusy ?
+                  contractsProgress ?
+                    `Contratos… ${contractsProgress}`
+                  : "Contratos…"
+                : "Atualizar contratos"}
+              </button>
+            : null}
             {connected ? (
               <button
                 type="button"

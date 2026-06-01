@@ -6,7 +6,8 @@ import { getValidAccessToken } from "@/lib/contaazul/session";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_IDS = 400;
+/** Só lotes pequenos — o painel usa `/api/clients/contracts-refresh-batch` (10 em 10). */
+const MAX_IDS = 10;
 
 export async function POST(request: Request) {
   const token = await getValidAccessToken();

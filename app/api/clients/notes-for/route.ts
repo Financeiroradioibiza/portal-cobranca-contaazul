@@ -9,6 +9,8 @@ type ClientPortalMetaRowDto = {
   note: string;
   painelBloqueio: boolean;
   painelInativo: boolean;
+  activeContractNumbers: string | null;
+  contractsFetchedAt: string | null;
 };
 
 /**
@@ -42,6 +44,8 @@ export async function POST(request: Request) {
         note: true,
         painelBloqueio: true,
         painelInativo: true,
+        activeContractNumbers: true,
+        contractsFetchedAt: true,
       },
     });
     const byId: Record<string, ClientPortalMetaRowDto> = {};
@@ -50,6 +54,9 @@ export async function POST(request: Request) {
         note: r.note ?? "",
         painelBloqueio: r.painelBloqueio,
         painelInativo: r.painelInativo,
+        activeContractNumbers:
+          r.contractsFetchedAt != null ? (r.activeContractNumbers ?? "") : null,
+        contractsFetchedAt: r.contractsFetchedAt?.toISOString() ?? null,
       };
     }
     return NextResponse.json({ byId });

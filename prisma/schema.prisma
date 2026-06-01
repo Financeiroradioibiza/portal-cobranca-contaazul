@@ -25,6 +25,9 @@ model ContaAzulToken {
 model ClientPortalMeta {
   clientId          String   @id @map("client_id")
   hasActiveContract Boolean  @default(false) @map("has_active_contract")
+  /// Números de contratos ATIVO na CA (vírgulas), cache do painel de cobrança.
+  activeContractNumbers String @default("") @map("active_contract_numbers") @db.VarChar(400)
+  contractsFetchedAt    DateTime? @map("contracts_fetched_at")
   note              String   @default("")
   /// Portal only: marca manual «BLOQUEIO» na listagem principal.
   painelBloqueio    Boolean  @default(false) @map("painel_bloqueio")
