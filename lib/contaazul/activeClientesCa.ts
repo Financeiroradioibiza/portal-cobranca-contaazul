@@ -104,6 +104,64 @@ export function activeClientMaxPages(): number {
   return Math.min(300, Number.isFinite(n) && n > 0 ? n : 120);
 }
 
+export type ActiveClientePageResult = {
+  pagina: number;
+  items: CaClienteActiveSummary[];
+  hasMore: boolean;
+};
+
+/** Uma página da listagem CA (usado na virada em lotes). */
+export async function fetchActiveClientePersonPage(
+  accessToken: string,
+  pagina: number,
+): Promise<ActiveClientePageResult> {
+  if (pagina < 1 || pagina > activeClientMaxPages()) {
+    return { pagina, items: [], hasMore: false };
+  }
+
+  const qs = new URLSearchParams({
+    pagina: String(pagina),
+    tamanho_pagina: "200",
+    tipo_perfil: "Cliente",
+    ativo: "true",
+    tipo_ordenacao: "NOME",
+    ordem_ordenacao: "ASC",
+  });
+  const raw = await caFetch<unknown>(`/v1/pessoas?${qs}`, accessToken);
+  const envelope = asRecord(raw);
+  const rows = extractCaPessoasListRows(raw);
+  const itemsUnknown =
+    rows ??
+    (Array.isArray(envelope?.items) ? envelope!.items
+    : Array.isArray(envelope?.itens) ? envelope!.itens
+    : []);
+
+  const items: CaClienteActiveSummary[] = [];
+  if (Array.isArray(itemsUnknown)) {
+    for (const rawRow of itemsUnknown) {
+      const row = asRecord(rawRow);
+      if (!row) continue;
+      const s = summarizeRow(row);
+      if (s?.id) items.push(s);
+    }
+  }
+
+  if (!Array.isArray(itemsUnknown) || itemsUnknown.length === 0) {
+    return { pagina, items, hasMore: false };
+  }
+
+  const totalKnown = totalItemsFromEnvelope(envelope);
+  let hasMore = false;
+  if (totalKnown != null) {
+    const loaded = pagina * 200;
+    hasMore = loaded < totalKnown && itemsUnknown.length >= 200;
+  } else {
+    hasMore = itemsUnknown.length >= 200 && pagina < activeClientMaxPages();
+  }
+
+  return { pagina, items, hasMore };
+}
+
 /**
  * Lista pessoas com perfil **Cliente** e **ativo=true** na API Conta Azul.
  */
@@ -113,39 +171,11 @@ export async function fetchActiveClientePersonSummaries(
   const outMap = new Map<string, CaClienteActiveSummary>();
 
   for (let pagina = 1; pagina <= activeClientMaxPages(); pagina++) {
-    const qs = new URLSearchParams({
-      pagina: String(pagina),
-      tamanho_pagina: "200",
-      tipo_perfil: "Cliente",
-      ativo: "true",
-      tipo_ordenacao: "NOME",
-      ordem_ordenacao: "ASC",
-    });
-    const raw = await caFetch<unknown>(`/v1/pessoas?${qs}`, accessToken);
-    const envelope = asRecord(raw);
-    const rows = extractCaPessoasListRows(raw);
-    const itemsUnknown =
-      rows ??
-      (Array.isArray(envelope?.items) ? envelope!.items
-      : Array.isArray(envelope?.itens) ? envelope!.itens
-      : []);
-    if (!Array.isArray(itemsUnknown) || itemsUnknown.length === 0) break;
-
-    for (const rawRow of itemsUnknown) {
-      const row = asRecord(rawRow);
-      if (!row) continue;
-      const s = summarizeRow(row);
-      if (s?.id) outMap.set(s.id, s);
+    const page = await fetchActiveClientePersonPage(accessToken, pagina);
+    for (const s of page.items) {
+      if (s.id) outMap.set(s.id, s);
     }
-
-    const totalKnown = totalItemsFromEnvelope(envelope);
-    if (totalKnown != null) {
-      const loaded = pagina * 200;
-      if (loaded >= totalKnown || itemsUnknown.length < 200) break;
-      continue;
-    }
-
-    if (itemsUnknown.length < 200) break;
+    if (!page.hasMore) break;
   }
 
   return [...outMap.values()].sort((a, b) =>

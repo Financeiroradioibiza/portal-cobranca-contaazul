@@ -17,6 +17,8 @@ import {
   formatYearMonthLabel,
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
+import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
+import { RIO_VIRADA_LINHAS_BATCH } from "@/lib/rio/rioViradaBatched";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
 import {
@@ -316,6 +318,116 @@ export function RioClientesCompPanel() {
     [activeYm, mergeLinhasFromCaBatch],
   );
 
+  const runViradaBatched = useCallback(
+    async (
+      runId: number,
+      opts: { includePersonDetails: boolean; includeContracts: boolean },
+    ): Promise<{
+      linhas: RioLinha[];
+      grupos: RioGrupo[];
+      count: number;
+      caPersonListingCount: number;
+      viradaStats?: { entrada: number; saida: number; estavel: number; novos: number };
+    } | null> => {
+      const post = async (body: Record<string, unknown>) => {
+        const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/virada`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        return readJsonFromResponse<Record<string, unknown>>(res);
+      };
+
+      setMsg("Virada — preparando backup…");
+      {
+        const { ok, status, data, parseError, rawText } = await post({ phase: "reset" });
+        if (caRefreshRunId.current !== runId) return null;
+        if (!ok || parseError) {
+          setMsg((data?.error as string) || rawText.slice(0, 200) || `Erro ${status}`);
+          return null;
+        }
+      }
+
+      let page = 1;
+      let activeCount = 0;
+      for (;;) {
+        if (caRefreshRunId.current !== runId) return null;
+        setMsg(`Virada — listagem CA (página ${page})…`);
+        const { ok, status, data, parseError, rawText } = await post({ phase: "ca_page", page });
+        if (caRefreshRunId.current !== runId) return null;
+        if (!ok || parseError) {
+          setMsg((data?.error as string) || rawText.slice(0, 200) || `Erro ${status}`);
+          return null;
+        }
+        activeCount = Number(data?.activeCount) || activeCount;
+        if (!data?.hasMore) break;
+        page += 1;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      const accStats = { entrada: 0, saida: 0, estavel: 0, novos: 0 };
+      let offset = 0;
+      let totalLinhas = 0;
+      for (;;) {
+        if (caRefreshRunId.current !== runId) return null;
+        const { ok, status, data, parseError, rawText } = await post({
+          phase: "linhas",
+          offset,
+          limit: RIO_VIRADA_LINHAS_BATCH,
+          includePersonDetails: opts.includePersonDetails,
+          includeContracts: opts.includeContracts,
+        });
+        if (caRefreshRunId.current !== runId) return null;
+        if (!ok || parseError) {
+          setMsg((data?.error as string) || rawText.slice(0, 200) || `Erro ${status}`);
+          return null;
+        }
+        totalLinhas = Number(data?.totalLinhas) || totalLinhas;
+        const st = data?.stats as typeof accStats | undefined;
+        if (st) {
+          accStats.estavel += st.estavel ?? 0;
+          accStats.saida += st.saida ?? 0;
+        }
+        const processed = Number(data?.processed) || 0;
+        offset += processed;
+        setMsg(
+          `Virada — clientes na planilha ${Math.min(offset, totalLinhas)}/${totalLinhas || "…"}…`,
+        );
+        if (!data?.hasMore || processed === 0) break;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      if (caRefreshRunId.current !== runId) return null;
+      setMsg("Virada — novos clientes na Conta Azul…");
+      const { ok, status, data, parseError, rawText } = await post({
+        phase: "novos",
+        includePersonDetails: opts.includePersonDetails,
+        includeContracts: opts.includeContracts,
+      });
+      if (caRefreshRunId.current !== runId) return null;
+      if (!ok || parseError) {
+        setMsg((data?.error as string) || rawText.slice(0, 200) || `Erro ${status}`);
+        return null;
+      }
+
+      const vs = data?.viradaStats as typeof accStats | undefined;
+      if (vs) {
+        accStats.novos = vs.novos ?? accStats.novos;
+        accStats.entrada = vs.entrada ?? accStats.entrada;
+      }
+
+      return {
+        linhas: (data?.linhas as RioLinha[]) ?? [],
+        grupos: (data?.grupos as RioGrupo[]) ?? [],
+        count: Number(data?.count) || 0,
+        caPersonListingCount: activeCount,
+        viradaStats: accStats,
+      };
+    },
+    [activeYm],
+  );
+
   const syncCa = useCallback(async () => {
     if (monthClosed) {
       setMsg("Esta competência está fechada — abra o mês seguinte para trabalhar.");
@@ -325,10 +437,47 @@ export function RioClientesCompPanel() {
     setSyncing(true);
     setMsg(
       turnoverMonth ?
-        "Virada do mês — passo 1: listagem de clientes ativos na CA…"
+        "Virada do mês — listagem CA página a página…"
       : "Sincronizar — passo 1: listagem básica na CA…",
     );
     try {
+      if (turnoverMonth) {
+        const virada = await runViradaBatched(runId, {
+          includePersonDetails: syncIncludePersonDetails,
+          includeContracts: syncIncludeContracts,
+        });
+        if (caRefreshRunId.current !== runId || !virada) return;
+
+        setLinhas(virada.linhas);
+        setGrupos(virada.grupos);
+        setMonthInfo((m) => ({
+          lastSyncedAt: new Date().toISOString(),
+          closedAt: m?.closedAt ?? null,
+        }));
+
+        const vs = virada.viradaStats;
+        const viradaHint = vs ?
+          ` ${vs.estavel} estáveis, ${vs.entrada} entrando (novos ${vs.novos}), ${vs.saida} saindo.`
+        : "";
+
+        if (syncIncludePersonDetails || syncIncludeContracts) {
+          const acc = { updated: 0, failed: 0, matched: 0, ambiguous: 0, notFound: 0 };
+          await runCaBatchPhase("refresh", runId, acc, {
+            includePersonDetails: syncIncludePersonDetails,
+            includeContracts: syncIncludeContracts,
+            progressLabel: "Virada — enriquecer vínculos",
+          });
+        }
+
+        if (caRefreshRunId.current !== runId) return;
+
+        setMsg(
+          `Virada do mês: ${virada.count} linhas (${virada.caPersonListingCount} ativos na CA).${viradaHint} Listagem em páginas + lotes de ${RIO_VIRADA_LINHAS_BATCH}.`,
+        );
+        await loadMonths();
+        return;
+      }
+
       const res = await fetch(`/api/rio-planilha/clientes/month/${activeYm}/sync`, {
         method: "POST",
         credentials: "include",
@@ -442,7 +591,50 @@ export function RioClientesCompPanel() {
     loadMonths,
     turnoverMonth,
     runCaBatchPhase,
+    runViradaBatched,
   ]);
+
+  const cloneFromDonorMonth = useCallback(async () => {
+    if (monthClosed) {
+      setMsg("Competência fechada.");
+      return;
+    }
+    const donor = donorYearMonthFor(activeYm);
+    if (
+      !window.confirm(
+        `Copiar todo o trabalho de ${formatYearMonthLabel(donor)} para ${formatYearMonthLabel(activeYm)}?\n\nSubstitui linhas, MARCA e PDVs desta competência.`,
+      )
+    ) {
+      return;
+    }
+    setSyncing(true);
+    setMsg(`Copiando ${formatYearMonthLabel(donor)}…`);
+    try {
+      const res = await fetch(
+        `/api/rio-planilha/clientes/month/${activeYm}/clone-from-donor`,
+        { method: "POST", credentials: "include" },
+      );
+      const { data, rawText } = await readJsonFromResponse<{
+        linhas?: RioLinha[];
+        grupos?: RioGrupo[];
+        message?: string;
+        error?: string;
+      }>(res);
+      if (!res.ok) {
+        setMsg(data?.error || rawText.slice(0, 200) || `Erro ${res.status}`);
+        return;
+      }
+      if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
+      if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
+      setMsg(data?.message ?? "Cópia concluída.");
+      await loadMonths();
+      await loadMonth(activeYm);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao copiar mês anterior.");
+    } finally {
+      setSyncing(false);
+    }
+  }, [activeYm, monthClosed, loadMonth, loadMonths]);
 
   const singleMonthInBase = months.length <= 1;
 
@@ -1210,10 +1402,19 @@ export function RioClientesCompPanel() {
   }, [activeYm, grupos, linhas]);
 
   const createMonth = useCallback(async () => {
-    const base = months.length > 0 ? months[0].yearMonth : activeYm;
-    const next = shiftYearMonth(base, 1);
-    const donor = shiftYearMonth(next, -1);
+    const next = shiftYearMonth(activeYm, 1);
+    const donor = activeYm;
     const clone = isRioTurnoverMonth(next);
+    const nextExists = months.some((m) => m.yearMonth === next);
+
+    if (nextExists) {
+      setActiveYm(next);
+      setMsg(
+        `${formatYearMonthLabel(next)} já existe. Se estiver vazio, use «Copiar de ${formatYearMonthLabel(donor)}».`,
+      );
+      return;
+    }
+
     if (
       clone &&
       !window.confirm(
@@ -1222,31 +1423,36 @@ export function RioClientesCompPanel() {
     ) {
       return;
     }
-    const res = await fetch("/api/rio-planilha/clientes/months", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ yearMonth: next, cloneFromPrevious: clone }),
-    });
-    const { data } = await readJsonFromResponse<{
-      error?: string;
-      clonedFrom?: number;
-      linhas?: RioLinha[];
-      grupos?: RioGrupo[];
-    }>(res);
-    if (!res.ok) {
-      setMsg(data?.error || "Falha ao criar competência.");
-      return;
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/rio-planilha/clientes/months", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yearMonth: next, cloneFromPrevious: clone }),
+      });
+      const { data, rawText } = await readJsonFromResponse<{
+        error?: string;
+        clonedFrom?: number;
+        linhas?: RioLinha[];
+        grupos?: RioGrupo[];
+      }>(res);
+      if (!res.ok) {
+        setMsg(data?.error || rawText.slice(0, 200) || "Falha ao criar competência.");
+        return;
+      }
+      if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
+      if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
+      await loadMonths();
+      setActiveYm(next);
+      setMsg(
+        clone && data?.clonedFrom ?
+          `${formatYearMonthLabel(next)} criado a partir de ${formatYearMonthLabel(data.clonedFrom)}. ${formatYearMonthLabel(data.clonedFrom)} foi fechado. Use «Virada do mês» (em lotes) para entradas/saídas na CA.`
+        : `Competência ${formatYearMonthLabel(next)} criada.`,
+      );
+    } finally {
+      setSyncing(false);
     }
-    if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
-    if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
-    await loadMonths();
-    setActiveYm(next);
-    setMsg(
-      clone && data?.clonedFrom ?
-        `${formatYearMonthLabel(next)} criado a partir de ${formatYearMonthLabel(data.clonedFrom)}. ${formatYearMonthLabel(data.clonedFrom)} foi fechado. Use «Virada do mês» para marcar entradas/saídas na CA.`
-      : `Competência ${formatYearMonthLabel(next)} criada.`,
-    );
   }, [months, activeYm, loadMonths]);
 
   return (
@@ -1367,8 +1573,10 @@ export function RioClientesCompPanel() {
 
       {turnoverMonth && !monthClosed ?
         <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
-          A partir desta competência: use <strong>Virada do mês</strong> para comparar com a Conta Azul (entradas/saídas
-          de clientes e PDVs). Maio e meses anteriores mantêm o fluxo antigo.
+          A partir desta competência: <strong>Novo mês seguinte</strong> copia a competência que está a ver (ex. maio →
+          junho). Se junho ficou vazio, use <strong>Copiar de {formatYearMonthLabel(donorYearMonthFor(activeYm))}</strong>.
+          Depois <strong>Virada do mês</strong> compara com a CA em páginas e lotes de {RIO_VIRADA_LINHAS_BATCH} (evita
+          timeout). Maio e anteriores mantêm o fluxo antigo.
         </div>
       : null}
 
@@ -1450,6 +1658,17 @@ export function RioClientesCompPanel() {
         >
           Garantir mês na base
         </button>
+        {turnoverMonth && !monthClosed ?
+          <button
+            type="button"
+            className="rounded-lg border border-sky-700 bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-200 disabled:opacity-50 dark:border-sky-600 dark:bg-sky-950/60 dark:text-sky-100"
+            disabled={syncing}
+            title={`Repor MARCA, clientes e PDVs de ${formatYearMonthLabel(donorYearMonthFor(activeYm))}`}
+            onClick={() => void cloneFromDonorMonth()}
+          >
+            Copiar de {formatYearMonthLabel(donorYearMonthFor(activeYm))}
+          </button>
+        : null}
         <button
           type="button"
           className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"

@@ -4,6 +4,9 @@ import { cloneRioCompMonthFromDonor } from "@/lib/rio/cloneRioCompMonth";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 
+export const runtime = "nodejs";
+export const maxDuration = 120;
+
 export async function GET() {
   try {
     const months = await listRioCompMonths();

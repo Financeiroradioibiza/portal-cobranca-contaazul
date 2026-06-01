@@ -221,6 +221,8 @@ model RioCompMonth {
   closedAt     DateTime? @map("closed_at")
   /// Backup imediato antes de «Sincronizar Conta Azul» (permite desfazer).
   preSyncSnapshot Json? @map("pre_sync_snapshot")
+  /// Listagem CA acumulada página a página na virada (junho+).
+  viradaPrepare Json? @map("virada_prepare")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   grupos RioCompGrupo[]
