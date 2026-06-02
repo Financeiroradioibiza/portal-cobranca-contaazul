@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { ensureRioCompMonth, listRioCompMonths } from "@/lib/rio/rioClienteCompService";
-import { cloneRioCompMonthFromDonor } from "@/lib/rio/cloneRioCompMonth";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -39,13 +39,18 @@ export async function POST(request: Request) {
 
   try {
     if (cloneFromPrevious && isRioTurnoverMonth(ym)) {
-      const full = await cloneRioCompMonthFromDonor(ym);
+      /** Cópia pesada: o browser chama `/clone-from-donor` em lotes (evita timeout Netlify). */
+      const month = await ensureRioCompMonth(ym);
+      const linhaCount = await prisma.rioCompMonth.findUnique({
+        where: { id: month.id },
+        select: { _count: { select: { linhas: true } } },
+      });
+      if ((linhaCount?._count.linhas ?? 0) > 0) {
+        return NextResponse.json({ error: "target_month_not_empty" }, { status: 409 });
+      }
       return NextResponse.json({
-        month: { id: full.month.id, yearMonth: full.month.yearMonth },
-        clonedFrom: full.donorYearMonth,
-        closedDonor: full.closedDonor,
-        grupos: full.grupos,
-        linhas: full.linhas,
+        month: { id: month.id, yearMonth: month.yearMonth },
+        needsBatchedClone: true,
       });
     }
     const month = await ensureRioCompMonth(ym);

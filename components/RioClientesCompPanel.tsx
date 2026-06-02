@@ -18,6 +18,7 @@ import {
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
 import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
+import { RIO_CLONE_DONOR_BATCH_SIZE } from "@/lib/rio/cloneRioCompMonthBatched";
 import { RIO_VIRADA_LINHAS_BATCH } from "@/lib/rio/rioViradaBatched";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
@@ -594,6 +595,82 @@ export function RioClientesCompPanel() {
     runViradaBatched,
   ]);
 
+  const runCloneDonorBatched = useCallback(
+    async (targetYm: number, closeDonorWhenDone: boolean) => {
+      const post = async (body: Record<string, unknown>) => {
+        const res = await fetch(
+          `/api/rio-planilha/clientes/month/${targetYm}/clone-from-donor`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        return readJsonFromResponse<Record<string, unknown>>(res);
+      };
+
+      setMsg(`Copiando MARCAs de ${formatYearMonthLabel(donorYearMonthFor(targetYm))}…`);
+      {
+        const { ok, status, data, parseError, rawText } = await post({
+          phase: "reset",
+          closeDonorWhenDone,
+        });
+        if (!ok || parseError) {
+          const proxyHtml =
+            parseError &&
+            (/inactivity\s+timeout/i.test(rawText) || /too much time has passed/i.test(rawText));
+          setMsg(
+            proxyHtml ?
+              "Timeout ao iniciar cópia — tente de novo; o deploy deve usar lotes de 10."
+            : (data?.error as string) || rawText.slice(0, 200) || `Erro ${status}`,
+          );
+          return false;
+        }
+      }
+
+      let offset = 0;
+      let total = 0;
+      for (;;) {
+        const { ok, status, data, parseError, rawText } = await post({
+          phase: "linhas",
+          offset,
+          limit: RIO_CLONE_DONOR_BATCH_SIZE,
+        });
+        if (!ok || parseError) {
+          setMsg(
+            (data?.error as string) ||
+              rawText.slice(0, 200) ||
+              `Erro ${status} no lote ${offset} — clique «Copiar de…» de novo para continuar.`,
+          );
+          return false;
+        }
+        total = Number(data?.total) || total;
+        const nextOffset = Number(data?.nextOffset) || offset + RIO_CLONE_DONOR_BATCH_SIZE;
+        offset = nextOffset;
+        setMsg(
+          `Copiando clientes e PDVs… ${Math.min(offset, total)}/${total || "…"} (lotes de ${RIO_CLONE_DONOR_BATCH_SIZE})`,
+        );
+        if (!data?.hasMore) break;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      const { ok, status, data, parseError, rawText } = await post({ phase: "finish" });
+      if (!ok || parseError) {
+        setMsg((data?.error as string) || rawText.slice(0, 200) || `Erro ${status}`);
+        return false;
+      }
+
+      if (Array.isArray(data?.linhas)) setLinhas(data.linhas as RioLinha[]);
+      if (Array.isArray(data?.grupos)) setGrupos(data.grupos as RioGrupo[]);
+      setMsg((data?.message as string) ?? "Cópia concluída.");
+      await loadMonths();
+      await loadMonth(targetYm);
+      return true;
+    },
+    [loadMonth, loadMonths],
+  );
+
   const cloneFromDonorMonth = useCallback(async () => {
     if (monthClosed) {
       setMsg("Competência fechada.");
@@ -602,39 +679,20 @@ export function RioClientesCompPanel() {
     const donor = donorYearMonthFor(activeYm);
     if (
       !window.confirm(
-        `Copiar todo o trabalho de ${formatYearMonthLabel(donor)} para ${formatYearMonthLabel(activeYm)}?\n\nSubstitui linhas, MARCA e PDVs desta competência.`,
+        `Copiar todo o trabalho de ${formatYearMonthLabel(donor)} para ${formatYearMonthLabel(activeYm)}?\n\nSubstitui linhas, MARCA e PDVs em lotes de ${RIO_CLONE_DONOR_BATCH_SIZE}.`,
       )
     ) {
       return;
     }
     setSyncing(true);
-    setMsg(`Copiando ${formatYearMonthLabel(donor)}…`);
     try {
-      const res = await fetch(
-        `/api/rio-planilha/clientes/month/${activeYm}/clone-from-donor`,
-        { method: "POST", credentials: "include" },
-      );
-      const { data, rawText } = await readJsonFromResponse<{
-        linhas?: RioLinha[];
-        grupos?: RioGrupo[];
-        message?: string;
-        error?: string;
-      }>(res);
-      if (!res.ok) {
-        setMsg(data?.error || rawText.slice(0, 200) || `Erro ${res.status}`);
-        return;
-      }
-      if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
-      if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
-      setMsg(data?.message ?? "Cópia concluída.");
-      await loadMonths();
-      await loadMonth(activeYm);
+      await runCloneDonorBatched(activeYm, false);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao copiar mês anterior.");
     } finally {
       setSyncing(false);
     }
-  }, [activeYm, monthClosed, loadMonth, loadMonths]);
+  }, [monthClosed, activeYm, runCloneDonorBatched]);
 
   const singleMonthInBase = months.length <= 1;
 
@@ -1434,6 +1492,7 @@ export function RioClientesCompPanel() {
       const { data, rawText } = await readJsonFromResponse<{
         error?: string;
         clonedFrom?: number;
+        needsBatchedClone?: boolean;
         linhas?: RioLinha[];
         grupos?: RioGrupo[];
       }>(res);
@@ -1441,19 +1500,29 @@ export function RioClientesCompPanel() {
         setMsg(data?.error || rawText.slice(0, 200) || "Falha ao criar competência.");
         return;
       }
-      if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
-      if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
       await loadMonths();
       setActiveYm(next);
+
+      if (clone && data?.needsBatchedClone) {
+        const ok = await runCloneDonorBatched(next, true);
+        if (!ok) return;
+        setMsg(
+          `${formatYearMonthLabel(next)} criado a partir de ${formatYearMonthLabel(donor)}. ${formatYearMonthLabel(donor)} foi fechado. Use «Virada do mês» (em lotes) para entradas/saídas na CA.`,
+        );
+        return;
+      }
+
+      if (Array.isArray(data?.linhas)) setLinhas(data.linhas);
+      if (Array.isArray(data?.grupos)) setGrupos(data.grupos);
       setMsg(
         clone && data?.clonedFrom ?
-          `${formatYearMonthLabel(next)} criado a partir de ${formatYearMonthLabel(data.clonedFrom)}. ${formatYearMonthLabel(data.clonedFrom)} foi fechado. Use «Virada do mês» (em lotes) para entradas/saídas na CA.`
+          `${formatYearMonthLabel(next)} criado a partir de ${formatYearMonthLabel(data.clonedFrom)}.`
         : `Competência ${formatYearMonthLabel(next)} criada.`,
       );
     } finally {
       setSyncing(false);
     }
-  }, [months, activeYm, loadMonths]);
+  }, [months, activeYm, loadMonths, runCloneDonorBatched]);
 
   return (
     <div className="mx-auto max-w-[1600px] px-3 py-6 sm:px-5">
@@ -1574,8 +1643,9 @@ export function RioClientesCompPanel() {
       {turnoverMonth && !monthClosed ?
         <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
           A partir desta competência: <strong>Novo mês seguinte</strong> copia a competência que está a ver (ex. maio →
-          junho). Se junho ficou vazio, use <strong>Copiar de {formatYearMonthLabel(donorYearMonthFor(activeYm))}</strong>.
-          Depois <strong>Virada do mês</strong> compara com a CA em páginas e lotes de {RIO_VIRADA_LINHAS_BATCH} (evita
+          junho).           Se junho ficou vazio, use <strong>Copiar de {formatYearMonthLabel(donorYearMonthFor(activeYm))}</strong> (lotes
+          de {RIO_CLONE_DONOR_BATCH_SIZE}). Depois <strong>Virada do mês</strong> compara com a CA em páginas e lotes de{" "}
+          {RIO_VIRADA_LINHAS_BATCH} (evita
           timeout). Maio e anteriores mantêm o fluxo antigo.
         </div>
       : null}

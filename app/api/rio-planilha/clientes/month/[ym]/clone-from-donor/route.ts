@@ -1,22 +1,28 @@
 import { NextResponse } from "next/server";
 import { formatYearMonthLabel, parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import {
-  cloneRioCompMonthFromDonor,
-  revertRioCompMonthToDonorClone,
-} from "@/lib/rio/cloneRioCompMonth";
-import { donorYearMonthFor, isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
-import { prisma } from "@/lib/prisma";
+  RIO_CLONE_DONOR_BATCH_SIZE,
+  cloneDonorFinish,
+  cloneDonorLinhasBatch,
+  cloneDonorReset,
+} from "@/lib/rio/cloneRioCompMonthBatched";
+import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ ym: string }> };
 
+type Body =
+  | { phase: "reset"; closeDonorWhenDone?: boolean }
+  | { phase: "linhas"; offset: number; limit?: number }
+  | { phase: "finish" };
+
 /**
- * POST — repõe a competência a partir do mês civil anterior (ex.: jun/2026 ← mai/2026).
- * Se o mês destino estiver vazio, clona; se já tiver linhas, substitui pelo conteúdo do doador.
+ * POST — copia o mês anterior em lotes (evita timeout Netlify).
+ * reset → linhas (offset 0, 10, 20…) → finish
  */
-export async function POST(_req: Request, context: Ctx) {
+export async function POST(req: Request, context: Ctx) {
   const { ym: raw } = await context.params;
   const ym = parseYearMonthParam(raw);
   if (ym == null) {
@@ -27,57 +33,55 @@ export async function POST(_req: Request, context: Ctx) {
     return NextResponse.json({ error: "not_turnover_month" }, { status: 400 });
   }
 
-  const donorYm = donorYearMonthFor(ym);
-  const target = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth: ym },
-    include: { _count: { select: { linhas: true } } },
-  });
+  let body: Body;
+  try {
+    body = (await req.json()) as Body;
+  } catch {
+    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+  }
 
   try {
-    if (!target) {
-      const full = await cloneRioCompMonthFromDonor(ym);
+    if (body.phase === "reset") {
+      const r = await cloneDonorReset(ym, {
+        closeDonorWhenDone: Boolean(body.closeDonorWhenDone),
+      });
       return NextResponse.json({
         ok: true,
-        mode: "clone_new_month" as const,
+        phase: "reset",
+        batchSize: RIO_CLONE_DONOR_BATCH_SIZE,
+        ...r,
+        message: `MARCAs copiadas. ${r.totalLinhas} clientes a copiar em lotes de ${RIO_CLONE_DONOR_BATCH_SIZE}.`,
+      });
+    }
+
+    if (body.phase === "linhas") {
+      const offset = Math.max(0, Math.floor(Number(body.offset) || 0));
+      const r = await cloneDonorLinhasBatch(ym, offset, body.limit ?? RIO_CLONE_DONOR_BATCH_SIZE);
+      return NextResponse.json({
+        ok: true,
+        phase: "linhas",
+        batchSize: RIO_CLONE_DONOR_BATCH_SIZE,
+        ...r,
+      });
+    }
+
+    if (body.phase === "finish") {
+      const full = await cloneDonorFinish(ym);
+      return NextResponse.json({
+        ok: true,
+        phase: "finish",
+        mode: "batched" as const,
         donorYearMonth: full.donorYearMonth,
         closedDonor: full.closedDonor,
         grupos: full.grupos,
         linhas: full.linhas,
-        message: `${formatYearMonthLabel(ym)} criado a partir de ${formatYearMonthLabel(full.donorYearMonth)}.`,
+        message: `${formatYearMonthLabel(ym)} copiado de ${formatYearMonthLabel(full.donorYearMonth)} (${full.linhaCount} linhas).`,
       });
     }
 
-    if (target.closedAt) {
-      return NextResponse.json({ error: "month_closed" }, { status: 403 });
-    }
-
-    if (target._count.linhas === 0) {
-      const full = await cloneRioCompMonthFromDonor(ym);
-      return NextResponse.json({
-        ok: true,
-        mode: "clone_empty" as const,
-        donorYearMonth: full.donorYearMonth,
-        grupos: full.grupos,
-        linhas: full.linhas,
-        message: `${formatYearMonthLabel(ym)} preenchido com a cópia de ${formatYearMonthLabel(donorYm)}.`,
-      });
-    }
-
-    const full = await revertRioCompMonthToDonorClone(ym);
-    return NextResponse.json({
-      ok: true,
-      mode: "replace" as const,
-      donorYearMonth: full.donorYearMonth,
-      grupos: full.grupos,
-      linhas: full.linhas,
-      message: `${formatYearMonthLabel(ym)} reposto a partir de ${formatYearMonthLabel(donorYm)} (${full.linhaCount} linhas).`,
-    });
+    return NextResponse.json({ error: "unknown_phase" }, { status: 400 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "clone_failed";
-    const status =
-      msg.startsWith("donor_month_not_found") ? 404
-      : msg === "target_month_not_empty" ? 409
-      : 502;
-    return NextResponse.json({ error: msg, donorYearMonth: donorYm }, { status });
+    return NextResponse.json({ error: msg }, { status: 502 });
   }
 }

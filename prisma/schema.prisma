@@ -223,6 +223,8 @@ model RioCompMonth {
   preSyncSnapshot Json? @map("pre_sync_snapshot")
   /// Listagem CA acumulada página a página na virada (junho+).
   viradaPrepare Json? @map("virada_prepare")
+  /// Estado da cópia maio→junho em lotes (evita timeout Netlify).
+  cloneDonorState Json? @map("clone_donor_state")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   grupos RioCompGrupo[]
