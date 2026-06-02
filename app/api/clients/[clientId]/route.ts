@@ -15,10 +15,11 @@ type PatchBody = {
   note?: string;
   painelBloqueio?: boolean;
   painelInativo?: boolean;
+  clienteDestaque?: boolean;
 };
 
 /**
- * PATCH body: pelo menos um de `note` | `painelBloqueio` | `painelInativo`.
+ * PATCH body: pelo menos um de `note` | `painelBloqueio` | `painelInativo` | `clienteDestaque`.
  * Nota interna (histórico até ~50 kb); marcas do painel são booleanas persistidas por cliente.
  */
 export async function PATCH(
@@ -42,7 +43,8 @@ export async function PATCH(
   const hasNote = typeof body.note === "string";
   const hasBloqueio = typeof body.painelBloqueio === "boolean";
   const hasInativo = typeof body.painelInativo === "boolean";
-  if (!hasNote && !hasBloqueio && !hasInativo) {
+  const hasDestaque = typeof body.clienteDestaque === "boolean";
+  if (!hasNote && !hasBloqueio && !hasInativo && !hasDestaque) {
     return NextResponse.json({ error: "no_fields" }, { status: 400 });
   }
 
@@ -50,10 +52,12 @@ export async function PATCH(
     note?: string;
     painelBloqueio?: boolean;
     painelInativo?: boolean;
+    clienteDestaque?: boolean;
   } = {};
   if (hasNote) update.note = body.note!.slice(0, MAX_NOTE);
   if (hasBloqueio) update.painelBloqueio = body.painelBloqueio;
   if (hasInativo) update.painelInativo = body.painelInativo;
+  if (hasDestaque) update.clienteDestaque = body.clienteDestaque;
 
   await prisma.clientPortalMeta.upsert({
     where: { clientId },
@@ -64,18 +68,25 @@ export async function PATCH(
       note: hasNote ? body.note!.slice(0, MAX_NOTE) : "",
       painelBloqueio: hasBloqueio ? body.painelBloqueio! : false,
       painelInativo: hasInativo ? body.painelInativo! : false,
+      clienteDestaque: hasDestaque ? body.clienteDestaque! : false,
     },
     update,
   });
 
   const row = await prisma.clientPortalMeta.findUnique({
     where: { clientId },
-    select: { note: true, painelBloqueio: true, painelInativo: true },
+    select: {
+      note: true,
+      painelBloqueio: true,
+      painelInativo: true,
+      clienteDestaque: true,
+    },
   });
 
   return NextResponse.json({
     note: row?.note ?? "",
     painelBloqueio: row?.painelBloqueio ?? false,
     painelInativo: row?.painelInativo ?? false,
+    clienteDestaque: row?.clienteDestaque ?? false,
   });
 }

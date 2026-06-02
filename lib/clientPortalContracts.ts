@@ -25,6 +25,7 @@ export async function persistClientContractsBatch(byClientId: Map<string, string
         note: "",
         painelBloqueio: false,
         painelInativo: false,
+        clienteDestaque: false,
       },
       update: {
         hasActiveContract,

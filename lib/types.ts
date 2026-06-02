@@ -21,5 +21,7 @@ export type ClientRow = {
   /** Marcações manuais só no portal (persistidas por cliente). */
   painelBloqueio: boolean;
   painelInativo: boolean;
+  /** Estrela — destaque visual na listagem (persistido). */
+  clienteDestaque: boolean;
   sales: SaleRow[];
 };

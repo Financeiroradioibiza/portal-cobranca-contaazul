@@ -9,6 +9,7 @@ type ClientPortalMetaRowDto = {
   note: string;
   painelBloqueio: boolean;
   painelInativo: boolean;
+  clienteDestaque: boolean;
   activeContractNumbers: string | null;
   contractsFetchedAt: string | null;
 };
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
         note: true,
         painelBloqueio: true,
         painelInativo: true,
+        clienteDestaque: true,
         activeContractNumbers: true,
         contractsFetchedAt: true,
       },
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
         note: r.note ?? "",
         painelBloqueio: r.painelBloqueio,
         painelInativo: r.painelInativo,
+        clienteDestaque: r.clienteDestaque,
         activeContractNumbers:
           r.contractsFetchedAt != null ? (r.activeContractNumbers ?? "") : null,
         contractsFetchedAt: r.contractsFetchedAt?.toISOString() ?? null,

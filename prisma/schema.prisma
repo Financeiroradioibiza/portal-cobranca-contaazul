@@ -33,6 +33,8 @@ model ClientPortalMeta {
   painelBloqueio    Boolean  @default(false) @map("painel_bloqueio")
   /// Portal only: marca manual «INATIVO» na listagem principal.
   painelInativo     Boolean  @default(false) @map("painel_inativo")
+  /// Cliente especial (estrela) na listagem de vencidos — só visualização no portal.
+  clienteDestaque   Boolean  @default(false) @map("cliente_destaque")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("client_portal_meta")

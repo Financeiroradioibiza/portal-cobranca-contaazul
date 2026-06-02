@@ -176,6 +176,7 @@ export function CobrancaDashboard() {
             note: string;
             painelBloqueio: boolean;
             painelInativo: boolean;
+            clienteDestaque: boolean;
             activeContractNumbers: string | null;
             contractsFetchedAt: string | null;
           };
@@ -207,6 +208,7 @@ export function CobrancaDashboard() {
                 note: m?.note ?? c.note,
                 painelBloqueio: m?.painelBloqueio ?? false,
                 painelInativo: m?.painelInativo ?? false,
+                clienteDestaque: m?.clienteDestaque ?? false,
               };
             }),
           );
@@ -592,7 +594,7 @@ export function CobrancaDashboard() {
   const persistPainelField = useCallback(
     async (
       clientId: string,
-      field: "painelBloqueio" | "painelInativo",
+      field: "painelBloqueio" | "painelInativo" | "clienteDestaque",
       next: boolean,
     ) => {
       const snap = clientsLatestRef.current.find((c) => c.id === clientId);
@@ -615,9 +617,14 @@ export function CobrancaDashboard() {
           note?: string;
           painelBloqueio?: boolean;
           painelInativo?: boolean;
+          clienteDestaque?: boolean;
         }>(res);
         if (!res.ok || parsed.parseError || !parsed.data) {
-          setActionMsg("Não foi possível salvar marcas do painel.");
+          setActionMsg(
+            field === "clienteDestaque" ?
+              "Não foi possível salvar o destaque."
+            : "Não foi possível salvar marcas do painel.",
+          );
           setClients((prev) =>
             prev.map((c) =>
               c.id === clientId
@@ -625,6 +632,7 @@ export function CobrancaDashboard() {
                     ...c,
                     painelBloqueio: snap.painelBloqueio,
                     painelInativo: snap.painelInativo,
+                    clienteDestaque: snap.clienteDestaque,
                   }
                 : c,
             ),
@@ -633,7 +641,11 @@ export function CobrancaDashboard() {
         }
         const d = parsed.data;
         if (typeof d.note !== "string") {
-          setActionMsg("Resposta inválida ao salvar marcas do painel.");
+          setActionMsg(
+            field === "clienteDestaque" ?
+              "Resposta inválida ao salvar destaque."
+            : "Resposta inválida ao salvar marcas do painel.",
+          );
           setClients((prev) =>
             prev.map((c) =>
               c.id === clientId
@@ -641,6 +653,7 @@ export function CobrancaDashboard() {
                     ...c,
                     painelBloqueio: snap.painelBloqueio,
                     painelInativo: snap.painelInativo,
+                    clienteDestaque: snap.clienteDestaque,
                   }
                 : c,
             ),
@@ -656,11 +669,14 @@ export function CobrancaDashboard() {
                   note: d.note as string,
                   painelBloqueio: Boolean(d.painelBloqueio),
                   painelInativo: Boolean(d.painelInativo),
+                  clienteDestaque: Boolean(d.clienteDestaque),
                 }
               : c,
           ),
         );
-        setPainelDetailsOpenClientId((openId) => (openId === clientId ? null : openId));
+        if (field !== "clienteDestaque") {
+          setPainelDetailsOpenClientId((openId) => (openId === clientId ? null : openId));
+        }
       } catch {
         setActionMsg("Falha ao salvar. Verifique a conexão.");
         setClients((prev) =>
@@ -670,6 +686,7 @@ export function CobrancaDashboard() {
                   ...c,
                   painelBloqueio: snap.painelBloqueio,
                   painelInativo: snap.painelInativo,
+                  clienteDestaque: snap.clienteDestaque,
                 }
               : c,
           ),
@@ -1028,7 +1045,7 @@ export function CobrancaDashboard() {
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
           {connected
-            ? "Clique no nome do cliente para ver as parcelas e abrir boleto ou nota. A tabela é larga: use scroll horizontal para ver Painel e Observação. Em «Painel», expanda a célula (clique em «Painel — clique…») para marcar BLOQUEIO/INATIVO (somente portal, gravado por cliente); só aparecem etiquetas vermelhas quando estiverem ativos. Ao sair do campo observação, novo trecho pode ser registado automaticamente com data e horário (Horário Brasília). Observações ficam gravadas mesmo que o cliente deixe a listagem."
+            ? "Clique no nome do cliente para ver as parcelas. Coluna ★ marca cliente especial (nome em degradê, gravado por cliente). Em «Painel», expanda para BLOQUEIO/INATIVO. Observações ficam gravadas mesmo fora da listagem."
             : "Conecte o Conta Azul para carregar receitas. Cadastre OAuth e Postgres nas variáveis de ambiente."}
         </div>
         <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
@@ -1053,8 +1070,14 @@ export function CobrancaDashboard() {
                 <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap dark:border-slate-700">
                   Contrato ativo
                 </th>
-                <th className="border-b border-slate-200 px-2 py-2 whitespace-nowrap pl-3 pr-5 dark:border-slate-700">
+                <th className="w-[4.75rem] max-w-[5.5rem] border-b border-slate-200 px-1 py-2 whitespace-nowrap dark:border-slate-700">
                   Painel
+                </th>
+                <th
+                  className="w-9 border-b border-slate-200 px-0.5 py-2 text-center dark:border-slate-700"
+                  title="Cliente especial — destaque visual"
+                >
+                  ★
                 </th>
                 <th className="min-w-[24rem] max-w-[32rem] border-b border-l border-slate-200 bg-slate-50 px-2 py-2 pr-4 dark:border-slate-600 dark:bg-slate-800">
                   Observação
@@ -1065,7 +1088,7 @@ export function CobrancaDashboard() {
               {clients.length === 0 && !loading ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="border-b border-slate-200/90 px-4 py-8 text-center text-slate-500 dark:border-slate-800 dark:text-slate-400"
                   >
                     {connected
@@ -1106,7 +1129,12 @@ export function CobrancaDashboard() {
                             type="button"
                             onClick={() => toggle(c.id)}
                             aria-expanded={open}
-                            className="min-w-0 flex-1 text-left font-semibold text-[#0066cc] underline decoration-[#0066cc]/40 underline-offset-2 hover:decoration-[#0066cc] dark:text-sky-400 dark:decoration-sky-400/40"
+                            className={
+                              "min-w-0 flex-1 text-left font-semibold underline underline-offset-2 " +
+                              (c.clienteDestaque ?
+                                "bg-gradient-to-r from-amber-600 via-fuchsia-600 to-sky-600 bg-clip-text text-transparent decoration-fuchsia-500/50 hover:from-amber-500 hover:via-fuchsia-500 hover:to-sky-500 dark:from-amber-400 dark:via-fuchsia-400 dark:to-sky-400"
+                              : "text-[#0066cc] decoration-[#0066cc]/40 hover:decoration-[#0066cc] dark:text-sky-400 dark:decoration-sky-400/40")
+                            }
                           >
                             <span className="line-clamp-2">{c.fantasy}</span>
                             <span className="ml-1 text-[0.55rem] font-normal text-slate-500 no-underline dark:text-slate-400">
@@ -1183,9 +1211,9 @@ export function CobrancaDashboard() {
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="border-b border-slate-200/90 px-2 py-1.5 pl-3 pr-6 align-middle dark:border-slate-800">
+                      <td className="w-[4.75rem] max-w-[5.5rem] border-b border-slate-200/90 px-1 py-1.5 align-middle dark:border-slate-800">
                         <details
-                          className="min-w-[10.75rem]"
+                          className="min-w-0"
                           open={painelDetailsOpenClientId === c.id}
                           onToggle={(e) => {
                             if (e.currentTarget.open) {
@@ -1204,8 +1232,8 @@ export function CobrancaDashboard() {
                                 {c.painelInativo ? <span>INATIVO</span> : null}
                               </div>
                             ) : (
-                              <span className="text-[0.62rem] text-slate-400 dark:text-slate-500">
-                                Painel — clique…
+                              <span className="text-[0.62rem] text-slate-500 dark:text-slate-400">
+                                Painel
                               </span>
                             )}
                           </summary>
@@ -1250,6 +1278,29 @@ export function CobrancaDashboard() {
                           </div>
                         </details>
                       </td>
+                      <td className="w-9 border-b border-slate-200/90 px-0.5 py-1.5 text-center align-middle dark:border-slate-800">
+                        <button
+                          type="button"
+                          disabled={painelBusyClientId === c.id}
+                          aria-pressed={c.clienteDestaque}
+                          title={
+                            c.clienteDestaque ?
+                              "Remover destaque deste cliente"
+                            : "Marcar cliente especial (nome em degradê)"
+                          }
+                          onClick={() =>
+                            void persistPainelField(c.id, "clienteDestaque", !c.clienteDestaque)
+                          }
+                          className={
+                            "inline-flex h-7 w-7 items-center justify-center rounded text-lg leading-none transition-colors " +
+                            (c.clienteDestaque ?
+                              "text-amber-500 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                            : "text-slate-300 hover:bg-slate-100 hover:text-amber-400 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-amber-300")
+                          }
+                        >
+                          {c.clienteDestaque ? "★" : "☆"}
+                        </button>
+                      </td>
                       <td className={obsCellBg}>
                         <textarea
                           rows={noteLineCount}
@@ -1277,7 +1328,7 @@ export function CobrancaDashboard() {
                     {open ? (
                       <tr className={zebraExpand}>
                         <td
-                          colSpan={8}
+                          colSpan={9}
                           className="border-b border-slate-200/90 px-2 py-2 dark:border-slate-800"
                         >
                           <p className="mb-1.5 text-[0.65rem] font-medium text-slate-600 dark:text-slate-400">

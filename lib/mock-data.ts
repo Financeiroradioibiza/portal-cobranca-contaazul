@@ -11,6 +11,7 @@ export const mockClients: ClientRow[] = [
     note: "",
     painelBloqueio: false,
     painelInativo: false,
+    clienteDestaque: false,
     sales: [
       {
         id: "s1",
@@ -44,6 +45,7 @@ export const mockClients: ClientRow[] = [
     note: "Renegociar taxa em abril.",
     painelBloqueio: false,
     painelInativo: false,
+    clienteDestaque: false,
     sales: [
       {
         id: "s4",
@@ -70,6 +72,7 @@ export const mockClients: ClientRow[] = [
     note: "",
     painelBloqueio: false,
     painelInativo: false,
+    clienteDestaque: false,
     sales: [
       {
         id: "s6",

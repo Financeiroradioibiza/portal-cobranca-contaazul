@@ -56,6 +56,7 @@ export function buildDashboardClients(
       note: "",
       painelBloqueio: false,
       painelInativo: false,
+      clienteDestaque: false,
       sales,
     });
   }
