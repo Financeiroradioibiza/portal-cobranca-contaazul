@@ -26,7 +26,13 @@ export type RioPreSyncSnapshot = {
     movimento: string;
     observacoesLinha: string;
     sortOrder: number;
-    pdvs: Array<{ nome: string; notes: string; sortOrder: number; movimento: string }>;
+    pdvs: Array<{
+      nome: string;
+      documento: string | null;
+      notes: string;
+      sortOrder: number;
+      movimento: string;
+    }>;
   }>;
 };
 
@@ -70,6 +76,7 @@ export async function captureRioPreSyncSnapshot(monthId: string): Promise<RioPre
       sortOrder: l.sortOrder,
       pdvs: l.pdvs.map((p) => ({
         nome: p.nome,
+        documento: p.documento,
         notes: p.notes,
         sortOrder: p.sortOrder,
         movimento: p.movimento,
@@ -152,6 +159,7 @@ export async function restoreRioCompMonthFromPreSyncSnapshot(yearMonth: number):
             data: l.pdvs.map((p) => ({
               clienteId: nl.id,
               nome: p.nome,
+              documento: p.documento,
               notes: p.notes,
               sortOrder: p.sortOrder,
               movimento: p.movimento as "estavel" | "entrada" | "saida",

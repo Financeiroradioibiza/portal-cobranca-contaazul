@@ -159,6 +159,7 @@ export async function cloneDonorLinhasBatch(
         data: l.pdvs.map((p, pi) => ({
           clienteId: nl.id,
           nome: p.nome,
+          documento: p.documento,
           notes: p.notes,
           sortOrder: pi,
           movimento: "estavel" as const,

@@ -301,6 +301,8 @@ model RioCompPdv {
   cliente   RioCompClienteLinha @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   nome      String @default("") @db.Text
+  /// CNPJ/CPF do PDV para vínculo com cadastro de produção.
+  documento String? @db.VarChar(64)
   notes     String @default("") @db.Text
   sortOrder Int    @default(0) @map("sort_order")
   movimento RioPdvMovimento @default(estavel)

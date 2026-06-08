@@ -89,6 +89,7 @@ export async function cloneRioCompMonthFromDonor(targetYm: number) {
             data: {
               clienteId: nl.id,
               nome: p.nome,
+              documento: p.documento,
               notes: p.notes,
               sortOrder: pi++,
               movimento: "estavel",
@@ -185,6 +186,7 @@ export async function revertRioCompMonthToDonorClone(targetYm: number) {
             data: {
               clienteId: nl.id,
               nome: p.nome,
+              documento: p.documento,
               notes: p.notes,
               sortOrder: pi++,
               movimento: "estavel",

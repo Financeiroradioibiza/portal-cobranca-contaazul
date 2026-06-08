@@ -53,6 +53,7 @@ export type MovRioCb = "estavel" | "entrada" | "saida";
 export type RioPdvCb = {
   id: string;
   nome: string;
+  documento?: string | null;
   notes: string;
   sortOrder: number;
   movimento?: "estavel" | "entrada" | "saida";
@@ -148,7 +149,7 @@ function SortClientRow(props: {
   ym: number;
   setLinhas: Dispatch<SetStateAction<RioLinhaCb[]>>;
   addPdv: (linhaId: string) => void;
-  patchPdv: (pdvId: string, nome: string) => void;
+  patchPdv: (pdvId: string, patch: { nome?: string; documento?: string | null }) => void;
   delPdv: (pdvId: string) => void;
   onDeleteLinha?: (r: RioLinhaCb) => void;
   monthClosed?: boolean;
@@ -493,7 +494,15 @@ function SortClientRow(props: {
                   </span>
                 </label>
               </div>
-            <ul className="mb-2 max-w-[52rem] space-y-1">
+            <ul className="mb-2 max-w-[58rem] space-y-1">
+              {pdvsSorted.length > 0 ?
+                <li className="flex flex-nowrap items-center gap-2 px-2 text-[9px] font-semibold uppercase tracking-wide text-amber-900/75 dark:text-amber-300/80">
+                  <span className="w-6 shrink-0 text-right">#</span>
+                  <span className="min-w-[12rem] flex-1">PDV</span>
+                  <span className="w-[11rem] shrink-0">CNPJ do PDV</span>
+                  <span className="w-[3.5rem] shrink-0" />
+                </li>
+              : null}
               {pdvsSorted.map((p, pi) => (
                 <PdvMini key={p.id} indexVis={pi + 1} p={p} patchPdv={props.patchPdv} del={props.delPdv} />
               ))}
@@ -582,19 +591,35 @@ function SortClientRow(props: {
 function PdvMini(props: {
   indexVis: number;
   p: RioPdvCb;
-  patchPdv: (pdvId: string, nome: string) => void;
+  patchPdv: (pdvId: string, patch: { nome?: string; documento?: string | null }) => void;
   del: (pdvId: string) => void;
 }) {
   const { indexVis } = props;
+  const docDisplay = displayBrazilianTaxId(props.p.documento);
   return (
     <li className="flex flex-nowrap items-center gap-2 rounded-md border border-amber-900/45 bg-amber-100/80 px-2 py-0.5 text-[11px] dark:bg-amber-950/72 dark:border-amber-800/61">
       <span className="w-6 shrink-0 text-right font-bold tabular-nums text-amber-950 dark:text-amber-100">{indexVis}</span>
       <input
         className="min-w-[12rem] flex-1 rounded border border-transparent bg-transparent px-1 py-0 text-[11px] hover:border-amber-800/52 dark:hover:border-amber-600"
         defaultValue={props.p.nome}
-        onBlur={(ev) => void props.patchPdv(props.p.id, ev.target.value)}
+        onBlur={(ev) => {
+          const nome = ev.target.value.trim();
+          if (nome !== props.p.nome) void props.patchPdv(props.p.id, { nome });
+        }}
       />
-      <button type="button" className="shrink-0 text-rose-600 underline" onClick={() => void props.del(props.p.id)}>
+      <input
+        key={`${props.p.id}-doc-${props.p.documento ?? ""}`}
+        className="w-[11rem] shrink-0 rounded border border-transparent bg-transparent px-1 py-0 font-mono text-[10px] hover:border-amber-800/52 dark:hover:border-amber-600"
+        placeholder="00.000.000/0000-00"
+        defaultValue={docDisplay === "—" ? "" : docDisplay}
+        onBlur={(ev) => {
+          const raw = ev.target.value.trim();
+          const next = raw ? raw : null;
+          const prev = props.p.documento?.trim() || null;
+          if (next !== prev) void props.patchPdv(props.p.id, { documento: next });
+        }}
+      />
+      <button type="button" className="w-[3.5rem] shrink-0 text-right text-rose-600 underline" onClick={() => void props.del(props.p.id)}>
         remover
       </button>
     </li>
@@ -623,7 +648,7 @@ export function ClienteMarcaBlock(props: {
   patchLinha: (id: string, body: Record<string, unknown>) => void;
   setLinhas: Dispatch<SetStateAction<RioLinhaCb[]>>;
   addPdv: (linhaId: string) => void;
-  patchPdv: (id: string, nome: string) => void;
+  patchPdv: (id: string, patch: { nome?: string; documento?: string | null }) => void;
   delPdv: (id: string) => void;
   onDeleteLinha?: (r: RioLinhaCb) => void;
   monthClosed?: boolean;

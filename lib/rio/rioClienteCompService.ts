@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeClientesCa";
 import type { ParsedRioFileRow } from "@/lib/rio/rioCompFileImport";
 import { fallbackCaPersonIdFromDocument } from "@/lib/rio/rioCompFileImport";
+import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { parseMarcaPdvLayoutFromBuffer } from "@/lib/rio/rioMarcaPdvCsvLayout";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import {
@@ -23,7 +24,6 @@ import {
   mergeValorClienteFromContaAzul,
   valorClienteTextoFromPdvUnit,
 } from "@/lib/rio/valorClienteCalc";
-import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { normalizeRioOrigemCliente } from "@/lib/rio/rioOrigemCliente";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
@@ -249,7 +249,12 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
     const out: RioCompLinhaOut = {
       ...row,
       documento: normalizeBrazilianTaxIdForStorage(row.documento),
-      pdvs: sortRioPdvsByNome(ln.pdvs),
+      pdvs: sortRioPdvsByNome(
+        ln.pdvs.map((p) => ({
+          ...p,
+          documento: normalizeBrazilianTaxIdForStorage(p.documento),
+        })),
+      ),
       grupo: rioGrupo ? { ...rioGrupo } : null,
     };
     return out;
@@ -1282,9 +1287,14 @@ export async function createRioCompPdvsBulk(
 
 export async function patchRioCompPdv(
   pdvId: string,
-  data: Partial<{ nome: string; notes: string; sortOrder: number }>,
+  data: Partial<{ nome: string; documento: string | null; notes: string; sortOrder: number }>,
 ) {
-  await prisma.rioCompPdv.update({ where: { id: pdvId }, data });
+  const patch: Partial<{ nome: string; documento: string | null; notes: string; sortOrder: number }> =
+    { ...data };
+  if ("documento" in data) {
+    patch.documento = normalizeBrazilianTaxIdForStorage(data.documento);
+  }
+  await prisma.rioCompPdv.update({ where: { id: pdvId }, data: patch });
 }
 
 export async function deleteRioCompPdv(pdvId: string) {

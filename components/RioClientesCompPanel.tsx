@@ -980,24 +980,35 @@ export function RioClientesCompPanel() {
     [activeYm, newPdvName],
   );
 
-  const patchPdv = useCallback(async (pdvId: string, nome: string) => {
-    const res = await fetch(`/api/rio-planilha/clientes/pdv/${pdvId}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nome }),
-    });
-    const { data } = await readJsonFromResponse<{ pdv?: RioPdv }>(res);
-    if (!res.ok || !data?.pdv) return;
-    setLinhas((prev) =>
-      prev.map((ln) => ({
-        ...ln,
-        pdvs: sortRioPdvsByNome(
-          ln.pdvs.map((p) => (p.id === pdvId ? { ...p, nome: data.pdv!.nome } : p)),
-        ),
-      })),
-    );
-  }, []);
+  const patchPdv = useCallback(
+    async (pdvId: string, patch: { nome?: string; documento?: string | null }) => {
+      const res = await fetch(`/api/rio-planilha/clientes/pdv/${pdvId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const { data } = await readJsonFromResponse<{ pdv?: RioPdv }>(res);
+      if (!res.ok || !data?.pdv) return;
+      setLinhas((prev) =>
+        prev.map((ln) => ({
+          ...ln,
+          pdvs: sortRioPdvsByNome(
+            ln.pdvs.map((p) =>
+              p.id === pdvId ?
+                {
+                  ...p,
+                  nome: data.pdv!.nome,
+                  documento: data.pdv!.documento ?? null,
+                }
+              : p,
+            ),
+          ),
+        })),
+      );
+    },
+    [],
+  );
 
   const delLinha = useCallback(
     async (r: RioLinha) => {

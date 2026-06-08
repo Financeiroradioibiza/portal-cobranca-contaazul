@@ -24,6 +24,7 @@ export type RioExportGrupo = {
 export type RioExportPdv = {
   id: string;
   nome: string;
+  documento?: string | null;
   movimento?: "estavel" | "entrada" | "saida";
 };
 
@@ -117,6 +118,11 @@ function rioLinhaValorDisplay(l: RioExportLinha): string {
 
 function pdvsAtivos(l: RioExportLinha): RioExportPdv[] {
   return sortRioPdvsByNome(l.pdvs.filter((p) => (p.movimento ?? "estavel") !== "saida"));
+}
+
+function pdvListLabel(p: RioExportPdv): string {
+  const doc = displayBrazilianTaxId(p.documento);
+  return doc === "—" ? p.nome : `${p.nome} [${doc}]`;
 }
 
 function marcaBannerFill(systemTag: string | null | undefined): string {
@@ -259,7 +265,7 @@ export async function downloadRioMonthStyledExcel(opts: {
 
     for (const r of blockLinhas) {
       const pdvList = pdvsAtivos(r)
-        .map((p) => p.nome)
+        .map((p) => pdvListLabel(p))
         .join(" | ");
       const doc =
         displayBrazilianTaxId(r.documento) === "—" ? "" : displayBrazilianTaxId(r.documento);
@@ -327,10 +333,10 @@ export async function downloadRioClientePdvsExcel(opts: {
   wb.creator = company;
   const ws = wb.addWorksheet("PDVs");
 
-  ws.columns = [{ width: 6 }, { width: 48 }];
+  ws.columns = [{ width: 6 }, { width: 42 }, { width: 18 }];
 
   let rowN = 1;
-  ws.mergeCells(rowN, 1, rowN, 2);
+  ws.mergeCells(rowN, 1, rowN, 3);
   styleCell(ws.getCell(rowN, 1), {
     fill: FILL.emeraldHeader,
     fontColor: "FFFFFFFF",
@@ -342,7 +348,7 @@ export async function downloadRioClientePdvsExcel(opts: {
   ws.getRow(rowN).height = 28;
   rowN += 1;
 
-  ws.mergeCells(rowN, 1, rowN, 2);
+  ws.mergeCells(rowN, 1, rowN, 3);
   styleCell(ws.getCell(rowN, 1), {
     fill: FILL.emeraldRow,
     bold: true,
@@ -352,7 +358,7 @@ export async function downloadRioClientePdvsExcel(opts: {
   ws.getCell(rowN, 1).value = `Cliente: ${opts.linha.nomeFantasia}`;
   rowN += 1;
 
-  ws.mergeCells(rowN, 1, rowN, 2);
+  ws.mergeCells(rowN, 1, rowN, 3);
   styleCell(ws.getCell(rowN, 1), {
     fill: FILL.amberTitle,
     fontColor: "FFFFFFFF",
@@ -365,27 +371,32 @@ export async function downloadRioClientePdvsExcel(opts: {
   const hdr = ws.getRow(rowN);
   styleCell(hdr.getCell(1), { fill: FILL.slateHeader, fontColor: "FFFFFFFF", bold: true, align: { horizontal: "center" } });
   styleCell(hdr.getCell(2), { fill: FILL.slateHeader, fontColor: "FFFFFFFF", bold: true });
+  styleCell(hdr.getCell(3), { fill: FILL.slateHeader, fontColor: "FFFFFFFF", bold: true });
   hdr.getCell(1).value = "#";
   hdr.getCell(2).value = "PDV";
+  hdr.getCell(3).value = "CNPJ";
   rowN += 1;
 
   pdvs.forEach((p, i) => {
     const row = ws.getRow(rowN);
+    const doc = displayBrazilianTaxId(p.documento);
     styleCell(row.getCell(1), { fill: FILL.emeraldRow, align: { horizontal: "center" } });
     styleCell(row.getCell(2), { fill: i % 2 === 0 ? FILL.white : FILL.emeraldRow });
+    styleCell(row.getCell(3), { fill: i % 2 === 0 ? FILL.white : FILL.emeraldRow });
     row.getCell(1).value = i + 1;
     row.getCell(2).value = p.nome;
+    row.getCell(3).value = doc === "—" ? "" : doc;
     rowN += 1;
   });
 
   if (pdvs.length === 0) {
-    ws.mergeCells(rowN, 1, rowN, 2);
+    ws.mergeCells(rowN, 1, rowN, 3);
     styleCell(ws.getCell(rowN, 1), { fill: FILL.emeraldRow, align: { horizontal: "center" } });
     ws.getCell(rowN, 1).value = "Nenhum PDV cadastrado neste mês.";
     rowN += 1;
   }
 
-  ws.mergeCells(rowN, 1, rowN, 2);
+  ws.mergeCells(rowN, 1, rowN, 3);
   const totalCell = ws.getCell(rowN, 1);
   totalCell.value = `Valor total: R$ ${valor === "—" ? "—" : valor}`;
   styleCell(totalCell, {
@@ -421,12 +432,12 @@ export function printRioClientePdvsPdf(opts: {
   const rowsHtml =
     pdvs.length > 0 ?
       pdvs
-        .map(
-          (p, i) =>
-            `<tr><td class="num">${i + 1}</td><td>${escapeHtml(p.nome)}</td></tr>`,
-        )
+        .map((p, i) => {
+          const doc = displayBrazilianTaxId(p.documento);
+          return `<tr><td class="num">${i + 1}</td><td>${escapeHtml(p.nome)}</td><td class="doc">${doc === "—" ? "" : escapeHtml(doc)}</td></tr>`;
+        })
         .join("")
-    : `<tr><td colspan="2" class="empty">Nenhum PDV cadastrado neste mês.</td></tr>`;
+    : `<tr><td colspan="3" class="empty">Nenhum PDV cadastrado neste mês.</td></tr>`;
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -444,6 +455,7 @@ export function printRioClientePdvsPdf(opts: {
   td { padding: 8px 12px; border-top: 1px solid #e2e8f0; font-size: 13px; }
   tr:nth-child(even) td { background: #f8fafc; }
   td.num { width: 48px; text-align: center; font-weight: 600; color: #065f46; }
+  td.doc { width: 160px; font-family: ui-monospace, monospace; font-size: 12px; }
   td.empty { text-align: center; font-style: italic; color: #64748b; }
   .total { margin-top: 16px; padding: 12px 16px; background: #e2e8f0; border-radius: 8px; text-align: right; font-size: 15px; font-weight: 700; }
   .total span { color: #065f46; }
@@ -455,7 +467,7 @@ export function printRioClientePdvsPdf(opts: {
   <div class="cliente">Cliente: ${escapeHtml(opts.linha.nomeFantasia)}</div>
   <div class="titulo">PDVs do cliente — ${escapeHtml(ymLabel)}</div>
   <table>
-    <thead><tr><th>#</th><th>PDV</th></tr></thead>
+    <thead><tr><th>#</th><th>PDV</th><th>CNPJ</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   <div class="total">Valor total: <span>${escapeHtml(valorFmt)}</span></div>

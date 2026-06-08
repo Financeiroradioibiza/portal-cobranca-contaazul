@@ -27,8 +27,11 @@ export async function PATCH(request: Request, context: Ctx) {
   const row = await authorizePdv(pdvId);
   if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  const data: Partial<{ nome: string; notes: string; sortOrder: number }> = {};
+  const data: Partial<{ nome: string; documento: string | null; notes: string; sortOrder: number }> =
+    {};
   if (typeof body.nome === "string") data.nome = body.nome.slice(0, 500);
+  if (typeof body.documento === "string") data.documento = body.documento.slice(0, 64);
+  else if (body.documento === null || body.documento === "") data.documento = null;
   if (typeof body.notes === "string") data.notes = body.notes.slice(0, 2000);
   if (typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)) {
     data.sortOrder = Math.floor(body.sortOrder);
