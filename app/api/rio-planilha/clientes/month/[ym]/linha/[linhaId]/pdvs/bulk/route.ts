@@ -63,7 +63,7 @@ export async function POST(request: Request, context: Ctx) {
   });
   if (!linha) return NextResponse.json({ error: "line_not_found" }, { status: 404 });
 
-  const { created, skipped, numeroPdvSite } = await createRioCompPdvsBulk(linha.id, rows);
+  const { created, updated, skipped, numeroPdvSite } = await createRioCompPdvsBulk(linha.id, rows);
   const pdvs = await prisma.rioCompPdv.findMany({
     where: { clienteId: linha.id },
     orderBy: [{ nome: "asc" }, { id: "asc" }],
@@ -77,6 +77,7 @@ export async function POST(request: Request, context: Ctx) {
   return NextResponse.json({
     ok: true,
     createdCount: created.length,
+    updatedCount: updated.length,
     skippedCount: skipped,
     numeroPdvSite,
     valorClienteTexto: linhaVals?.valorClienteTexto ?? "",

@@ -896,6 +896,7 @@ export function RioClientesCompPanel() {
       const { data, rawText } = await readJsonFromResponse<{
         pdvs?: RioPdv[];
         createdCount?: number;
+        updatedCount?: number;
         skippedCount?: number;
         numeroPdvSite?: number;
         valorClienteTexto?: string;
@@ -930,12 +931,18 @@ export function RioClientesCompPanel() {
         return nx;
       });
       const created = data?.createdCount ?? 0;
+      const updated = data?.updatedCount ?? 0;
       const skipped = data?.skippedCount ?? 0;
-      setMsg(
-        created || skipped ?
-          `PDVs em «${linhas.find((l) => l.id === linhaId)?.nomeFantasia ?? "cliente"}»: +${created}${skipped ? ` (${skipped} ignorados — já existiam)` : ""}.`
-        : "Nenhum PDV novo.",
-      );
+      const clienteNome = linhas.find((l) => l.id === linhaId)?.nomeFantasia ?? "cliente";
+      if (created || updated || skipped) {
+        const parts: string[] = [];
+        if (created) parts.push(`${created} novo(s)`);
+        if (updated) parts.push(`${updated} atualizado(s) (CNPJ ou reativado após remover)`);
+        if (skipped) parts.push(`${skipped} já iguais`);
+        setMsg(`PDVs em «${clienteNome}»: ${parts.join(" · ")}.`);
+      } else {
+        setMsg("Nenhum PDV novo.");
+      }
     },
     [activeYm, linhas],
   );

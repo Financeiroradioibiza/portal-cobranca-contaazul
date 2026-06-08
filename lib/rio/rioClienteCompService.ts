@@ -1253,17 +1253,18 @@ export async function createRioCompPdv(linhaId: string, nome: string) {
 
 export type RioPdvBulkRow = { nome: string; documento?: string | null };
 
-/** Um PDV por linha; ignora vazios e duplicados (case-insensitive) já existentes na linha. */
+/** Um PDV por linha; reativa «saída», atualiza CNPJ e ignora só duplicata idêntica. */
 export async function createRioCompPdvsBulk(
   linhaId: string,
   rowsRaw: RioPdvBulkRow[],
-): Promise<{ created: RioCompPdv[]; skipped: number; numeroPdvSite: number }> {
+): Promise<{ created: RioCompPdv[]; updated: RioCompPdv[]; skipped: number; numeroPdvSite: number }> {
   const linha = await prisma.rioCompClienteLinha.findUnique({
     where: { id: linhaId },
     select: { month: { select: { yearMonth: true, closedAt: true } } },
   });
   if (linha?.month?.closedAt) throw new Error("month_closed");
   const turnover = linha?.month && isRioTurnoverMonth(linha.month.yearMonth);
+  const movNovo = turnover ? ("entrada" as const) : ("estavel" as const);
 
   const rows: RioPdvBulkRow[] = [];
   const seen = new Set<string>();
@@ -1281,36 +1282,76 @@ export async function createRioCompPdvsBulk(
 
   const existing = await prisma.rioCompPdv.findMany({
     where: { clienteId: linhaId },
-    select: { nome: true, sortOrder: true },
+    select: { id: true, nome: true, documento: true, movimento: true, sortOrder: true },
     orderBy: [{ sortOrder: "desc" }, { id: "desc" }],
   });
-  const normExisting = new Set(existing.map((e) => e.nome.trim().toLowerCase()));
+
+  const activeByNome = new Map<string, (typeof existing)[number]>();
+  const saidaByNome = new Map<string, (typeof existing)[number]>();
+  for (const e of existing) {
+    const key = e.nome.trim().toLowerCase();
+    if (e.movimento === "saida") {
+      if (!saidaByNome.has(key)) saidaByNome.set(key, e);
+    } else if (!activeByNome.has(key)) {
+      activeByNome.set(key, e);
+    }
+  }
+
   let order = (existing[0]?.sortOrder ?? -1) + 1;
   const created: RioCompPdv[] = [];
+  const updated: RioCompPdv[] = [];
   let skipped = 0;
 
   for (const row of rows) {
     const key = row.nome.toLowerCase();
-    if (normExisting.has(key)) {
-      skipped += 1;
+    const active = activeByNome.get(key);
+    if (active) {
+      const nextDoc = row.documento ?? null;
+      const curDoc = active.documento ?? null;
+      if (nextDoc && nextDoc !== curDoc) {
+        const p = await prisma.rioCompPdv.update({
+          where: { id: active.id },
+          data: { documento: nextDoc },
+        });
+        updated.push(p);
+      } else {
+        skipped += 1;
+      }
       continue;
     }
+
+    const saida = saidaByNome.get(key);
+    if (saida) {
+      const p = await prisma.rioCompPdv.update({
+        where: { id: saida.id },
+        data: {
+          movimento: movNovo,
+          nome: row.nome.slice(0, 500),
+          documento: row.documento ?? saida.documento,
+        },
+      });
+      updated.push(p);
+      activeByNome.set(key, p);
+      saidaByNome.delete(key);
+      continue;
+    }
+
     const p = await prisma.rioCompPdv.create({
       data: {
         clienteId: linhaId,
         nome: row.nome.slice(0, 500),
         documento: row.documento,
         sortOrder: order,
-        movimento: turnover ? "entrada" : "estavel",
+        movimento: movNovo,
       },
     });
     order += 1;
-    normExisting.add(key);
+    activeByNome.set(key, p);
     created.push(p);
   }
 
   const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
-  return { created, skipped, numeroPdvSite };
+  return { created, updated, skipped, numeroPdvSite };
 }
 
 export async function patchRioCompPdv(

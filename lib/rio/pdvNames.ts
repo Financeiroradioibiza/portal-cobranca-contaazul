@@ -13,9 +13,13 @@ function looksLikeTaxId(s: string): boolean {
   return d.length === 11 || d.length === 14;
 }
 
+function normalizePdvPasteLine(line: string): string {
+  return line.replace(/\u00a0/g, " ").trim();
+}
+
 /** Uma linha colada: «Nome do PDV» + tab/espaços + CNPJ/CPF (opcional). */
 export function parseSinglePdvPasteLine(line: string): ParsedPdvRow | null {
-  const trimmed = line.trim();
+  const trimmed = normalizePdvPasteLine(line);
   if (!trimmed) return null;
 
   if (trimmed.includes("\t")) {
