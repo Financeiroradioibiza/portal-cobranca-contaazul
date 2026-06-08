@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RIO_CA_REFRESH_BATCH_SIZE } from "@/lib/rio/rioCaPersonLink";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { COBRANCA_HOME_HREF } from "@/lib/portal/cobrancaNav";
 import { COMPANY_NAME } from "@/lib/brand";
 import {
   ClienteMarcaBlock,
@@ -1647,10 +1647,10 @@ export function RioClientesCompPanel() {
       <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <Link
-            href="/"
+            href={COBRANCA_HOME_HREF}
             className="text-[11px] font-semibold text-sky-600 underline-offset-4 hover:underline dark:text-sky-400"
           >
-            ← Painel principal
+            ← Vencidos
           </Link>
           <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-900 dark:text-white">
             Planilha Rio — clientes ativos Conta Azul
@@ -1670,7 +1670,6 @@ export function RioClientesCompPanel() {
             : null}
           </p>
         </div>
-        <ThemeToggle />
       </header>
 
       {msg ?
@@ -1717,8 +1716,8 @@ export function RioClientesCompPanel() {
       {caServerConnected === false ?
         <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40">
           <strong>Conta Azul desconectada.</strong> Vincular e atualizar e-mails exige OAuth no{" "}
-          <Link href="/" className="font-semibold underline">
-            painel principal
+          <Link href={COBRANCA_HOME_HREF} className="font-semibold underline">
+            vencidos
           </Link>
           .
         </div>

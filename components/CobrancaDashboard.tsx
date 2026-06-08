@@ -2,8 +2,6 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { ConsultaPainelDialog } from "@/components/ConsultaPainelDialog";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { COMPANY_NAME } from "@/lib/brand";
 import { defaultPeriodMonths, formatBrazilianTaxId, formatBRL, parseEmailAddresses } from "@/lib/format";
@@ -795,7 +793,6 @@ export function CobrancaDashboard() {
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <ThemeToggle />
           <div className="flex flex-wrap items-center justify-end gap-2">
             {connected ? (
               <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-200">
@@ -963,19 +960,6 @@ export function CobrancaDashboard() {
           >
             Ver protótipo HTML
           </a>
-          <Link
-            href="/manual"
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            Envios manuais (OC)
-          </Link>
-          <Link
-            href="/planilha-rio"
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            Planilha Rio
-          </Link>
-          <ConsultaPainelDialog />
         </div>
       </div>
 

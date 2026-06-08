@@ -1,9 +1,7 @@
-import { CobrancaDashboard } from "@/components/CobrancaDashboard";
+import { redirect } from "next/navigation";
+import { COBRANCA_HOME_HREF } from "@/lib/portal/cobrancaNav";
 
+/** Raiz do site → módulo Cobrança / vencidos (URLs antigas redirecionam em next.config). */
 export default function Home() {
-  return (
-    <main className="min-h-full min-w-0 bg-[#f4f6f9] text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-      <CobrancaDashboard />
-    </main>
-  );
+  redirect(COBRANCA_HOME_HREF);
 }

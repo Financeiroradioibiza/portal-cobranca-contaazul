@@ -1,9 +1,5 @@
-import { RioClientesCompPanel } from "@/components/RioClientesCompPanel";
+import { redirect } from "next/navigation";
 
-export default function PlanilhaRioPage() {
-  return (
-    <main className="min-h-full bg-[#f4f6f9] text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-      <RioClientesCompPanel />
-    </main>
-  );
+export default function LegacyPlanilhaRioPage() {
+  redirect("/cobranca/planilha-rio");
 }

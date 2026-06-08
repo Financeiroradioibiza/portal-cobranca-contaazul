@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 declare global {
   interface Window {
@@ -81,7 +81,14 @@ function fmtPdv(r: Record<string, unknown>) {
   return linhas.join("\n");
 }
 
-export function ConsultaPainelDialog() {
+type ConsultaPainelDialogProps = {
+  /** Página dedicada: abre o modal ao carregar. */
+  openOnMount?: boolean;
+  /** Oculta o botão «Consulta painel» (uso em /cobranca/consulta-painel). */
+  hideTrigger?: boolean;
+};
+
+export function ConsultaPainelDialog({ openOnMount, hideTrigger }: ConsultaPainelDialogProps = {}) {
   const dlg = useRef<HTMLDialogElement>(null);
   const [tab, setTab] = useState<Tab>("cNome");
   const [busy, setBusy] = useState(false);
@@ -103,6 +110,11 @@ export function ConsultaPainelDialog() {
   };
 
   const close = () => dlg.current?.close();
+
+  useEffect(() => {
+    if (!openOnMount) return;
+    dlg.current?.showModal?.();
+  }, [openOnMount]);
 
   const setError = useCallback((msg: string) => {
     setErr(msg);
@@ -305,13 +317,15 @@ export function ConsultaPainelDialog() {
 
   return (
     <Fragment>
-      <button
-        type="button"
-        onClick={open}
-        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-      >
-        Consulta painel
-      </button>
+      {hideTrigger ? null : (
+        <button
+          type="button"
+          onClick={open}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          Consulta painel
+        </button>
+      )}
 
       <dialog
         ref={dlg}

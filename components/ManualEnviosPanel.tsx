@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { COBRANCA_HOME_HREF } from "@/lib/portal/cobrancaNav";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { COMPANY_NAME } from "@/lib/brand";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
@@ -781,13 +781,12 @@ export function ManualEnviosPanel() {
           </p>
         </div>
         <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <ThemeToggle />
           <div className="flex flex-wrap justify-end gap-2">
             <Link
-              href="/"
+              href={COBRANCA_HOME_HREF}
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
             >
-              Voltar ao painel
+              Vencidos
             </Link>
             <button
               type="button"
@@ -813,8 +812,8 @@ export function ManualEnviosPanel() {
           className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-50"
         >
           <strong className="font-semibold">OAuth Conta Azul ausente neste servidor.</strong> Para buscar cliente e copiar e-mail de cobrança, abra{" "}
-          <Link href="/" className="font-semibold text-sky-800 underline decoration-sky-800/70 hover:text-sky-900 dark:text-sky-300 dark:decoration-sky-400/70">
-            o painel principal
+          <Link href={COBRANCA_HOME_HREF} className="font-semibold text-sky-800 underline decoration-sky-800/70 hover:text-sky-900 dark:text-sky-300 dark:decoration-sky-400/70">
+            vencidos
           </Link>{" "}
           neste mesmo domínio (use «Conectar Conta Azul» ou «Reautorizar»), depois volte em Envios manuais.
         </div>
