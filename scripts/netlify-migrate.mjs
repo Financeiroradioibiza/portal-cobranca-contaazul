@@ -25,6 +25,28 @@ const attempts = Math.max(1, Number(process.env.PRISMA_MIGRATE_ATTEMPTS || defau
 const baseDelay = Math.max(1500, Number(process.env.PRISMA_MIGRATE_DELAY_MS || 4000));
 const continueOnFail = process.env.PRISMA_MIGRATE_CONTINUE_ON_FAIL === "1";
 
+function validateDatabaseUrl() {
+  const raw = process.env.DATABASE_URL;
+  if (!raw?.trim()) {
+    return {
+      ok: false,
+      retryable: false,
+      message:
+        "DATABASE_URL está vazia no Netlify. Cole a connection string **Pooled** do Neon (começa com postgresql://).",
+    };
+  }
+  const url = raw.trim().replace(/^["']|["']$/g, "");
+  if (!/^postgres(ql)?:\/\//i.test(url)) {
+    return {
+      ok: false,
+      retryable: false,
+      message:
+        "DATABASE_URL inválida: tem de começar por postgresql:// ou postgres:// (sem aspas à volta no painel Netlify).",
+    };
+  }
+  return { ok: true, url };
+}
+
 function runMigrate() {
   return new Promise((resolve) => {
     let stderr = "";
@@ -48,6 +70,9 @@ function sleep(ms) {
 }
 
 function hintFromStderr(stderr) {
+  if (/P1012|must start with the protocol `postgresql/i.test(stderr)) {
+    return "DATABASE_URL mal formatada (P1012) — use a string pooled do Neon, ex.: postgresql://user:pass@ep-….neon.tech/neondb?sslmode=require";
+  }
   if (/P1001|Can't reach database/i.test(stderr)) {
     return "Neon inacessível (P1001) — confira DATABASE_URL pooled + ?sslmode=require no painel Netlify.";
   }
@@ -60,7 +85,32 @@ function hintFromStderr(stderr) {
   return null;
 }
 
+function finishMigrateFailure(hint, attemptsLabel) {
+  console.error(`[netlify-migrate] Falha${attemptsLabel}.`);
+  if (hint) console.error(`[netlify-migrate] → ${hint}`);
+  console.error(
+    `[netlify-migrate] Opções:
+→ Netlify → Environment variables → DATABASE_URL = connection string Pooled do Neon.
+→ Rode \`npx prisma migrate deploy\` localmente contra o mesmo banco.
+→ SKIP_PRISMA_MIGRATE=1 — ignora migrate neste build.
+→ PRISMA_MIGRATE_CONTINUE_ON_FAIL=1 — publica o site mesmo se migrate falhar.`,
+  );
+  if (continueOnFail) {
+    console.warn(
+      "[netlify-migrate] PRISMA_MIGRATE_CONTINUE_ON_FAIL=1 — build segue; corrija DATABASE_URL para o site gravar no banco.",
+    );
+    process.exit(0);
+  }
+  process.exit(1);
+}
+
 (async () => {
+  const dbCheck = validateDatabaseUrl();
+  if (!dbCheck.ok) {
+    finishMigrateFailure(dbCheck.message, " (validação DATABASE_URL)");
+    return;
+  }
+
   let lastStderr = "";
   for (let i = 1; i <= attempts; i++) {
     console.log(`[netlify-migrate] tentativa ${i}/${attempts}: npx prisma migrate deploy`);
@@ -70,6 +120,11 @@ function hintFromStderr(stderr) {
       console.log("[netlify-migrate] migrate deploy concluído.");
       process.exit(0);
     }
+    const hint = hintFromStderr(stderr);
+    if (hint && /P1012|mal formatada/i.test(hint)) {
+      finishMigrateFailure(hint, "");
+      return;
+    }
     if (i < attempts) {
       const wait = baseDelay * i;
       console.log(`[netlify-migrate] falhou (código ${code}). Aguardar ${wait} ms e repetir…`);
@@ -77,22 +132,5 @@ function hintFromStderr(stderr) {
     }
   }
 
-  const hint = hintFromStderr(lastStderr);
-  console.error(`[netlify-migrate] Falha após ${attempts} tentativas.`);
-  if (hint) console.error(`[netlify-migrate] → ${hint}`);
-  console.error(
-    `[netlify-migrate] Opções:
-→ Corrija DATABASE_URL (Neon pooled) nas variáveis Netlify.
-→ Rode \`npx prisma migrate deploy\` localmente contra o mesmo banco.
-→ SKIP_PRISMA_MIGRATE=1 — ignora migrate neste build.
-→ PRISMA_MIGRATE_CONTINUE_ON_FAIL=1 — publica o site mesmo se migrate falhar.`,
-  );
-
-  if (continueOnFail) {
-    console.warn(
-      "[netlify-migrate] PRISMA_MIGRATE_CONTINUE_ON_FAIL=1 — build segue; confirme que o schema no Neon está atualizado.",
-    );
-    process.exit(0);
-  }
-  process.exit(1);
+  finishMigrateFailure(hintFromStderr(lastStderr), ` após ${attempts} tentativas`);
 })();
