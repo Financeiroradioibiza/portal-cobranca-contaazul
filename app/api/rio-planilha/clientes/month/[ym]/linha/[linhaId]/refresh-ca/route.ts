@@ -105,12 +105,32 @@ export async function POST(req: Request, context: Ctx) {
         { status: 409 },
       );
     }
-    if (msg === "ca_person_inactive") {
+    if (msg === "ca_person_inactive" || msg.startsWith("ca_person_inactive|")) {
+      let caCheck: unknown = null;
+      if (msg.startsWith("ca_person_inactive|")) {
+        try {
+          caCheck = JSON.parse(msg.slice("ca_person_inactive|".length));
+        } catch {
+          caCheck = null;
+        }
+      }
+      const reasons =
+        caCheck &&
+        typeof caCheck === "object" &&
+        caCheck !== null &&
+        Array.isArray((caCheck as { reasons?: unknown }).reasons) ?
+          ((caCheck as { reasons: string[] }).reasons as string[])
+        : [];
+      const detail =
+        reasons.length ?
+          `Conta Azul recusou o vínculo: ${reasons.join("; ")}.`
+        : "Só é possível vincular clientes ativos na Conta Azul.";
       return NextResponse.json(
         {
           connected: true as const,
           error: "ca_person_inactive",
-          detail: "Só é possível vincular clientes ativos na Conta Azul.",
+          detail,
+          caCheck,
         },
         { status: 409 },
       );

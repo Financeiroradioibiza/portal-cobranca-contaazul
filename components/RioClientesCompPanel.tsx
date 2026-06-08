@@ -134,6 +134,9 @@ export function RioClientesCompPanel() {
   const [buscaCa, setBuscaCa] = useState("");
   const [hitsCa, setHitsCa] = useState<{ id: string; nome: string; documento?: string | null }[]>([]);
   const [linkModalNotice, setLinkModalNotice] = useState<string | null>(null);
+  const [linkHitFeedback, setLinkHitFeedback] = useState<
+    Record<string, { status: "busy" | "ok" | "error"; message: string }>
+  >({});
   const [caLinkBusy, setCaLinkBusy] = useState(false);
   const [clashNavLinhaId, setClashNavLinhaId] = useState<string | null>(null);
   const [refreshingCa, setRefreshingCa] = useState(false);
@@ -208,6 +211,7 @@ export function RioClientesCompPanel() {
     if (!linkModalLinha) {
       setHitsCa([]);
       setLinkModalNotice(null);
+      setLinkHitFeedback({});
       return;
     }
     const t = setTimeout(async () => {
@@ -1327,8 +1331,17 @@ export function RioClientesCompPanel() {
     return true;
   }, []);
 
+  type CaLinkResult =
+    | { ok: true; hints: string[] }
+    | {
+        ok: false;
+        message: string;
+        error?: string;
+        clashLinhaId?: string | null;
+      };
+
   const postRefreshCaLinha = useCallback(
-    async (linhaId: string, body: Record<string, unknown>) => {
+    async (linhaId: string, body: Record<string, unknown>): Promise<CaLinkResult> => {
       setCaLinkBusy(true);
       setClashNavLinhaId(null);
       try {
@@ -1348,14 +1361,22 @@ export function RioClientesCompPanel() {
           contractValorEmptyHint?: string | null;
           error?: string;
           detail?: string | null;
+          errorDetail?: string;
+          caCheck?: {
+            reasons?: string[];
+            snapshot?: {
+              ativo?: unknown;
+              situacao?: string;
+              perfis?: string[];
+            };
+          };
           clashLinhaId?: string | null;
           clashGrupoNome?: string | null;
           clashSystemTag?: string | null;
           linha?: RioLinha;
         }>(res);
         if (data?.connected === false && data.message) {
-          setMsg(data.message);
-          return false;
+          return { ok: false, message: data.message, error: "ca_disconnected" };
         }
         if (!res.ok) {
           if (data?.error === "ca_person_already_linked") {
@@ -1369,26 +1390,41 @@ export function RioClientesCompPanel() {
               : data.clashSystemTag ?
                 ` Está no bloco «${grupo}».`
               : ` Está na MARCA «${grupo}».`;
-            setMsg(`Esta pessoa CA já está noutra linha deste mês: ${nome}.${blocoHint}`);
+            const message = `Esta pessoa CA já está noutra linha deste mês: ${nome}.${blocoHint}`;
             if (data.clashLinhaId) {
               setClashNavLinhaId(data.clashLinhaId);
               window.setTimeout(() => scrollToRioLinha(data.clashLinhaId!), 150);
             }
-            return false;
+            return {
+              ok: false,
+              message,
+              error: data.error,
+              clashLinhaId: data.clashLinhaId,
+            };
           }
           if (data?.error === "ca_person_inactive") {
-            setMsg(data.detail || "Só é possível vincular clientes ativos na Conta Azul.");
-            return false;
+            const snap = data.caCheck?.snapshot;
+            const snapHint =
+              snap ?
+                ` (CA: ativo=${JSON.stringify(snap.ativo)}${snap.situacao ? `, situacao=${snap.situacao}` : ""}${snap.perfis?.length ? `, perfis=${snap.perfis.join("/")}` : ""})`
+              : "";
+            return {
+              ok: false,
+              message: (data.detail || "Só é possível vincular clientes ativos na Conta Azul.") + snapHint,
+              error: data.error,
+            };
           }
-          const err = (data?.error || rawText).slice(0, 240);
-          setMsg(err || "Falha ao vincular.");
-          return false;
+          const err =
+            data?.detail ||
+            data?.errorDetail ||
+            data?.error ||
+            rawText.slice(0, 240) ||
+            "Falha ao vincular.";
+          return { ok: false, message: err, error: data?.error };
         }
         const hints = [data?.billingEmailsEmptyHint, data?.contractValorEmptyHint].filter(
           (h): h is string => Boolean(h),
         );
-        if (hints.length) setMsg(hints.join(" "));
-        else setMsg(null);
         if (data?.linha) {
           setLinhas((prev) =>
             prev.map((x) =>
@@ -1396,7 +1432,7 @@ export function RioClientesCompPanel() {
             ),
           );
         }
-        return true;
+        return { ok: true, hints };
       } finally {
         setCaLinkBusy(false);
       }
@@ -1407,29 +1443,54 @@ export function RioClientesCompPanel() {
   const onOpenCaLink = useCallback((r: RioLinha) => {
     setBuscaCa(r.documento?.replace(/\D/g, "").slice(0, 14) || r.nomeFantasia.split(" ").slice(0, 4).join(" "));
     setLinkModalNotice(null);
+    setLinkHitFeedback({});
     setLinkModalLinha(r);
   }, []);
 
   const onToggleCaLink = useCallback(
     async (r: RioLinha) => {
       if (!window.confirm(`Desvincular «${r.nomeFantasia}» da Conta Azul nesta competência?`)) return;
-      const ok = await postRefreshCaLinha(r.id, { personId: "" });
-      if (ok) setMsg("Vínculo CA removido nesta linha.");
+      const result = await postRefreshCaLinha(r.id, { personId: "" });
+      if (result.ok) setMsg("Vínculo CA removido nesta linha.");
+      else setMsg(result.message);
     },
     [postRefreshCaLinha],
   );
 
-  const onSelectCaHit = useCallback(
+  const onLinkCaHit = useCallback(
     async (hit: { id: string; nome: string }) => {
       if (!linkModalLinha) return;
-      const ok = await postRefreshCaLinha(linkModalLinha.id, {
+      setLinkHitFeedback((prev) => ({
+        ...prev,
+        [hit.id]: { status: "busy", message: "Vinculando…" },
+      }));
+      const result = await postRefreshCaLinha(linkModalLinha.id, {
         personId: hit.id,
         caNomeLista: hit.nome,
       });
-      if (ok) {
-        setLinkModalLinha(null);
-        setBuscaCa("");
-        setMsg(`Vinculado a «${hit.nome}» — nome fantasia e dados importados da Conta Azul.`);
+      if (result.ok) {
+        setLinkHitFeedback((prev) => ({
+          ...prev,
+          [hit.id]: { status: "ok", message: "Vinculado!" },
+        }));
+        window.setTimeout(() => {
+          setLinkModalLinha(null);
+          setBuscaCa("");
+          setLinkHitFeedback({});
+          setMsg(
+            result.hints.length ?
+              `Vinculado a «${hit.nome}». ${result.hints.join(" ")}`
+            : `Vinculado a «${hit.nome}» — nome fantasia e dados importados da Conta Azul.`,
+          );
+        }, 450);
+        return;
+      }
+      setLinkHitFeedback((prev) => ({
+        ...prev,
+        [hit.id]: { status: "error", message: result.message },
+      }));
+      if (result.clashLinhaId) {
+        setMsg(result.message);
       }
     },
     [linkModalLinha, postRefreshCaLinha],
@@ -1674,6 +1735,7 @@ export function RioClientesCompPanel() {
                 onClick={() => {
                   setLinkModalLinha(null);
                   setBuscaCa("");
+                  setLinkHitFeedback({});
                 }}
               >
                 Fechar
@@ -1693,23 +1755,59 @@ export function RioClientesCompPanel() {
                   {linkModalNotice}
                 </p>
               : null}
-              <div className="max-h-[min(360px,50vh)] space-y-1 overflow-y-auto">
-                {hitsCa.map((h) => (
-                  <button
-                    key={h.id}
-                    type="button"
-                    disabled={caLinkBusy}
-                    className="w-full rounded border border-transparent px-2 py-2 text-left text-sm hover:border-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40"
-                    onClick={() => void onSelectCaHit(h)}
-                  >
-                    <span className="font-medium">{h.nome}</span>
-                    {h.documento ?
-                      <span className="ml-2 font-mono text-xs text-slate-500">
-                        {displayBrazilianTaxId(h.documento)}
-                      </span>
-                    : null}
-                  </button>
-                ))}
+              <div className="max-h-[min(360px,50vh)] space-y-2 overflow-y-auto">
+                {hitsCa.length === 0 && buscaCa.trim().length >= 2 && !linkModalNotice ?
+                  <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Nenhum cliente ativo encontrado na Conta Azul para esta busca.
+                  </p>
+                : null}
+                {hitsCa.map((h) => {
+                  const fb = linkHitFeedback[h.id];
+                  const busy = fb?.status === "busy";
+                  return (
+                    <div
+                      key={h.id}
+                      className={`rounded-lg border px-2 py-2 ${
+                        fb?.status === "error" ?
+                          "border-rose-300 bg-rose-50/80 dark:border-rose-800 dark:bg-rose-950/30"
+                        : fb?.status === "ok" ?
+                          "border-emerald-300 bg-emerald-50/80 dark:border-emerald-800 dark:bg-emerald-950/30"
+                        : "border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-950/40"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1 py-0.5">
+                          <p className="font-medium text-sm text-slate-900 dark:text-slate-100">{h.nome}</p>
+                          {h.documento ?
+                            <p className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                              {displayBrazilianTaxId(h.documento)}
+                            </p>
+                          : null}
+                          <p className="mt-0.5 font-mono text-[10px] text-slate-400">ID CA: {h.id}</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={caLinkBusy || busy}
+                          className="shrink-0 rounded-md border border-sky-600 bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                          onClick={() => void onLinkCaHit(h)}
+                        >
+                          {busy ? "…" : "Vincular"}
+                        </button>
+                      </div>
+                      {fb && fb.status !== "busy" ?
+                        <p
+                          className={`mt-1.5 text-xs leading-snug ${
+                            fb.status === "error" ?
+                              "text-rose-900 dark:text-rose-200"
+                            : "text-emerald-900 dark:text-emerald-200"
+                          }`}
+                        >
+                          {fb.message}
+                        </p>
+                      : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

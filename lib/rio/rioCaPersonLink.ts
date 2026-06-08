@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
-import { caPessoaRowIsActiveCliente } from "@/lib/contaazul/activeClientesCa";
+import { explainCaPersonActiveCliente } from "@/lib/contaazul/activeClientesCa";
 import { billingEmailJoined, fetchPersonDetail, searchPeopleByText } from "@/lib/contaazul/personBilling";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
@@ -210,8 +210,11 @@ export async function applyCaPersonToRioLinha(
   if (fetchCadastro) {
     const raw = await fetchPersonDetail(accessToken, pid);
     rec = asRecord(raw) ?? {};
-    if (linkingNewCa && rec && !caPessoaRowIsActiveCliente(rec)) {
-      throw new Error("ca_person_inactive");
+    if (linkingNewCa && rec) {
+      const activeCheck = explainCaPersonActiveCliente(rec);
+      if (!activeCheck.ok) {
+        throw new Error(`ca_person_inactive|${JSON.stringify(activeCheck)}`);
+      }
     }
     email = billingEmailJoined(raw);
     const nf = nomeFantasiaFromCaRaw(rec, nomeListaHint);

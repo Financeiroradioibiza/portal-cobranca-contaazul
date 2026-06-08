@@ -33,11 +33,25 @@ function isClientePerfis(perfs: string[]): boolean {
   return perfs.some((p) => p.includes("CLIENTE"));
 }
 
+export type CaPersonActiveCheck = {
+  ok: boolean;
+  reasons: string[];
+  snapshot: {
+    id?: string;
+    ativo?: unknown;
+    situacao?: string;
+    perfis?: string[];
+    tipo_perfil?: string;
+  };
+};
+
 /** Pessoa ativa na CA (`ativo` no item ou filtro da API). */
 function isRowAtivoCliente(row: Record<string, unknown>): boolean {
   for (const key of ["ativo", "Ativo", "active"] as const) {
     if (!(key in row)) continue;
     const v = row[key];
+    /** Detalhe CA costuma mandar `ativo: null` — não tratar como inativo. */
+    if (v === null || v === undefined || v === "") continue;
     if (v === false || v === 0) return false;
     if (typeof v === "string") {
       const s = v.trim().toLowerCase();
@@ -45,28 +59,60 @@ function isRowAtivoCliente(row: Record<string, unknown>): boolean {
         return false;
       }
       if (s === "true" || s === "1" || s === "ativo" || s === "active" || s === "s") return true;
+      /** Valor não reconhecido — ignora e segue para situacao / default ativo. */
+      continue;
     }
     if (v === true || v === 1) return true;
-    return false;
+    continue;
   }
   const sit = str(row.situacao ?? row.situacao_cadastro ?? row.status).toLowerCase();
   if (sit && (sit.includes("inativ") || sit === "i")) return false;
   return true;
 }
 
+/** Explica por que uma linha CA passa ou não no filtro de cliente ativo (útil no modal Vincular). */
+export function explainCaPersonActiveCliente(row: Record<string, unknown>): CaPersonActiveCheck {
+  const reasons: string[] = [];
+  const id = str(row.id);
+  if (!id) reasons.push("cadastro CA sem id");
+
+  if (!isRowAtivoCliente(row)) {
+    const ativo = row.ativo ?? row.Ativo ?? row.active;
+    const sit = str(row.situacao ?? row.situacao_cadastro ?? row.status);
+    reasons.push(
+      sit ?
+        `marcado inativo (ativo=${JSON.stringify(ativo)}, situacao=${sit})`
+      : `marcado inativo (ativo=${JSON.stringify(ativo)})`,
+    );
+  }
+
+  const perfs = perfisUpper(row);
+  if (perfs.length > 0 && !isClientePerfis(perfs)) {
+    reasons.push(`perfis [${perfs.join(", ")}] não incluem CLIENTE`);
+  }
+
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    snapshot: {
+      id: id || undefined,
+      ativo: row.ativo ?? row.Ativo ?? row.active,
+      situacao: str(row.situacao ?? row.situacao_cadastro ?? row.status) || undefined,
+      perfis: perfs.length ? perfs : undefined,
+      tipo_perfil: str(row.tipo_perfil) || str(row.tipoPerfil) || undefined,
+    },
+  };
+}
+
 /**
  * Linha válida: perfil Cliente + **ativo** (API `ativo=true` e campo no JSON quando vier).
  */
 export function caPessoaRowIsActiveCliente(row: Record<string, unknown>): boolean {
-  return rowPassesClienteFilteredList(row);
+  return explainCaPersonActiveCliente(row).ok;
 }
 
 function rowPassesClienteFilteredList(row: Record<string, unknown>): boolean {
-  if (!str(row.id)) return false;
-  if (!isRowAtivoCliente(row)) return false;
-  const perfs = perfisUpper(row);
-  if (!isClientePerfis(perfs) && perfs.length > 0) return false;
-  return true;
+  return caPessoaRowIsActiveCliente(row);
 }
 
 function summarizeRow(row: Record<string, unknown>): CaClienteActiveSummary | null {
