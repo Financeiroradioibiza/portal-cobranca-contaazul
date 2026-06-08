@@ -9,6 +9,9 @@
   NODE_VERSION = "22"
   # Middleware no Edge tem limite de CPU curto; rodar no origin evita "edge function timed out".
   NEXT_DISABLE_NETLIFY_EDGE = "true"
+  # Se migrate falhar (P1001 / DATABASE_URL), publica o site na mesma — migração pode ser feita à mão.
+  PRISMA_MIGRATE_CONTINUE_ON_FAIL = "1"
+  PRISMA_MIGRATE_ATTEMPTS = "3"
 
 # Timeout de função Netlify (~10s Free, ~26s Pro). `maxDuration` no route ajuda no Vercel/pro.
 # Planilha Rio: deixe `RIO_SYNC_*_DEFAULT` comentados para sync rápido (/contratos ou /pessoas?ids só se marcar no painel).
