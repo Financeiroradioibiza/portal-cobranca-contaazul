@@ -91,12 +91,26 @@ export async function POST(req: Request, context: Ctx) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "ca_erro";
-    if (msg.startsWith("ca_person_already_linked")) {
+    if (msg.startsWith("ca_person_already_linked|")) {
+      const [, clashLinhaId, detail, clashGrupoNome, clashSystemTag] = msg.split("|");
       return NextResponse.json(
         {
           connected: true as const,
           error: "ca_person_already_linked",
-          detail: msg.split(":").slice(1).join(":").trim() || null,
+          detail: detail?.trim() || null,
+          clashLinhaId: clashLinhaId?.trim() || null,
+          clashGrupoNome: clashGrupoNome?.trim() || null,
+          clashSystemTag: clashSystemTag?.trim() || null,
+        },
+        { status: 409 },
+      );
+    }
+    if (msg === "ca_person_inactive") {
+      return NextResponse.json(
+        {
+          connected: true as const,
+          error: "ca_person_inactive",
+          detail: "Só é possível vincular clientes ativos na Conta Azul.",
         },
         { status: 409 },
       );

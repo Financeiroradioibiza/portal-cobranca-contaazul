@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
+import { caPessoaRowIsActiveCliente } from "@/lib/contaazul/activeClientesCa";
 import { billingEmailJoined, fetchPersonDetail, searchPeopleByText } from "@/lib/contaazul/personBilling";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
@@ -182,11 +183,18 @@ export async function applyCaPersonToRioLinha(
 
   const clash = await prisma.rioCompClienteLinha.findFirst({
     where: { monthId, caPersonId: pid, NOT: { id: linhaId } },
-    select: { id: true, nomeFantasia: true },
+    select: {
+      id: true,
+      nomeFantasia: true,
+      rioGrupo: { select: { nome: true, systemTag: true } },
+    },
   });
   if (clash) {
+    const nome = clash.nomeFantasia.slice(0, 80);
+    const grupoNome = (clash.rioGrupo?.nome ?? "Sem MARCA").slice(0, 120);
+    const systemTag = clash.rioGrupo?.systemTag ?? "";
     throw new Error(
-      `ca_person_already_linked:${clash.nomeFantasia.slice(0, 80)}`,
+      `ca_person_already_linked|${clash.id}|${nome}|${grupoNome}|${systemTag}`,
     );
   }
 
@@ -202,6 +210,9 @@ export async function applyCaPersonToRioLinha(
   if (fetchCadastro) {
     const raw = await fetchPersonDetail(accessToken, pid);
     rec = asRecord(raw) ?? {};
+    if (linkingNewCa && rec && !caPessoaRowIsActiveCliente(rec)) {
+      throw new Error("ca_person_inactive");
+    }
     email = billingEmailJoined(raw);
     const nf = nomeFantasiaFromCaRaw(rec, nomeListaHint);
     nomeFantasia = nf || nomeListaHint || linha.nomeFantasia;
@@ -214,7 +225,7 @@ export async function applyCaPersonToRioLinha(
 
   if (includeContracts) {
     const contract = await fetchActiveContractSummaryForClient(accessToken, pid);
-    if (contract?.numeros) contratosAtivosTexto = contract.numeros.slice(0, 400);
+    contratosAtivosTexto = contract?.numeros ? contract.numeros.slice(0, 400) : "";
     const valorPessoaCa = rec ? valorClienteFromRaw(rec) : "";
     const hadContractValor = Boolean(contract?.valorTexto?.trim());
     valorClienteTexto = mergeValorClienteFromContaAzul(

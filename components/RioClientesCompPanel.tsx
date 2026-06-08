@@ -99,6 +99,7 @@ export function RioClientesCompPanel() {
   const [hitsCa, setHitsCa] = useState<{ id: string; nome: string; documento?: string | null }[]>([]);
   const [linkModalNotice, setLinkModalNotice] = useState<string | null>(null);
   const [caLinkBusy, setCaLinkBusy] = useState(false);
+  const [clashNavLinhaId, setClashNavLinhaId] = useState<string | null>(null);
   const [refreshingCa, setRefreshingCa] = useState(false);
   const [exportingMonth, setExportingMonth] = useState(false);
 
@@ -1225,9 +1226,21 @@ export function RioClientesCompPanel() {
     [activeYm, systemGrupoOrd, userGrupoOrd],
   );
 
+  const scrollToRioLinha = useCallback((targetLinhaId: string) => {
+    const el = document.getElementById(`rio-linha-${targetLinhaId}`);
+    if (!el) return false;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-amber-500", "ring-offset-2", "dark:ring-amber-400");
+    window.setTimeout(() => {
+      el.classList.remove("ring-2", "ring-amber-500", "ring-offset-2", "dark:ring-amber-400");
+    }, 4500);
+    return true;
+  }, []);
+
   const postRefreshCaLinha = useCallback(
     async (linhaId: string, body: Record<string, unknown>) => {
       setCaLinkBusy(true);
+      setClashNavLinhaId(null);
       try {
         const res = await fetch(
           `/api/rio-planilha/clientes/month/${activeYm}/linha/${encodeURIComponent(linhaId)}/refresh-ca`,
@@ -1245,6 +1258,9 @@ export function RioClientesCompPanel() {
           contractValorEmptyHint?: string | null;
           error?: string;
           detail?: string | null;
+          clashLinhaId?: string | null;
+          clashGrupoNome?: string | null;
+          clashSystemTag?: string | null;
           linha?: RioLinha;
         }>(res);
         if (data?.connected === false && data.message) {
@@ -1252,10 +1268,29 @@ export function RioClientesCompPanel() {
           return false;
         }
         if (!res.ok) {
-          const err =
-            data?.error === "ca_person_already_linked" ?
-              `Esta pessoa CA já está noutra linha deste mês${data.detail ? `: ${data.detail}` : ""}.`
-            : (data?.error || rawText).slice(0, 240);
+          if (data?.error === "ca_person_already_linked") {
+            const nome = data.detail?.trim() || "outro cliente";
+            const grupo = data.clashGrupoNome?.trim() || "Sem MARCA";
+            const blocoHint =
+              data.clashSystemTag === "ca_entrada" ?
+                ` Está no bloco «${grupo}» (topo da planilha — virada do mês).`
+              : data.clashSystemTag === "ca_saida" ?
+                ` Está no bloco «${grupo}» (clientes saindo — topo da planilha).`
+              : data.clashSystemTag ?
+                ` Está no bloco «${grupo}».`
+              : ` Está na MARCA «${grupo}».`;
+            setMsg(`Esta pessoa CA já está noutra linha deste mês: ${nome}.${blocoHint}`);
+            if (data.clashLinhaId) {
+              setClashNavLinhaId(data.clashLinhaId);
+              window.setTimeout(() => scrollToRioLinha(data.clashLinhaId!), 150);
+            }
+            return false;
+          }
+          if (data?.error === "ca_person_inactive") {
+            setMsg(data.detail || "Só é possível vincular clientes ativos na Conta Azul.");
+            return false;
+          }
+          const err = (data?.error || rawText).slice(0, 240);
           setMsg(err || "Falha ao vincular.");
           return false;
         }
@@ -1276,7 +1311,7 @@ export function RioClientesCompPanel() {
         setCaLinkBusy(false);
       }
     },
-    [activeYm],
+    [activeYm, scrollToRioLinha],
   );
 
   const onOpenCaLink = useCallback((r: RioLinha) => {
@@ -1557,7 +1592,7 @@ export function RioClientesCompPanel() {
             <div className="space-y-2 p-4">
               <input
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-                placeholder="Nome ou CNPJ (só números)…"
+                placeholder="Nome ou CNPJ — só clientes ativos na CA…"
                 value={buscaCa}
                 autoFocus
                 disabled={caLinkBusy}
@@ -1622,7 +1657,18 @@ export function RioClientesCompPanel() {
 
       {msg ?
         <div className="mb-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          {msg}
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{msg}</span>
+            {clashNavLinhaId ?
+              <button
+                type="button"
+                className="shrink-0 rounded border border-amber-500 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100"
+                onClick={() => scrollToRioLinha(clashNavLinhaId)}
+              >
+                Ir para a linha
+              </button>
+            : null}
+          </div>
         </div>
       : null}
 

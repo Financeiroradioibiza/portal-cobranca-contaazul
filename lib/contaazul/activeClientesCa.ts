@@ -57,6 +57,10 @@ function isRowAtivoCliente(row: Record<string, unknown>): boolean {
 /**
  * Linha válida: perfil Cliente + **ativo** (API `ativo=true` e campo no JSON quando vier).
  */
+export function caPessoaRowIsActiveCliente(row: Record<string, unknown>): boolean {
+  return rowPassesClienteFilteredList(row);
+}
+
 function rowPassesClienteFilteredList(row: Record<string, unknown>): boolean {
   if (!str(row.id)) return false;
   if (!isRowAtivoCliente(row)) return false;

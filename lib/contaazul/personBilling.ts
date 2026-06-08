@@ -1,6 +1,7 @@
 import { caFetch } from "./caHttp";
 import type { CaPeopleSearchResponse, CaPerson } from "./types";
 import { parseEmailAddresses } from "@/lib/format";
+import { caPessoaRowIsActiveCliente } from "./activeClientesCa";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -111,6 +112,7 @@ export async function searchPeopleByText(
   const basePaging: Params = {
     pagina: "1",
     tamanho_pagina: CA_PESSOAS_PAGE_SIZE,
+    ativo: "true",
   };
 
   /**
@@ -151,7 +153,10 @@ export async function searchPeopleByText(
       try {
         const path = `/v1/pessoas?${qs.toString()}`;
         const data = await caFetch<unknown>(path, accessToken);
-        const rows = extractRowsFlat(data).map(normalizeCaPersonBrief).filter((x): x is NonNullable<typeof x> => Boolean(x));
+        const rows = extractRowsFlat(data)
+          .filter((raw) => caPessoaRowIsActiveCliente(raw))
+          .map(normalizeCaPersonBrief)
+          .filter((x): x is NonNullable<typeof x> => Boolean(x));
 
         if (!rows.length) continue;
 

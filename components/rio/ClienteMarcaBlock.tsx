@@ -193,6 +193,7 @@ function SortClientRow(props: {
   return (
     <>
       <tr
+        id={`rio-linha-${r.id}`}
         ref={setNodeRef}
         style={sty}
         className={
