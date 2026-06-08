@@ -20,17 +20,46 @@ function str(v: unknown): string {
   return t;
 }
 
+/** Item de `perfis` na CA pode vir como string ou objeto `{ nome, tipo, tipo_perfil, … }`. */
+function perfilItemLabel(x: unknown): string {
+  if (typeof x === "string") return x.trim();
+  if (typeof x === "number") return String(x);
+  const o = asRecord(x);
+  if (!o) return "";
+  return (
+    str(o.nome) ||
+    str(o.name) ||
+    str(o.tipo) ||
+    str(o.tipoPerfil) ||
+    str(o.tipo_perfil) ||
+    str(o.perfil) ||
+    str(o.descricao) ||
+    str(o.label) ||
+    ""
+  );
+}
+
 function perfisUpper(row: Record<string, unknown>): string[] {
   const raw = row.perfis ?? row.Perfis;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((x) => String(x ?? "").trim().toUpperCase())
-    .filter(Boolean);
+  const fromArray =
+    Array.isArray(raw) ?
+      raw.map(perfilItemLabel).filter(Boolean)
+    : [];
+  const tipoLinha = str(row.tipo_perfil) || str(row.tipoPerfil);
+  const merged = [...fromArray, ...(tipoLinha ? [tipoLinha] : [])];
+  return [...new Set(merged.map((s) => s.toUpperCase()))];
 }
 
 function isClientePerfis(perfs: string[]): boolean {
   if (!perfs.length) return false;
   return perfs.some((p) => p.includes("CLIENTE"));
+}
+
+function rowHasClientePerfil(row: Record<string, unknown>): boolean {
+  const perfs = perfisUpper(row);
+  /** Sem `perfis` no JSON (comum no detalhe) — confia no filtro da busca / ativo. */
+  if (!perfs.length) return true;
+  return isClientePerfis(perfs);
 }
 
 export type CaPersonActiveCheck = {
@@ -87,7 +116,7 @@ export function explainCaPersonActiveCliente(row: Record<string, unknown>): CaPe
   }
 
   const perfs = perfisUpper(row);
-  if (perfs.length > 0 && !isClientePerfis(perfs)) {
+  if (!rowHasClientePerfil(row)) {
     reasons.push(`perfis [${perfs.join(", ")}] não incluem CLIENTE`);
   }
 
@@ -112,7 +141,9 @@ export function caPessoaRowIsActiveCliente(row: Record<string, unknown>): boolea
 }
 
 function rowPassesClienteFilteredList(row: Record<string, unknown>): boolean {
-  return caPessoaRowIsActiveCliente(row);
+  if (!str(row.id)) return false;
+  if (!isRowAtivoCliente(row)) return false;
+  return rowHasClientePerfil(row);
 }
 
 function summarizeRow(row: Record<string, unknown>): CaClienteActiveSummary | null {
