@@ -309,6 +309,36 @@ model RioCompPdv {
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  painelLink PainelPdvLink?
+
   @@index([clienteId, sortOrder])
   @@map("rio_comp_pdv")
+}
+
+/// Vínculo PDV Planilha Rio ↔ painel legado (produção).
+enum PainelMatchMethod {
+  cnpj
+  nome_pdv
+  nome_cliente
+  manual
+}
+
+model PainelPdvLink {
+  id        String @id @default(cuid())
+  rioCompPdvId String @unique @map("rio_comp_pdv_id")
+  rioCompPdv   RioCompPdv @relation(fields: [rioCompPdvId], references: [id], onDelete: Cascade)
+
+  painelPdvId     Int @map("painel_pdv_id")
+  painelClienteId Int @map("painel_cliente_id")
+  matchMethod     PainelMatchMethod @map("match_method")
+
+  painelPdvNome     String? @map("painel_pdv_nome") @db.Text
+  painelClienteNome String? @map("painel_cliente_nome") @db.Text
+
+  verifiedAt DateTime? @map("verified_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([painelPdvId])
+  @@map("painel_pdv_link")
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createRioCompPdvsBulk } from "@/lib/rio/rioClienteCompService";
+import { rioRouteErrorResponse } from "@/lib/rio/rioApiErrors";
 import { parsePdvRowsFromMultilineText } from "@/lib/rio/pdvNames";
 import type { RioPdvBulkRow } from "@/lib/rio/rioClienteCompService";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
@@ -63,25 +64,33 @@ export async function POST(request: Request, context: Ctx) {
   });
   if (!linha) return NextResponse.json({ error: "line_not_found" }, { status: 404 });
 
-  const { created, updated, skipped, numeroPdvSite } = await createRioCompPdvsBulk(linha.id, rows);
-  const pdvs = await prisma.rioCompPdv.findMany({
-    where: { clienteId: linha.id },
-    orderBy: [{ nome: "asc" }, { id: "asc" }],
-  });
+  try {
+    const { created, updated, skipped, numeroPdvSite } = await createRioCompPdvsBulk(linha.id, rows);
+    const pdvs = await prisma.rioCompPdv.findMany({
+      where: { clienteId: linha.id },
+      orderBy: [{ nome: "asc" }, { id: "asc" }],
+    });
 
-  const linhaVals = await prisma.rioCompClienteLinha.findUnique({
-    where: { id: linha.id },
-    select: { valorClienteTexto: true, valorPdvUnitarioTexto: true },
-  });
+    const linhaVals = await prisma.rioCompClienteLinha.findUnique({
+      where: { id: linha.id },
+      select: { valorClienteTexto: true, valorPdvUnitarioTexto: true },
+    });
 
-  return NextResponse.json({
-    ok: true,
-    createdCount: created.length,
-    updatedCount: updated.length,
-    skippedCount: skipped,
-    numeroPdvSite,
-    valorClienteTexto: linhaVals?.valorClienteTexto ?? "",
-    valorPdvUnitarioTexto: linhaVals?.valorPdvUnitarioTexto ?? "",
-    pdvs,
-  });
+    return NextResponse.json({
+      ok: true,
+      createdCount: created.length,
+      updatedCount: updated.length,
+      skippedCount: skipped,
+      numeroPdvSite,
+      valorClienteTexto: linhaVals?.valorClienteTexto ?? "",
+      valorPdvUnitarioTexto: linhaVals?.valorPdvUnitarioTexto ?? "",
+      pdvs,
+    });
+  } catch (e) {
+    return rioRouteErrorResponse(e, {
+      route: "POST /api/rio-planilha/clientes/month/[ym]/linha/[linhaId]/pdvs/bulk",
+      ym,
+      linhaId,
+    });
+  }
 }

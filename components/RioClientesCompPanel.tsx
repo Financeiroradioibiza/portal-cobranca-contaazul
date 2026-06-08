@@ -28,6 +28,12 @@ import {
 } from "@/lib/rio/sortRioCompLinhas";
 import { displayBrazilianTaxId } from "@/lib/format";
 import { downloadRioMonthStyledExcel } from "@/lib/rio/rioPlanilhaExport";
+import { PortalNoticeBanner } from "@/components/portal/PortalNoticeBanner";
+import {
+  buildHttpErrorReport,
+  extractServerDebug,
+  type PortalNotice,
+} from "@/lib/portal/errorDebugReport";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import { arrayMove } from "@dnd-kit/sortable";
 
@@ -81,7 +87,37 @@ export function RioClientesCompPanel() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [revertingSync, setRevertingSync] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [notice, setNotice] = useState<PortalNotice | null>(null);
+  const setMsg = useCallback((message: string | null) => {
+    setNotice(message ? { message } : null);
+  }, []);
+  const setHttpError = useCallback(
+    (input: {
+      action: string;
+      method: string;
+      url: string;
+      userMessage: string;
+      ok: boolean;
+      status: number;
+      parseError?: boolean;
+      rawText?: string;
+      data?: unknown;
+      requestBody?: unknown;
+      context?: Record<string, unknown>;
+    }) => {
+      setNotice({
+        message: input.userMessage,
+        severity: "error",
+        debug: buildHttpErrorReport({
+          ...input,
+          server: extractServerDebug(input.data),
+          pageHref: typeof window !== "undefined" ? window.location.href : "",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }),
+      });
+    },
+    [],
+  );
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [newPdvName, setNewPdvName] = useState<Record<string, string>>({});
   /** Buscar contrato na CA por cliente deixa o pedido muito longo (timeout no Netlify/proxy). */
@@ -901,9 +937,25 @@ export function RioClientesCompPanel() {
         numeroPdvSite?: number;
         valorClienteTexto?: string;
         error?: string;
+        message?: string;
       }>(res);
       if (!res.ok) {
-        setMsg(data?.error || rawText.slice(0, 200) || "Falha ao adicionar PDVs.");
+        setHttpError({
+          action: "addPdvsBulk",
+          method: "POST",
+          url: `/api/rio-planilha/clientes/month/${activeYm}/linha/${linhaId}/pdvs/bulk`,
+          userMessage:
+            data?.message ||
+            data?.error ||
+            rawText.slice(0, 220) ||
+            "Falha ao adicionar PDVs.",
+          ok: res.ok,
+          status: res.status,
+          rawText,
+          data,
+          requestBody: { pdvs: rows },
+          context: { activeYm, linhaId, pdvCount: rows.length },
+        });
         return;
       }
       if (Array.isArray(data?.pdvs)) {
@@ -944,7 +996,7 @@ export function RioClientesCompPanel() {
         setMsg("Nenhum PDV novo.");
       }
     },
-    [activeYm, linhas],
+    [activeYm, linhas, setHttpError],
   );
 
   const addPdv = useCallback(
@@ -959,12 +1011,32 @@ export function RioClientesCompPanel() {
           body: JSON.stringify({ nome }),
         },
       );
-      const { data } = await readJsonFromResponse<{
+      const { data, rawText } = await readJsonFromResponse<{
         pdv?: RioPdv;
         numeroPdvSite?: number;
         valorClienteTexto?: string;
+        error?: string;
+        message?: string;
       }>(res);
-      if (!res.ok || !data?.pdv) return;
+      if (!res.ok || !data?.pdv) {
+        setHttpError({
+          action: "addPdv",
+          method: "POST",
+          url: `/api/rio-planilha/clientes/month/${activeYm}/linha/${linhaId}/pdv`,
+          userMessage:
+            data?.message ||
+            data?.error ||
+            rawText.slice(0, 220) ||
+            "Falha ao adicionar PDV.",
+          ok: res.ok,
+          status: res.status,
+          rawText,
+          data,
+          requestBody: { nome },
+          context: { activeYm, linhaId },
+        });
+        return;
+      }
       setNewPdvName((m) => ({ ...m, [linhaId]: "" }));
       const nPdv =
         typeof data.numeroPdvSite === "number" ? data.numeroPdvSite : undefined;
@@ -984,7 +1056,7 @@ export function RioClientesCompPanel() {
         }),
       );
     },
-    [activeYm, newPdvName],
+    [activeYm, newPdvName, setHttpError],
   );
 
   const patchPdv = useCallback(
@@ -1672,22 +1744,11 @@ export function RioClientesCompPanel() {
         </div>
       </header>
 
-      {msg ?
-        <div className="mb-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          <div className="flex flex-wrap items-center gap-2">
-            <span>{msg}</span>
-            {clashNavLinhaId ?
-              <button
-                type="button"
-                className="shrink-0 rounded border border-amber-500 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100"
-                onClick={() => scrollToRioLinha(clashNavLinhaId)}
-              >
-                Ir para a linha
-              </button>
-            : null}
-          </div>
-        </div>
-      : null}
+      <PortalNoticeBanner
+        notice={notice}
+        clashNavLinhaId={clashNavLinhaId}
+        onGoToClashLine={scrollToRioLinha}
+      />
 
       {monthClosed ?
         <div className="mb-3 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200">

@@ -2,23 +2,23 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { COBRANCA_NAV } from "@/lib/portal/cobrancaNav";
+import { CADASTROS_NAV } from "@/lib/portal/cadastrosNav";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-export function CobrancaAreaNav() {
+export function CadastrosAreaNav() {
   const pathname = usePathname();
 
   return (
     <nav
       className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/95"
-      aria-label="Cobrança"
+      aria-label="Cadastros"
     >
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-2 px-3 py-2 sm:px-4">
         <span className="me-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Cobrança
+          Cadastros
         </span>
         <div className="flex min-w-0 flex-1 flex-wrap gap-1">
-          {COBRANCA_NAV.map((item) => {
+          {CADASTROS_NAV.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <Link
@@ -27,7 +27,7 @@ export function CobrancaAreaNav() {
                 className={
                   "rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors sm:text-sm " +
                   (active ?
-                    "bg-sky-700 text-white dark:bg-sky-600"
+                    "bg-violet-700 text-white dark:bg-violet-600"
                   : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800")
                 }
               >
@@ -38,10 +38,10 @@ export function CobrancaAreaNav() {
           })}
         </div>
         <Link
-          href="/cadastros/grupos"
-          className="rounded-md px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/50"
+          href="/cobranca/planilha-rio"
+          className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
         >
-          Cadastros
+          ← Cobrança
         </Link>
         <ThemeToggle />
       </div>

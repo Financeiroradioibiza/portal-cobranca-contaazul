@@ -1,5 +1,21 @@
 import fs from "fs";
 import path from "path";
+import { onlyDigits } from "@/lib/format";
+import {
+  compactAlphaNum,
+  fuzzyContainsAllHaystack,
+  normalizeSearch,
+  stripDiacritics,
+  tokenize,
+} from "@/lib/textNormalize";
+
+export {
+  compactAlphaNum,
+  fuzzyContainsAllHaystack,
+  normalizeSearch,
+  stripDiacritics,
+  tokenize,
+} from "@/lib/textNormalize";
 
 export type CsvClienteCand = { clienteId: string; textoLinha: string };
 export type CsvPdvCand = {
@@ -20,6 +36,7 @@ type PdvAgg = {
   clienteId: string;
   nomeCliente: string;
   pdvNome: string;
+  cnpjDigits: string;
   blob: string;
 };
 
@@ -33,33 +50,6 @@ function exportCsvPath(): string {
 
 export function invalidateExportClientesCsvCache(): void {
   cache = null;
-}
-
-export function stripDiacritics(s: string): string {
-  return s.normalize("NFD").replace(/\p{M}/gu, "");
-}
-
-export function normalizeSearch(s: string): string {
-  return stripDiacritics(s.trim().toLowerCase()).replace(/\s+/g, " ");
-}
-
-/** Remove pontuacao forte para fuzzy match */
-export function compactAlphaNum(s: string): string {
-  return normalizeSearch(s).replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
-export function tokenize(term: string): string[] {
-  const n = normalizeSearch(term);
-  return n.split(/\s+/).filter((t) => {
-    const c = compactAlphaNum(t);
-    return c.length >= 2;
-  });
-}
-
-/** Todos tokens (>=2 caracteres cada) devem aparecer no texto compactado */
-export function fuzzyContainsAllHaystack(blobC: string, tokens: string[]): boolean {
-  if (tokens.length === 0) return blobC.length >= 2;
-  return tokens.every((t) => blobC.includes(compactAlphaNum(t)));
 }
 
 function parseHeader(headers: string[]): Record<string, number> {
@@ -108,6 +98,7 @@ function loadCsv(): { clientes: ClienteAgg[]; pdvs: PdvAgg[] } {
   const ri = reqCol(ix, "razaosocial", "razao social");
   const pidi = reqCol(ix, "pdvid", "pdv id");
   const pnomi = reqCol(ix, "pdvnome", "pdv nome");
+  const pcnpji = reqCol(ix, "pdvcnpj", "pdv cnpj", "cnpj");
 
   if (
     ci == null ||
@@ -147,12 +138,17 @@ function loadCsv(): { clientes: ClienteAgg[]; pdvs: PdvAgg[] } {
     const m = meta.get(cid)!;
 
     if (/^\d+$/.test(pdvid) && pnom.trim()) {
-      const blobPdv = compactAlphaNum(`${m.nome} ${m.rz} ${pnom} ${cid} ${pdvid}`);
+      const cnpjRaw = pcnpji != null ? cols[pcnpji] ?? "" : "";
+      const cnpjDigits = onlyDigits(cnpjRaw);
+      const blobPdv = compactAlphaNum(
+        `${m.nome} ${m.rz} ${pnom} ${cnpjDigits} ${cid} ${pdvid}`,
+      );
       pdvs.push({
         pdvId: pdvid,
         clienteId: cid,
         nomeCliente: m.nome || nome || "",
         pdvNome: pnom.trim(),
+        cnpjDigits,
         blob: blobPdv,
       });
       let s = pdvTokensCliente.get(cid);
@@ -236,4 +232,48 @@ export function csvMatchPdvsPorTexto(term: string): CsvPdvCand[] {
     pdvId: p.pdvId,
     textoLinha: `${p.pdvNome} · PDV #${p.pdvId} · cliente ${p.nomeCliente || "–"} (${p.clienteId})`,
   }));
+}
+
+export type CsvPdvRecord = {
+  pdvId: string;
+  clienteId: string;
+  pdvNome: string;
+  nomeCliente: string;
+  cnpjDigits: string;
+};
+
+function pdvToRecord(p: PdvAgg): CsvPdvRecord {
+  return {
+    pdvId: p.pdvId,
+    clienteId: p.clienteId,
+    pdvNome: p.pdvNome,
+    nomeCliente: p.nomeCliente,
+    cnpjDigits: p.cnpjDigits,
+  };
+}
+
+/** PDV do export pelo ID numérico do painel legado. */
+export function csvGetPdvByPainelId(pdvId: string): CsvPdvRecord | null {
+  const id = pdvId.trim();
+  if (!/^\d+$/.test(id)) return null;
+  const { pdvs } = loadCsv();
+  const hit = pdvs.find((p) => p.pdvId === id);
+  return hit ? pdvToRecord(hit) : null;
+}
+
+/** Match exato por CNPJ/CPF (só dígitos, 11 ou 14). */
+export function csvFindPdvByCnpjDigits(digits: string): CsvPdvRecord | null {
+  const d = onlyDigits(digits);
+  if (d.length !== 11 && d.length !== 14) return null;
+  const { pdvs } = loadCsv();
+  const hit = pdvs.find((p) => p.cnpjDigits === d);
+  return hit ? pdvToRecord(hit) : null;
+}
+
+/** Todos PDVs do export com o mesmo CNPJ (raro, mas possível). */
+export function csvFindPdvsByCnpjDigits(digits: string): CsvPdvRecord[] {
+  const d = onlyDigits(digits);
+  if (d.length < 11) return [];
+  const { pdvs } = loadCsv();
+  return pdvs.filter((p) => p.cnpjDigits === d).map(pdvToRecord);
 }

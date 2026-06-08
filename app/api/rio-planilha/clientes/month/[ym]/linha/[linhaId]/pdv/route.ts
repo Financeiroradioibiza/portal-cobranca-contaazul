@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createRioCompPdv } from "@/lib/rio/rioClienteCompService";
+import { rioRouteErrorResponse } from "@/lib/rio/rioApiErrors";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
 
@@ -32,19 +33,27 @@ export async function POST(request: Request, context: Ctx) {
   if (!linha) return NextResponse.json({ error: "line_not_found" }, { status: 404 });
 
   const nome = typeof body.nome === "string" ? body.nome.trim() : "";
-  const { pdv, numeroPdvSite } = await createRioCompPdv(linha.id, nome);
-  const linhaVals = await prisma.rioCompClienteLinha.findUnique({
-    where: { id: linha.id },
-    select: { valorClienteTexto: true, valorPdvUnitarioTexto: true },
-  });
-  return NextResponse.json(
-    {
-      ok: true,
-      pdv,
-      numeroPdvSite,
-      valorClienteTexto: linhaVals?.valorClienteTexto ?? "",
-      valorPdvUnitarioTexto: linhaVals?.valorPdvUnitarioTexto ?? "",
-    },
-    { status: 201 },
-  );
+  try {
+    const { pdv, numeroPdvSite } = await createRioCompPdv(linha.id, nome);
+    const linhaVals = await prisma.rioCompClienteLinha.findUnique({
+      where: { id: linha.id },
+      select: { valorClienteTexto: true, valorPdvUnitarioTexto: true },
+    });
+    return NextResponse.json(
+      {
+        ok: true,
+        pdv,
+        numeroPdvSite,
+        valorClienteTexto: linhaVals?.valorClienteTexto ?? "",
+        valorPdvUnitarioTexto: linhaVals?.valorPdvUnitarioTexto ?? "",
+      },
+      { status: 201 },
+    );
+  } catch (e) {
+    return rioRouteErrorResponse(e, {
+      route: "POST /api/rio-planilha/clientes/month/[ym]/linha/[linhaId]/pdv",
+      ym,
+      linhaId,
+    });
+  }
 }
