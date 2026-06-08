@@ -1251,12 +1251,34 @@ export async function createRioCompPdv(linhaId: string, nome: string) {
   return { pdv, numeroPdvSite };
 }
 
-/** Um nome por linha; ignora vazios e duplicados (case-insensitive) já existentes na linha. */
+export type RioPdvBulkRow = { nome: string; documento?: string | null };
+
+/** Um PDV por linha; ignora vazios e duplicados (case-insensitive) já existentes na linha. */
 export async function createRioCompPdvsBulk(
   linhaId: string,
-  namesRaw: string[],
+  rowsRaw: RioPdvBulkRow[],
 ): Promise<{ created: RioCompPdv[]; skipped: number; numeroPdvSite: number }> {
-  const names = [...new Set(namesRaw.map((n) => n.trim()).filter(Boolean))];
+  const linha = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: linhaId },
+    select: { month: { select: { yearMonth: true, closedAt: true } } },
+  });
+  if (linha?.month?.closedAt) throw new Error("month_closed");
+  const turnover = linha?.month && isRioTurnoverMonth(linha.month.yearMonth);
+
+  const rows: RioPdvBulkRow[] = [];
+  const seen = new Set<string>();
+  for (const raw of rowsRaw) {
+    const nome = raw.nome.trim();
+    if (!nome) continue;
+    const key = nome.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      nome,
+      documento: normalizeBrazilianTaxIdForStorage(raw.documento),
+    });
+  }
+
   const existing = await prisma.rioCompPdv.findMany({
     where: { clienteId: linhaId },
     select: { nome: true, sortOrder: true },
@@ -1267,14 +1289,20 @@ export async function createRioCompPdvsBulk(
   const created: RioCompPdv[] = [];
   let skipped = 0;
 
-  for (const nome of names) {
-    const key = nome.toLowerCase();
+  for (const row of rows) {
+    const key = row.nome.toLowerCase();
     if (normExisting.has(key)) {
       skipped += 1;
       continue;
     }
     const p = await prisma.rioCompPdv.create({
-      data: { clienteId: linhaId, nome: nome.slice(0, 500), sortOrder: order },
+      data: {
+        clienteId: linhaId,
+        nome: row.nome.slice(0, 500),
+        documento: row.documento,
+        sortOrder: order,
+        movimento: turnover ? "entrada" : "estavel",
+      },
     });
     order += 1;
     normExisting.add(key);

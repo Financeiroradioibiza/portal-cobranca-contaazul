@@ -8,8 +8,9 @@ import {
   categoriaSiteSelectClass,
 } from "@/lib/rio/categoriaSiteStyles";
 import {
-  parsePdvNamesFromMultilineText,
+  parsePdvRowsFromMultilineText,
   readPdvDropFromDataTransfer,
+  type ParsedPdvRow,
   sortRioPdvsByNome,
 } from "@/lib/rio/pdvNames";
 import {
@@ -145,7 +146,7 @@ function SortClientRow(props: {
   patchLinha: (linhaId: string, patch: Record<string, unknown>) => void;
   onOpenCaLink: (r: RioLinhaCb) => void;
   onToggleCaLink: (r: RioLinhaCb) => void;
-  onAddPdvsBulk: (linhaId: string, names: string[]) => void | Promise<void>;
+  onAddPdvsBulk: (linhaId: string, rows: ParsedPdvRow[]) => void | Promise<void>;
   ym: number;
   setLinhas: Dispatch<SetStateAction<RioLinhaCb[]>>;
   addPdv: (linhaId: string) => void;
@@ -206,8 +207,8 @@ function SortClientRow(props: {
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
-          const names = readPdvDropFromDataTransfer(e.dataTransfer);
-          if (names.length) void onAddPdvsBulk(r.id, names);
+          const rows = readPdvDropFromDataTransfer(e.dataTransfer);
+          if (rows.length) void onAddPdvsBulk(r.id, rows);
         }}
       >
         <td className="sticky left-0 z-[1] w-16 border-r border-slate-100 bg-inherit px-0 dark:border-slate-800">
@@ -440,8 +441,8 @@ function SortClientRow(props: {
               onDrop={(e) => {
                 e.preventDefault();
                 setPdvDropOver(false);
-                const names = readPdvDropFromDataTransfer(e.dataTransfer);
-                if (names.length) void onAddPdvsBulk(r.id, names);
+                const rows = readPdvDropFromDataTransfer(e.dataTransfer);
+                if (rows.length) void onAddPdvsBulk(r.id, rows);
               }}
             >
               <div className="mb-2 flex flex-wrap items-center gap-3">
@@ -510,13 +511,13 @@ function SortClientRow(props: {
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
               <div className="min-w-[12rem] flex-1">
                 <label className="mb-0.5 block text-[10px] font-medium text-amber-950/90 dark:text-amber-200/90">
-                  Colar vários PDVs (um por linha)
+                  Colar vários PDVs (um por linha — nome e CNPJ separados por tab, como no Excel)
                 </label>
                 <textarea
                   rows={4}
                   value={pastePdvs}
                   onChange={(e) => setPastePdvs(e.target.value)}
-                  placeholder={"Loja A\nLoja B"}
+                  placeholder={"Loja A\t00.000.000/0001-00\nLoja B\t00.000.000/0002-81"}
                   className="w-full resize-y rounded border border-amber-800/30 bg-white px-2 py-1 font-mono text-[10px] dark:border-amber-900/50 dark:bg-slate-950"
                 />
               </div>
@@ -524,9 +525,9 @@ function SortClientRow(props: {
                 type="button"
                 className="rounded border border-amber-800 bg-amber-200 px-2 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-300 dark:border-amber-600 dark:bg-amber-900 dark:text-amber-50"
                 onClick={() => {
-                  const names = parsePdvNamesFromMultilineText(pastePdvs);
-                  if (names.length) {
-                    void onAddPdvsBulk(r.id, names);
+                  const rows = parsePdvRowsFromMultilineText(pastePdvs);
+                  if (rows.length) {
+                    void onAddPdvsBulk(r.id, rows);
                     setPastePdvs("");
                   }
                 }}
@@ -642,7 +643,7 @@ export function ClienteMarcaBlock(props: {
   onShiftMarca: (ix: number, delta: number) => void;
   onOpenCaLink: (r: RioLinhaCb) => void;
   onToggleCaLink: (r: RioLinhaCb) => void;
-  onAddPdvsBulk: (linhaId: string, names: string[]) => void | Promise<void>;
+  onAddPdvsBulk: (linhaId: string, rows: ParsedPdvRow[]) => void | Promise<void>;
   expanded: Set<string>;
   setExpanded: Dispatch<SetStateAction<Set<string>>>;
   patchLinha: (id: string, body: Record<string, unknown>) => void;

@@ -20,7 +20,7 @@ import {
 import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
 import { RIO_CLONE_DONOR_BATCH_SIZE } from "@/lib/rio/cloneRioCompMonthBatched";
 import { RIO_VIRADA_LINHAS_BATCH } from "@/lib/rio/rioViradaBatched";
-import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { sortRioPdvsByNome, type ParsedPdvRow } from "@/lib/rio/pdvNames";
 import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
 import {
   compareRioLinhasByNomeFantasia,
@@ -882,15 +882,15 @@ export function RioClientesCompPanel() {
   );
 
   const addPdvsBulk = useCallback(
-    async (linhaId: string, names: string[]) => {
-      if (!names.length) return;
+    async (linhaId: string, rows: ParsedPdvRow[]) => {
+      if (!rows.length) return;
       const res = await fetch(
         `/api/rio-planilha/clientes/month/${activeYm}/linha/${encodeURIComponent(linhaId)}/pdvs/bulk`,
         {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ names }),
+          body: JSON.stringify({ pdvs: rows }),
         },
       );
       const { data, rawText } = await readJsonFromResponse<{
