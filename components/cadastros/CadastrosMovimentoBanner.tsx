@@ -16,6 +16,7 @@ type Props = {
   items: MovimentoBannerItem[];
   onSelect?: (key: string) => void;
   selectedKey?: string | null;
+  defaultOpen?: boolean;
 };
 
 export function CadastrosMovimentoBanner({
@@ -25,8 +26,9 @@ export function CadastrosMovimentoBanner({
   items,
   onSelect,
   selectedKey,
+  defaultOpen = false,
 }: Props) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
 
   const bannerCls =
     variant === "novo" ?

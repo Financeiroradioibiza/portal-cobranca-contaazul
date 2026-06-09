@@ -170,6 +170,7 @@ export function CadastrosGruposPanel() {
   const [rioExpanded, setRioExpanded] = useState<Set<string>>(new Set());
   const [rioClienteOpen, setRioClienteOpen] = useState<Set<string>>(new Set());
   const [prodExpanded, setProdExpanded] = useState<Set<string>>(new Set());
+  const [prodNovosOpen, setProdNovosOpen] = useState(false);
   const [rioSel, setRioSel] = useState<RioSel>(null);
   const [selProdPdvId, setSelProdPdvId] = useState<string | null>(null);
   const [dragPdv, setDragPdv] = useState<ProducaoPdvRef | null>(null);
@@ -297,7 +298,8 @@ export function CadastrosGruposPanel() {
       const bundle = { grupos: monthData.grupos ?? [], linhas: monthData.linhas ?? [] };
       const rioTree = buildProducaoTree(bundle, links);
       setRioGrupos(rioTree);
-      setRioExpanded(new Set(rioTree.map((g) => g.id)));
+      setRioExpanded(new Set());
+      setRioClienteOpen(new Set());
       setRioTreeMov(extractRioTreeMovimentos(bundle, links));
 
       const linhasForProd: RioLinhaForProducao[] = (monthData.linhas ?? []).map((ln) => ({
@@ -312,7 +314,8 @@ export function CadastrosGruposPanel() {
 
       const prod = buildProducaoClientes(linhasForProd, links);
       setClientesBase(prod);
-      setProdExpanded(new Set(prod.map((c) => c.key)));
+      setProdExpanded(new Set());
+      setProdNovosOpen(false);
 
       const rawLayout: ProducaoLayoutState = {
         clienteNomes: layoutData.layout?.clienteNomes ?? {},
@@ -466,6 +469,24 @@ export function CadastrosGruposPanel() {
 
   const prodPdvCount = clientes.reduce((n, c) => n + c.pdvCount, 0);
 
+  function expandAllRio() {
+    setRioExpanded(new Set(filteredRio.map((g) => g.id)));
+    setRioClienteOpen(new Set(filteredRio.flatMap((g) => g.clientes.map((c) => c.id))));
+  }
+
+  function collapseAllRio() {
+    setRioExpanded(new Set());
+    setRioClienteOpen(new Set());
+  }
+
+  function expandAllProd() {
+    setProdExpanded(new Set(clientesFiltered.map((c) => c.key)));
+  }
+
+  function collapseAllProd() {
+    setProdExpanded(new Set());
+  }
+
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="flex h-[calc(100vh-7rem)] min-h-[560px] flex-col">
@@ -514,11 +535,29 @@ export function CadastrosGruposPanel() {
         <div className="flex min-h-0 flex-1 gap-0 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
           {/* Planilha Rio */}
           <div className="flex w-1/2 min-w-0 flex-col border-r border-slate-200 bg-[#FAFAF7] dark:border-slate-700 dark:bg-slate-950">
-            <div className="border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-[#C4146A]">
-                Planilha Rio · cobrança
-              </p>
-              <p className="text-xs text-slate-500">Marca → cliente → PDV (somente leitura)</p>
+            <div className="flex items-start justify-between gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[#C4146A]">
+                  Planilha Rio · cobrança
+                </p>
+                <p className="text-xs text-slate-500">Marca → cliente → PDV (somente leitura)</p>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 px-2 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
+                  onClick={expandAllRio}
+                >
+                  Abrir tudo
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 px-2 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
+                  onClick={collapseAllRio}
+                >
+                  Fechar tudo
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
               <CadastrosMovimentoBanner
@@ -636,12 +675,28 @@ export function CadastrosGruposPanel() {
 
           {/* Produção musical */}
           <div className="flex w-1/2 min-w-0 flex-col bg-white dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+            <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
               <div>
                 <p className="text-[9px] font-bold uppercase tracking-widest text-violet-700 dark:text-violet-300">
                   Produção musical
                 </p>
                 <p className="text-xs text-slate-500">Cliente → PDVs (sem marca Rio)</p>
+                <div className="mt-1 flex gap-1">
+                  <button
+                    type="button"
+                    className="rounded border border-slate-300 px-2 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
+                    onClick={expandAllProd}
+                  >
+                    Abrir tudo
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate-300 px-2 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
+                    onClick={collapseAllProd}
+                  >
+                    Fechar tudo
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 {editMode && hiddenEmptyCount > 0 ?
@@ -698,26 +753,35 @@ export function CadastrosGruposPanel() {
                 />
                 {prodMovimentos.novos.length > 0 ?
                   <div className="mb-3 overflow-hidden rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40">
-                    <div className="px-3 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-100">
-                      Novos na produção ({prodMovimentos.novos.length})
-                    </div>
-                    <p className="border-t border-emerald-200 px-3 py-1.5 text-[10px] text-emerald-800/90 dark:border-emerald-800 dark:text-emerald-200/90">
-                      {editMode ?
-                        "Em edição: arraste para um grupo abaixo para integrar à produção."
-                      : "Ative «Editar produção» para posicionar nos grupos."}
-                    </p>
-                    <div className="space-y-0 border-t border-emerald-200 px-2 py-2 dark:border-emerald-800">
-                      {prodMovimentos.novos.map((item) => (
-                        <DraggableProdPdv
-                          key={item.rioPdvId}
-                          pdv={movimentoItemToPdvRef(item)}
-                          editMode={editMode}
-                          tone="novo"
-                          selected={selProdPdvId === item.rioPdvId}
-                          onSelect={() => setSelProdPdvId(item.rioPdvId)}
-                        />
-                      ))}
-                    </div>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-emerald-900 dark:text-emerald-100"
+                      onClick={() => setProdNovosOpen((v) => !v)}
+                    >
+                      <span className="text-slate-500">{prodNovosOpen ? "▾" : "▸"}</span>
+                      <span className="flex-1">Novos na produção ({prodMovimentos.novos.length})</span>
+                    </button>
+                    {prodNovosOpen ?
+                      <>
+                        <p className="border-t border-emerald-200 px-3 py-1.5 text-[10px] text-emerald-800/90 dark:border-emerald-800 dark:text-emerald-200/90">
+                          {editMode ?
+                            "Em edição: arraste para um grupo abaixo para integrar à produção."
+                          : "Ative «Editar produção» para posicionar nos grupos."}
+                        </p>
+                        <div className="space-y-0 border-t border-emerald-200 px-2 py-2 dark:border-emerald-800">
+                          {prodMovimentos.novos.map((item) => (
+                            <DraggableProdPdv
+                              key={item.rioPdvId}
+                              pdv={movimentoItemToPdvRef(item)}
+                              editMode={editMode}
+                              tone="novo"
+                              selected={selProdPdvId === item.rioPdvId}
+                              onSelect={() => setSelProdPdvId(item.rioPdvId)}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    : null}
                   </div>
                 : null}
                 {clientesFiltered.length === 0 && prodMovimentos.novos.length === 0 ?
