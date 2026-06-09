@@ -7,6 +7,12 @@ import {
 } from "@/lib/cadastros/producaoHierarchy";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
 
+/**
+ * Seções «Novos/Encerrados na produção» no topo da coluna direita.
+ * Desligado enquanto a Planilha Rio é organizada; ativar na virada de mês.
+ */
+export const PRODUCAO_MOVIMENTO_TOP_ENABLED = false;
+
 export type RioMovimento = "estavel" | "entrada" | "saida";
 
 export type ProducaoMovimentoItem = {

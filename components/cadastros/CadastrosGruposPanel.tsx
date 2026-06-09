@@ -27,6 +27,7 @@ import {
 import {
   extractRioMovimentos,
   movimentoItemToPdvRef,
+  PRODUCAO_MOVIMENTO_TOP_ENABLED,
   reconcileProducaoLayout,
   stripNovosFromClientes,
 } from "@/lib/cadastros/producaoMovimento";
@@ -196,6 +197,7 @@ export function CadastrosGruposPanel() {
 
   const clientes = useMemo(() => {
     const merged = mergeProducaoLayout(clientesBase, layoutState, { showHidden: showHiddenGroups });
+    if (!PRODUCAO_MOVIMENTO_TOP_ENABLED) return merged;
     return stripNovosFromClientes(merged, prodMovimentos.novos);
   }, [clientesBase, layoutState, showHiddenGroups, prodMovimentos.novos]);
 
@@ -497,8 +499,7 @@ export function CadastrosGruposPanel() {
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
             <strong>Esquerda:</strong> espelho da Planilha Rio (marcas).{" "}
-            <strong>Direita:</strong> produção organizada por você — novos em verde no topo,
-            encerrados em vermelho. Atualizações vêm da Rio, não da árvore da esquerda.
+            <strong>Direita:</strong> produção organizada por você (arrastar grupos e nomes).
           </p>
         </header>
 
@@ -560,28 +561,32 @@ export function CadastrosGruposPanel() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
-              <CadastrosMovimentoBanner
-                variant="encerrado"
-                title="Encerrados na Planilha Rio"
-                hint="PDVs ou clientes removidos/encerrados na Rio."
-                items={rioTreeMov.encerrados.map((r) => ({
-                  key: r.id,
-                  label: r.kind === "cliente" ? r.nome : r.nome,
-                  sublabel: r.kind === "pdv" ? r.clienteNome : "cliente encerrado",
-                  linked: r.painelLink != null,
-                }))}
-              />
-              <CadastrosMovimentoBanner
-                variant="novo"
-                title="Novos na Planilha Rio"
-                hint="Entradas detectadas na Rio — organize na produção à direita."
-                items={rioTreeMov.novos.map((r) => ({
-                  key: r.id,
-                  label: r.nome,
-                  sublabel: r.kind === "pdv" ? r.clienteNome : "cliente novo",
-                  linked: r.painelLink != null,
-                }))}
-              />
+              {PRODUCAO_MOVIMENTO_TOP_ENABLED ?
+                <>
+                  <CadastrosMovimentoBanner
+                    variant="encerrado"
+                    title="Encerrados na Planilha Rio"
+                    hint="PDVs ou clientes removidos/encerrados na Rio."
+                    items={rioTreeMov.encerrados.map((r) => ({
+                      key: r.id,
+                      label: r.kind === "cliente" ? r.nome : r.nome,
+                      sublabel: r.kind === "pdv" ? r.clienteNome : "cliente encerrado",
+                      linked: r.painelLink != null,
+                    }))}
+                  />
+                  <CadastrosMovimentoBanner
+                    variant="novo"
+                    title="Novos na Planilha Rio"
+                    hint="Entradas detectadas na Rio — organize na produção à direita."
+                    items={rioTreeMov.novos.map((r) => ({
+                      key: r.id,
+                      label: r.nome,
+                      sublabel: r.kind === "pdv" ? r.clienteNome : "cliente novo",
+                      linked: r.painelLink != null,
+                    }))}
+                  />
+                </>
+              : null}
               {filteredRio.length === 0 ?
                 <p className="p-4 text-center text-sm text-slate-500">{busy ? "Carregando…" : "Sem dados."}</p>
               : filteredRio.map((g) => {
@@ -735,59 +740,63 @@ export function CadastrosGruposPanel() {
             </div>
             <div className="flex min-h-0 flex-1">
               <div className="min-w-0 flex-1 overflow-y-auto p-3">
-                <CadastrosMovimentoBanner
-                  variant="encerrado"
-                  title="Encerrados na produção"
-                  hint="Saíram da Planilha Rio — futuramente o player para de tocar."
-                  items={prodMovimentos.encerrados.map((r) => ({
-                    key: r.rioPdvId,
-                    label: r.nome,
-                    sublabel:
-                      r.kind === "cliente" ? "cliente encerrado" : (
-                        r.rioLinhaNome
-                      ),
-                    linked: r.painelLink != null,
-                  }))}
-                  selectedKey={selProdPdvId}
-                  onSelect={(key) => setSelProdPdvId(key)}
-                />
-                {prodMovimentos.novos.length > 0 ?
-                  <div className="mb-3 overflow-hidden rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40">
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-emerald-900 dark:text-emerald-100"
-                      onClick={() => setProdNovosOpen((v) => !v)}
-                    >
-                      <span className="text-slate-500">{prodNovosOpen ? "▾" : "▸"}</span>
-                      <span className="flex-1">Novos na produção ({prodMovimentos.novos.length})</span>
-                    </button>
-                    {prodNovosOpen ?
-                      <>
-                        <p className="border-t border-emerald-200 px-3 py-1.5 text-[10px] text-emerald-800/90 dark:border-emerald-800 dark:text-emerald-200/90">
-                          {editMode ?
-                            "Em edição: arraste para um grupo abaixo para integrar à produção."
-                          : "Ative «Editar produção» para posicionar nos grupos."}
-                        </p>
-                        <div className="space-y-0 border-t border-emerald-200 px-2 py-2 dark:border-emerald-800">
-                          {prodMovimentos.novos.map((item) => (
-                            <DraggableProdPdv
-                              key={item.rioPdvId}
-                              pdv={movimentoItemToPdvRef(item)}
-                              editMode={editMode}
-                              tone="novo"
-                              selected={selProdPdvId === item.rioPdvId}
-                              onSelect={() => setSelProdPdvId(item.rioPdvId)}
-                            />
-                          ))}
-                        </div>
-                      </>
+                {PRODUCAO_MOVIMENTO_TOP_ENABLED ?
+                  <>
+                    <CadastrosMovimentoBanner
+                      variant="encerrado"
+                      title="Encerrados na produção"
+                      hint="Saíram da Planilha Rio — futuramente o player para de tocar."
+                      items={prodMovimentos.encerrados.map((r) => ({
+                        key: r.rioPdvId,
+                        label: r.nome,
+                        sublabel:
+                          r.kind === "cliente" ? "cliente encerrado" : (
+                            r.rioLinhaNome
+                          ),
+                        linked: r.painelLink != null,
+                      }))}
+                      selectedKey={selProdPdvId}
+                      onSelect={(key) => setSelProdPdvId(key)}
+                    />
+                    {prodMovimentos.novos.length > 0 ?
+                      <div className="mb-3 overflow-hidden rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-emerald-900 dark:text-emerald-100"
+                          onClick={() => setProdNovosOpen((v) => !v)}
+                        >
+                          <span className="text-slate-500">{prodNovosOpen ? "▾" : "▸"}</span>
+                          <span className="flex-1">
+                            Novos na produção ({prodMovimentos.novos.length})
+                          </span>
+                        </button>
+                        {prodNovosOpen ?
+                          <>
+                            <p className="border-t border-emerald-200 px-3 py-1.5 text-[10px] text-emerald-800/90 dark:border-emerald-800 dark:text-emerald-200/90">
+                              {editMode ?
+                                "Em edição: arraste para um grupo abaixo para integrar à produção."
+                              : "Ative «Editar produção» para posicionar nos grupos."}
+                            </p>
+                            <div className="space-y-0 border-t border-emerald-200 px-2 py-2 dark:border-emerald-800">
+                              {prodMovimentos.novos.map((item) => (
+                                <DraggableProdPdv
+                                  key={item.rioPdvId}
+                                  pdv={movimentoItemToPdvRef(item)}
+                                  editMode={editMode}
+                                  tone="novo"
+                                  selected={selProdPdvId === item.rioPdvId}
+                                  onSelect={() => setSelProdPdvId(item.rioPdvId)}
+                                />
+                              ))}
+                            </div>
+                          </>
+                        : null}
+                      </div>
                     : null}
-                  </div>
+                  </>
                 : null}
-                {clientesFiltered.length === 0 && prodMovimentos.novos.length === 0 ?
+                {clientesFiltered.length === 0 ?
                   <p className="text-sm text-slate-500">Nenhum cliente neste filtro.</p>
-                : clientesFiltered.length === 0 ?
-                  null
                 : clientesFiltered.map((c) => {
                     const cOpen = prodExpanded.has(c.key);
                     const highlight =

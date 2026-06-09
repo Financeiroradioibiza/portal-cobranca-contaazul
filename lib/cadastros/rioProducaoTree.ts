@@ -101,13 +101,10 @@ export function buildProducaoTree(
   const linhasSorted = [...bundle.linhas].sort(compareRioLinhasByNomeFantasia);
 
   for (const ln of linhasSorted) {
-    if (ln.movimento === "saida") continue;
     const gid = ln.rioGrupoId && grupoMap.has(ln.rioGrupoId) ? ln.rioGrupoId : SEM_MARCA_ID;
     const grupo = grupoMap.get(gid)!;
 
-    const pdvsVisiveis = sortRioPdvsByNome(
-      ln.pdvs.filter((p) => p.movimento !== "saida" && p.movimento !== "entrada"),
-    );
+    const pdvsVisiveis = sortRioPdvsByNome(ln.pdvs.filter((p) => p.movimento !== "saida"));
 
     const pdvNodes: ProducaoPdvNode[] = pdvsVisiveis.map((p) => ({
       id: p.id,

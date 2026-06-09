@@ -82,7 +82,6 @@ export function buildProducaoClientes(
   const out: ProducaoClienteBucket[] = [];
 
   for (const ln of sorted) {
-    if (ln.movimento === "saida") continue;
     const nomeCliente = ln.nomeFantasia.trim() || "Sem nome";
     const activePdvs = sortRioPdvsByNome(ln.pdvs.filter((p) => p.movimento !== "saida"));
     const pdvs: ProducaoPdvRef[] = [];
