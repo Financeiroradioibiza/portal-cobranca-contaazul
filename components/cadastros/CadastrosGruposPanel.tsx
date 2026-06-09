@@ -441,6 +441,33 @@ export function CadastrosGruposPanel() {
     setMsg(`Grupo «${nome}» criado — arraste PDVs para ele.`);
   }
 
+  async function groupHeringSinglePoint() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/cadastros/month/${activeYm}/producao-layout/group-hering`,
+        { method: "POST" },
+      );
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        result?: { movedCount: number; heringGroupKey: string; keptWithPdvs: string[] };
+      };
+      if (!res.ok || !data.ok || !data.result) throw new Error(data.error ?? "erro");
+      setMsg(
+        `${data.result.movedCount} Hering de um ponto agrupadas em HERING. ` +
+          `${data.result.keptWithPdvs.length} linhas com PDVs mantidas separadas.`,
+      );
+      await loadAll(activeYm);
+      setProdExpanded((prev) => new Set([...prev, data.result!.heringGroupKey]));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao agrupar Hering.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function deleteCustomCliente(key: string) {
     if (!isCustomClienteKey(key)) return;
     const nextCustom = customClientes.filter((c) => c.key !== key);
@@ -748,13 +775,24 @@ export function CadastrosGruposPanel() {
                   </button>
                 : null}
                 {editMode ?
-                  <button
-                    type="button"
-                    className="rounded-md border border-violet-300 px-2 py-1 text-[11px] font-semibold text-violet-800 dark:border-violet-600 dark:text-violet-200"
-                    onClick={addCustomCliente}
-                  >
-                    + Novo grupo
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="rounded-md border border-violet-300 px-2 py-1 text-[11px] font-semibold text-violet-800 dark:border-violet-600 dark:text-violet-200"
+                      onClick={addCustomCliente}
+                    >
+                      + Novo grupo
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-amber-300 px-2 py-1 text-[11px] font-semibold text-amber-900 dark:border-amber-700 dark:text-amber-200"
+                      disabled={busy}
+                      onClick={() => void groupHeringSinglePoint()}
+                      title="Clientes Hering sem PDV na Rio → grupo HERING"
+                    >
+                      Agrupar Hering (1 ponto)
+                    </button>
+                  </>
                 : null}
                 <button
                   type="button"
