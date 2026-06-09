@@ -277,3 +277,112 @@ export function csvFindPdvsByCnpjDigits(digits: string): CsvPdvRecord[] {
   const { pdvs } = loadCsv();
   return pdvs.filter((p) => p.cnpjDigits === d).map(pdvToRecord);
 }
+
+export type CsvPdvCadastroDetail = {
+  pdvId: string;
+  clienteId: string;
+  pdvNome: string;
+  nomeCliente: string;
+  razaoSocial: string;
+  cnpj: string;
+  cep: string;
+  endereco: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  programacaoMusical: string;
+  placaCarro: boolean;
+  controlarPlayer: boolean;
+  controlarPlaylist: boolean;
+  statusPlayer: "Ativo" | "Inativo";
+};
+
+function csvPainelSimNao(val: string): boolean {
+  const v = val.trim().toUpperCase();
+  return v === "S" || v === "SIM" || v === "1" || v === "YES" || v === "TRUE";
+}
+
+function csvPainelStatusPlayer(val: string): "Ativo" | "Inativo" {
+  const v = val.trim().toUpperCase();
+  if (v === "I" || v === "INATIVO" || v === "INACTIVE" || v === "N" || v === "NAO" || v === "NÃO") {
+    return "Inativo";
+  }
+  return "Ativo";
+}
+
+function csvCol(ix: Record<string, number>, cols: string[], ...names: string[]): string {
+  const i = reqCol(ix, ...names);
+  if (i == null) return "";
+  return (cols[i] ?? "").trim();
+}
+
+/** Cadastro completo do PDV no export CSV (endereço, player, etc.). */
+export function csvGetPdvCadastroDetail(
+  pdvId: string,
+  clienteId?: string | number,
+): CsvPdvCadastroDetail | null {
+  const id = pdvId.trim();
+  if (!/^\d+$/.test(id)) return null;
+
+  const file = exportCsvPath();
+  let raw: Buffer;
+  try {
+    raw = fs.readFileSync(file);
+  } catch {
+    return null;
+  }
+
+  const text = raw.toString("latin1");
+  const lines = text.split(/\r?\n/).filter((ln) => ln.trim().length > 0);
+  if (lines.length < 2) return null;
+
+  const ix = parseHeader(splitLine(lines[0]));
+  const ci = reqCol(ix, "id");
+  const ni = reqCol(ix, "nome");
+  const pidi = reqCol(ix, "pdvid", "pdv id");
+  const pnomi = reqCol(ix, "pdvnome", "pdv nome");
+  if (ci == null || ni == null || pidi == null || pnomi == null) return null;
+
+  const wantCliente =
+    clienteId != null && /^\d+$/.test(String(clienteId).trim())
+      ? String(clienteId).trim()
+      : null;
+
+  for (let L = 1; L < lines.length; L++) {
+    const cols = splitLine(lines[L]);
+    const rowPdvId = cols[pidi]?.trim() ?? "";
+    if (rowPdvId !== id) continue;
+
+    const rowClienteId = cols[ci]?.trim() ?? "";
+    if (wantCliente && rowClienteId !== wantCliente) continue;
+
+    const pdvNome = cols[pnomi]?.trim() ?? "";
+    if (!pdvNome) continue;
+
+    const programacao = csvCol(ix, cols, "pdvversaoplayer", "pdv versao player");
+    return {
+      pdvId: rowPdvId,
+      clienteId: rowClienteId,
+      pdvNome,
+      nomeCliente: csvCol(ix, cols, "nome"),
+      razaoSocial: csvCol(ix, cols, "pdvrazaosocial", "pdv razao social"),
+      cnpj: csvCol(ix, cols, "pdvcnpj", "pdv cnpj", "cnpj"),
+      cep: csvCol(ix, cols, "pdvcep", "pdv cep"),
+      endereco: csvCol(ix, cols, "pdvendereco", "pdv endereco"),
+      numero: csvCol(ix, cols, "pdvnumero", "pdv numero"),
+      complemento: csvCol(ix, cols, "pdvcomplemento", "pdv complemento"),
+      bairro: csvCol(ix, cols, "pdvbairro", "pdv bairro"),
+      cidade: csvCol(ix, cols, "pdvcidade", "pdv cidade"),
+      estado: csvCol(ix, cols, "pdvuf", "pdv uf"),
+      programacaoMusical: programacao || "Padrão",
+      placaCarro: csvPainelSimNao(csvCol(ix, cols, "pdvdctrlplacacarro", "pdv ctrl placa carro")),
+      controlarPlayer: csvPainelSimNao(csvCol(ix, cols, "pdvctrlplayer", "pdv ctrl player")),
+      controlarPlaylist: csvPainelSimNao(csvCol(ix, cols, "pdvctrlplaylists", "pdv ctrl playlists")),
+      statusPlayer: csvPainelStatusPlayer(csvCol(ix, cols, "pdvstatus", "pdv status")),
+    };
+  }
+
+  return null;
+}

@@ -6,6 +6,7 @@ import {
   suggestPainelMatches,
   type PainelMatchSuggestion,
 } from "@/lib/cadastros/painelMatch";
+import { importProducaoCadastroFromPainel } from "@/lib/cadastros/painelPdvCadastroImport";
 import { csvGetPdvByPainelId } from "@/lib/radioPainel/exportClientesCsv";
 
 export type VinculoRow = {
@@ -114,7 +115,10 @@ export async function upsertPainelPdvLink(input: {
   painelClienteId: number;
   matchMethod?: PainelMatchMethod;
   verified?: boolean;
-}): Promise<Prisma.PainelPdvLinkGetPayload<object>> {
+}): Promise<{
+  link: Prisma.PainelPdvLinkGetPayload<object>;
+  cadastroImport: Awaited<ReturnType<typeof importProducaoCadastroFromPainel>>;
+}> {
   const pdv = await prisma.rioCompPdv.findUnique({ where: { id: input.rioCompPdvId } });
   if (!pdv) throw new Error("rio_pdv_not_found");
 
@@ -139,11 +143,19 @@ export async function upsertPainelPdvLink(input: {
     verifiedAt: input.verified ? new Date() : null,
   };
 
-  return prisma.painelPdvLink.upsert({
+  const link = await prisma.painelPdvLink.upsert({
     where: { rioCompPdvId: input.rioCompPdvId },
     create: { rioCompPdvId: input.rioCompPdvId, ...data },
     update: data,
   });
+
+  const cadastroImport = await importProducaoCadastroFromPainel(
+    input.rioCompPdvId,
+    input.painelPdvId,
+    input.painelClienteId,
+  );
+
+  return { link, cadastroImport };
 }
 
 export async function deletePainelPdvLink(rioCompPdvId: string): Promise<void> {

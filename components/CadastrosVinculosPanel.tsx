@@ -166,12 +166,21 @@ export function CadastrosVinculosPanel() {
           verified: true,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        cadastroImport?: { imported?: boolean; source?: string; fields?: string[] };
+      };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "save_erro");
       setSuggestFor(null);
       setManualOpen(null);
       await loadVinculos(activeYm);
-      setMsg("Vínculo salvo.");
+      if (data.cadastroImport?.imported) {
+        const n = data.cadastroImport.fields?.length ?? 0;
+        setMsg(`Vínculo salvo. Cadastro importado do painel (${n} campos).`);
+      } else {
+        setMsg("Vínculo salvo. Cadastro do painel não disponível — verifique o export CSV.");
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao salvar.");
     } finally {
@@ -203,8 +212,9 @@ export function CadastrosVinculosPanel() {
           Vínculos PDV — Rio × painel legado
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-          Cruza PDVs da Planilha Rio com o painel de produção (export CSV). Não altera o painel
-          legado nem os players — só persiste o mapeamento no portal.
+          Cruza PDVs da Planilha Rio com o painel de produção (export CSV). Ao vincular, importa o
+          cadastro do painel (endereço, contato da loja, player). Contato cobrança continua vindo da
+          Conta Azul / planilha Rio. Não altera o painel legado nem os players.
         </p>
       </header>
 

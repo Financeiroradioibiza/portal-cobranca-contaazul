@@ -13,6 +13,19 @@ export type PdvPainelResponse = {
   clienteId?: string | null;
   nomePdv: string;
   cnpj: string;
+  razaoSocial: string;
+  cep: string;
+  endereco: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  programacaoMusical: string;
+  placaCarro: boolean;
+  controlarPlayer: boolean;
+  controlarPlaylist: boolean;
+  statusPlayer: "Ativo" | "Inativo";
   responsavel: {
     nomeCompleto: string;
     email: string;
@@ -23,6 +36,19 @@ export type PdvPainelResponse = {
   googleMapsQuery: string;
   googleMapsUrl: string;
 };
+
+function painelSimNao(val: string): boolean {
+  const v = val.trim().toUpperCase();
+  return v === "S" || v === "SIM" || v === "1" || v === "YES" || v === "TRUE";
+}
+
+function painelStatusPlayer(val: string): "Ativo" | "Inativo" {
+  const v = val.trim().toUpperCase();
+  if (v === "I" || v === "INATIVO" || v === "INACTIVE" || v === "N" || v === "NAO" || v === "NÃO") {
+    return "Inativo";
+  }
+  return "Ativo";
+}
 
 const MODELOS_PDV_BASE = ["Pdv", "Pdvs", "PontoDeVenda"] as const;
 
@@ -533,7 +559,6 @@ export function buildPdvPainelPayload(
     "logradouroPdvCliente",
     "enderecoPdvsCliente",
     "endercoPdvsCliente",
-    "numeroPdvsCliente",
     "endeCompletoPdvsCliente",
     "enderecoCompletoPdvsCliente",
     "enderecoPdvCliente",
@@ -541,6 +566,99 @@ export function buildPdvPainelPayload(
     "enderecoCompletoPdv",
     "logradouro",
     "enderecoCliente",
+  ]);
+
+  const numero = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "numeroPdvsCliente",
+    "numeroPdvCliente",
+    "numeroEnderecoPdvsCliente",
+    "numero",
+    "numeroEndereco",
+  ]);
+
+  const complemento = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "complementoPdvsCliente",
+    "complementoPdvCliente",
+    "complementoEnderecoPdvsCliente",
+    "complemento",
+    "complementoEndereco",
+  ]);
+
+  const cep = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "cepPdvsCliente",
+    "cepPdvCliente",
+    "cepPdv",
+    "cep",
+    "cepCliente",
+  ]);
+
+  const cidade = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "cidadePdvsCliente",
+    "cidadePdvCliente",
+    "nomeCidadePdvsCliente",
+    "nomeCidadePdvCliente",
+    "cidade",
+    "cidadeCliente",
+  ]);
+
+  const estado = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "ufPdvsCliente",
+    "ufPdvCliente",
+    "siglaEstadoPdvsCliente",
+    "estadoPdvsCliente",
+    "estadoPdvCliente",
+    "uf",
+    "estado",
+    "siglaEstado",
+  ]);
+
+  const razaoSocial = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "razaoSocialPdvsCliente",
+    "razaoSocialPdvCliente",
+    "razaoSocialPdv",
+    "razaoSocial",
+    "razaoSocialCliente",
+  ]);
+
+  const programacaoMusical = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "versaoPlayerPdvsCliente",
+    "versaoPlayerPdvCliente",
+    "versaoPlayerPdv",
+    "versaoPlayer",
+    "programacaoMusicalPdv",
+    "programacaoMusical",
+  ]);
+
+  const placaCarroRaw = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "ctrlPlacaCarroPdvsCliente",
+    "ctrlPlacaCarroPdvCliente",
+    "ctrlPlacaCarro",
+    "placaCarroPdv",
+    "placaCarro",
+  ]);
+
+  const controlarPlayerRaw = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "ctrlPlayerPdvsCliente",
+    "ctrlPlayerPdvCliente",
+    "ctrlPlayer",
+    "controlarPlayerPdv",
+    "controlarPlayer",
+  ]);
+
+  const controlarPlaylistRaw = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "ctrlPlaylistsPdvsCliente",
+    "ctrlPlaylistsPdvCliente",
+    "ctrlPlaylists",
+    "controlarPlaylistPdv",
+    "controlarPlaylist",
+  ]);
+
+  const statusPlayerRaw = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+    "statusPdv",
+    "statusPdvsCliente",
+    "statusPdvCliente",
+    "status",
+    "ativoPdv",
   ]);
 
   const bairro = pickPrimeiro(flat, MODELOS_PDV_BASE, [
@@ -704,6 +822,19 @@ export function buildPdvPainelPayload(
     clienteId: clienteLinkId ?? null,
     nomePdv: nomePdv || "—",
     cnpj: cnpj || "—",
+    razaoSocial: razaoSocial.trim(),
+    cep: cep.trim(),
+    endereco: endereco.trim(),
+    numero: numero.trim(),
+    complemento: complemento.trim(),
+    bairro: bairro.trim(),
+    cidade: cidade.trim(),
+    estado: estado.trim(),
+    programacaoMusical: programacaoMusical.trim() || "Padrão",
+    placaCarro: painelSimNao(placaCarroRaw),
+    controlarPlayer: painelSimNao(controlarPlayerRaw),
+    controlarPlaylist: painelSimNao(controlarPlaylistRaw),
+    statusPlayer: painelStatusPlayer(statusPlayerRaw),
     responsavel,
     contatosExtras: agrupaUnicos(contatosExtras),
     googleMapsQuery,

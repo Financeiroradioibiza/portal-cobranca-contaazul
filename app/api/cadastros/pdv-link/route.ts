@@ -45,14 +45,14 @@ export async function PUT(request: Request) {
   const verified = body.verified === true;
 
   try {
-    const link = await upsertPainelPdvLink({
+    const { link, cadastroImport } = await upsertPainelPdvLink({
       rioCompPdvId,
       painelPdvId,
       painelClienteId,
       matchMethod,
       verified,
     });
-    return NextResponse.json({ ok: true, link });
+    return NextResponse.json({ ok: true, link, cadastroImport });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro";
     const status =
