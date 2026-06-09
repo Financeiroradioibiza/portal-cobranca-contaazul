@@ -148,16 +148,15 @@ export type ProducaoLayoutState = {
   acknowledgedPdvs?: string[];
 };
 
-/** Aplica arrastes, grupos manuais, nomes editados e oculta vazios não usados. */
-export function mergeProducaoLayout(
-  base: ProducaoClienteBucket[],
-  layout: ProducaoLayoutState,
-  opts?: { showHidden?: boolean },
+function withCustomBuckets(
+  clientes: ProducaoClienteBucket[],
+  customClientes: ProducaoCustomCliente[],
 ): ProducaoClienteBucket[] {
-  let list = applyPdvPlacementOverrides(base, layout.pdvPlacements);
+  const list: ProducaoClienteBucket[] = JSON.parse(
+    JSON.stringify(clientes),
+  ) as ProducaoClienteBucket[];
   const keys = new Set(list.map((c) => c.key));
-
-  for (const custom of layout.customClientes) {
+  for (const custom of customClientes) {
     if (!custom.key || keys.has(custom.key)) continue;
     list.push({
       key: custom.key,
@@ -170,6 +169,17 @@ export function mergeProducaoLayout(
     });
     keys.add(custom.key);
   }
+  return list;
+}
+
+/** Aplica arrastes, grupos manuais, nomes editados e oculta vazios não usados. */
+export function mergeProducaoLayout(
+  base: ProducaoClienteBucket[],
+  layout: ProducaoLayoutState,
+  opts?: { showHidden?: boolean },
+): ProducaoClienteBucket[] {
+  let list = withCustomBuckets(base, layout.customClientes);
+  list = applyPdvPlacementOverrides(list, layout.pdvPlacements);
 
   list = applyClienteNomeOverrides(list, layout.clienteNomes);
 
@@ -231,7 +241,7 @@ export function applyPdvPlacementOverrides(
   for (const p of detached) {
     const o = byPdv.get(p.rioPdvId)!;
     let target = clone.find((c) => c.key === o.targetClienteKey);
-    if (!target) {
+    if (!target && !isCustomClienteKey(o.targetClienteKey)) {
       target = clone.find((c) => c.rioLinhaId === p.rioLinhaId);
     }
     if (!target) continue;
