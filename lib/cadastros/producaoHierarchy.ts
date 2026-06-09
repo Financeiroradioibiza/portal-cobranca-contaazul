@@ -30,6 +30,8 @@ export type ProducaoClienteBucket = {
   documento: string | null;
   pdvs: ProducaoPdvRef[];
   pdvCount: number;
+  /** Grupo criado manualmente na produção (não veio da Rio). */
+  isCustom?: boolean;
 };
 
 export type RioLinhaForProducao = {
@@ -49,6 +51,21 @@ export type PdvPlacementOverride = {
   rioPdvId: string;
   targetClienteKey: string;
 };
+
+export type ProducaoCustomCliente = {
+  key: string;
+  nome: string;
+};
+
+export const CUSTOM_CLIENTE_PREFIX = "custom:";
+
+export function isCustomClienteKey(key: string): boolean {
+  return key.startsWith(CUSTOM_CLIENTE_PREFIX);
+}
+
+export function newCustomClienteKey(): string {
+  return `${CUSTOM_CLIENTE_PREFIX}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
 
 /**
  * Produção: um bucket por cliente Rio (sem marca).
@@ -113,6 +130,70 @@ export function applyClienteNomeOverrides(
     const override = nomes[c.key]?.trim();
     return override ? { ...c, nome: override } : c;
   });
+}
+
+export type ProducaoLayoutState = {
+  clienteNomes: Record<string, string>;
+  pdvPlacements: PdvPlacementOverride[];
+  hiddenClienteKeys: string[];
+  customClientes: ProducaoCustomCliente[];
+};
+
+/** Aplica arrastes, grupos manuais, nomes editados e oculta vazios não usados. */
+export function mergeProducaoLayout(
+  base: ProducaoClienteBucket[],
+  layout: ProducaoLayoutState,
+  opts?: { showHidden?: boolean },
+): ProducaoClienteBucket[] {
+  let list = applyPdvPlacementOverrides(base, layout.pdvPlacements);
+  const keys = new Set(list.map((c) => c.key));
+
+  for (const custom of layout.customClientes) {
+    if (!custom.key || keys.has(custom.key)) continue;
+    list.push({
+      key: custom.key,
+      nome: custom.nome.trim() || "Novo grupo",
+      rioLinhaId: "",
+      documento: null,
+      pdvs: [],
+      pdvCount: 0,
+      isCustom: true,
+    });
+    keys.add(custom.key);
+  }
+
+  list = applyClienteNomeOverrides(list, layout.clienteNomes);
+
+  list = list.map((c) => {
+    const custom = layout.customClientes.find((x) => x.key === c.key);
+    if (custom && !layout.clienteNomes[c.key]?.trim()) {
+      return { ...c, nome: custom.nome.trim() || c.nome };
+    }
+    return c;
+  });
+
+  const hidden = new Set(layout.hiddenClienteKeys);
+  if (!opts?.showHidden) {
+    list = list.filter((c) => !(c.pdvCount === 0 && hidden.has(c.key)));
+  }
+
+  list.sort((a, b) => {
+    const aEmpty = a.pdvCount === 0;
+    const bEmpty = b.pdvCount === 0;
+    if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+    return a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" });
+  });
+
+  return list;
+}
+
+export function countHiddenEmptyClientes(
+  base: ProducaoClienteBucket[],
+  layout: ProducaoLayoutState,
+): number {
+  const merged = mergeProducaoLayout(base, layout, { showHidden: true });
+  const hidden = new Set(layout.hiddenClienteKeys);
+  return merged.filter((c) => c.pdvCount === 0 && hidden.has(c.key)).length;
 }
 
 /** Reaplica arrastes: PDV pode mudar de bucket de cliente. */

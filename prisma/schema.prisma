@@ -345,10 +345,12 @@ model PainelPdvLink {
 
 /// Layout da coluna Produção (nomes editados + arrastes) por competência.
 model CadastroProducaoLayout {
-  yearMonth     Int      @id @map("year_month")
-  clienteNomes  Json     @default("{}") @map("cliente_nomes")
-  pdvPlacements Json     @default("[]") @map("pdv_placements")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  yearMonth          Int      @id @map("year_month")
+  clienteNomes       Json     @default("{}") @map("cliente_nomes")
+  pdvPlacements      Json     @default("[]") @map("pdv_placements")
+  hiddenClienteKeys  Json     @default("[]") @map("hidden_cliente_keys")
+  customClientes     Json     @default("[]") @map("custom_clientes")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("cadastro_producao_layout")
 }

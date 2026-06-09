@@ -29,6 +29,8 @@ export async function PUT(req: Request, context: Ctx) {
   let body: {
     clienteNomes?: unknown;
     pdvPlacements?: unknown;
+    hiddenClienteKeys?: unknown;
+    customClientes?: unknown;
   } = {};
   try {
     body = (await req.json()) as typeof body;
@@ -43,6 +45,12 @@ export async function PUT(req: Request, context: Ctx) {
       : {}),
       ...(body.pdvPlacements !== undefined ?
         { pdvPlacements: body.pdvPlacements as never }
+      : {}),
+      ...(body.hiddenClienteKeys !== undefined ?
+        { hiddenClienteKeys: body.hiddenClienteKeys as string[] }
+      : {}),
+      ...(body.customClientes !== undefined ?
+        { customClientes: body.customClientes as never }
       : {}),
     });
     return NextResponse.json({ ok: true, layout });
