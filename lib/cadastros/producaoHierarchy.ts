@@ -278,3 +278,24 @@ export function prodPdvDragId(rioPdvId: string) {
 export function prodClienteDropId(clienteKey: string) {
   return `prod-cli-${clienteKey}`;
 }
+
+/** Total de PDVs ativos na Planilha Rio (proxy = 1 quando linha sem PDV). */
+export function countRioPlanilhaPdvs(linhas: RioLinhaForProducao[]): number {
+  let n = 0;
+  for (const ln of linhas) {
+    if (ln.movimento === "saida") continue;
+    const active = ln.pdvs.filter((p) => p.movimento !== "saida");
+    if (active.length === 0) n += 1;
+    else n += active.length;
+  }
+  return n;
+}
+
+/** PDVs únicos exibidos na produção (após layout/arrastes). */
+export function countProducaoMusicalPdvs(clientes: ProducaoClienteBucket[]): number {
+  const ids = new Set<string>();
+  for (const c of clientes) {
+    for (const p of c.pdvs) ids.add(p.rioPdvId);
+  }
+  return ids.size;
+}

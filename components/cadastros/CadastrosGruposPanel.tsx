@@ -18,7 +18,6 @@ import {
   buildProducaoTree,
   extractRioTreeMovimentos,
   grupoIconStyle,
-  treeStats,
   type PainelLinkBrief,
   type ProducaoGrupoNode,
   type RioMonthBundle,
@@ -35,6 +34,8 @@ import {
   buildProducaoClientes,
   clientesForRioSelection,
   countHiddenEmptyClientes,
+  countProducaoMusicalPdvs,
+  countRioPlanilhaPdvs,
   findClienteForRioLinha,
   isCustomClienteKey,
   mergeProducaoLayout,
@@ -217,8 +218,6 @@ export function CadastrosGruposPanel() {
       rioSel.linhaIds,
     );
   }, [clientes, rioSel]);
-
-  const rioStats = useMemo(() => treeStats(rioGrupos), [rioGrupos]);
 
   const rioSelLabel = useMemo(() => {
     if (!rioSel) return null;
@@ -515,7 +514,9 @@ export function CadastrosGruposPanel() {
     setMsg(`PDV «${pdv.nome}» movido para «${clientes.find((c) => c.key === clienteKey)?.nome ?? "grupo"}».`);
   }
 
-  const prodPdvCount = clientes.reduce((n, c) => n + c.pdvCount, 0);
+  const rioPdvTotal = useMemo(() => countRioPlanilhaPdvs(linhasRio), [linhasRio]);
+  const prodPdvTotal = useMemo(() => countProducaoMusicalPdvs(clientes), [clientes]);
+  const pdvCountsMatch = rioPdvTotal === prodPdvTotal && linhasRio.length > 0;
 
   function expandAllRio() {
     setRioExpanded(new Set(filteredRio.map((g) => g.id)));
@@ -567,9 +568,14 @@ export function CadastrosGruposPanel() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <span className="text-[11px] text-slate-500">
-            Rio: {rioStats.grupos} marcas · {rioStats.pdvs} PDVs · Produção: {clientes.length}{" "}
-            clientes · {prodPdvCount} PDVs
+          <span
+            className={
+              "text-[11px] font-semibold " +
+              (pdvCountsMatch ? "text-emerald-700 dark:text-emerald-400" : "text-rose-700 dark:text-rose-400")
+            }
+          >
+            PDVs Rio {rioPdvTotal} = Produção {prodPdvTotal}
+            {pdvCountsMatch ? " ✓" : " — conferir colunas"}
           </span>
         </div>
 
@@ -588,8 +594,18 @@ export function CadastrosGruposPanel() {
                   Planilha Rio · cobrança
                 </p>
                 <p className="text-xs text-slate-500">Marca → cliente → PDV (somente leitura)</p>
+                <p
+                  className={
+                    "mt-1 text-sm font-bold " +
+                    (pdvCountsMatch ?
+                      "text-emerald-800 dark:text-emerald-300"
+                    : "text-[#C4146A] dark:text-pink-300")
+                  }
+                >
+                  PDVs na Planilha Rio: {rioPdvTotal}
+                </p>
               </div>
-              <div className="flex shrink-0 gap-1">
+              <div className="flex shrink-0 flex-col items-end gap-1">
                 <button
                   type="button"
                   className="rounded border border-slate-300 px-2 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
@@ -749,6 +765,19 @@ export function CadastrosGruposPanel() {
                   Produção musical
                 </p>
                 <p className="text-xs text-slate-500">Cliente → PDVs (sem marca Rio)</p>
+                <p
+                  className={
+                    "mt-1 text-sm font-bold " +
+                    (pdvCountsMatch ?
+                      "text-emerald-800 dark:text-emerald-300"
+                    : "text-violet-800 dark:text-violet-300")
+                  }
+                >
+                  PDVs na Produção: {prodPdvTotal}
+                  {pdvCountsMatch ?
+                    " ✓"
+                  : ` (Rio: ${rioPdvTotal})`}
+                </p>
                 <div className="mt-1 flex gap-1">
                   <button
                     type="button"
