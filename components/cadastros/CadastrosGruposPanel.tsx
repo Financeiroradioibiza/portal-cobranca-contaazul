@@ -457,7 +457,7 @@ export function CadastrosGruposPanel() {
         result?: {
           movedCount: number;
           heringGroupKey: string;
-          keptWithPdvs: string[];
+          skippedMultiPdv?: string[];
           remappedCount?: number;
         };
       };
@@ -466,9 +466,11 @@ export function CadastrosGruposPanel() {
         data.result.remappedCount ?
           ` ${data.result.remappedCount} vínculo(s) remapeado(s).`
         : "";
+      const skipped = data.result.skippedMultiPdv?.length ?? 0;
       setMsg(
-        `${data.result.movedCount} Hering de um ponto agrupadas em HERING. ` +
-          `${data.result.keptWithPdvs.length} linhas com PDVs mantidas separadas.${remapped}`,
+        `${data.result.movedCount} PDV(s) HERING (grupo com 1 PDV) → HERINGTODAS.` +
+          (skipped ? ` ${skipped} grupo(s) com vários PDVs mantidos.` : "") +
+          remapped,
       );
       await loadAll(activeYm);
       setProdExpanded((prev) => new Set([...prev, data.result!.heringGroupKey]));
@@ -844,9 +846,9 @@ export function CadastrosGruposPanel() {
                       className="rounded-md border border-amber-300 px-2 py-1 text-[11px] font-semibold text-amber-900 dark:border-amber-700 dark:text-amber-200"
                       disabled={busy}
                       onClick={() => void groupHeringSinglePoint()}
-                      title="Clientes Hering sem PDV na Rio → grupo HERING"
+                      title="Grupos com 1 PDV cujo nome começa com HERING → HERINGTODAS"
                     >
-                      Agrupar Hering (1 ponto)
+                      Hering → HERINGTODAS
                     </button>
                   </>
                 : null}

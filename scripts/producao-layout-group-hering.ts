@@ -1,6 +1,6 @@
 /**
  * Agrupa na produção (coluna direita) clientes Hering «de um ponto só»
- * (linha Rio sem PDVs filhos → proxy `linha:{id}`) no grupo manual HERING.
+ * Grupos na produção com 1 PDV (nome começa com HERING) → HERINGTODAS.
  *
  * Linhas Hering que já têm PDVs na Rio permanecem nos próprios buckets.
  *
@@ -39,11 +39,13 @@ async function main() {
 
   const result = await groupHeringSinglePointPdvs(ym);
   console.log(`Competência ${result.yearMonth}`);
-  console.log(`Grupo HERING: ${result.heringGroupKey}`);
+  console.log(`Grupo HERINGTODAS: ${result.heringGroupKey}`);
   console.log(`Movidas (${result.movedCount}):`);
   for (const n of result.movedNames) console.log(`  · ${n}`);
-  console.log(`\nMantidas com PDVs (${result.keptWithPdvs.length}):`);
-  for (const n of result.keptWithPdvs) console.log(`  · ${n}`);
+  if (result.skippedMultiPdv.length) {
+    console.log(`\nMantidos (vários PDVs no grupo):`);
+    for (const n of result.skippedMultiPdv) console.log(`  · ${n}`);
+  }
 }
 
 void main().catch((e) => {
