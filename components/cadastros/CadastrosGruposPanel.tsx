@@ -220,6 +220,16 @@ export function CadastrosGruposPanel() {
 
   const rioStats = useMemo(() => treeStats(rioGrupos), [rioGrupos]);
 
+  const rioSelLabel = useMemo(() => {
+    if (!rioSel) return null;
+    if (rioSel.tipo === "marca") return `Marca: ${rioSel.marcaNome}`;
+    for (const g of rioGrupos) {
+      const c = g.clientes.find((x) => x.id === rioSel.rioLinhaId);
+      if (c) return `Cliente: ${c.nomeFantasia}`;
+    }
+    return "Cliente selecionado";
+  }, [rioSel, rioGrupos]);
+
   const persistLayout = useCallback(
     (layout: ProducaoLayoutState) => {
       if (saveLayoutTimer.current) clearTimeout(saveLayoutTimer.current);
@@ -392,6 +402,11 @@ export function CadastrosGruposPanel() {
     if (hit) setProdExpanded((prev) => new Set([...prev, hit.key]));
   }
 
+  function clearRioSelection() {
+    setRioSel(null);
+    setSelProdPdvId(null);
+  }
+
   function renameCliente(key: string, nome: string) {
     const nextNomes = { ...clienteNomes, [key]: nome };
     const nextCustom =
@@ -560,6 +575,23 @@ export function CadastrosGruposPanel() {
                 </button>
               </div>
             </div>
+            {rioSel ?
+              <div className="flex items-center justify-between gap-2 border-b border-pink-100 bg-pink-50/70 px-3 py-1.5 dark:border-pink-900/40 dark:bg-pink-950/20">
+                <p className="min-w-0 truncate text-[11px] font-medium text-slate-700 dark:text-slate-200">
+                  {rioSelLabel}
+                  <span className="ml-1 font-normal text-slate-500">
+                    · filtrando produção à direita
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  className="shrink-0 text-xs text-slate-600 hover:underline dark:text-slate-300"
+                  onClick={clearRioSelection}
+                >
+                  Voltar
+                </button>
+              </div>
+            : null}
             <div className="flex-1 overflow-y-auto p-3">
               {PRODUCAO_MOVIMENTO_TOP_ENABLED ?
                 <>
