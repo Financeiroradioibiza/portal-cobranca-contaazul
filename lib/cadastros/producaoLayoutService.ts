@@ -10,6 +10,7 @@ export type ProducaoLayoutPayload = {
   pdvPlacements: PdvPlacementOverride[];
   hiddenClienteKeys: string[];
   customClientes: ProducaoCustomCliente[];
+  acknowledgedPdvs: string[];
 };
 
 function asRecord(v: unknown): Record<string, string> {
@@ -56,6 +57,7 @@ export async function getProducaoLayout(yearMonth: number): Promise<ProducaoLayo
     pdvPlacements: asPlacements(row?.pdvPlacements),
     hiddenClienteKeys: asStringArray(row?.hiddenClienteKeys),
     customClientes: asCustomClientes(row?.customClientes),
+    acknowledgedPdvs: asStringArray(row?.acknowledgedPdvs),
   };
 }
 
@@ -64,7 +66,11 @@ export async function saveProducaoLayout(
   patch: Partial<
     Pick<
       ProducaoLayoutPayload,
-      "clienteNomes" | "pdvPlacements" | "hiddenClienteKeys" | "customClientes"
+      | "clienteNomes"
+      | "pdvPlacements"
+      | "hiddenClienteKeys"
+      | "customClientes"
+      | "acknowledgedPdvs"
     >
   >,
 ): Promise<ProducaoLayoutPayload> {
@@ -74,6 +80,7 @@ export async function saveProducaoLayout(
     pdvPlacements: patch.pdvPlacements ?? current.pdvPlacements,
     hiddenClienteKeys: patch.hiddenClienteKeys ?? current.hiddenClienteKeys,
     customClientes: patch.customClientes ?? current.customClientes,
+    acknowledgedPdvs: patch.acknowledgedPdvs ?? current.acknowledgedPdvs,
   };
   await prisma.cadastroProducaoLayout.upsert({
     where: { yearMonth },

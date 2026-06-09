@@ -21,6 +21,7 @@ export type ProducaoPdvRef = {
   painelLink: PainelLinkBrief | null;
   /** Cliente Rio sem PDVs filhos — o próprio cliente vira um PDV na produção. */
   isLinhaProxy?: boolean;
+  movimento?: string;
 };
 
 export type ProducaoClienteBucket = {
@@ -39,6 +40,7 @@ export type RioLinhaForProducao = {
   nomeFantasia: string;
   razaoSocial?: string;
   documento?: string | null;
+  movimento?: string;
   pdvs: Array<{
     id: string;
     nome: string;
@@ -80,11 +82,12 @@ export function buildProducaoClientes(
   const out: ProducaoClienteBucket[] = [];
 
   for (const ln of sorted) {
+    if (ln.movimento === "saida") continue;
     const nomeCliente = ln.nomeFantasia.trim() || "Sem nome";
     const activePdvs = sortRioPdvsByNome(ln.pdvs.filter((p) => p.movimento !== "saida"));
     const pdvs: ProducaoPdvRef[] = [];
 
-    if (activePdvs.length === 0) {
+    if (activePdvs.length === 0 && ln.movimento !== "saida") {
       const proxyId = linhaAsPdvKey(ln.id);
       pdvs.push({
         rioPdvId: proxyId,
@@ -94,6 +97,7 @@ export function buildProducaoClientes(
         rioLinhaNome: nomeCliente,
         painelLink: linkByRioPdvId.get(proxyId) ?? null,
         isLinhaProxy: true,
+        movimento: ln.movimento ?? "estavel",
       });
     } else {
       for (const p of activePdvs) {
@@ -104,6 +108,7 @@ export function buildProducaoClientes(
           rioLinhaId: ln.id,
           rioLinhaNome: nomeCliente,
           painelLink: linkByRioPdvId.get(p.id) ?? null,
+          movimento: p.movimento,
         });
       }
     }
@@ -137,6 +142,8 @@ export type ProducaoLayoutState = {
   pdvPlacements: PdvPlacementOverride[];
   hiddenClienteKeys: string[];
   customClientes: ProducaoCustomCliente[];
+  /** PDVs novos (entrada) já organizados na produção — saem do topo verde. */
+  acknowledgedPdvs?: string[];
 };
 
 /** Aplica arrastes, grupos manuais, nomes editados e oculta vazios não usados. */
@@ -221,7 +228,10 @@ export function applyPdvPlacementOverrides(
 
   for (const p of detached) {
     const o = byPdv.get(p.rioPdvId)!;
-    const target = clone.find((c) => c.key === o.targetClienteKey);
+    let target = clone.find((c) => c.key === o.targetClienteKey);
+    if (!target) {
+      target = clone.find((c) => c.rioLinhaId === p.rioLinhaId);
+    }
     if (!target) continue;
     target.pdvs.push(p);
     target.pdvCount = target.pdvs.length;

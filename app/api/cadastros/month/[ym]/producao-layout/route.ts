@@ -31,6 +31,7 @@ export async function PUT(req: Request, context: Ctx) {
     pdvPlacements?: unknown;
     hiddenClienteKeys?: unknown;
     customClientes?: unknown;
+    acknowledgedPdvs?: unknown;
   } = {};
   try {
     body = (await req.json()) as typeof body;
@@ -51,6 +52,9 @@ export async function PUT(req: Request, context: Ctx) {
       : {}),
       ...(body.customClientes !== undefined ?
         { customClientes: body.customClientes as never }
+      : {}),
+      ...(body.acknowledgedPdvs !== undefined ?
+        { acknowledgedPdvs: body.acknowledgedPdvs as string[] }
       : {}),
     });
     return NextResponse.json({ ok: true, layout });

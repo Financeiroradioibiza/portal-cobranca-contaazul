@@ -44,6 +44,7 @@ export type RioMonthBundle = {
     razaoSocial: string;
     documento: string | null;
     origemCliente: string;
+    movimento?: string;
     grupo?: { id: string; nome: string } | null;
     pdvs: Array<{
       id: string;
@@ -100,11 +101,12 @@ export function buildProducaoTree(
   const linhasSorted = [...bundle.linhas].sort(compareRioLinhasByNomeFantasia);
 
   for (const ln of linhasSorted) {
+    if (ln.movimento === "saida") continue;
     const gid = ln.rioGrupoId && grupoMap.has(ln.rioGrupoId) ? ln.rioGrupoId : SEM_MARCA_ID;
     const grupo = grupoMap.get(gid)!;
 
     const pdvsVisiveis = sortRioPdvsByNome(
-      ln.pdvs.filter((p) => p.movimento !== "saida"),
+      ln.pdvs.filter((p) => p.movimento !== "saida" && p.movimento !== "entrada"),
     );
 
     const pdvNodes: ProducaoPdvNode[] = pdvsVisiveis.map((p) => ({
@@ -144,6 +146,81 @@ export function buildProducaoTree(
     out.push(sem!);
   }
   return out;
+}
+
+export type RioMovimentoRow = {
+  kind: "pdv" | "cliente";
+  id: string;
+  nome: string;
+  clienteNome: string;
+  movimento: "entrada" | "saida";
+  painelLink: PainelLinkBrief | null;
+};
+
+/** Listas de entrada/saída da Planilha Rio para o topo da coluna esquerda. */
+export function extractRioTreeMovimentos(
+  bundle: RioMonthBundle,
+  linkByRioPdvId: Map<string, PainelLinkBrief>,
+): { novos: RioMovimentoRow[]; encerrados: RioMovimentoRow[] } {
+  const novos: RioMovimentoRow[] = [];
+  const encerrados: RioMovimentoRow[] = [];
+
+  for (const ln of bundle.linhas) {
+    const clienteNome = ln.nomeFantasia.trim() || "Sem nome";
+    const activePdvs = ln.pdvs.filter((p) => p.movimento !== "saida");
+
+    if (ln.movimento === "saida") {
+      encerrados.push({
+        kind: "cliente",
+        id: ln.id,
+        nome: clienteNome,
+        clienteNome,
+        movimento: "saida",
+        painelLink: null,
+      });
+    }
+
+    for (const p of ln.pdvs) {
+      if (p.movimento === "saida") {
+        encerrados.push({
+          kind: "pdv",
+          id: p.id,
+          nome: p.nome,
+          clienteNome,
+          movimento: "saida",
+          painelLink: linkByRioPdvId.get(p.id) ?? null,
+        });
+      } else if (p.movimento === "entrada") {
+        novos.push({
+          kind: "pdv",
+          id: p.id,
+          nome: p.nome,
+          clienteNome,
+          movimento: "entrada",
+          painelLink: linkByRioPdvId.get(p.id) ?? null,
+        });
+      }
+    }
+
+    if (activePdvs.length === 0 && ln.movimento === "entrada") {
+      novos.push({
+        kind: "cliente",
+        id: ln.id,
+        nome: clienteNome,
+        clienteNome,
+        movimento: "entrada",
+        painelLink: null,
+      });
+    }
+  }
+
+  const sortFn = (a: RioMovimentoRow, b: RioMovimentoRow) =>
+    a.clienteNome.localeCompare(b.clienteNome, "pt-BR", { sensitivity: "base" }) ||
+    a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" });
+
+  novos.sort(sortFn);
+  encerrados.sort(sortFn);
+  return { novos, encerrados };
 }
 
 export function treeStats(grupos: ProducaoGrupoNode[]): {

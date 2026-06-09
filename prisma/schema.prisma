@@ -350,6 +350,7 @@ model CadastroProducaoLayout {
   pdvPlacements      Json     @default("[]") @map("pdv_placements")
   hiddenClienteKeys  Json     @default("[]") @map("hidden_cliente_keys")
   customClientes     Json     @default("[]") @map("custom_clientes")
+  acknowledgedPdvs   Json     @default("[]") @map("acknowledged_pdvs")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("cadastro_producao_layout")

@@ -40,7 +40,6 @@ export async function listVinculosForMonth(ym: number): Promise<{
         include: {
           rioGrupo: { select: { nome: true } },
           pdvs: {
-            where: { movimento: { not: "saida" } },
             orderBy: [{ sortOrder: "asc" }],
             include: { painelLink: true },
           },

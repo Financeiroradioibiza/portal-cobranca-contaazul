@@ -12,15 +12,24 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { CadastrosMovimentoBanner } from "@/components/cadastros/CadastrosMovimentoBanner";
 import { PdvCadastroDrawer } from "@/components/cadastros/PdvCadastroDrawer";
 import {
   buildProducaoTree,
+  extractRioTreeMovimentos,
   grupoIconStyle,
   treeStats,
   type PainelLinkBrief,
   type ProducaoGrupoNode,
   type RioMonthBundle,
+  type RioMovimentoRow,
 } from "@/lib/cadastros/rioProducaoTree";
+import {
+  extractRioMovimentos,
+  movimentoItemToPdvRef,
+  reconcileProducaoLayout,
+  stripNovosFromClientes,
+} from "@/lib/cadastros/producaoMovimento";
 import {
   buildProducaoClientes,
   clientesForRioSelection,
@@ -55,11 +64,13 @@ function DraggableProdPdv({
   selected,
   editMode,
   onSelect,
+  tone = "normal",
 }: {
   pdv: ProducaoPdvRef;
   selected: boolean;
   editMode: boolean;
   onSelect: () => void;
+  tone?: "normal" | "novo";
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: prodPdvDragId(pdv.rioPdvId),
@@ -75,6 +86,8 @@ function DraggableProdPdv({
         "mb-1 flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-opacity " +
         (selected ?
           "border-[#C4146A] bg-pink-50 dark:border-pink-500 dark:bg-pink-950/30"
+        : tone === "novo" ?
+          "border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-950/30"
         : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900") +
         (isDragging ? " opacity-40" : "")
       }
@@ -142,6 +155,13 @@ export function CadastrosGruposPanel() {
   const [placements, setPlacements] = useState<PdvPlacementOverride[]>([]);
   const [hiddenClienteKeys, setHiddenClienteKeys] = useState<string[]>([]);
   const [customClientes, setCustomClientes] = useState<ProducaoCustomCliente[]>([]);
+  const [acknowledgedPdvs, setAcknowledgedPdvs] = useState<string[]>([]);
+  const [linhasRio, setLinhasRio] = useState<RioLinhaForProducao[]>([]);
+  const [linkMap, setLinkMap] = useState<Map<string, PainelLinkBrief>>(new Map());
+  const [rioTreeMov, setRioTreeMov] = useState<{
+    novos: RioMovimentoRow[];
+    encerrados: RioMovimentoRow[];
+  }>({ novos: [], encerrados: [] });
   const [showHiddenGroups, setShowHiddenGroups] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -163,14 +183,20 @@ export function CadastrosGruposPanel() {
       pdvPlacements: placements,
       hiddenClienteKeys,
       customClientes,
+      acknowledgedPdvs,
     }),
-    [clienteNomes, placements, hiddenClienteKeys, customClientes],
+    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs],
   );
 
-  const clientes = useMemo(
-    () => mergeProducaoLayout(clientesBase, layoutState, { showHidden: showHiddenGroups }),
-    [clientesBase, layoutState, showHiddenGroups],
+  const prodMovimentos = useMemo(
+    () => extractRioMovimentos(linhasRio, linkMap, layoutState),
+    [linhasRio, linkMap, layoutState],
   );
+
+  const clientes = useMemo(() => {
+    const merged = mergeProducaoLayout(clientesBase, layoutState, { showHidden: showHiddenGroups });
+    return stripNovosFromClientes(merged, prodMovimentos.novos);
+  }, [clientesBase, layoutState, showHiddenGroups, prodMovimentos.novos]);
 
   const hiddenEmptyCount = useMemo(
     () => countHiddenEmptyClientes(clientesBase, layoutState),
@@ -212,15 +238,17 @@ export function CadastrosGruposPanel() {
         pdvPlacements: partial.pdvPlacements ?? placements,
         hiddenClienteKeys: partial.hiddenClienteKeys ?? hiddenClienteKeys,
         customClientes: partial.customClientes ?? customClientes,
+        acknowledgedPdvs: partial.acknowledgedPdvs ?? acknowledgedPdvs,
       };
       setClienteNomes(next.clienteNomes);
       setPlacements(next.pdvPlacements);
       setHiddenClienteKeys(next.hiddenClienteKeys);
       setCustomClientes(next.customClientes);
+      setAcknowledgedPdvs(next.acknowledgedPdvs ?? []);
       persistLayout(next);
       return next;
     },
-    [clienteNomes, placements, hiddenClienteKeys, customClientes, persistLayout],
+    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, persistLayout],
   );
 
   const loadAll = useCallback(async (ym: number) => {
@@ -254,41 +282,63 @@ export function CadastrosGruposPanel() {
       if (!mRes.ok) throw new Error(monthData.error ?? "month_erro");
       if (!vRes.ok || !vincData.ok) throw new Error(vincData.error ?? "vinculos_erro");
 
-      const linkMap = new Map<string, PainelLinkBrief>();
+      const links = new Map<string, PainelLinkBrief>();
       for (const row of vincData.rows ?? []) {
         if (!row.link) continue;
-        linkMap.set(row.rioPdvId, {
+        links.set(row.rioPdvId, {
           painelPdvId: row.link.painelPdvId,
           painelClienteId: row.link.painelClienteId,
           painelPdvNome: row.link.painelPdvNome,
           matchMethod: row.link.matchMethod,
         });
       }
+      setLinkMap(links);
 
-      const rioTree = buildProducaoTree(
-        { grupos: monthData.grupos ?? [], linhas: monthData.linhas ?? [] },
-        linkMap,
-      );
+      const bundle = { grupos: monthData.grupos ?? [], linhas: monthData.linhas ?? [] };
+      const rioTree = buildProducaoTree(bundle, links);
       setRioGrupos(rioTree);
       setRioExpanded(new Set(rioTree.map((g) => g.id)));
+      setRioTreeMov(extractRioTreeMovimentos(bundle, links));
 
       const linhasForProd: RioLinhaForProducao[] = (monthData.linhas ?? []).map((ln) => ({
         id: ln.id,
         nomeFantasia: ln.nomeFantasia,
         razaoSocial: ln.razaoSocial,
         documento: ln.documento,
+        movimento: ln.movimento,
         pdvs: ln.pdvs,
       }));
+      setLinhasRio(linhasForProd);
 
-      const prod = buildProducaoClientes(linhasForProd, linkMap);
+      const prod = buildProducaoClientes(linhasForProd, links);
       setClientesBase(prod);
       setProdExpanded(new Set(prod.map((c) => c.key)));
 
-      setClienteNomes(layoutData.layout?.clienteNomes ?? {});
-      setPlacements(layoutData.layout?.pdvPlacements ?? []);
-      setHiddenClienteKeys(layoutData.layout?.hiddenClienteKeys ?? []);
-      setCustomClientes(layoutData.layout?.customClientes ?? []);
+      const rawLayout: ProducaoLayoutState = {
+        clienteNomes: layoutData.layout?.clienteNomes ?? {},
+        pdvPlacements: layoutData.layout?.pdvPlacements ?? [],
+        hiddenClienteKeys: layoutData.layout?.hiddenClienteKeys ?? [],
+        customClientes: layoutData.layout?.customClientes ?? [],
+        acknowledgedPdvs: layoutData.layout?.acknowledgedPdvs ?? [],
+      };
+      const reconciled = reconcileProducaoLayout(linhasForProd, rawLayout);
+      setClienteNomes(reconciled.clienteNomes);
+      setPlacements(reconciled.pdvPlacements);
+      setHiddenClienteKeys(reconciled.hiddenClienteKeys);
+      setCustomClientes(reconciled.customClientes);
+      setAcknowledgedPdvs(reconciled.acknowledgedPdvs ?? []);
       setShowHiddenGroups(false);
+
+      const layoutChanged =
+        JSON.stringify(reconciled.pdvPlacements) !== JSON.stringify(rawLayout.pdvPlacements) ||
+        JSON.stringify(reconciled.acknowledgedPdvs) !== JSON.stringify(rawLayout.acknowledgedPdvs);
+      if (layoutChanged) {
+        void fetch(`/api/cadastros/month/${ym}/producao-layout`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(reconciled),
+        });
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao carregar.");
       setRioGrupos([]);
@@ -405,7 +455,12 @@ export function CadastrosGruposPanel() {
       { rioPdvId: pdv.rioPdvId, targetClienteKey: clienteKey },
     ];
     const nextHidden = hiddenClienteKeys.filter((k) => k !== clienteKey);
-    applyLayoutChange({ pdvPlacements: nextPlacements, hiddenClienteKeys: nextHidden });
+    const nextAck = [...new Set([...acknowledgedPdvs, pdv.rioPdvId])];
+    applyLayoutChange({
+      pdvPlacements: nextPlacements,
+      hiddenClienteKeys: nextHidden,
+      acknowledgedPdvs: nextAck,
+    });
     setMsg(`PDV «${pdv.nome}» movido para «${clientes.find((c) => c.key === clienteKey)?.nome ?? "grupo"}».`);
   }
 
@@ -420,9 +475,9 @@ export function CadastrosGruposPanel() {
             Rio (cobrança) × Produção
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-            <strong>Esquerda:</strong> Planilha Rio (só leitura, com marcas).{" "}
-            <strong>Direita:</strong> cliente → PDVs (sem marca). Cliente sem PDV na Rio vira um PDV
-            na produção.
+            <strong>Esquerda:</strong> espelho da Planilha Rio (marcas).{" "}
+            <strong>Direita:</strong> produção organizada por você — novos em verde no topo,
+            encerrados em vermelho. Atualizações vêm da Rio, não da árvore da esquerda.
           </p>
         </header>
 
@@ -466,6 +521,28 @@ export function CadastrosGruposPanel() {
               <p className="text-xs text-slate-500">Marca → cliente → PDV (somente leitura)</p>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
+              <CadastrosMovimentoBanner
+                variant="encerrado"
+                title="Encerrados na Planilha Rio"
+                hint="PDVs ou clientes removidos/encerrados na Rio."
+                items={rioTreeMov.encerrados.map((r) => ({
+                  key: r.id,
+                  label: r.kind === "cliente" ? r.nome : r.nome,
+                  sublabel: r.kind === "pdv" ? r.clienteNome : "cliente encerrado",
+                  linked: r.painelLink != null,
+                }))}
+              />
+              <CadastrosMovimentoBanner
+                variant="novo"
+                title="Novos na Planilha Rio"
+                hint="Entradas detectadas na Rio — organize na produção à direita."
+                items={rioTreeMov.novos.map((r) => ({
+                  key: r.id,
+                  label: r.nome,
+                  sublabel: r.kind === "pdv" ? r.clienteNome : "cliente novo",
+                  linked: r.painelLink != null,
+                }))}
+              />
               {filteredRio.length === 0 ?
                 <p className="p-4 text-center text-sm text-slate-500">{busy ? "Carregando…" : "Sem dados."}</p>
               : filteredRio.map((g) => {
@@ -603,8 +680,50 @@ export function CadastrosGruposPanel() {
             </div>
             <div className="flex min-h-0 flex-1">
               <div className="min-w-0 flex-1 overflow-y-auto p-3">
-                {clientesFiltered.length === 0 ?
+                <CadastrosMovimentoBanner
+                  variant="encerrado"
+                  title="Encerrados na produção"
+                  hint="Saíram da Planilha Rio — futuramente o player para de tocar."
+                  items={prodMovimentos.encerrados.map((r) => ({
+                    key: r.rioPdvId,
+                    label: r.nome,
+                    sublabel:
+                      r.kind === "cliente" ? "cliente encerrado" : (
+                        r.rioLinhaNome
+                      ),
+                    linked: r.painelLink != null,
+                  }))}
+                  selectedKey={selProdPdvId}
+                  onSelect={(key) => setSelProdPdvId(key)}
+                />
+                {prodMovimentos.novos.length > 0 ?
+                  <div className="mb-3 overflow-hidden rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40">
+                    <div className="px-3 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-100">
+                      Novos na produção ({prodMovimentos.novos.length})
+                    </div>
+                    <p className="border-t border-emerald-200 px-3 py-1.5 text-[10px] text-emerald-800/90 dark:border-emerald-800 dark:text-emerald-200/90">
+                      {editMode ?
+                        "Em edição: arraste para um grupo abaixo para integrar à produção."
+                      : "Ative «Editar produção» para posicionar nos grupos."}
+                    </p>
+                    <div className="space-y-0 border-t border-emerald-200 px-2 py-2 dark:border-emerald-800">
+                      {prodMovimentos.novos.map((item) => (
+                        <DraggableProdPdv
+                          key={item.rioPdvId}
+                          pdv={movimentoItemToPdvRef(item)}
+                          editMode={editMode}
+                          tone="novo"
+                          selected={selProdPdvId === item.rioPdvId}
+                          onSelect={() => setSelProdPdvId(item.rioPdvId)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                : null}
+                {clientesFiltered.length === 0 && prodMovimentos.novos.length === 0 ?
                   <p className="text-sm text-slate-500">Nenhum cliente neste filtro.</p>
+                : clientesFiltered.length === 0 ?
+                  null
                 : clientesFiltered.map((c) => {
                     const cOpen = prodExpanded.has(c.key);
                     const highlight =
