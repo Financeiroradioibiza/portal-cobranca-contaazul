@@ -342,3 +342,52 @@ model PainelPdvLink {
   @@index([painelPdvId])
   @@map("painel_pdv_link")
 }
+
+/// Layout da coluna Produção (nomes editados + arrastes) por competência.
+model CadastroProducaoLayout {
+  yearMonth     Int      @id @map("year_month")
+  clienteNomes  Json     @default("{}") @map("cliente_nomes")
+  pdvPlacements Json     @default("[]") @map("pdv_placements")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("cadastro_producao_layout")
+}
+
+enum ProducaoPlayerStatus {
+  Ativo
+  Inativo
+}
+
+/// Cadastro operacional do PDV na produção musical.
+model ProducaoPdvCadastro {
+  rioPdvKey String @id @map("rio_pdv_key")
+
+  nome               String @default("") @db.Text
+  programacaoMusical String @default("Padrão") @map("programacao_musical") @db.VarChar(120)
+  cep                String @default("") @db.VarChar(16)
+  endereco           String @default("") @db.Text
+  numero             String @default("") @db.VarChar(32)
+  complemento        String @default("") @db.VarChar(120)
+  bairro             String @default("") @db.VarChar(120)
+  estado             String @default("") @db.VarChar(8)
+  cidade             String @default("") @db.VarChar(120)
+  razaoSocial        String @default("") @map("razao_social") @db.Text
+  cnpj               String @default("") @db.VarChar(64)
+  placaCarro         Boolean @default(false) @map("placa_carro")
+  controlarPlayer    Boolean @default(false) @map("controlar_player")
+  controlarPlaylist  Boolean @default(false) @map("controlar_playlist")
+  statusPlayer       ProducaoPlayerStatus @default(Ativo) @map("status_player")
+
+  contatoLojaNome     String @default("") @map("contato_loja_nome") @db.Text
+  contatoLojaEmail    String @default("") @map("contato_loja_email") @db.Text
+  contatoLojaTelefone String @default("") @map("contato_loja_telefone") @db.VarChar(64)
+
+  contatoCobrancaNome     String @default("") @map("contato_cobranca_nome") @db.Text
+  contatoCobrancaEmail    String @default("") @map("contato_cobranca_email") @db.Text
+  contatoCobrancaTelefone String @default("") @map("contato_cobranca_telefone") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("producao_pdv_cadastro")
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,6 +12,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { PdvCadastroDrawer } from "@/components/cadastros/PdvCadastroDrawer";
 import {
   buildProducaoTree,
   grupoIconStyle,
@@ -21,80 +22,45 @@ import {
   type RioMonthBundle,
 } from "@/lib/cadastros/rioProducaoTree";
 import {
+  applyClienteNomeOverrides,
   applyPdvPlacementOverrides,
-  buildProducaoHierarchy,
-  findSubClienteForRioLinha,
-  mastersForRioSelection,
+  buildProducaoClientes,
+  clientesForRioSelection,
+  findClienteForRioLinha,
+  prodClienteDropId,
   prodPdvDragId,
-  prodProgDropId,
   type PdvPlacementOverride,
-  type ProducaoMasterNode,
+  type ProducaoClienteBucket,
   type ProducaoPdvRef,
-  type ProducaoProgramaNode,
-  type ProducaoSubClienteNode,
   type RioLinhaForProducao,
-  type RioOrigemLayout,
 } from "@/lib/cadastros/producaoHierarchy";
-import { displayBrazilianTaxId } from "@/lib/format";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
 } from "@/lib/manualReminders/yearMonth";
-import { painelPdvEditUrl } from "@/lib/radioPainel/publicUrls";
 
 type MonthMeta = { id: string; yearMonth: number };
 
-type Suggestion = {
-  painelPdvId: number;
-  painelClienteId: number;
-  painelPdvNome: string;
-  painelClienteNome: string;
-  matchMethod: string;
-  score: number;
-  label: string;
-};
-
 type RioSel =
-  | { tipo: "marca"; grupoId: string; marcaNome: string }
+  | { tipo: "marca"; grupoId: string; marcaNome: string; linhaIds: string[] }
   | { tipo: "cliente"; rioLinhaId: string; grupoId: string }
-  | { tipo: "pdv"; rioLinhaId: string; rioPdvId: string }
   | null;
-
-function overridesStorageKey(ym: number) {
-  return `cadastros-producao-overrides-${ym}`;
-}
-
-function origemBadge(origem: RioOrigemLayout): { label: string; className: string } {
-  if (origem === "marca") {
-    return {
-      label: "Rio · marca",
-      className: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
-    };
-  }
-  if (origem === "sem_marca") {
-    return {
-      label: "Rio · sem marca",
-      className: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200",
-    };
-  }
-  return {
-    label: "Rio · cliente",
-    className: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200",
-  };
-}
 
 function DraggableProdPdv({
   pdv,
   selected,
+  editMode,
   onSelect,
 }: {
   pdv: ProducaoPdvRef;
   selected: boolean;
+  editMode: boolean;
   onSelect: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: prodPdvDragId(pdv.rioPdvId),
     data: { pdv },
+    disabled: !editMode,
   });
   const linked = Boolean(pdv.painelLink);
 
@@ -109,17 +75,22 @@ function DraggableProdPdv({
         (isDragging ? " opacity-40" : "")
       }
     >
-      <button
-        type="button"
-        className="cursor-grab text-slate-400 active:cursor-grabbing"
-        aria-label="Arrastar PDV"
-        {...listeners}
-        {...attributes}
-      >
-        ⠿
-      </button>
+      {editMode ?
+        <button
+          type="button"
+          className="cursor-grab text-slate-400 active:cursor-grabbing"
+          aria-label="Arrastar PDV"
+          {...listeners}
+          {...attributes}
+        >
+          ⠿
+        </button>
+      : <span className="w-4 text-slate-300">📻</span>}
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="font-medium text-slate-800 dark:text-slate-100">{pdv.nome}</span>
+        {pdv.isLinhaProxy ?
+          <span className="ml-1 text-[10px] text-amber-600">· cliente = PDV</span>
+        : null}
         <span className="ml-1 text-[10px] text-slate-400">
           {linked ? `· painel #${pdv.painelLink!.painelPdvId}` : "· sem painel"}
         </span>
@@ -128,36 +99,30 @@ function DraggableProdPdv({
   );
 }
 
-function ProgramaDropZone({
-  sub,
-  programa,
+function ClienteDropZone({
+  cliente,
+  editMode,
   children,
 }: {
-  sub: ProducaoSubClienteNode;
-  programa: ProducaoProgramaNode;
+  cliente: ProducaoClienteBucket;
+  editMode: boolean;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
-    id: prodProgDropId(sub.key, programa.id),
-    data: { subKey: sub.key, programaId: programa.id },
+    id: prodClienteDropId(cliente.key),
+    data: { clienteKey: cliente.key },
+    disabled: !editMode,
   });
   return (
     <div
       ref={setNodeRef}
       className={
-        "ml-4 rounded-md border border-dashed p-2 transition-colors " +
-        (isOver ?
+        "rounded-md border border-dashed p-2 transition-colors " +
+        (editMode && isOver ?
           "border-violet-400 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/30"
-        : "border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-900/30")
+        : "border-transparent")
       }
     >
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[10px]">🎵</span>
-        <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
-          {programa.nome}
-        </span>
-        <span className="text-[10px] text-slate-400">{programa.pdvs.length} PDV</span>
-      </div>
       {children}
     </div>
   );
@@ -168,8 +133,10 @@ export function CadastrosGruposPanel() {
   const [months, setMonths] = useState<MonthMeta[]>([]);
   const [activeYm, setActiveYm] = useState(todayYm);
   const [rioGrupos, setRioGrupos] = useState<ProducaoGrupoNode[]>([]);
-  const [mastersBase, setMastersBase] = useState<ProducaoMasterNode[]>([]);
-  const [overrides, setOverrides] = useState<PdvPlacementOverride[]>([]);
+  const [clientesBase, setClientesBase] = useState<ProducaoClienteBucket[]>([]);
+  const [clienteNomes, setClienteNomes] = useState<Record<string, string>>({});
+  const [placements, setPlacements] = useState<PdvPlacementOverride[]>([]);
+  const [editMode, setEditMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [q, setQ] = useState("");
@@ -178,44 +145,53 @@ export function CadastrosGruposPanel() {
   const [prodExpanded, setProdExpanded] = useState<Set<string>>(new Set());
   const [rioSel, setRioSel] = useState<RioSel>(null);
   const [selProdPdvId, setSelProdPdvId] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [dragPdv, setDragPdv] = useState<ProducaoPdvRef | null>(null);
+  const saveLayoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
-  const masters = useMemo(
-    () => applyPdvPlacementOverrides(mastersBase, overrides),
-    [mastersBase, overrides],
-  );
+  const clientes = useMemo(() => {
+    let list = applyPdvPlacementOverrides(clientesBase, placements);
+    list = applyClienteNomeOverrides(list, clienteNomes);
+    return list;
+  }, [clientesBase, placements, clienteNomes]);
 
-  const mastersFiltered = useMemo(() => {
-    if (!rioSel) return masters;
-    if (rioSel.tipo === "marca") {
-      return mastersForRioSelection(masters, { tipo: "marca", marcaNome: rioSel.marcaNome });
+  const clientesFiltered = useMemo(() => {
+    if (!rioSel) return clientes;
+    if (rioSel.tipo === "cliente") {
+      return clientesForRioSelection(clientes, { tipo: "cliente", rioLinhaId: rioSel.rioLinhaId });
     }
-    return mastersForRioSelection(masters, { tipo: "cliente", rioLinhaId: rioSel.rioLinhaId });
-  }, [masters, rioSel]);
+    return clientesForRioSelection(
+      clientes,
+      { tipo: "marca", marcaNome: rioSel.marcaNome },
+      rioSel.linhaIds,
+    );
+  }, [clientes, rioSel]);
 
   const rioStats = useMemo(() => treeStats(rioGrupos), [rioGrupos]);
+
+  const persistLayout = useCallback(
+    (nomes: Record<string, string>, pdvPlacements: PdvPlacementOverride[]) => {
+      if (saveLayoutTimer.current) clearTimeout(saveLayoutTimer.current);
+      saveLayoutTimer.current = setTimeout(() => {
+        void fetch(`/api/cadastros/month/${activeYm}/producao-layout`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clienteNomes: nomes, pdvPlacements }),
+        }).catch(() => {});
+      }, 600);
+    },
+    [activeYm],
+  );
 
   const loadAll = useCallback(async (ym: number) => {
     setBusy(true);
     setMsg("");
     try {
-      const stored = localStorage.getItem(overridesStorageKey(ym));
-      if (stored) {
-        try {
-          setOverrides(JSON.parse(stored) as PdvPlacementOverride[]);
-        } catch {
-          setOverrides([]);
-        }
-      } else {
-        setOverrides([]);
-      }
-
-      const [mRes, vRes] = await Promise.all([
+      const [mRes, vRes, layoutRes] = await Promise.all([
         fetch(`/api/rio-planilha/clientes/month/${ym}`),
         fetch(`/api/cadastros/month/${ym}/vinculos`),
+        fetch(`/api/cadastros/month/${ym}/producao-layout`),
       ]);
       const monthData = (await mRes.json()) as RioMonthBundle & { error?: string };
       const vincData = (await vRes.json()) as {
@@ -230,6 +206,13 @@ export function CadastrosGruposPanel() {
           } | null;
         }>;
         error?: string;
+      };
+      const layoutData = (await layoutRes.json()) as {
+        ok?: boolean;
+        layout?: {
+          clienteNomes?: Record<string, string>;
+          pdvPlacements?: PdvPlacementOverride[];
+        };
       };
 
       if (!mRes.ok) throw new Error(monthData.error ?? "month_erro");
@@ -253,25 +236,26 @@ export function CadastrosGruposPanel() {
       setRioGrupos(rioTree);
       setRioExpanded(new Set(rioTree.map((g) => g.id)));
 
-      const linhasForProd: RioLinhaForProducao[] = (monthData.linhas ?? []).map((ln) => {
-        const g = monthData.grupos?.find((x) => x.id === ln.rioGrupoId);
-        const semMarca = !ln.rioGrupoId;
-        return {
-          id: ln.id,
-          nomeFantasia: ln.nomeFantasia,
-          marcaNome: g?.nome ?? ln.grupo?.nome ?? null,
-          semMarca,
-          pdvs: ln.pdvs,
-        };
-      });
+      const linhasForProd: RioLinhaForProducao[] = (monthData.linhas ?? []).map((ln) => ({
+        id: ln.id,
+        nomeFantasia: ln.nomeFantasia,
+        razaoSocial: ln.razaoSocial,
+        documento: ln.documento,
+        pdvs: ln.pdvs,
+      }));
 
-      const prod = buildProducaoHierarchy(linhasForProd, linkMap);
-      setMastersBase(prod);
-      setProdExpanded(new Set(prod.map((m) => m.key)));
+      const prod = buildProducaoClientes(linhasForProd, linkMap);
+      setClientesBase(prod);
+      setProdExpanded(new Set(prod.map((c) => c.key)));
+
+      const nomes = layoutData.layout?.clienteNomes ?? {};
+      const plc = layoutData.layout?.pdvPlacements ?? [];
+      setClienteNomes(nomes);
+      setPlacements(plc);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao carregar.");
       setRioGrupos([]);
-      setMastersBase([]);
+      setClientesBase([]);
     } finally {
       setBusy(false);
     }
@@ -294,128 +278,72 @@ export function CadastrosGruposPanel() {
     void loadAll(activeYm);
   }, [activeYm, loadAll]);
 
-  useEffect(() => {
-    localStorage.setItem(overridesStorageKey(activeYm), JSON.stringify(overrides));
-  }, [overrides, activeYm]);
-
   const filteredRio = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return rioGrupos;
     return rioGrupos
       .map((g) => {
-        const clientes = g.clientes.filter((c) => {
+        const clientesF = g.clientes.filter((c) => {
           const blob = `${g.nome} ${c.nomeFantasia} ${c.pdvs.map((p) => p.nome).join(" ")}`.toLowerCase();
           return blob.includes(needle);
         });
-        if (!clientes.length && !g.nome.toLowerCase().includes(needle)) return null;
-        return { ...g, clientes };
+        if (!clientesF.length && !g.nome.toLowerCase().includes(needle)) return null;
+        return { ...g, clientes: clientesF };
       })
       .filter(Boolean) as ProducaoGrupoNode[];
   }, [rioGrupos, q]);
 
-  async function loadSuggestions(rioPdvId: string) {
-    try {
-      const res = await fetch("/api/cadastros/pdv-link/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rioCompPdvId: rioPdvId }),
-      });
-      const data = (await res.json()) as { suggestions?: Suggestion[] };
-      setSuggestions(data.suggestions ?? []);
-    } catch {
-      setSuggestions([]);
-    }
-  }
-
   function selectRioCliente(grupoId: string, rioLinhaId: string) {
     setRioSel({ tipo: "cliente", rioLinhaId, grupoId });
     setSelProdPdvId(null);
-    setSuggestions([]);
-    const hit = findSubClienteForRioLinha(masters, rioLinhaId);
-    if (hit) {
-      setProdExpanded((prev) => new Set([...prev, hit.master.key, hit.sub.key]));
-    }
+    const hit = findClienteForRioLinha(clientes, rioLinhaId);
+    if (hit) setProdExpanded((prev) => new Set([...prev, hit.key]));
   }
 
-  async function savePainelLink(rioPdvId: string, s: Suggestion) {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/cadastros/pdv-link", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rioCompPdvId: rioPdvId,
-          painelPdvId: s.painelPdvId,
-          painelClienteId: s.painelClienteId,
-          matchMethod: s.matchMethod,
-          verified: true,
-        }),
-      });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "save_erro");
-      await loadAll(activeYm);
-      setMsg("Vínculo com painel legado salvo.");
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao vincular.");
-    } finally {
-      setBusy(false);
-    }
+  function renameCliente(key: string, nome: string) {
+    setClienteNomes((prev) => {
+      const next = { ...prev, [key]: nome };
+      persistLayout(next, placements);
+      return next;
+    });
   }
 
   function onDragStart(ev: DragStartEvent) {
+    if (!editMode) return;
     const pdv = ev.active.data.current?.pdv as ProducaoPdvRef | undefined;
     if (pdv) setDragPdv(pdv);
   }
 
   function onDragEnd(ev: DragEndEvent) {
     setDragPdv(null);
+    if (!editMode) return;
     const pdv = ev.active.data.current?.pdv as ProducaoPdvRef | undefined;
-    const over = ev.over?.data.current as { subKey?: string; programaId?: string } | undefined;
-    const subKey = over?.subKey;
-    const programaId = over?.programaId;
-    if (!pdv || !subKey || !programaId) return;
+    const clienteKey = ev.over?.data.current?.clienteKey as string | undefined;
+    if (!pdv || !clienteKey) return;
 
-    setOverrides((prev) => {
+    setPlacements((prev) => {
       const rest = prev.filter((o) => o.rioPdvId !== pdv.rioPdvId);
-      return [
-        ...rest,
-        {
-          rioPdvId: pdv.rioPdvId,
-          targetSubKey: subKey,
-          targetProgramaId: programaId,
-        },
-      ];
+      const next = [...rest, { rioPdvId: pdv.rioPdvId, targetClienteKey: clienteKey }];
+      persistLayout(clienteNomes, next);
+      return next;
     });
-    setMsg(`PDV «${pdv.nome}» movido na produção (arraste salvo neste navegador).`);
+    setMsg(`PDV «${pdv.nome}» movido para outro cliente na produção.`);
   }
 
-  const selectedPdv = useMemo(() => {
-    if (!selProdPdvId) return null;
-    for (const m of masters) {
-      for (const s of m.subClientes) {
-        for (const pr of s.programas) {
-          const p = pr.pdvs.find((x) => x.rioPdvId === selProdPdvId);
-          if (p) return { master: m, sub: s, programa: pr, pdv: p };
-        }
-      }
-    }
-    return null;
-  }, [masters, selProdPdvId]);
+  const prodPdvCount = clientes.reduce((n, c) => n + c.pdvCount, 0);
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <div className="flex h-[calc(100vh-7rem)] min-h-[560px] flex-col">
         <header className="mb-2 shrink-0 px-1">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-            Cadastros
-          </p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Cadastros</p>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Rio (cobrança) × Produção
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-            <strong>Esquerda:</strong> hierarquia da Planilha Rio (só leitura).{" "}
-            <strong>Direita:</strong> cliente master → sub-cliente → programa → PDVs — agrupamento
-            automático (Hering, Reserva, Agilita…). Arraste PDVs na produção para reorganizar.
+            <strong>Esquerda:</strong> Planilha Rio (só leitura, com marcas).{" "}
+            <strong>Direita:</strong> cliente → PDVs (sem marca). Cliente sem PDV na Rio vira um PDV
+            na produção.
           </p>
         </header>
 
@@ -438,18 +366,9 @@ export function CadastrosGruposPanel() {
             onChange={(e) => setQ(e.target.value)}
           />
           <span className="text-[11px] text-slate-500">
-            Rio: {rioStats.grupos} marcas · {rioStats.pdvs} PDVs · Produção: {masters.length}{" "}
-            masters
+            Rio: {rioStats.grupos} marcas · {rioStats.pdvs} PDVs · Produção: {clientes.length}{" "}
+            clientes · {prodPdvCount} PDVs
           </span>
-          {overrides.length > 0 ?
-            <button
-              type="button"
-              className="text-[11px] text-violet-700 underline"
-              onClick={() => setOverrides([])}
-            >
-              Limpar arrastes ({overrides.length})
-            </button>
-          : null}
         </div>
 
         {msg ?
@@ -459,32 +378,28 @@ export function CadastrosGruposPanel() {
         : null}
 
         <div className="flex min-h-0 flex-1 gap-0 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
-          {/* —— Planilha Rio (cobrança) —— */}
+          {/* Planilha Rio */}
           <div className="flex w-1/2 min-w-0 flex-col border-r border-slate-200 bg-[#FAFAF7] dark:border-slate-700 dark:bg-slate-950">
             <div className="border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
               <p className="text-[9px] font-bold uppercase tracking-widest text-[#C4146A]">
                 Planilha Rio · cobrança
               </p>
-              <p className="text-xs text-slate-500">Marca → cliente CA → PDV (não edita)</p>
+              <p className="text-xs text-slate-500">Marca → cliente → PDV (somente leitura)</p>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
               {filteredRio.length === 0 ?
-                <p className="p-4 text-center text-sm text-slate-500">
-                  {busy ? "Carregando…" : "Sem dados."}
-                </p>
+                <p className="p-4 text-center text-sm text-slate-500">{busy ? "Carregando…" : "Sem dados."}</p>
               : filteredRio.map((g) => {
                   const icon = grupoIconStyle(g.nome);
                   const gOpen = rioExpanded.has(g.id);
                   return (
-                    <div key={g.id} className="mb-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                    <div
+                      key={g.id}
+                      className="mb-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                    >
                       <button
                         type="button"
-                        className={
-                          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold " +
-                          (rioSel?.tipo === "marca" && rioSel.grupoId === g.id ?
-                            "bg-pink-50 dark:bg-pink-950/30"
-                          : "bg-pink-50/60 dark:bg-pink-950/10")
-                        }
+                        className="flex w-full items-center gap-2 bg-pink-50/60 px-3 py-2 text-left text-sm font-bold dark:bg-pink-950/10"
                         onClick={() => {
                           setRioExpanded((p) => {
                             const n = new Set(p);
@@ -492,7 +407,12 @@ export function CadastrosGruposPanel() {
                             else n.add(g.id);
                             return n;
                           });
-                          setRioSel({ tipo: "marca", grupoId: g.id, marcaNome: g.nome });
+                          setRioSel({
+                            tipo: "marca",
+                            grupoId: g.id,
+                            marcaNome: g.nome,
+                            linhaIds: g.clientes.map((c) => c.id),
+                          });
                         }}
                       >
                         <span className="text-slate-400">{gOpen ? "▾" : "▸"}</span>
@@ -510,8 +430,7 @@ export function CadastrosGruposPanel() {
                       {gOpen ?
                         g.clientes.map((c) => {
                           const cOpen = rioClienteOpen.has(c.id);
-                          const active =
-                            rioSel?.tipo !== "marca" && rioSel?.rioLinhaId === c.id;
+                          const active = rioSel?.tipo === "cliente" && rioSel.rioLinhaId === c.id;
                           return (
                             <div key={c.id} className="border-t border-slate-100 dark:border-slate-800">
                               <button
@@ -519,7 +438,7 @@ export function CadastrosGruposPanel() {
                                 className={
                                   "flex w-full items-center gap-2 py-2 pl-8 pr-3 text-left text-sm font-semibold " +
                                   (active ?
-                                    "border-l-[3px] border-l-[#C4146A] bg-pink-50/50 pl-[29px] dark:bg-pink-950/20"
+                                    "border-l-[3px] border-l-[#C4146A] bg-pink-50/50 pl-[29px]"
                                   : "hover:bg-slate-50 dark:hover:bg-slate-800/40")
                                 }
                                 onClick={() => {
@@ -532,9 +451,7 @@ export function CadastrosGruposPanel() {
                                   selectRioCliente(g.id, c.id);
                                 }}
                               >
-                                <span className="text-[10px] text-slate-400">
-                                  {cOpen ? "▾" : "▸"}
-                                </span>
+                                <span className="text-[10px] text-slate-400">{cOpen ? "▾" : "▸"}</span>
                                 <span className="flex-1 truncate">{c.nomeFantasia}</span>
                                 <span className="text-[10px] text-slate-400">
                                   {c.linkedCount}/{c.pdvs.length}
@@ -544,7 +461,7 @@ export function CadastrosGruposPanel() {
                                 c.pdvs.map((p) => (
                                   <div
                                     key={p.id}
-                                    className="border-t border-slate-50 py-1.5 pl-14 pr-3 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-400"
+                                    className="border-t border-slate-50 py-1.5 pl-14 pr-3 text-xs text-slate-600 dark:border-slate-800"
                                   >
                                     📻 {p.nome}
                                   </div>
@@ -561,136 +478,90 @@ export function CadastrosGruposPanel() {
             </div>
           </div>
 
-          {/* —— Produção musical —— */}
+          {/* Produção musical */}
           <div className="flex w-1/2 min-w-0 flex-col bg-white dark:bg-slate-900">
-            <div className="border-b border-slate-200 px-3 py-2 dark:border-slate-700">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-violet-700 dark:text-violet-300">
-                Produção musical
-              </p>
-              <p className="text-xs text-slate-500">
-                Master → cliente → programa → PDVs · arraste ⠿ para mover
-              </p>
+            <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-violet-700 dark:text-violet-300">
+                  Produção musical
+                </p>
+                <p className="text-xs text-slate-500">Cliente → PDVs (sem marca Rio)</p>
+              </div>
+              <button
+                type="button"
+                className={
+                  "rounded-md px-3 py-1.5 text-xs font-semibold " +
+                  (editMode ?
+                    "bg-violet-700 text-white"
+                  : "border border-violet-300 text-violet-800 dark:border-violet-600 dark:text-violet-200")
+                }
+                onClick={() => setEditMode((v) => !v)}
+              >
+                {editMode ? "Edição ativa" : "Editar produção"}
+              </button>
             </div>
             <div className="flex min-h-0 flex-1">
               <div className="min-w-0 flex-1 overflow-y-auto p-3">
-                {mastersFiltered.length === 0 ?
-                  <p className="text-sm text-slate-500">Nenhum master neste filtro.</p>
-                : mastersFiltered.map((m) => {
-                    const mOpen = prodExpanded.has(m.key);
-                    const highlightMaster =
-                      rioSel &&
-                      m.subClientes.some((s) =>
-                        rioSel.tipo !== "marca" ?
-                          s.rioLinhaIds.includes(rioSel.rioLinhaId)
-                        : s.marcaRio && s.marcaRio === rioSel.marcaNome,
-                      );
+                {clientesFiltered.length === 0 ?
+                  <p className="text-sm text-slate-500">Nenhum cliente neste filtro.</p>
+                : clientesFiltered.map((c) => {
+                    const cOpen = prodExpanded.has(c.key);
+                    const highlight =
+                      rioSel?.tipo === "cliente" && rioSel.rioLinhaId === c.rioLinhaId;
                     return (
                       <div
-                        key={m.key}
+                        key={c.key}
                         className={
                           "mb-3 overflow-hidden rounded-lg border " +
-                          (highlightMaster ?
+                          (highlight ?
                             "border-violet-300 dark:border-violet-600"
                           : "border-slate-200 dark:border-slate-700")
                         }
                       >
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-2 bg-violet-50 px-3 py-2.5 text-left font-bold text-slate-900 dark:bg-violet-950/30 dark:text-white"
-                          onClick={() =>
-                            setProdExpanded((p) => {
-                              const n = new Set(p);
-                              if (n.has(m.key)) n.delete(m.key);
-                              else n.add(m.key);
-                              return n;
-                            })
+                        <div className="flex items-center gap-2 bg-violet-50 px-3 py-2 dark:bg-violet-950/30">
+                          <button
+                            type="button"
+                            className="text-slate-400"
+                            onClick={() =>
+                              setProdExpanded((p) => {
+                                const n = new Set(p);
+                                if (n.has(c.key)) n.delete(c.key);
+                                else n.add(c.key);
+                                return n;
+                              })
+                            }
+                          >
+                            {cOpen ? "▾" : "▸"}
+                          </button>
+                          {editMode ?
+                            <input
+                              className="min-w-0 flex-1 rounded border border-violet-200 bg-white px-2 py-1 text-sm font-bold dark:border-violet-700 dark:bg-slate-900"
+                              value={c.nome}
+                              onChange={(e) => renameCliente(c.key, e.target.value)}
+                            />
+                          : <span className="flex-1 text-sm font-bold text-slate-900 dark:text-white">
+                              {c.nome}
+                            </span>
                           }
-                        >
-                          <span className="text-slate-400">{mOpen ? "▾" : "▸"}</span>
-                          <span>🏢</span>
-                          <span className="flex-1">{m.nome}</span>
-                          <span className="text-[10px] font-normal text-slate-500">
-                            {m.subClientes.length} sub · {m.pdvCount} PDV
-                          </span>
-                        </button>
-                        {mOpen ?
-                          m.subClientes.map((s) => {
-                            const badge = origemBadge(s.rioOrigem);
-                            const subOpen = prodExpanded.has(s.key);
-                            const highlightSub =
-                              rioSel?.tipo !== "marca" &&
-                              rioSel?.rioLinhaId &&
-                              s.rioLinhaIds.includes(rioSel.rioLinhaId);
-                            return (
-                              <div
-                                key={s.key}
-                                className={
-                                  "border-t border-slate-100 dark:border-slate-800 " +
-                                  (highlightSub ? "bg-violet-50/40 dark:bg-violet-950/20" : "")
-                                }
-                              >
-                                <button
-                                  type="button"
-                                  className="flex w-full items-start gap-2 px-3 py-2 pl-6 text-left"
-                                  onClick={() =>
-                                    setProdExpanded((p) => {
-                                      const n = new Set(p);
-                                      if (n.has(s.key)) n.delete(s.key);
-                                      else n.add(s.key);
-                                      return n;
-                                    })
-                                  }
-                                >
-                                  <span className="mt-0.5 text-[10px] text-slate-400">
-                                    {subOpen ? "▾" : "▸"}
-                                  </span>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                      {s.nome}
-                                    </div>
-                                    <div className="mt-0.5 flex flex-wrap gap-1">
-                                      <span
-                                        className={
-                                          "rounded px-1.5 py-0.5 text-[9px] font-bold uppercase " +
-                                          badge.className
-                                        }
-                                      >
-                                        {badge.label}
-                                      </span>
-                                      {s.marcaRio ?
-                                        <span className="text-[9px] text-slate-400">
-                                          marca Rio: {s.marcaRio}
-                                        </span>
-                                      : null}
-                                    </div>
-                                  </div>
-                                  <span className="text-[10px] text-slate-400">{s.pdvCount}</span>
-                                </button>
-                                {subOpen ?
-                                  s.programas.map((pr) => (
-                                    <ProgramaDropZone key={pr.id} sub={s} programa={pr}>
-                                      {pr.pdvs.length === 0 ?
-                                        <p className="text-[10px] italic text-slate-400">
-                                          Solte PDVs aqui
-                                        </p>
-                                      : pr.pdvs.map((pdv) => (
-                                          <DraggableProdPdv
-                                            key={pdv.rioPdvId}
-                                            pdv={pdv}
-                                            selected={selProdPdvId === pdv.rioPdvId}
-                                            onSelect={() => {
-                                              setSelProdPdvId(pdv.rioPdvId);
-                                              void loadSuggestions(pdv.rioPdvId);
-                                            }}
-                                          />
-                                        ))
-                                      }
-                                    </ProgramaDropZone>
-                                  ))
-                                : null}
-                              </div>
-                            );
-                          })
+                          <span className="text-[10px] text-slate-500">{c.pdvCount} PDV</span>
+                        </div>
+                        {cOpen ?
+                          <ClienteDropZone cliente={c} editMode={editMode}>
+                            {c.pdvs.length === 0 ?
+                              <p className="text-[10px] italic text-slate-400">
+                                {editMode ? "Solte PDVs aqui" : "Sem PDVs"}
+                              </p>
+                            : c.pdvs.map((pdv) => (
+                                <DraggableProdPdv
+                                  key={pdv.rioPdvId}
+                                  pdv={pdv}
+                                  editMode={editMode}
+                                  selected={selProdPdvId === pdv.rioPdvId}
+                                  onSelect={() => setSelProdPdvId(pdv.rioPdvId)}
+                                />
+                              ))
+                            }
+                          </ClienteDropZone>
                         : null}
                       </div>
                     );
@@ -698,45 +569,11 @@ export function CadastrosGruposPanel() {
                 }
               </div>
 
-              {/* Painel vínculo legado */}
-              {selectedPdv ?
-                <div className="w-[200px] shrink-0 overflow-y-auto border-l border-slate-200 p-2 dark:border-slate-700">
-                  <p className="text-[9px] font-bold uppercase text-slate-400">Painel legado</p>
-                  <p className="text-xs font-semibold">{selectedPdv.pdv.nome}</p>
-                  <p className="text-[10px] text-slate-500">
-                    CNPJ {displayBrazilianTaxId(selectedPdv.pdv.documento)}
-                  </p>
-                  {selectedPdv.pdv.painelLink ?
-                    <div className="mt-2 rounded border border-emerald-200 bg-emerald-50 p-2 text-[10px] dark:border-emerald-900 dark:bg-emerald-950/40">
-                      #{selectedPdv.pdv.painelLink.painelPdvId}
-                      <a
-                        href={painelPdvEditUrl(
-                          selectedPdv.pdv.painelLink.painelPdvId,
-                          selectedPdv.pdv.painelLink.painelClienteId,
-                        )}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-1 block text-sky-700 hover:underline"
-                      >
-                        Abrir ↗
-                      </a>
-                    </div>
-                  : <div className="mt-2 space-y-1">
-                      {suggestions.slice(0, 4).map((s) => (
-                        <button
-                          key={s.painelPdvId}
-                          type="button"
-                          disabled={busy}
-                          className="w-full rounded border border-violet-200 bg-violet-50 px-1.5 py-1 text-left text-[10px] hover:bg-violet-100"
-                          onClick={() => void savePainelLink(selectedPdv.pdv.rioPdvId, s)}
-                        >
-                          {s.score}% {s.painelPdvNome}
-                        </button>
-                      ))}
-                    </div>
-                  }
-                </div>
-              : null}
+              <PdvCadastroDrawer
+                rioPdvKey={selProdPdvId}
+                editMode={editMode}
+                onClose={() => setSelProdPdvId(null)}
+              />
             </div>
           </div>
         </div>
