@@ -34,8 +34,10 @@ import {
   buildProducaoClientes,
   clientesForRioSelection,
   countHiddenEmptyClientes,
+  collectEmptyRioShellKeys,
   countProducaoMusicalPdvs,
   countRioPlanilhaPdvs,
+  filterProducaoClientesVisiveis,
   findClienteForRioLinha,
   isCustomClienteKey,
   mergeProducaoLayout,
@@ -207,17 +209,25 @@ export function CadastrosGruposPanel() {
     [clientesBase, layoutState],
   );
 
+  const clientesVisiveis = useMemo(
+    () => filterProducaoClientesVisiveis(clientes, { keepEmptyCustom: editMode }),
+    [clientes, editMode],
+  );
+
   const clientesFiltered = useMemo(() => {
-    if (!rioSel) return clientes;
+    if (!rioSel) return clientesVisiveis;
     if (rioSel.tipo === "cliente") {
-      return clientesForRioSelection(clientes, { tipo: "cliente", rioLinhaId: rioSel.rioLinhaId });
+      return clientesForRioSelection(clientesVisiveis, {
+        tipo: "cliente",
+        rioLinhaId: rioSel.rioLinhaId,
+      });
     }
     return clientesForRioSelection(
-      clientes,
+      clientesVisiveis,
       { tipo: "marca", marcaNome: rioSel.marcaNome },
       rioSel.linhaIds,
     );
-  }, [clientes, rioSel]);
+  }, [clientesVisiveis, rioSel]);
 
   const rioSelLabel = useMemo(() => {
     if (!rioSel) return null;
@@ -337,9 +347,12 @@ export function CadastrosGruposPanel() {
         acknowledgedPdvs: layoutData.layout?.acknowledgedPdvs ?? [],
       };
       const reconciled = reconcileProducaoLayout(linhasForProd, rawLayout);
+      const shellsOnLoad = collectEmptyRioShellKeys(
+        mergeProducaoLayout(prod, reconciled, { showHidden: true }),
+      );
       setClienteNomes(reconciled.clienteNomes);
       setPlacements(reconciled.pdvPlacements);
-      setHiddenClienteKeys(reconciled.hiddenClienteKeys);
+      setHiddenClienteKeys([...new Set([...reconciled.hiddenClienteKeys, ...shellsOnLoad])]);
       setCustomClientes(reconciled.customClientes);
       setAcknowledgedPdvs(reconciled.acknowledgedPdvs ?? []);
       setShowHiddenGroups(false);
@@ -506,9 +519,19 @@ export function CadastrosGruposPanel() {
     ];
     const nextHidden = hiddenClienteKeys.filter((k) => k !== clienteKey);
     const nextAck = [...new Set([...acknowledgedPdvs, pdv.rioPdvId])];
-    applyLayoutChange({
+    const nextLayout: ProducaoLayoutState = {
+      clienteNomes,
       pdvPlacements: nextPlacements,
       hiddenClienteKeys: nextHidden,
+      customClientes,
+      acknowledgedPdvs: nextAck,
+    };
+    const mergedAfter = mergeProducaoLayout(clientesBase, nextLayout, { showHidden: true });
+    const shellHidden = collectEmptyRioShellKeys(mergedAfter);
+    const hiddenMerged = [...new Set([...nextHidden, ...shellHidden])];
+    applyLayoutChange({
+      pdvPlacements: nextPlacements,
+      hiddenClienteKeys: hiddenMerged,
       acknowledgedPdvs: nextAck,
     });
     setMsg(`PDV «${pdv.nome}» movido para «${clientes.find((c) => c.key === clienteKey)?.nome ?? "grupo"}».`);

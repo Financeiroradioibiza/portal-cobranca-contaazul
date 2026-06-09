@@ -299,3 +299,26 @@ export function countProducaoMusicalPdvs(clientes: ProducaoClienteBucket[]): num
   }
   return ids.size;
 }
+
+/** Bucket Rio esvaziado após arrastar PDVs para outro grupo. */
+export function isEmptyRioShellBucket(c: ProducaoClienteBucket): boolean {
+  if (c.pdvCount > 0) return false;
+  if (c.isCustom || isCustomClienteKey(c.key)) return false;
+  return true;
+}
+
+/** Lista só grupos com PDV; em edição mantém grupos manuais vazios (alvo de arraste). */
+export function filterProducaoClientesVisiveis(
+  clientes: ProducaoClienteBucket[],
+  opts?: { keepEmptyCustom?: boolean },
+): ProducaoClienteBucket[] {
+  return clientes.filter((c) => {
+    if (c.pdvCount > 0) return true;
+    if (opts?.keepEmptyCustom && (c.isCustom || isCustomClienteKey(c.key))) return true;
+    return false;
+  });
+}
+
+export function collectEmptyRioShellKeys(clientes: ProducaoClienteBucket[]): string[] {
+  return clientes.filter(isEmptyRioShellBucket).map((c) => c.key);
+}
