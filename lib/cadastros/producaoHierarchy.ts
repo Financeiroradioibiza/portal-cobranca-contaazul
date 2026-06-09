@@ -37,6 +37,7 @@ export type ProducaoClienteBucket = {
 
 export type RioLinhaForProducao = {
   id: string;
+  caPersonId?: string;
   nomeFantasia: string;
   razaoSocial?: string;
   documento?: string | null;
@@ -52,6 +53,8 @@ export type RioLinhaForProducao = {
 export type PdvPlacementOverride = {
   rioPdvId: string;
   targetClienteKey: string;
+  /** ID estável CA — permite remapear após edições na Planilha Rio. */
+  caPersonId?: string;
 };
 
 export type ProducaoCustomCliente = {

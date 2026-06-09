@@ -316,6 +316,7 @@ export function CadastrosGruposPanel() {
 
       const linhasForProd: RioLinhaForProducao[] = (monthData.linhas ?? []).map((ln) => ({
         id: ln.id,
+        caPersonId: (ln as { caPersonId?: string }).caPersonId,
         nomeFantasia: ln.nomeFantasia,
         razaoSocial: ln.razaoSocial,
         documento: ln.documento,
@@ -343,17 +344,6 @@ export function CadastrosGruposPanel() {
       setCustomClientes(reconciled.customClientes);
       setAcknowledgedPdvs(reconciled.acknowledgedPdvs ?? []);
       setShowHiddenGroups(false);
-
-      const layoutChanged =
-        JSON.stringify(reconciled.pdvPlacements) !== JSON.stringify(rawLayout.pdvPlacements) ||
-        JSON.stringify(reconciled.acknowledgedPdvs) !== JSON.stringify(rawLayout.acknowledgedPdvs);
-      if (layoutChanged) {
-        void fetch(`/api/cadastros/month/${ym}/producao-layout`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(reconciled),
-        });
-      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao carregar.");
       setRioGrupos([]);
@@ -452,12 +442,21 @@ export function CadastrosGruposPanel() {
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
-        result?: { movedCount: number; heringGroupKey: string; keptWithPdvs: string[] };
+        result?: {
+          movedCount: number;
+          heringGroupKey: string;
+          keptWithPdvs: string[];
+          remappedCount?: number;
+        };
       };
       if (!res.ok || !data.ok || !data.result) throw new Error(data.error ?? "erro");
+      const remapped =
+        data.result.remappedCount ?
+          ` ${data.result.remappedCount} vínculo(s) remapeado(s).`
+        : "";
       setMsg(
         `${data.result.movedCount} Hering de um ponto agrupadas em HERING. ` +
-          `${data.result.keptWithPdvs.length} linhas com PDVs mantidas separadas.`,
+          `${data.result.keptWithPdvs.length} linhas com PDVs mantidas separadas.${remapped}`,
       );
       await loadAll(activeYm);
       setProdExpanded((prev) => new Set([...prev, data.result!.heringGroupKey]));
@@ -497,9 +496,14 @@ export function CadastrosGruposPanel() {
     const clienteKey = ev.over?.data.current?.clienteKey as string | undefined;
     if (!pdv || !clienteKey) return;
 
+    const linha = linhasRio.find((l) => l.id === pdv.rioLinhaId);
     const nextPlacements = [
       ...placements.filter((o) => o.rioPdvId !== pdv.rioPdvId),
-      { rioPdvId: pdv.rioPdvId, targetClienteKey: clienteKey },
+      {
+        rioPdvId: pdv.rioPdvId,
+        targetClienteKey: clienteKey,
+        ...(linha?.caPersonId ? { caPersonId: linha.caPersonId } : {}),
+      },
     ];
     const nextHidden = hiddenClienteKeys.filter((k) => k !== clienteKey);
     const nextAck = [...new Set([...acknowledgedPdvs, pdv.rioPdvId])];

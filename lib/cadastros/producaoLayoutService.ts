@@ -29,6 +29,7 @@ function asPlacements(v: unknown): PdvPlacementOverride[] {
     .map((x) => ({
       rioPdvId: typeof x.rioPdvId === "string" ? x.rioPdvId : "",
       targetClienteKey: typeof x.targetClienteKey === "string" ? x.targetClienteKey : "",
+      caPersonId: typeof x.caPersonId === "string" ? x.caPersonId : undefined,
     }))
     .filter((x) => x.rioPdvId && x.targetClienteKey);
 }

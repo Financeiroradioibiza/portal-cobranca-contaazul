@@ -44,6 +44,7 @@ export type RioMonthBundle = {
     razaoSocial: string;
     documento: string | null;
     origemCliente: string;
+    caPersonId?: string;
     movimento?: string;
     grupo?: { id: string; nome: string } | null;
     pdvs: Array<{

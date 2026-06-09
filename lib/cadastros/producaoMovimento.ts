@@ -1,5 +1,6 @@
 import {
   linhaAsPdvKey,
+  type PdvPlacementOverride,
   type ProducaoClienteBucket,
   type ProducaoLayoutState,
   type ProducaoPdvRef,
@@ -55,13 +56,39 @@ export function collectActiveRioPdvIds(linhas: RioLinhaForProducao[]): Set<strin
   return ids;
 }
 
-/** Remove arrastes obsoletos e garante acknowledged para PDVs já posicionados. */
+/** Reatacha `linha:{id}` antigos via `caPersonId` quando a Rio recria linhas. */
+export function remapPlacementsByCaPerson(
+  linhas: RioLinhaForProducao[],
+  placements: PdvPlacementOverride[],
+): PdvPlacementOverride[] {
+  const caToProxy = new Map<string, string>();
+
+  for (const ln of linhas) {
+    const ca = ln.caPersonId?.trim();
+    if (!ca || ln.movimento === "saida") continue;
+    const active = ln.pdvs.filter((p) => p.movimento !== "saida");
+    if (active.length === 0) {
+      caToProxy.set(ca, linhaAsPdvKey(ln.id));
+    }
+  }
+
+  return placements.map((p) => {
+    const ca = p.caPersonId?.trim();
+    if (!ca) return p;
+    const proxy = caToProxy.get(ca);
+    if (proxy && proxy !== p.rioPdvId) return { ...p, rioPdvId: proxy };
+    return p;
+  });
+}
+
+/** Remapeia IDs estáveis; não grava no banco sozinho (evita apagar layout ao abrir a tela). */
 export function reconcileProducaoLayout(
   linhas: RioLinhaForProducao[],
   layout: ProducaoLayoutState,
 ): ProducaoLayoutState {
+  const remapped = remapPlacementsByCaPerson(linhas, layout.pdvPlacements);
   const activeIds = collectActiveRioPdvIds(linhas);
-  const pdvPlacements = layout.pdvPlacements.filter((p) => activeIds.has(p.rioPdvId));
+  const pdvPlacements = remapped.filter((p) => activeIds.has(p.rioPdvId));
   const ack = acknowledgedSet({ ...layout, pdvPlacements });
   return {
     ...layout,

@@ -3,7 +3,9 @@ import {
   CUSTOM_CLIENTE_PREFIX,
   linhaAsPdvKey,
   newCustomClienteKey,
+  type PdvPlacementOverride,
 } from "@/lib/cadastros/producaoHierarchy";
+import { remapPlacementsByCaPerson } from "@/lib/cadastros/producaoMovimento";
 import { getProducaoLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 
 function isHeringNome(nomeFantasia: string, razaoSocial: string): boolean {
@@ -17,6 +19,7 @@ export type GroupHeringResult = {
   movedCount: number;
   movedNames: string[];
   keptWithPdvs: string[];
+  remappedCount: number;
 };
 
 /** Move clientes Hering sem PDVs Rio para o grupo manual HERING na produção. */
@@ -33,7 +36,22 @@ export async function groupHeringSinglePointPdvs(yearMonth: number): Promise<Gro
 
   if (!month) throw new Error("month_not_found");
 
-  const singlePoint: Array<{ proxyKey: string; nome: string }> = [];
+  const linhasForProd = month.linhas.map((ln) => ({
+    id: ln.id,
+    caPersonId: ln.caPersonId,
+    nomeFantasia: ln.nomeFantasia,
+    razaoSocial: ln.razaoSocial,
+    documento: ln.documento,
+    movimento: ln.movimento,
+    pdvs: ln.pdvs.map((p) => ({
+      id: p.id,
+      nome: p.nome,
+      documento: p.documento,
+      movimento: p.movimento,
+    })),
+  }));
+
+  const singlePoint: Array<{ proxyKey: string; nome: string; caPersonId: string }> = [];
   const keptWithPdvs: string[] = [];
 
   for (const ln of month.linhas) {
@@ -42,7 +60,11 @@ export async function groupHeringSinglePointPdvs(yearMonth: number): Promise<Gro
     const activePdvs = ln.pdvs.filter((p) => p.movimento !== "saida");
     const nome = ln.nomeFantasia.trim() || ln.razaoSocial.trim() || ln.id;
     if (activePdvs.length === 0) {
-      singlePoint.push({ proxyKey: linhaAsPdvKey(ln.id), nome });
+      singlePoint.push({
+        proxyKey: linhaAsPdvKey(ln.id),
+        nome,
+        caPersonId: ln.caPersonId,
+      });
     } else {
       keptWithPdvs.push(`${nome} (${activePdvs.length} PDV)`);
     }
@@ -66,16 +88,30 @@ export async function groupHeringSinglePointPdvs(yearMonth: number): Promise<Gro
     clienteNomes[heringKey] = "HERING";
   }
 
-  const proxyKeys = new Set(singlePoint.map((x) => x.proxyKey));
-  const pdvPlacements = [
-    ...layout.pdvPlacements.filter((p) => !proxyKeys.has(p.rioPdvId)),
-    ...singlePoint.map((x) => ({ rioPdvId: x.proxyKey, targetClienteKey: heringKey })),
-  ];
+  const remappedBefore = remapPlacementsByCaPerson(linhasForProd, layout.pdvPlacements);
+  const remappedCount = remappedBefore.filter(
+    (p, i) => p.rioPdvId !== layout.pdvPlacements[i]?.rioPdvId,
+  ).length;
+
+  const singleCa = new Set(singlePoint.map((x) => x.caPersonId));
+  const pdvPlacements = remappedBefore.filter(
+    (p) => !(p.caPersonId && singleCa.has(p.caPersonId)),
+  );
+
+  for (const item of singlePoint) {
+    pdvPlacements.push({
+      rioPdvId: item.proxyKey,
+      targetClienteKey: heringKey,
+      caPersonId: item.caPersonId,
+    });
+  }
+  const hiddenClienteKeys = layout.hiddenClienteKeys.filter((k) => k !== heringKey);
 
   await saveProducaoLayout(yearMonth, {
     clienteNomes,
     customClientes,
     pdvPlacements,
+    hiddenClienteKeys,
   });
 
   return {
@@ -84,5 +120,6 @@ export async function groupHeringSinglePointPdvs(yearMonth: number): Promise<Gro
     movedCount: singlePoint.length,
     movedNames: singlePoint.map((x) => x.nome),
     keptWithPdvs,
+    remappedCount,
   };
 }
