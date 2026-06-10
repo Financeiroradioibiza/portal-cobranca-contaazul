@@ -55,10 +55,17 @@ export async function PUT(request: Request) {
     return NextResponse.json({ ok: true, link, cadastroImport });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro";
+    const conflict =
+      e && typeof e === "object" && "conflict" in e
+        ? (e as { conflict?: unknown }).conflict
+        : undefined;
     const status =
       msg === "rio_pdv_not_found" ? 404
       : msg.startsWith("painel_") ? 400
       : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status });
+    return NextResponse.json(
+      { ok: false, error: msg, ...(conflict ? { conflict } : {}) },
+      { status },
+    );
   }
 }

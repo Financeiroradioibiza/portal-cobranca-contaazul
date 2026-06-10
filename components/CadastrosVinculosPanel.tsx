@@ -63,6 +63,26 @@ function linkFromSuggestion(rioPdvId: string, s: Suggestion): VinculoLink {
   };
 }
 
+type PainelLinkConflict = {
+  painelPdvId: number;
+  existingRioPdvNome: string;
+  painelPdvNome: string | null;
+};
+
+function formatVinculoLinkError(
+  error?: string,
+  conflict?: PainelLinkConflict,
+): string {
+  if (error === "painel_pdv_ja_vinculado") {
+    const painel =
+      conflict?.painelPdvNome?.trim()
+      || (conflict?.painelPdvId != null ? `PDV #${conflict.painelPdvId}` : "PDV do painel");
+    const rio = conflict?.existingRioPdvNome?.trim() || "outro PDV Rio";
+    return `«${painel}» já está vinculado a «${rio}».`;
+  }
+  return error ?? "Erro ao salvar vínculo.";
+}
+
 async function parseApiJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   try {
@@ -229,13 +249,20 @@ export function CadastrosVinculosPanel() {
       prev.map((r) => (r.rioPdvId === rioPdvId ? { ...r, link } : r)),
     );
     setRowSuggestions((prev) => {
-      const next = { ...prev };
-      delete next[rioPdvId];
-      return next;
-    });
-    setLinkSelected((prev) => {
-      const next = { ...prev };
-      delete next[rioPdvId];
+      const next: Record<string, Suggestion[]> = {};
+      for (const [id, list] of Object.entries(prev)) {
+        if (id === rioPdvId) continue;
+        const filtered = list.filter((s) => s.painelPdvId !== link.painelPdvId);
+        if (filtered.length > 0) next[id] = filtered;
+      }
+      setLinkSelected((sel) => {
+        const selNext = { ...sel };
+        delete selNext[rioPdvId];
+        for (const id of Object.keys(selNext)) {
+          if (!(id in next)) delete selNext[id];
+        }
+        return selNext;
+      });
       return next;
     });
     setStats((s) => ({
@@ -332,6 +359,7 @@ export function CadastrosVinculosPanel() {
       const data = await parseApiJson<{
         ok?: boolean;
         error?: string;
+        conflict?: PainelLinkConflict;
         link?: {
           id: string;
           painelPdvId: number;
@@ -343,7 +371,9 @@ export function CadastrosVinculosPanel() {
         };
         cadastroImport?: { imported?: boolean; source?: string; fields?: string[] };
       }>(res);
-      if (!res.ok || !data.ok || !data.link) throw new Error(data.error ?? "save_erro");
+      if (!res.ok || !data.ok || !data.link) {
+        throw new Error(formatVinculoLinkError(data.error, data.conflict));
+      }
       setSuggestFor(null);
       setManualOpen(null);
       applyLinkLocally(rioPdvId, linkFromApi({
@@ -420,6 +450,7 @@ export function CadastrosVinculosPanel() {
           const data = await parseApiJson<{
             ok?: boolean;
             error?: string;
+            conflict?: PainelLinkConflict;
             link?: {
               id: string;
               painelPdvId: number;
@@ -432,7 +463,7 @@ export function CadastrosVinculosPanel() {
             cadastroImport?: { imported?: boolean };
           }>(res);
           if (!res.ok || !data.ok || !data.link) {
-            throw new Error(data.error ?? "save_erro");
+            throw new Error(formatVinculoLinkError(data.error, data.conflict));
           }
 
           applyLinkLocally(

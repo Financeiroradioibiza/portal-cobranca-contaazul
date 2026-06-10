@@ -339,7 +339,7 @@ model PainelPdvLink {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  @@index([painelPdvId])
+  @@unique([painelPdvId])
   @@map("painel_pdv_link")
 }
 

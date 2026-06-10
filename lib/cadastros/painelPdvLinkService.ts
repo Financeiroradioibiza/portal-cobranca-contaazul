@@ -12,6 +12,61 @@ import {
 import { importProducaoCadastroFromPainel } from "@/lib/cadastros/painelPdvCadastroImport";
 import { csvGetPdvByPainelId } from "@/lib/radioPainel/exportClientesCsv";
 
+export type PainelPdvLinkConflict = {
+  painelPdvId: number;
+  existingRioCompPdvId: string;
+  existingRioPdvNome: string;
+  painelPdvNome: string | null;
+};
+
+export async function findPainelPdvLinkConflict(
+  painelPdvId: number,
+  exceptRioCompPdvId: string,
+): Promise<PainelPdvLinkConflict | null> {
+  const existing = await prisma.painelPdvLink.findFirst({
+    where: {
+      painelPdvId,
+      rioCompPdvId: { not: exceptRioCompPdvId },
+    },
+    include: {
+      rioCompPdv: { select: { id: true, nome: true } },
+    },
+  });
+  if (!existing) return null;
+  return {
+    painelPdvId: existing.painelPdvId,
+    existingRioCompPdvId: existing.rioCompPdv.id,
+    existingRioPdvNome: existing.rioCompPdv.nome,
+    painelPdvNome: existing.painelPdvNome,
+  };
+}
+
+async function loadPainelPdvTakenPairs(): Promise<
+  Array<{ painelPdvId: number; rioCompPdvId: string }>
+> {
+  return prisma.painelPdvLink.findMany({
+    select: { painelPdvId: true, rioCompPdvId: true },
+  });
+}
+
+function takenPainelIdsForRio(
+  pairs: Array<{ painelPdvId: number; rioCompPdvId: string }>,
+  rioCompPdvId: string,
+): Set<number> {
+  const taken = new Set<number>();
+  for (const p of pairs) {
+    if (p.rioCompPdvId !== rioCompPdvId) taken.add(p.painelPdvId);
+  }
+  return taken;
+}
+
+function filterAvailableSuggestions(
+  suggestions: PainelMatchSuggestion[],
+  takenPainelIds: Set<number>,
+): PainelMatchSuggestion[] {
+  return suggestions.filter((s) => !takenPainelIds.has(s.painelPdvId));
+}
+
 export type VinculoRow = {
   rioPdvId: string;
   rioPdvNome: string;
@@ -103,11 +158,15 @@ export async function suggestForRioPdv(rioCompPdvId: string): Promise<{
   });
   if (!pdv) throw new Error("rio_pdv_not_found");
 
-  const suggestions = suggestPainelMatches({
-    rioPdvNome: pdv.nome,
-    rioDocumento: pdv.documento,
-    rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
-  });
+  const takenPairs = await loadPainelPdvTakenPairs();
+  const suggestions = filterAvailableSuggestions(
+    suggestPainelMatches({
+      rioPdvNome: pdv.nome,
+      rioDocumento: pdv.documento,
+      rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+    }),
+    takenPainelIdsForRio(takenPairs, pdv.id),
+  );
 
   return { rioPdvId: pdv.id, suggestions };
 }
@@ -131,6 +190,18 @@ export async function upsertPainelPdvLink(input: {
   }
   if (!Number.isFinite(input.painelClienteId) || input.painelClienteId <= 0) {
     throw new Error("painel_cliente_id_invalido");
+  }
+
+  const conflict = await findPainelPdvLinkConflict(
+    input.painelPdvId,
+    input.rioCompPdvId,
+  );
+  if (conflict) {
+    const err = new Error("painel_pdv_ja_vinculado") as Error & {
+      conflict?: PainelPdvLinkConflict;
+    };
+    err.conflict = conflict;
+    throw err;
   }
 
   const rec =
@@ -197,17 +268,21 @@ export async function suggestBulkForRioPdvs(
     },
   });
   const byId = new Map(pdvs.map((p) => [p.id, p]));
+  const takenPairs = await loadPainelPdvTakenPairs();
 
   const items: BulkSuggestItem[] = [];
   for (const id of rioCompPdvIds) {
     const pdv = byId.get(id);
     if (!pdv) continue;
 
-    const all = suggestPainelMatches({
-      rioPdvNome: pdv.nome,
-      rioDocumento: pdv.documento,
-      rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
-    });
+    const all = filterAvailableSuggestions(
+      suggestPainelMatches({
+        rioPdvNome: pdv.nome,
+        rioDocumento: pdv.documento,
+        rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+      }),
+      takenPainelIdsForRio(takenPairs, id),
+    );
     const filtered =
       minScore > 0 ? filterSuggestionsForBulk(all, minScore) : (
         [...all].sort((a, b) => b.score - a.score)
