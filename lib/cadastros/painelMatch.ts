@@ -18,6 +18,11 @@ export type PainelMatchSuggestion = {
   label: string;
 };
 
+/** Mínimo de similaridade para sugestões em lote (abaixo disso não aparece). */
+export const BULK_SUGGEST_MIN_SCORE = 55;
+
+export const BULK_BATCH_SIZE = 10;
+
 function suggestionFromRecord(
   rec: CsvPdvRecord,
   method: PainelMatchMethod,
@@ -89,6 +94,15 @@ export function suggestPainelMatches(input: {
   }
 
   return out.sort((a, b) => b.score - a.score).slice(0, 8);
+}
+
+export function filterSuggestionsForBulk(
+  suggestions: PainelMatchSuggestion[],
+  minScore: number = BULK_SUGGEST_MIN_SCORE,
+): PainelMatchSuggestion[] {
+  return suggestions
+    .filter((s) => s.score >= minScore)
+    .sort((a, b) => b.score - a.score);
 }
 
 export function resolvePainelPdvFromIds(

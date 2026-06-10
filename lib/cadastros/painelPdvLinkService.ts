@@ -2,6 +2,8 @@ import type { PainelMatchMethod, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import {
+  BULK_BATCH_SIZE,
+  filterSuggestionsForBulk,
   resolvePainelPdvFromIds,
   suggestPainelMatches,
   type PainelMatchSuggestion,
@@ -160,6 +162,100 @@ export async function upsertPainelPdvLink(input: {
 
 export async function deletePainelPdvLink(rioCompPdvId: string): Promise<void> {
   await prisma.painelPdvLink.deleteMany({ where: { rioCompPdvId } });
+}
+
+export type BulkSuggestItem = {
+  rioPdvId: string;
+  rioPdvNome: string;
+  rioDocumento: string | null;
+  clienteNome: string;
+  marcaNome: string | null;
+  suggestion: PainelMatchSuggestion;
+  alternatives: PainelMatchSuggestion[];
+};
+
+export async function suggestBulkForRioPdvs(
+  rioCompPdvIds: string[],
+): Promise<BulkSuggestItem[]> {
+  if (rioCompPdvIds.length > BULK_BATCH_SIZE) {
+    throw new Error("batch_limit_10");
+  }
+  if (rioCompPdvIds.length === 0) return [];
+
+  const pdvs = await prisma.rioCompPdv.findMany({
+    where: { id: { in: rioCompPdvIds } },
+    include: {
+      cliente: {
+        select: { nomeFantasia: true, razaoSocial: true, rioGrupo: { select: { nome: true } } },
+      },
+    },
+  });
+  const byId = new Map(pdvs.map((p) => [p.id, p]));
+
+  const items: BulkSuggestItem[] = [];
+  for (const id of rioCompPdvIds) {
+    const pdv = byId.get(id);
+    if (!pdv) continue;
+
+    const filtered = filterSuggestionsForBulk(
+      suggestPainelMatches({
+        rioPdvNome: pdv.nome,
+        rioDocumento: pdv.documento,
+        rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+      }),
+    );
+    if (filtered.length === 0) continue;
+
+    const [best, ...rest] = filtered;
+    items.push({
+      rioPdvId: pdv.id,
+      rioPdvNome: pdv.nome,
+      rioDocumento: pdv.documento,
+      clienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+      marcaNome: pdv.cliente.rioGrupo?.nome ?? null,
+      suggestion: best,
+      alternatives: rest,
+    });
+  }
+
+  return items;
+}
+
+export type BulkLinkInput = {
+  rioCompPdvId: string;
+  painelPdvId: number;
+  painelClienteId: number;
+  matchMethod?: PainelMatchMethod;
+};
+
+export async function upsertPainelPdvLinksBulk(links: BulkLinkInput[]): Promise<{
+  linked: number;
+  cadastroImported: number;
+  failed: Array<{ rioCompPdvId: string; error: string }>;
+}> {
+  if (links.length > BULK_BATCH_SIZE) throw new Error("batch_limit_10");
+
+  let linked = 0;
+  let cadastroImported = 0;
+  const failed: Array<{ rioCompPdvId: string; error: string }> = [];
+
+  for (const item of links) {
+    try {
+      const { cadastroImport } = await upsertPainelPdvLink({
+        ...item,
+        verified: true,
+      });
+      linked += 1;
+      if (cadastroImport.imported) cadastroImported += 1;
+    } catch (e) {
+      failed.push({
+        rioCompPdvId: item.rioCompPdvId,
+        error: e instanceof Error ? e.message : "erro",
+      });
+    }
+  }
+
+  return { linked, cadastroImported, failed };
 }
 
 export function parseCadastrosYearMonth(raw: string): number | null {
