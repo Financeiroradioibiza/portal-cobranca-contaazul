@@ -287,7 +287,7 @@ export async function suggestForRioPdv(rioCompPdvId: string): Promise<{
   if (!ctx) throw new Error("rio_pdv_not_found");
 
   const takenPairs = await loadPainelPdvTakenPairs();
-  const suggestions = filterAvailableSuggestions(
+  const all = filterAvailableSuggestions(
     suggestPainelMatches({
       rioPdvNome: ctx.nome,
       rioDocumento: ctx.documento,
@@ -295,6 +295,8 @@ export async function suggestForRioPdv(rioCompPdvId: string): Promise<{
     }),
     takenPainelIdsForRio(takenPairs, ctx.rioPdvId),
   );
+  const best = filterSuggestionsForBulk(all, BULK_SUGGEST_MIN_SCORE)[0];
+  const suggestions = best ? [best] : [];
 
   return { rioPdvId: ctx.requestId, suggestions };
 }
@@ -416,7 +418,8 @@ export async function suggestBulkForRioPdvs(
       );
     if (filtered.length === 0) continue;
 
-    const [best, ...rest] = filtered;
+    const best = filtered[0];
+    if (!best) continue;
     items.push({
       rioPdvId: ctx.requestId,
       rioPdvNome: ctx.nome,
@@ -424,7 +427,7 @@ export async function suggestBulkForRioPdvs(
       clienteNome: ctx.clienteNome,
       marcaNome: ctx.marcaNome,
       suggestion: best,
-      alternatives: rest,
+      alternatives: [],
     });
   }
 

@@ -162,7 +162,7 @@ export function CadastrosVinculosPanel() {
         const res = await fetch(`/api/cadastros/month/${ym}/vinculos/suggest-bulk`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rioPdvIds: batches[i], minScore: 0 }),
+          body: JSON.stringify({ rioPdvIds: batches[i] }),
         });
         const data = (await res.json()) as {
           ok?: boolean;
@@ -176,7 +176,7 @@ export function CadastrosVinculosPanel() {
         if (!res.ok || !data.ok) throw new Error(data.error ?? "suggest_bulk_erro");
 
         for (const item of data.items ?? []) {
-          map[item.rioPdvId] = [item.suggestion, ...(item.alternatives ?? [])];
+          if (item.suggestion) map[item.rioPdvId] = [item.suggestion];
         }
 
         setRowSuggestions({ ...map });
@@ -702,32 +702,27 @@ export function CadastrosVinculosPanel() {
                       <span className="text-slate-400">—</span>
                     : suggestionsLoading && !rowSuggestions[r.rioPdvId] ?
                       <span className="text-xs text-slate-400">carregando…</span>
-                    : (rowSuggestions[r.rioPdvId]?.length ?? 0) > 0 ?
-                      <ul className="space-y-1">
-                        {rowSuggestions[r.rioPdvId]!.map((s) => (
-                          <li key={s.painelPdvId}>
-                            <button
-                              type="button"
-                              className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-left text-xs hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50"
-                              disabled={busy || bulkLinking}
-                              title="Clique para vincular esta sugestão"
-                              onClick={() =>
-                                void saveLink(
-                                  r.rioPdvId,
-                                  s.painelPdvId,
-                                  s.painelClienteId,
-                                  s.matchMethod,
-                                )
-                              }
-                            >
-                              <span className="font-semibold text-emerald-800 dark:text-emerald-300">
-                                {s.score}%
-                              </span>{" "}
-                              · {s.label}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+                    : rowSuggestions[r.rioPdvId]?.[0] ?
+                      <button
+                        type="button"
+                        className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-left text-xs hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50"
+                        disabled={busy || bulkLinking}
+                        title="Clique para vincular esta sugestão"
+                        onClick={() => {
+                          const s = rowSuggestions[r.rioPdvId]![0]!;
+                          void saveLink(
+                            r.rioPdvId,
+                            s.painelPdvId,
+                            s.painelClienteId,
+                            s.matchMethod,
+                          );
+                        }}
+                      >
+                        <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+                          {rowSuggestions[r.rioPdvId]![0]!.score}%
+                        </span>{" "}
+                        · {rowSuggestions[r.rioPdvId]![0]!.label}
+                      </button>
                     : <span className="text-slate-400">—</span>}
                   </td>
                   <td className="px-3 py-2">
@@ -790,28 +785,23 @@ export function CadastrosVinculosPanel() {
                       }
                     </div>
 
-                    {suggestFor === r.rioPdvId && suggestions.length > 0 ?
-                      <ul className="mt-2 space-y-1 text-left">
-                        {suggestions.map((s) => (
-                          <li key={s.painelPdvId}>
-                            <button
-                              type="button"
-                              className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-left text-xs hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50"
-                              disabled={busy}
-                              onClick={() =>
-                                void saveLink(
-                                  r.rioPdvId,
-                                  s.painelPdvId,
-                                  s.painelClienteId,
-                                  s.matchMethod,
-                                )
-                              }
-                            >
-                              <span className="font-semibold">{s.score}%</span> · {s.label}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+                    {suggestFor === r.rioPdvId && suggestions[0] ?
+                      <button
+                        type="button"
+                        className="mt-2 w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-left text-xs hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50"
+                        disabled={busy}
+                        onClick={() =>
+                          void saveLink(
+                            r.rioPdvId,
+                            suggestions[0]!.painelPdvId,
+                            suggestions[0]!.painelClienteId,
+                            suggestions[0]!.matchMethod,
+                          )
+                        }
+                      >
+                        <span className="font-semibold">{suggestions[0]!.score}%</span> ·{" "}
+                        {suggestions[0]!.label}
+                      </button>
                     : null}
 
                     {manualOpen === r.rioPdvId ?
