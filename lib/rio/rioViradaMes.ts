@@ -1,4 +1,8 @@
 import type { RioClienteCompMovimento } from "@prisma/client";
+import {
+  nomeFantasiaFromCaPersonRaw,
+  razaoSocialFromCaPersonRaw,
+} from "@/lib/contaazul/caPersonNames";
 import { fetchActiveClientePersonSummaries } from "@/lib/contaazul/activeClientesCa";
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
 import { cobrancaPlusPrincipalEmailsJoined } from "@/lib/contaazul/personBilling";
@@ -26,20 +30,6 @@ function asRecord(o: unknown): Record<string, unknown> | null {
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
-}
-
-function nomeFantasiaFromRaw(row: Record<string, unknown>, fallback: string): string {
-  return (
-    str(row.nome_fantasia) ||
-    str(row.nomeFantasia) ||
-    str(row.nome) ||
-    str(row.name) ||
-    fallback
-  );
-}
-
-function razaoFromRaw(row: Record<string, unknown>, fallback: string): string {
-  return str(row.razao_social) || str(row.razaoSocial) || fallback;
 }
 
 function documentoFromRaw(row: Record<string, unknown>, fallback: string | null): string | null {
@@ -167,8 +157,9 @@ export async function viradaRioCompMonthFromContaAzul(
       if (includePersonDetails) {
         const raw = detailMap.get(l.caPersonId) ?? {};
         const rec = asRecord(raw) ?? {};
-        patch.nomeFantasia = nomeFantasiaFromRaw(rec, l.nomeFantasia).slice(0, 8000);
-        patch.razaoSocial = razaoFromRaw(rec, l.razaoSocial).slice(0, 8000);
+        const nf = nomeFantasiaFromCaPersonRaw(rec, l.nomeFantasia);
+        patch.nomeFantasia = nf.slice(0, 8000);
+        patch.razaoSocial = (razaoSocialFromCaPersonRaw(rec) || nf).slice(0, 8000);
         patch.documento = documentoFromRaw(rec, l.documento);
         patch.emailCobranca = cobrancaPlusPrincipalEmailsJoined(raw) || l.emailCobranca;
         const contract = await fetchActiveContractSummaryForClient(accessToken, l.caPersonId);
@@ -229,8 +220,8 @@ export async function viradaRioCompMonthFromContaAzul(
         caPersonId: s.id,
         rioGrupoId: systemIds.ca_entrada,
         grupoSite: "",
-        nomeFantasia: (nomeFantasiaFromRaw(rec, s.nomeLista) || s.nomeLista).slice(0, 8000),
-        razaoSocial: razaoFromRaw(rec, s.nomeLista).slice(0, 8000),
+        nomeFantasia: nomeFantasiaFromCaPersonRaw(rec, s.nomeLista).slice(0, 8000),
+        razaoSocial: (razaoSocialFromCaPersonRaw(rec) || s.nomeLista).slice(0, 8000),
         documento: documentoFromRaw(rec, s.documento),
         emailCobranca: email,
         valorClienteTexto,

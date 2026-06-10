@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { fetchActiveContractSummaryForClient } from "@/lib/contaazul/contracts";
 import { explainCaPersonActiveCliente } from "@/lib/contaazul/activeClientesCa";
+import {
+  nomeFantasiaFromCaPersonRaw,
+  razaoSocialFromCaPersonRaw,
+} from "@/lib/contaazul/caPersonNames";
 import { billingEmailJoined, fetchPersonDetail, searchPeopleByText } from "@/lib/contaazul/personBilling";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
@@ -16,25 +20,6 @@ function asRecord(o: unknown): Record<string, unknown> | null {
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
-}
-
-/** Nome fantasia como na Conta Azul (detalhe ou listagem). */
-function nomeFantasiaFromCaRaw(
-  row: Record<string, unknown>,
-  nomeListaFallback?: string,
-): string {
-  return (
-    str(row.nome_fantasia) ||
-    str(row.nomeFantasia) ||
-    str(row.nome) ||
-    str(row.name) ||
-    (nomeListaFallback?.trim() ?? "") ||
-    ""
-  );
-}
-
-function razaoFromRaw(row: Record<string, unknown>): string {
-  return str(row.razao_social) || str(row.razaoSocial) || "";
 }
 
 function documentoFromRaw(row: Record<string, unknown>, fallback: string | null): string | null {
@@ -217,9 +202,9 @@ export async function applyCaPersonToRioLinha(
       }
     }
     email = billingEmailJoined(raw);
-    const nf = nomeFantasiaFromCaRaw(rec, nomeListaHint);
+    const nf = nomeFantasiaFromCaPersonRaw(rec, nomeListaHint);
     nomeFantasia = nf || nomeListaHint || linha.nomeFantasia;
-    razaoSocial = razaoFromRaw(rec) || nomeFantasia;
+    razaoSocial = razaoSocialFromCaPersonRaw(rec) || nomeFantasia;
     documento = documentoFromRaw(rec, linha.documento);
   } else if (linkingNewCa && nomeListaHint) {
     nomeFantasia = nomeListaHint;

@@ -6,6 +6,10 @@ import type {
   RioCompMonth,
   RioCompPdv,
 } from "@prisma/client";
+import {
+  nomeFantasiaFromCaPersonRaw,
+  razaoSocialFromCaPersonRaw,
+} from "@/lib/contaazul/caPersonNames";
 import { cobrancaPlusPrincipalEmailsJoined } from "@/lib/contaazul/personBilling";
 import { fetchActiveContractNumbersByClientIds } from "@/lib/contaazul/contracts";
 import { prisma } from "@/lib/prisma";
@@ -77,20 +81,6 @@ export async function enrichPersonRowsByIdsBatch(
     );
   }
   return map;
-}
-
-function nomeFantasiaFromRaw(row: Record<string, unknown>): string {
-  return (
-    str(row.nome_fantasia) ||
-    str(row.nomeFantasia) ||
-    str(row.nome) ||
-    str(row.name) ||
-    ""
-  );
-}
-
-function razaoFromRaw(row: Record<string, unknown>): string {
-  return str(row.razao_social) || str(row.razaoSocial) || "";
 }
 
 function documentoFromRaw(row: Record<string, unknown>, fallback: string | null): string | null {
@@ -394,8 +384,8 @@ export async function syncRioCompMonthFromContaAzul(
     const email = includePersonDetails
       ? (cobrancaPlusPrincipalEmailsJoined(raw) || null)
       : (preserved.get(s.id)?.emailCobranca ?? null);
-    const nomeFantasia = nomeFantasiaFromRaw(raw) || s.nomeLista;
-    const razao = razaoFromRaw(raw) || nomeFantasia;
+    const nomeFantasia = nomeFantasiaFromCaPersonRaw(raw, s.nomeLista);
+    const razao = razaoSocialFromCaPersonRaw(raw) || nomeFantasia;
     const doc = documentoFromRaw(raw, s.documento);
     const valorPessoaCa = includePersonDetails ? valorClienteFromRaw(raw) : "";
     const prev = preserved.get(s.id);
