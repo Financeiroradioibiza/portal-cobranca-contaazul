@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import {
   BULK_BATCH_SIZE,
+  BULK_SUGGEST_MIN_SCORE,
   filterSuggestionsForBulk,
   resolvePainelPdvFromIds,
   suggestPainelMatches,
@@ -176,11 +177,14 @@ export type BulkSuggestItem = {
 
 export async function suggestBulkForRioPdvs(
   rioCompPdvIds: string[],
+  opts?: { minScore?: number },
 ): Promise<BulkSuggestItem[]> {
   if (rioCompPdvIds.length > BULK_BATCH_SIZE) {
     throw new Error("batch_limit_10");
   }
   if (rioCompPdvIds.length === 0) return [];
+
+  const minScore = opts?.minScore ?? BULK_SUGGEST_MIN_SCORE;
 
   const pdvs = await prisma.rioCompPdv.findMany({
     where: { id: { in: rioCompPdvIds } },
@@ -197,13 +201,15 @@ export async function suggestBulkForRioPdvs(
     const pdv = byId.get(id);
     if (!pdv) continue;
 
-    const filtered = filterSuggestionsForBulk(
-      suggestPainelMatches({
-        rioPdvNome: pdv.nome,
-        rioDocumento: pdv.documento,
-        rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
-      }),
-    );
+    const all = suggestPainelMatches({
+      rioPdvNome: pdv.nome,
+      rioDocumento: pdv.documento,
+      rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+    });
+    const filtered =
+      minScore > 0 ? filterSuggestionsForBulk(all, minScore) : (
+        [...all].sort((a, b) => b.score - a.score)
+      );
     if (filtered.length === 0) continue;
 
     const [best, ...rest] = filtered;

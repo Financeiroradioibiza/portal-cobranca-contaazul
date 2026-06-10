@@ -40,8 +40,13 @@ export async function POST(request: Request, context: Ctx) {
     return NextResponse.json({ error: "batch_limit_10" }, { status: 400 });
   }
 
+  let minScore: number | undefined;
+  if (typeof body.minScore === "number" && Number.isFinite(body.minScore)) {
+    minScore = Math.max(0, Math.floor(body.minScore));
+  }
+
   try {
-    const items = await suggestBulkForRioPdvs(rioPdvIds);
+    const items = await suggestBulkForRioPdvs(rioPdvIds, { minScore });
     return NextResponse.json({ ok: true, yearMonth: ym, items });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro";

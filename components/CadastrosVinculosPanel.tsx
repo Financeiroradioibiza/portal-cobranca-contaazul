@@ -116,6 +116,56 @@ export function CadastrosVinculosPanel() {
   const [bulkPhase, setBulkPhase] = useState<BulkPhase>("idle");
   const [bulkRows, setBulkRows] = useState<BulkReviewRow[]>([]);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  const [topSuggestions, setTopSuggestions] = useState<Record<string, Suggestion>>({});
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsProgress, setSuggestionsProgress] = useState({ done: 0, total: 0 });
+
+  const loadTopSuggestions = useCallback(async (vinculoRows: VinculoRow[], ym: number) => {
+    const unlinked = vinculoRows.filter((r) => !r.link).map((r) => r.rioPdvId);
+    if (unlinked.length === 0) {
+      setTopSuggestions({});
+      setSuggestionsLoading(false);
+      setSuggestionsProgress({ done: 0, total: 0 });
+      return;
+    }
+
+    setSuggestionsLoading(true);
+    setTopSuggestions({});
+    setSuggestionsProgress({ done: 0, total: unlinked.length });
+
+    const map: Record<string, Suggestion> = {};
+    const batches = chunkIds(unlinked, BULK_BATCH);
+
+    try {
+      for (let i = 0; i < batches.length; i++) {
+        const res = await fetch(`/api/cadastros/month/${ym}/vinculos/suggest-bulk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rioPdvIds: batches[i], minScore: 0 }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          items?: Array<{ rioPdvId: string; suggestion: Suggestion }>;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) throw new Error(data.error ?? "suggest_bulk_erro");
+
+        for (const item of data.items ?? []) {
+          map[item.rioPdvId] = item.suggestion;
+        }
+
+        setTopSuggestions({ ...map });
+        setSuggestionsProgress({
+          done: Math.min((i + 1) * BULK_BATCH, unlinked.length),
+          total: unlinked.length,
+        });
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao carregar sugestões.");
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  }, []);
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months");
@@ -130,28 +180,34 @@ export function CadastrosVinculosPanel() {
     });
   }, [todayYm]);
 
-  const loadVinculos = useCallback(async (ym: number) => {
-    setBusy(true);
-    setMsg("");
-    try {
-      const res = await fetch(`/api/cadastros/month/${ym}/vinculos`);
-      const data = (await res.json()) as {
-        ok?: boolean;
-        rows?: VinculoRow[];
-        stats?: typeof stats;
-        error?: string;
-      };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "vinculos_erro");
-      setRows(data.rows ?? []);
-      setStats(data.stats ?? { total: 0, linked: 0, unlinked: 0 });
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao carregar vínculos.");
-      setRows([]);
-      setStats({ total: 0, linked: 0, unlinked: 0 });
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const loadVinculos = useCallback(
+    async (ym: number) => {
+      setBusy(true);
+      setMsg("");
+      try {
+        const res = await fetch(`/api/cadastros/month/${ym}/vinculos`);
+        const data = (await res.json()) as {
+          ok?: boolean;
+          rows?: VinculoRow[];
+          stats?: typeof stats;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) throw new Error(data.error ?? "vinculos_erro");
+        const loaded = data.rows ?? [];
+        setRows(loaded);
+        setStats(data.stats ?? { total: 0, linked: 0, unlinked: 0 });
+        void loadTopSuggestions(loaded, ym);
+      } catch (e) {
+        setMsg(e instanceof Error ? e.message : "Erro ao carregar vínculos.");
+        setRows([]);
+        setStats({ total: 0, linked: 0, unlinked: 0 });
+        setTopSuggestions({});
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadTopSuggestions],
+  );
 
   useEffect(() => {
     void loadMonths().catch((e) => setMsg(e instanceof Error ? e.message : "Erro"));
@@ -296,7 +352,7 @@ export function CadastrosVinculosPanel() {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rioPdvIds: batches[i] }),
+            body: JSON.stringify({ rioPdvIds: batches[i], minScore: BULK_MIN_SCORE }),
           },
         );
         const data = (await res.json()) as {
@@ -678,6 +734,12 @@ export function CadastrosVinculosPanel() {
         </div>
       : null}
 
+      {suggestionsLoading ?
+        <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">
+          Carregando sugestões… {suggestionsProgress.done}/{suggestionsProgress.total}
+        </p>
+      : null}
+
       {msg ?
         <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
           {msg}
@@ -691,6 +753,7 @@ export function CadastrosVinculosPanel() {
               <th className="px-3 py-2">Cliente Rio</th>
               <th className="px-3 py-2">PDV Rio</th>
               <th className="px-3 py-2">CNPJ</th>
+              <th className="px-3 py-2">Sugestão painel</th>
               <th className="px-3 py-2">Painel legado</th>
               <th className="px-3 py-2 text-right">Ações</th>
             </tr>
@@ -698,7 +761,7 @@ export function CadastrosVinculosPanel() {
           <tbody>
             {filtered.length === 0 ?
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
                   {busy ? "Carregando…" : "Nenhum PDV neste filtro."}
                 </td>
               </tr>
@@ -725,6 +788,34 @@ export function CadastrosVinculosPanel() {
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {displayBrazilianTaxId(r.rioDocumento)}
+                  </td>
+                  <td className="px-3 py-2 min-w-[220px]">
+                    {r.link ?
+                      <span className="text-slate-400">—</span>
+                    : suggestionsLoading && !topSuggestions[r.rioPdvId] ?
+                      <span className="text-xs text-slate-400">carregando…</span>
+                    : topSuggestions[r.rioPdvId] ?
+                      <button
+                        type="button"
+                        className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-left text-xs hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50"
+                        disabled={busy}
+                        title="Clique para vincular esta sugestão"
+                        onClick={() => {
+                          const s = topSuggestions[r.rioPdvId]!;
+                          void saveLink(
+                            r.rioPdvId,
+                            s.painelPdvId,
+                            s.painelClienteId,
+                            s.matchMethod,
+                          );
+                        }}
+                      >
+                        <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+                          {topSuggestions[r.rioPdvId]!.score}%
+                        </span>{" "}
+                        · {topSuggestions[r.rioPdvId]!.label}
+                      </button>
+                    : <span className="text-slate-400">—</span>}
                   </td>
                   <td className="px-3 py-2">
                     {r.link ?
