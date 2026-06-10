@@ -45,6 +45,22 @@ const MATCH_STOP_WORDS = new Set([
   "promoção",
 ]);
 
+/** Tokens de marca/categoria — sozinhos não distinguem lojas. */
+const GENERIC_TOKENS = new Set([
+  "hering",
+  "shopping",
+  "loja",
+  "store",
+  "ig",
+  "center",
+  "centro",
+  "plaza",
+  "park",
+  "mall",
+  "outlet",
+  "f",
+]);
+
 function suggestionFromRecord(
   rec: CsvPdvRecord,
   method: PainelMatchMethod,
@@ -69,58 +85,93 @@ function cleanRioNomeForMatch(s: string): string {
     .trim();
 }
 
-function rioNomeVariants(rioPdvNome: string, rioClienteNome: string): string[] {
+function stripNoiseForMatch(s: string): string {
+  return cleanRioNomeForMatch(s)
+    .replace(/\(\s*f\s*\)/gi, " ")
+    .replace(/\b20\d{2}\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function rioPdvSearchVariants(rioPdvNome: string): string[] {
   const out = new Set<string>();
   const add = (raw: string) => {
-    const cleaned = cleanRioNomeForMatch(raw).trim();
+    const cleaned = stripNoiseForMatch(raw).trim();
     if (cleaned.length >= 3) out.add(cleaned);
     const head = cleaned.split(/\s*[-–—]\s*/)[0]?.trim() ?? "";
     if (head.length >= 3) out.add(head);
   };
   add(rioPdvNome);
-  if (rioClienteNome.trim() && rioClienteNome.trim() !== rioPdvNome.trim()) {
-    add(rioClienteNome);
-  }
   return [...out];
 }
 
 function significantTokens(s: string): string[] {
-  return tokenize(s)
+  return tokenize(stripNoiseForMatch(s))
     .map((t) => compactAlphaNum(t))
     .filter((t) => t.length >= 3 && !MATCH_STOP_WORDS.has(t));
 }
 
-function nomePdvScore(rioNome: string, painelNome: string): number {
-  const a = compactAlphaNum(rioNome);
-  const b = compactAlphaNum(painelNome);
-  if (!a || !b) return 0;
-  if (a === b) return 95;
-  if (a.includes(b) || b.includes(a)) return 78;
-  const aTok = significantTokens(rioNome);
-  const hits = aTok.filter((t) => b.includes(t)).length;
-  if (!aTok.length) return 0;
-  return Math.round(55 + (hits / aTok.length) * 30);
+function distinctiveTokens(s: string): string[] {
+  return significantTokens(s).filter((t) => !GENERIC_TOKENS.has(t) && t.length >= 4);
 }
 
-/** Similaridade por conjunto de palavras (ordem irrelevante). */
-function tokenBagScore(a: string, b: string): number {
-  const ta = significantTokens(a);
-  const tb = significantTokens(b);
+function tokensMatch(a: string, b: string): boolean {
+  return a === b || (a.length >= 4 && b.includes(a)) || (b.length >= 4 && a.includes(b));
+}
+
+/**
+ * Comparação principal: nome PDV Rio × nome PDV painel.
+ * Exige cobertura simétrica de tokens e penaliza lojas só com marca genérica (HERING + SHOPPING).
+ */
+function pdvNomeMatchScore(rioNome: string, painelNome: string): number {
+  const a = compactAlphaNum(stripNoiseForMatch(rioNome));
+  const b = compactAlphaNum(stripNoiseForMatch(painelNome));
+  if (!a || !b) return 0;
+  if (a === b) return 98;
+  if (a.includes(b) || b.includes(a)) return 92;
+
+  const ta = significantTokens(rioNome);
+  const tb = significantTokens(painelNome);
   if (!ta.length || !tb.length) return 0;
 
-  let hits = 0;
-  for (const t of ta) {
-    if (tb.some((u) => u === t || (t.length >= 4 && u.includes(t)) || (u.length >= 4 && t.includes(u)))) {
-      hits += 1;
+  const hitsRioInPainel = ta.filter((t) => tb.some((u) => tokensMatch(t, u))).length;
+  const hitsPainelInRio = tb.filter((t) => ta.some((u) => tokensMatch(t, u))).length;
+  const rioCov = hitsRioInPainel / ta.length;
+  const painelCov = hitsPainelInRio / tb.length;
+  const symmetric = Math.min(rioCov, painelCov);
+
+  const distRio = distinctiveTokens(rioNome);
+  const distPainel = distinctiveTokens(painelNome);
+
+  if (distRio.length > 0) {
+    const distHits = distRio.filter((t) => tb.some((u) => tokensMatch(t, u))).length;
+    const distRatio = distHits / distRio.length;
+    if (distRatio < 0.5) {
+      return Math.round(Math.min(48, symmetric * 45));
+    }
+    return Math.round(58 + symmetric * 25 + distRatio * 15);
+  }
+
+  if (distPainel.length > 0) {
+    const painelOnly = distPainel.filter((t) => !ta.some((u) => tokensMatch(t, u)));
+    if (painelOnly.length > 0) {
+      return Math.round(Math.min(52, symmetric * 50));
     }
   }
 
-  const denom = Math.min(ta.length, tb.length);
-  if (!denom) return 0;
-  const ratio = hits / denom;
-  if (ratio >= 1) return 92;
-  if (ratio >= 0.66) return Math.round(72 + ratio * 18);
-  return Math.round(50 + ratio * 30);
+  return Math.round(50 + symmetric * 35);
+}
+
+function clienteNomeBonus(rioClienteNome: string, painelClienteNome: string): number {
+  const rc = stripNoiseForMatch(rioClienteNome);
+  const pc = stripNoiseForMatch(painelClienteNome);
+  if (!rc || !pc) return 0;
+  if (compactAlphaNum(rc) === compactAlphaNum(pc)) return 6;
+  const dist = distinctiveTokens(rc);
+  if (!dist.length) return 0;
+  const hits = dist.filter((t) => significantTokens(pc).some((u) => tokensMatch(t, u))).length;
+  if (!hits) return 0;
+  return Math.min(5, Math.round((hits / dist.length) * 5));
 }
 
 function bestPainelMatch(
@@ -128,39 +179,31 @@ function bestPainelMatch(
   rioClienteNome: string,
   rec: CsvPdvRecord,
 ): { score: number; method: PainelMatchMethod } | null {
-  const parts: Array<{ score: number; method: PainelMatchMethod }> = [];
+  const pdvScore = pdvNomeMatchScore(rioPdvNome, rec.pdvNome);
 
-  const pdvDirect = nomePdvScore(rioPdvNome, rec.pdvNome);
-  if (pdvDirect >= 50) parts.push({ score: pdvDirect, method: "nome_pdv" });
-
-  const pdvFromCliente = nomePdvScore(rioClienteNome, rec.pdvNome);
-  if (pdvFromCliente >= 50) parts.push({ score: pdvFromCliente, method: "nome_pdv" });
-
-  const tokenPdv = tokenBagScore(rioPdvNome, rec.pdvNome);
-  if (tokenPdv >= 55) parts.push({ score: tokenPdv, method: "nome_pdv" });
-
-  const tokenClienteOnPdv = tokenBagScore(rioClienteNome, rec.pdvNome);
-  if (tokenClienteOnPdv >= 55) parts.push({ score: tokenClienteOnPdv, method: "nome_pdv" });
-
-  const tokenCliente = tokenBagScore(rioClienteNome, rec.nomeCliente);
-  if (tokenCliente >= 55) {
-    parts.push({ score: Math.min(75, tokenCliente), method: "nome_cliente" });
+  if (pdvScore >= 55) {
+    const bonus =
+      rioClienteNome.trim() && compactAlphaNum(rioClienteNome) !== compactAlphaNum(rioPdvNome) ?
+        clienteNomeBonus(rioClienteNome, rec.nomeCliente)
+      : 0;
+    return {
+      score: Math.min(100, pdvScore + bonus),
+      method: "nome_pdv",
+    };
   }
 
-  const tokenCross = tokenBagScore(rioPdvNome, rec.nomeCliente);
-  if (tokenCross >= 55) {
-    parts.push({ score: Math.min(72, tokenCross), method: "nome_cliente" });
-  }
+  if (pdvScore < 45) return null;
 
-  if (!parts.length) return null;
-  return parts.sort((x, y) => y.score - x.score)[0]!;
+  const bonus = clienteNomeBonus(rioClienteNome, rec.nomeCliente);
+  if (bonus <= 0) return null;
+
+  return {
+    score: Math.min(68, pdvScore + bonus),
+    method: "nome_cliente",
+  };
 }
 
-function collectPainelCandidates(
-  rioPdvNome: string,
-  rioClienteNome: string,
-): Map<string, CsvPdvRecord> {
-  const variants = rioNomeVariants(rioPdvNome, rioClienteNome);
+function collectPainelCandidates(rioPdvNome: string): Map<string, CsvPdvRecord> {
   const cand = new Map<string, CsvPdvRecord>();
 
   const addRec = (rec: CsvPdvRecord | null) => {
@@ -168,15 +211,24 @@ function collectPainelCandidates(
     cand.set(rec.pdvId, rec);
   };
 
-  for (const term of variants) {
+  for (const term of rioPdvSearchVariants(rioPdvNome)) {
     for (const hit of csvMatchPdvsPorTexto(term)) {
       addRec(csvGetPdvByPainelId(hit.pdvId));
     }
   }
 
-  const tokens = variants.flatMap((v) => significantTokens(v));
-  for (const rec of csvFindPdvsByAnyToken(tokens)) {
-    addRec(rec);
+  const dist = distinctiveTokens(rioPdvNome);
+  if (dist.length > 0) {
+    for (const rec of csvFindPdvsByAnyToken(dist)) {
+      addRec(rec);
+    }
+  } else {
+    const sig = significantTokens(rioPdvNome).filter((t) => !GENERIC_TOKENS.has(t));
+    if (sig.length >= 2) {
+      for (const rec of csvFindPdvsByAnyToken(sig)) {
+        addRec(rec);
+      }
+    }
   }
 
   return cand;
@@ -197,8 +249,8 @@ export function suggestPainelMatches(input: {
     out.push(s);
   };
 
-  const rioPdvNome = cleanRioNomeForMatch(input.rioPdvNome);
-  const rioClienteNome = cleanRioNomeForMatch(input.rioClienteNome);
+  const rioPdvNome = stripNoiseForMatch(input.rioPdvNome);
+  const rioClienteNome = stripNoiseForMatch(input.rioClienteNome);
 
   const doc = input.rioDocumento ? onlyDigits(input.rioDocumento) : "";
   if (doc.length === 11 || doc.length === 14) {
@@ -207,9 +259,9 @@ export function suggestPainelMatches(input: {
     }
   }
 
-  for (const [_, rec] of collectPainelCandidates(rioPdvNome, rioClienteNome)) {
+  for (const [, rec] of collectPainelCandidates(rioPdvNome)) {
     const best = bestPainelMatch(rioPdvNome, rioClienteNome, rec);
-    if (!best || best.score < 50) continue;
+    if (!best || best.score < 55) continue;
     push(suggestionFromRecord(rec, best.method, best.score));
   }
 
