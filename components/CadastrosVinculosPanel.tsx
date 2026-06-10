@@ -42,26 +42,8 @@ type Suggestion = {
 type FilterMode = "todos" | "sem" | "com";
 
 const BULK_BATCH = 10;
-const BULK_MIN_SCORE = 55;
 
-type BulkReviewRow = {
-  rioPdvId: string;
-  included: boolean;
-  clienteNome: string;
-  marcaNome: string | null;
-  rioPdvNome: string;
-  rioDocumento: string | null;
-  score: number;
-  matchMethod: string;
-  painelPdvId: string;
-  painelClienteId: string;
-  painelPdvNome: string;
-  painelClienteNome: string;
-  label: string;
-  alternatives: Suggestion[];
-};
-
-type BulkPhase = "idle" | "loading" | "review" | "linking" | "done";
+type VinculoLink = NonNullable<VinculoRow["link"]>;
 
 function chunkIds<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -69,31 +51,37 @@ function chunkIds<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-function bulkRowFromSuggest(item: {
-  rioPdvId: string;
-  rioPdvNome: string;
-  rioDocumento: string | null;
-  clienteNome: string;
-  marcaNome: string | null;
-  suggestion: Suggestion;
-  alternatives: Suggestion[];
-}): BulkReviewRow {
-  const s = item.suggestion;
+function linkFromSuggestion(rioPdvId: string, s: Suggestion): VinculoLink {
   return {
-    rioPdvId: item.rioPdvId,
-    included: true,
-    clienteNome: item.clienteNome,
-    marcaNome: item.marcaNome,
-    rioPdvNome: item.rioPdvNome,
-    rioDocumento: item.rioDocumento,
-    score: s.score,
+    id: `local-${rioPdvId}`,
+    painelPdvId: s.painelPdvId,
+    painelClienteId: s.painelClienteId,
     matchMethod: s.matchMethod,
-    painelPdvId: String(s.painelPdvId),
-    painelClienteId: String(s.painelClienteId),
     painelPdvNome: s.painelPdvNome,
     painelClienteNome: s.painelClienteNome,
-    label: s.label,
-    alternatives: item.alternatives,
+    verifiedAt: new Date().toISOString(),
+  };
+}
+
+function linkFromApi(
+  raw: {
+    id: string;
+    painelPdvId: number;
+    painelClienteId: number;
+    matchMethod: string;
+    painelPdvNome: string | null;
+    painelClienteNome: string | null;
+    verifiedAt: string | null;
+  },
+): VinculoLink {
+  return {
+    id: raw.id,
+    painelPdvId: raw.painelPdvId,
+    painelClienteId: raw.painelClienteId,
+    matchMethod: raw.matchMethod,
+    painelPdvNome: raw.painelPdvNome,
+    painelClienteNome: raw.painelClienteNome,
+    verifiedAt: raw.verifiedAt,
   };
 }
 
@@ -112,13 +100,12 @@ export function CadastrosVinculosPanel() {
   const [manualOpen, setManualOpen] = useState<string | null>(null);
   const [manualPdvId, setManualPdvId] = useState("");
   const [manualClienteId, setManualClienteId] = useState("");
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkPhase, setBulkPhase] = useState<BulkPhase>("idle");
-  const [bulkRows, setBulkRows] = useState<BulkReviewRow[]>([]);
-  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [topSuggestions, setTopSuggestions] = useState<Record<string, Suggestion>>({});
+  const [linkSelected, setLinkSelected] = useState<Record<string, boolean>>({});
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsProgress, setSuggestionsProgress] = useState({ done: 0, total: 0 });
+  const [bulkLinking, setBulkLinking] = useState(false);
+  const [bulkLinkProgress, setBulkLinkProgress] = useState({ done: 0, total: 0 });
 
   const loadTopSuggestions = useCallback(async (vinculoRows: VinculoRow[], ym: number) => {
     const unlinked = vinculoRows.filter((r) => !r.link).map((r) => r.rioPdvId);
@@ -155,6 +142,11 @@ export function CadastrosVinculosPanel() {
         }
 
         setTopSuggestions({ ...map });
+        setLinkSelected((prev) => {
+          const next = { ...prev };
+          for (const id of Object.keys(map)) next[id] = true;
+          return next;
+        });
         setSuggestionsProgress({
           done: Math.min((i + 1) * BULK_BATCH, unlinked.length),
           total: unlinked.length,
@@ -181,7 +173,7 @@ export function CadastrosVinculosPanel() {
   }, [todayYm]);
 
   const loadVinculos = useCallback(
-    async (ym: number) => {
+    async (ym: number, refreshSuggestions = false) => {
       setBusy(true);
       setMsg("");
       try {
@@ -196,12 +188,18 @@ export function CadastrosVinculosPanel() {
         const loaded = data.rows ?? [];
         setRows(loaded);
         setStats(data.stats ?? { total: 0, linked: 0, unlinked: 0 });
-        void loadTopSuggestions(loaded, ym);
+        if (refreshSuggestions) {
+          void loadTopSuggestions(loaded, ym);
+        } else {
+          setTopSuggestions({});
+          setLinkSelected({});
+        }
       } catch (e) {
         setMsg(e instanceof Error ? e.message : "Erro ao carregar vínculos.");
         setRows([]);
         setStats({ total: 0, linked: 0, unlinked: 0 });
         setTopSuggestions({});
+        setLinkSelected({});
       } finally {
         setBusy(false);
       }
@@ -209,12 +207,44 @@ export function CadastrosVinculosPanel() {
     [loadTopSuggestions],
   );
 
+  function applyLinkLocally(rioPdvId: string, link: VinculoLink) {
+    setRows((prev) =>
+      prev.map((r) => (r.rioPdvId === rioPdvId ? { ...r, link } : r)),
+    );
+    setTopSuggestions((prev) => {
+      const next = { ...prev };
+      delete next[rioPdvId];
+      return next;
+    });
+    setLinkSelected((prev) => {
+      const next = { ...prev };
+      delete next[rioPdvId];
+      return next;
+    });
+    setStats((s) => ({
+      total: s.total,
+      linked: s.linked + 1,
+      unlinked: Math.max(0, s.unlinked - 1),
+    }));
+  }
+
+  function applyUnlinkLocally(rioPdvId: string) {
+    setRows((prev) =>
+      prev.map((r) => (r.rioPdvId === rioPdvId ? { ...r, link: null } : r)),
+    );
+    setStats((s) => ({
+      total: s.total,
+      linked: Math.max(0, s.linked - 1),
+      unlinked: s.unlinked + 1,
+    }));
+  }
+
   useEffect(() => {
     void loadMonths().catch((e) => setMsg(e instanceof Error ? e.message : "Erro"));
   }, [loadMonths]);
 
   useEffect(() => {
-    void loadVinculos(activeYm);
+    void loadVinculos(activeYm, false);
   }, [activeYm, loadVinculos]);
 
   const filtered = useMemo(() => {
@@ -285,12 +315,26 @@ export function CadastrosVinculosPanel() {
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
+        link?: {
+          id: string;
+          painelPdvId: number;
+          painelClienteId: number;
+          matchMethod: string;
+          painelPdvNome: string | null;
+          painelClienteNome: string | null;
+          verifiedAt: string | null;
+        };
         cadastroImport?: { imported?: boolean; source?: string; fields?: string[] };
       };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "save_erro");
+      if (!res.ok || !data.ok || !data.link) throw new Error(data.error ?? "save_erro");
       setSuggestFor(null);
       setManualOpen(null);
-      await loadVinculos(activeYm);
+      applyLinkLocally(rioPdvId, linkFromApi({
+        ...data.link,
+        verifiedAt:
+          data.link.verifiedAt
+          ?? new Date().toISOString(),
+      }));
       if (data.cadastroImport?.imported) {
         const n = data.cadastroImport.fields?.length ?? 0;
         setMsg(`Vínculo salvo. Cadastro importado do painel (${n} campos).`);
@@ -304,113 +348,29 @@ export function CadastrosVinculosPanel() {
     }
   }
 
-  function closeBulkPanel() {
-    setBulkOpen(false);
-    setBulkPhase("idle");
-    setBulkRows([]);
-    setBulkProgress({ done: 0, total: 0 });
-  }
+  const bulkSelectedCount = useMemo(
+    () =>
+      rows.filter(
+        (r) => !r.link && linkSelected[r.rioPdvId] === true && topSuggestions[r.rioPdvId],
+      ).length,
+    [rows, linkSelected, topSuggestions],
+  );
 
-  function patchBulkRow(rioPdvId: string, patch: Partial<BulkReviewRow>) {
-    setBulkRows((prev) =>
-      prev.map((r) => (r.rioPdvId === rioPdvId ? { ...r, ...patch } : r)),
-    );
-  }
+  async function vincularClientesSelecionados() {
+    const selected = rows
+      .filter((r) => !r.link && linkSelected[r.rioPdvId] === true && topSuggestions[r.rioPdvId])
+      .map((r) => ({
+        rioPdvId: r.rioPdvId,
+        suggestion: topSuggestions[r.rioPdvId]!,
+      }));
 
-  function applyBulkAlternative(rioPdvId: string, alt: Suggestion) {
-    patchBulkRow(rioPdvId, {
-      score: alt.score,
-      matchMethod: alt.matchMethod,
-      painelPdvId: String(alt.painelPdvId),
-      painelClienteId: String(alt.painelClienteId),
-      painelPdvNome: alt.painelPdvNome,
-      painelClienteNome: alt.painelClienteNome,
-      label: alt.label,
-    });
-  }
-
-  async function startBulkVincular() {
-    const unlinked = rows.filter((r) => !r.link).map((r) => r.rioPdvId);
-    if (unlinked.length === 0) {
-      setMsg("Nenhum PDV sem vínculo nesta competência.");
-      return;
-    }
-
-    setBulkOpen(true);
-    setBulkPhase("loading");
-    setBulkRows([]);
-    setBulkProgress({ done: 0, total: unlinked.length });
-    setMsg("");
-
-    const collected: BulkReviewRow[] = [];
-    const batches = chunkIds(unlinked, BULK_BATCH);
-
-    try {
-      for (let i = 0; i < batches.length; i++) {
-        const res = await fetch(
-          `/api/cadastros/month/${activeYm}/vinculos/suggest-bulk`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ rioPdvIds: batches[i], minScore: BULK_MIN_SCORE }),
-          },
-        );
-        const data = (await res.json()) as {
-          ok?: boolean;
-          items?: Array<{
-            rioPdvId: string;
-            rioPdvNome: string;
-            rioDocumento: string | null;
-            clienteNome: string;
-            marcaNome: string | null;
-            suggestion: Suggestion;
-            alternatives: Suggestion[];
-          }>;
-          error?: string;
-        };
-        if (!res.ok || !data.ok) throw new Error(data.error ?? "suggest_bulk_erro");
-
-        for (const item of data.items ?? []) {
-          collected.push(bulkRowFromSuggest(item));
-        }
-
-        setBulkRows([...collected]);
-        setBulkProgress({
-          done: Math.min((i + 1) * BULK_BATCH, unlinked.length),
-          total: unlinked.length,
-        });
-      }
-
-      setBulkPhase("review");
-      if (collected.length === 0) {
-        setMsg(
-          `Nenhuma sugestão com ≥${BULK_MIN_SCORE}% entre ${unlinked.length} PDV(s) sem vínculo.`,
-        );
-      } else {
-        setMsg(
-          `${collected.length} sugestão(ões) com ≥${BULK_MIN_SCORE}% — revise e confirme abaixo.`,
-        );
-      }
-    } catch (e) {
-      setBulkPhase("idle");
-      setMsg(e instanceof Error ? e.message : "Erro ao carregar sugestões em lote.");
-    }
-  }
-
-  async function applyBulkVincular() {
-    const selected = bulkRows.filter(
-      (r) =>
-        r.included
-        && /^\d+$/.test(r.painelPdvId.trim())
-        && /^\d+$/.test(r.painelClienteId.trim()),
-    );
     if (selected.length === 0) {
-      setMsg("Marque ao menos um vínculo válido para aplicar.");
+      setMsg("Marque ao menos um PDV com sugestão para vincular.");
       return;
     }
 
-    setBulkPhase("linking");
-    setBulkProgress({ done: 0, total: selected.length });
+    setBulkLinking(true);
+    setBulkLinkProgress({ done: 0, total: selected.length });
     setMsg("");
 
     let totalLinked = 0;
@@ -425,11 +385,11 @@ export function CadastrosVinculosPanel() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            links: batch.map((r) => ({
-              rioCompPdvId: r.rioPdvId,
-              painelPdvId: Number(r.painelPdvId),
-              painelClienteId: Number(r.painelClienteId),
-              matchMethod: r.matchMethod,
+            links: batch.map((item) => ({
+              rioCompPdvId: item.rioPdvId,
+              painelPdvId: item.suggestion.painelPdvId,
+              painelClienteId: item.suggestion.painelClienteId,
+              matchMethod: item.suggestion.matchMethod,
             })),
           }),
         });
@@ -442,31 +402,32 @@ export function CadastrosVinculosPanel() {
         };
         if (!res.ok || !data.ok) throw new Error(data.error ?? "bulk_link_erro");
 
+        const failedIds = new Set((data.failed ?? []).map((f) => f.rioCompPdvId));
+        for (const item of batch) {
+          if (failedIds.has(item.rioPdvId)) continue;
+          applyLinkLocally(item.rioPdvId, linkFromSuggestion(item.rioPdvId, item.suggestion));
+        }
+
         totalLinked += data.linked ?? 0;
         totalCadastro += data.cadastroImported ?? 0;
         if (data.failed?.length) allFailed.push(...data.failed);
 
-        setBulkProgress({
+        setBulkLinkProgress({
           done: Math.min((i + 1) * BULK_BATCH, selected.length),
           total: selected.length,
         });
       }
 
-      setBulkPhase("done");
-      await loadVinculos(activeYm);
-
-      const failNote =
-        allFailed.length > 0 ? ` ${allFailed.length} falha(s).` : "";
+      const failNote = allFailed.length > 0 ? ` ${allFailed.length} falha(s).` : "";
       setMsg(
         `Vínculo em lote: ${totalLinked} salvo(s), ${totalCadastro} cadastro(s) importado(s).${failNote}`,
       );
     } catch (e) {
-      setBulkPhase("review");
       setMsg(e instanceof Error ? e.message : "Erro ao vincular em lote.");
+    } finally {
+      setBulkLinking(false);
     }
   }
-
-  const bulkSelectedCount = bulkRows.filter((r) => r.included).length;
 
   async function removeLink(rioPdvId: string) {
     if (!window.confirm("Remover vínculo deste PDV com o painel legado?")) return;
@@ -476,7 +437,7 @@ export function CadastrosVinculosPanel() {
       const res = await fetch(`/api/cadastros/pdv-link/${rioPdvId}`, { method: "DELETE" });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "delete_erro");
-      await loadVinculos(activeYm);
+      applyUnlinkLocally(rioPdvId);
       setMsg("Vínculo removido.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao remover.");
@@ -540,7 +501,7 @@ export function CadastrosVinculosPanel() {
           type="button"
           className="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 dark:bg-slate-200 dark:text-slate-900"
           disabled={busy}
-          onClick={() => void loadVinculos(activeYm)}
+          onClick={() => void loadVinculos(activeYm, true)}
         >
           Atualizar
         </button>
@@ -548,190 +509,17 @@ export function CadastrosVinculosPanel() {
         <button
           type="button"
           className="rounded-md bg-violet-700 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-          disabled={busy || bulkPhase === "loading" || bulkPhase === "linking"}
-          onClick={() => void startBulkVincular()}
+          disabled={busy || bulkLinking || bulkSelectedCount === 0}
+          onClick={() => void vincularClientesSelecionados()}
         >
-          Vincular clientes
+          Vincular clientes ({bulkSelectedCount})
         </button>
       </div>
 
-      {bulkOpen ?
-        <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/30">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-bold text-violet-900 dark:text-violet-100">
-                Vincular clientes — revisão em lote
-              </h2>
-              <p className="text-xs text-violet-800/90 dark:text-violet-200/80">
-                Sugestões com ≥{BULK_MIN_SCORE}% de similaridade. Processa de {BULK_BATCH} em{" "}
-                {BULK_BATCH}. Ajuste IDs errados antes de confirmar.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {bulkPhase !== "loading" && bulkRows.length > 0 ?
-                <>
-                  <button
-                    type="button"
-                    className="rounded border border-violet-300 px-2 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100 dark:border-violet-700 dark:text-violet-100"
-                    disabled={bulkPhase === "linking" || bulkPhase === "done"}
-                    onClick={() =>
-                      setBulkRows((prev) => prev.map((r) => ({ ...r, included: true })))
-                    }
-                  >
-                    Marcar todos
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded border border-violet-300 px-2 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-100 dark:border-violet-700 dark:text-violet-100"
-                    disabled={bulkPhase === "linking" || bulkPhase === "done"}
-                    onClick={() =>
-                      setBulkRows((prev) => prev.map((r) => ({ ...r, included: false })))
-                    }
-                  >
-                    Desmarcar todos
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded bg-emerald-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
-                    disabled={
-                      bulkSelectedCount === 0 || bulkPhase === "linking" || bulkPhase === "done"
-                    }
-                    onClick={() => void applyBulkVincular()}
-                  >
-                    Vincular selecionados ({bulkSelectedCount})
-                  </button>
-                </>
-              : null}
-              <button
-                type="button"
-                className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold hover:bg-white dark:border-slate-600"
-                disabled={bulkPhase === "loading" || bulkPhase === "linking"}
-                onClick={closeBulkPanel}
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-
-          {bulkPhase === "loading" || bulkPhase === "linking" ?
-            <p className="mb-2 text-xs text-violet-800 dark:text-violet-200">
-              {bulkPhase === "loading" ? "Carregando sugestões" : "Vinculando"}…{" "}
-              {bulkProgress.done}/{bulkProgress.total}
-            </p>
-          : null}
-
-          {bulkRows.length === 0 && bulkPhase !== "loading" ?
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              Nenhuma sugestão forte o suficiente para exibir.
-            </p>
-          : null}
-
-          {bulkRows.length > 0 ?
-            <div className="max-h-[min(52vh,520px)] overflow-auto rounded border border-violet-200 bg-white dark:border-violet-900 dark:bg-slate-900">
-              <table className="min-w-full text-left text-xs">
-                <thead className="sticky top-0 border-b border-violet-100 bg-violet-50 text-[10px] uppercase tracking-wide text-violet-700 dark:border-violet-900 dark:bg-violet-950/80 dark:text-violet-300">
-                  <tr>
-                    <th className="px-2 py-2 w-8" />
-                    <th className="px-2 py-2">Cliente Rio</th>
-                    <th className="px-2 py-2">PDV Rio</th>
-                    <th className="px-2 py-2">Sugestão painel</th>
-                    <th className="px-2 py-2">PdvId</th>
-                    <th className="px-2 py-2">ClienteId</th>
-                    <th className="px-2 py-2">Outras</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bulkRows.map((r) => (
-                    <tr
-                      key={r.rioPdvId}
-                      className="border-b border-slate-100 align-top dark:border-slate-800"
-                    >
-                      <td className="px-2 py-2">
-                        <input
-                          type="checkbox"
-                          checked={r.included}
-                          disabled={bulkPhase === "linking" || bulkPhase === "done"}
-                          onChange={(e) =>
-                            patchBulkRow(r.rioPdvId, { included: e.target.checked })
-                          }
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="font-medium">{r.clienteNome}</div>
-                        {r.marcaNome ?
-                          <div className="text-violet-700 dark:text-violet-300">{r.marcaNome}</div>
-                        : null}
-                      </td>
-                      <td className="px-2 py-2">
-                        <div>{r.rioPdvNome}</div>
-                        <div className="text-slate-500">{displayBrazilianTaxId(r.rioDocumento)}</div>
-                      </td>
-                      <td className="px-2 py-2">
-                        <div>
-                          <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                            {r.score}%
-                          </span>{" "}
-                          · {r.painelPdvNome}
-                        </div>
-                        <div className="text-slate-500">
-                          {r.painelClienteNome} · {r.matchMethod}
-                        </div>
-                      </td>
-                      <td className="px-2 py-2">
-                        <input
-                          className="w-20 rounded border px-1.5 py-1 dark:border-slate-600 dark:bg-slate-950"
-                          value={r.painelPdvId}
-                          disabled={bulkPhase === "linking" || bulkPhase === "done"}
-                          onChange={(e) =>
-                            patchBulkRow(r.rioPdvId, {
-                              painelPdvId: e.target.value,
-                              matchMethod: "manual",
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        <input
-                          className="w-20 rounded border px-1.5 py-1 dark:border-slate-600 dark:bg-slate-950"
-                          value={r.painelClienteId}
-                          disabled={bulkPhase === "linking" || bulkPhase === "done"}
-                          onChange={(e) =>
-                            patchBulkRow(r.rioPdvId, {
-                              painelClienteId: e.target.value,
-                              matchMethod: "manual",
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        {r.alternatives.length > 0 ?
-                          <select
-                            className="max-w-[180px] rounded border px-1 py-1 dark:border-slate-600 dark:bg-slate-950"
-                            defaultValue=""
-                            disabled={bulkPhase === "linking" || bulkPhase === "done"}
-                            onChange={(e) => {
-                              const idx = Number(e.target.value);
-                              const alt = r.alternatives[idx];
-                              if (alt) applyBulkAlternative(r.rioPdvId, alt);
-                              e.target.value = "";
-                            }}
-                          >
-                            <option value="">Trocar…</option>
-                            {r.alternatives.map((alt, idx) => (
-                              <option key={`${alt.painelPdvId}-${idx}`} value={idx}>
-                                {alt.score}% · #{alt.painelPdvId}
-                              </option>
-                            ))}
-                          </select>
-                        : <span className="text-slate-400">—</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          : null}
-        </div>
+      {bulkLinking ?
+        <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">
+          Vinculando… {bulkLinkProgress.done}/{bulkLinkProgress.total}
+        </p>
       : null}
 
       {suggestionsLoading ?
@@ -750,6 +538,7 @@ export function CadastrosVinculosPanel() {
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800/80">
             <tr>
+              <th className="px-2 py-2 w-8" title="Incluir no vínculo em lote" />
               <th className="px-3 py-2">Cliente Rio</th>
               <th className="px-3 py-2">PDV Rio</th>
               <th className="px-3 py-2">CNPJ</th>
@@ -761,7 +550,7 @@ export function CadastrosVinculosPanel() {
           <tbody>
             {filtered.length === 0 ?
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
                   {busy ? "Carregando…" : "Nenhum PDV neste filtro."}
                 </td>
               </tr>
@@ -770,6 +559,22 @@ export function CadastrosVinculosPanel() {
                   key={r.rioPdvId}
                   className="border-b border-slate-100 align-top dark:border-slate-800"
                 >
+                  <td className="px-2 py-2">
+                    {!r.link && topSuggestions[r.rioPdvId] ?
+                      <input
+                        type="checkbox"
+                        checked={linkSelected[r.rioPdvId] === true}
+                        disabled={busy || bulkLinking}
+                        title="Incluir no Vincular clientes"
+                        onChange={(e) =>
+                          setLinkSelected((prev) => ({
+                            ...prev,
+                            [r.rioPdvId]: e.target.checked,
+                          }))
+                        }
+                      />
+                    : null}
+                  </td>
                   <td className="px-3 py-2">
                     <div className="font-medium text-slate-900 dark:text-slate-100">
                       {r.clienteNome || "—"}
