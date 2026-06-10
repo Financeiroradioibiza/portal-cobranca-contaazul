@@ -113,7 +113,7 @@ export function CadastrosVinculosPanel() {
   const [manualOpen, setManualOpen] = useState<string | null>(null);
   const [manualPdvId, setManualPdvId] = useState("");
   const [manualClienteId, setManualClienteId] = useState("");
-  const [topSuggestions, setTopSuggestions] = useState<Record<string, Suggestion>>({});
+  const [rowSuggestions, setRowSuggestions] = useState<Record<string, Suggestion[]>>({});
   const [linkSelected, setLinkSelected] = useState<Record<string, boolean>>({});
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsProgress, setSuggestionsProgress] = useState({ done: 0, total: 0 });
@@ -123,17 +123,17 @@ export function CadastrosVinculosPanel() {
   const loadTopSuggestions = useCallback(async (vinculoRows: VinculoRow[], ym: number) => {
     const unlinked = vinculoRows.filter((r) => !r.link).map((r) => r.rioPdvId);
     if (unlinked.length === 0) {
-      setTopSuggestions({});
+      setRowSuggestions({});
       setSuggestionsLoading(false);
       setSuggestionsProgress({ done: 0, total: 0 });
       return;
     }
 
     setSuggestionsLoading(true);
-    setTopSuggestions({});
+    setRowSuggestions({});
     setSuggestionsProgress({ done: 0, total: unlinked.length });
 
-    const map: Record<string, Suggestion> = {};
+    const map: Record<string, Suggestion[]> = {};
     const batches = chunkIds(unlinked, BULK_BATCH);
 
     try {
@@ -145,16 +145,20 @@ export function CadastrosVinculosPanel() {
         });
         const data = (await res.json()) as {
           ok?: boolean;
-          items?: Array<{ rioPdvId: string; suggestion: Suggestion }>;
+          items?: Array<{
+            rioPdvId: string;
+            suggestion: Suggestion;
+            alternatives: Suggestion[];
+          }>;
           error?: string;
         };
         if (!res.ok || !data.ok) throw new Error(data.error ?? "suggest_bulk_erro");
 
         for (const item of data.items ?? []) {
-          map[item.rioPdvId] = item.suggestion;
+          map[item.rioPdvId] = [item.suggestion, ...(item.alternatives ?? [])];
         }
 
-        setTopSuggestions({ ...map });
+        setRowSuggestions({ ...map });
         setLinkSelected((prev) => {
           const next = { ...prev };
           for (const id of Object.keys(map)) next[id] = true;
@@ -204,14 +208,14 @@ export function CadastrosVinculosPanel() {
         if (refreshSuggestions) {
           void loadTopSuggestions(loaded, ym);
         } else {
-          setTopSuggestions({});
+          setRowSuggestions({});
           setLinkSelected({});
         }
       } catch (e) {
         setMsg(e instanceof Error ? e.message : "Erro ao carregar vínculos.");
         setRows([]);
         setStats({ total: 0, linked: 0, unlinked: 0 });
-        setTopSuggestions({});
+        setRowSuggestions({});
         setLinkSelected({});
       } finally {
         setBusy(false);
@@ -224,7 +228,7 @@ export function CadastrosVinculosPanel() {
     setRows((prev) =>
       prev.map((r) => (r.rioPdvId === rioPdvId ? { ...r, link } : r)),
     );
-    setTopSuggestions((prev) => {
+    setRowSuggestions((prev) => {
       const next = { ...prev };
       delete next[rioPdvId];
       return next;
@@ -364,17 +368,25 @@ export function CadastrosVinculosPanel() {
   const bulkSelectedCount = useMemo(
     () =>
       rows.filter(
-        (r) => !r.link && linkSelected[r.rioPdvId] === true && topSuggestions[r.rioPdvId],
+        (r) =>
+          !r.link
+          && linkSelected[r.rioPdvId] === true
+          && (rowSuggestions[r.rioPdvId]?.length ?? 0) > 0,
       ).length,
-    [rows, linkSelected, topSuggestions],
+    [rows, linkSelected, rowSuggestions],
   );
 
   async function vincularClientesSelecionados() {
     const selected = rows
-      .filter((r) => !r.link && linkSelected[r.rioPdvId] === true && topSuggestions[r.rioPdvId])
+      .filter(
+        (r) =>
+          !r.link
+          && linkSelected[r.rioPdvId] === true
+          && (rowSuggestions[r.rioPdvId]?.length ?? 0) > 0,
+      )
       .map((r) => ({
         rioPdvId: r.rioPdvId,
-        suggestion: topSuggestions[r.rioPdvId]!,
+        suggestion: rowSuggestions[r.rioPdvId]![0]!,
       }));
 
     if (selected.length === 0) {
@@ -584,7 +596,7 @@ export function CadastrosVinculosPanel() {
                   className="border-b border-slate-100 align-top dark:border-slate-800"
                 >
                   <td className="px-2 py-2">
-                    {!r.link && topSuggestions[r.rioPdvId] ?
+                    {!r.link && (rowSuggestions[r.rioPdvId]?.length ?? 0) > 0 ?
                       <input
                         type="checkbox"
                         checked={linkSelected[r.rioPdvId] === true}
@@ -618,32 +630,37 @@ export function CadastrosVinculosPanel() {
                   <td className="px-3 py-2 whitespace-nowrap">
                     {displayBrazilianTaxId(r.rioDocumento)}
                   </td>
-                  <td className="px-3 py-2 min-w-[220px]">
+                  <td className="px-3 py-2 min-w-[240px]">
                     {r.link ?
                       <span className="text-slate-400">—</span>
-                    : suggestionsLoading && !topSuggestions[r.rioPdvId] ?
+                    : suggestionsLoading && !rowSuggestions[r.rioPdvId] ?
                       <span className="text-xs text-slate-400">carregando…</span>
-                    : topSuggestions[r.rioPdvId] ?
-                      <button
-                        type="button"
-                        className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-left text-xs hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50"
-                        disabled={busy}
-                        title="Clique para vincular esta sugestão"
-                        onClick={() => {
-                          const s = topSuggestions[r.rioPdvId]!;
-                          void saveLink(
-                            r.rioPdvId,
-                            s.painelPdvId,
-                            s.painelClienteId,
-                            s.matchMethod,
-                          );
-                        }}
-                      >
-                        <span className="font-semibold text-emerald-800 dark:text-emerald-300">
-                          {topSuggestions[r.rioPdvId]!.score}%
-                        </span>{" "}
-                        · {topSuggestions[r.rioPdvId]!.label}
-                      </button>
+                    : (rowSuggestions[r.rioPdvId]?.length ?? 0) > 0 ?
+                      <ul className="space-y-1">
+                        {rowSuggestions[r.rioPdvId]!.map((s) => (
+                          <li key={s.painelPdvId}>
+                            <button
+                              type="button"
+                              className="w-full rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-left text-xs hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/50"
+                              disabled={busy || bulkLinking}
+                              title="Clique para vincular esta sugestão"
+                              onClick={() =>
+                                void saveLink(
+                                  r.rioPdvId,
+                                  s.painelPdvId,
+                                  s.painelClienteId,
+                                  s.matchMethod,
+                                )
+                              }
+                            >
+                              <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+                                {s.score}%
+                              </span>{" "}
+                              · {s.label}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
                     : <span className="text-slate-400">—</span>}
                   </td>
                   <td className="px-3 py-2">
