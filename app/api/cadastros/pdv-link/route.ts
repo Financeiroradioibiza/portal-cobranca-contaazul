@@ -45,14 +45,21 @@ export async function PUT(request: Request) {
   const verified = body.verified === true;
 
   try {
-    const { link, cadastroImport } = await upsertPainelPdvLink({
-      rioCompPdvId,
-      painelPdvId,
-      painelClienteId,
-      matchMethod,
-      verified,
+    const { link, cadastroImport, rioCompPdvId: resolvedId, materializedFromProxy } =
+      await upsertPainelPdvLink({
+        rioCompPdvId,
+        painelPdvId,
+        painelClienteId,
+        matchMethod,
+        verified,
+      });
+    return NextResponse.json({
+      ok: true,
+      link,
+      cadastroImport,
+      rioCompPdvId: resolvedId,
+      materializedFromProxy,
     });
-    return NextResponse.json({ ok: true, link, cadastroImport });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro";
     const conflict =

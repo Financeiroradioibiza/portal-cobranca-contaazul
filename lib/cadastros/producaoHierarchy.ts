@@ -12,6 +12,12 @@ export function isLinhaAsPdvKey(key: string): boolean {
   return key.startsWith(LINHA_AS_PDV_PREFIX);
 }
 
+export function linhaIdFromAsPdvKey(key: string): string | null {
+  if (!isLinhaAsPdvKey(key)) return null;
+  const id = key.slice(LINHA_AS_PDV_PREFIX.length).trim();
+  return id || null;
+}
+
 export type ProducaoPdvRef = {
   rioPdvId: string;
   nome: string;

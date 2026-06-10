@@ -18,6 +18,7 @@ type VinculoRow = {
   clienteLinhaId: string;
   clienteNome: string;
   marcaNome: string | null;
+  isLinhaProxy?: boolean;
   link: {
     id: string;
     painelPdvId: number;
@@ -244,9 +245,22 @@ export function CadastrosVinculosPanel() {
     [loadTopSuggestions],
   );
 
-  function applyLinkLocally(rioPdvId: string, link: VinculoLink) {
+  function applyLinkLocally(
+    rioPdvId: string,
+    link: VinculoLink,
+    opts?: { resolvedRioPdvId?: string },
+  ) {
+    const resolvedId = opts?.resolvedRioPdvId ?? rioPdvId;
     setRows((prev) =>
-      prev.map((r) => (r.rioPdvId === rioPdvId ? { ...r, link } : r)),
+      prev.map((r) => {
+        if (r.rioPdvId !== rioPdvId) return r;
+        return {
+          ...r,
+          rioPdvId: resolvedId,
+          link,
+          isLinhaProxy: resolvedId !== rioPdvId ? false : r.isLinhaProxy,
+        };
+      }),
     );
     setRowSuggestions((prev) => {
       const next: Record<string, Suggestion[]> = {};
@@ -258,6 +272,7 @@ export function CadastrosVinculosPanel() {
       setLinkSelected((sel) => {
         const selNext = { ...sel };
         delete selNext[rioPdvId];
+        if (resolvedId !== rioPdvId) delete selNext[resolvedId];
         for (const id of Object.keys(selNext)) {
           if (!(id in next)) delete selNext[id];
         }
@@ -370,23 +385,33 @@ export function CadastrosVinculosPanel() {
           verifiedAt: string | null;
         };
         cadastroImport?: { imported?: boolean; source?: string; fields?: string[] };
+        rioCompPdvId?: string;
+        materializedFromProxy?: boolean;
       }>(res);
       if (!res.ok || !data.ok || !data.link) {
         throw new Error(formatVinculoLinkError(data.error, data.conflict));
       }
       setSuggestFor(null);
       setManualOpen(null);
-      applyLinkLocally(rioPdvId, linkFromApi({
-        ...data.link,
-        verifiedAt:
-          data.link.verifiedAt
-          ?? new Date().toISOString(),
-      }));
+      applyLinkLocally(
+        rioPdvId,
+        linkFromApi({
+          ...data.link,
+          verifiedAt:
+            data.link.verifiedAt
+            ?? new Date().toISOString(),
+        }),
+        { resolvedRioPdvId: data.rioCompPdvId },
+      );
       if (data.cadastroImport?.imported) {
         const n = data.cadastroImport.fields?.length ?? 0;
-        setMsg(`Vínculo salvo. Cadastro importado do painel (${n} campos).`);
+        const mat =
+          data.materializedFromProxy ? " PDV criado na Planilha Rio." : "";
+        setMsg(`Vínculo salvo.${mat} Cadastro importado do painel (${n} campos).`);
       } else {
-        setMsg("Vínculo salvo. Cadastro do painel não disponível — verifique o export CSV.");
+        const mat =
+          data.materializedFromProxy ? " PDV criado na Planilha Rio." : "";
+        setMsg(`Vínculo salvo.${mat} Cadastro do painel não disponível — verifique o export CSV.`);
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao salvar.");
@@ -461,6 +486,8 @@ export function CadastrosVinculosPanel() {
               verifiedAt: string | null;
             };
             cadastroImport?: { imported?: boolean };
+            rioCompPdvId?: string;
+            materializedFromProxy?: boolean;
           }>(res);
           if (!res.ok || !data.ok || !data.link) {
             throw new Error(formatVinculoLinkError(data.error, data.conflict));
@@ -472,6 +499,7 @@ export function CadastrosVinculosPanel() {
               ...data.link,
               verifiedAt: data.link.verifiedAt ?? new Date().toISOString(),
             }),
+            { resolvedRioPdvId: data.rioCompPdvId },
           );
           totalLinked += 1;
           if (data.cadastroImport?.imported) totalCadastro += 1;
@@ -654,6 +682,14 @@ export function CadastrosVinculosPanel() {
                   </td>
                   <td className="px-3 py-2">
                     <div>{r.rioPdvNome || "—"}</div>
+                    {r.isLinhaProxy ?
+                      <span
+                        className="text-[10px] text-amber-700 dark:text-amber-400"
+                        title="Cliente com 1 PDV — ao vincular, cria o registro na Planilha Rio"
+                      >
+                        cliente = PDV
+                      </span>
+                    : null}
                     {r.rioPdvMovimento !== "estavel" ?
                       <span className="text-xs text-orange-600">{r.rioPdvMovimento}</span>
                     : null}

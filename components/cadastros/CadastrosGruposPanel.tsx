@@ -982,9 +982,11 @@ export function CadastrosGruposPanel() {
                   </li>
                   <li>
                     <strong>{vinculoDiag.semPainelLinhaProxy}</strong> são{" "}
-                    <span className="text-amber-800 dark:text-amber-300">cliente = PDV</span> (sem loja
-                    cadastrada na Rio) — não entram na lista vínculos. Cadastre o PDV na Planilha Rio ou
-                    importe o layout MARCA.
+                    <span className="text-amber-800 dark:text-amber-300">cliente = PDV</span> — aparecem na{" "}
+                    <a href="/cadastros/vinculos" className="underline">
+                      lista vínculos
+                    </a>
+                    ; ao vincular, o PDV é criado na Planilha Rio automaticamente.
                   </li>
                   {vinculoDiag.faltamPdvSlots > 0 ?
                     <li>

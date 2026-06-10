@@ -9,8 +9,122 @@ import {
   suggestPainelMatches,
   type PainelMatchSuggestion,
 } from "@/lib/cadastros/painelMatch";
+import {
+  isLinhaAsPdvKey,
+  linhaAsPdvKey,
+  linhaIdFromAsPdvKey,
+} from "@/lib/cadastros/producaoHierarchy";
 import { importProducaoCadastroFromPainel } from "@/lib/cadastros/painelPdvCadastroImport";
+import { createRioCompPdv } from "@/lib/rio/rioClienteCompService";
 import { csvGetPdvByPainelId } from "@/lib/radioPainel/exportClientesCsv";
+
+type RioPdvMatchContext = {
+  requestId: string;
+  rioPdvId: string;
+  nome: string;
+  documento: string | null;
+  clienteNome: string;
+  marcaNome: string | null;
+  isLinhaProxy: boolean;
+};
+
+async function resolveRioPdvMatchContext(
+  rioCompPdvId: string,
+): Promise<RioPdvMatchContext | null> {
+  if (isLinhaAsPdvKey(rioCompPdvId)) {
+    const linhaId = linhaIdFromAsPdvKey(rioCompPdvId);
+    if (!linhaId) return null;
+    const linha = await prisma.rioCompClienteLinha.findUnique({
+      where: { id: linhaId },
+      include: {
+        rioGrupo: { select: { nome: true } },
+        pdvs: {
+          where: { movimento: { not: "saida" } },
+          orderBy: [{ sortOrder: "asc" }],
+          take: 1,
+        },
+      },
+    });
+    if (!linha || linha.movimento === "saida") return null;
+    const clienteNome = linha.nomeFantasia || linha.razaoSocial || "Sem nome";
+    if (linha.pdvs.length > 0) {
+      const p = linha.pdvs[0]!;
+      return {
+        requestId: rioCompPdvId,
+        rioPdvId: p.id,
+        nome: p.nome.trim() || clienteNome,
+        documento: p.documento ?? linha.documento,
+        clienteNome,
+        marcaNome: linha.rioGrupo?.nome ?? null,
+        isLinhaProxy: false,
+      };
+    }
+    return {
+      requestId: rioCompPdvId,
+      rioPdvId: rioCompPdvId,
+      nome: clienteNome,
+      documento: linha.documento,
+      clienteNome,
+      marcaNome: linha.rioGrupo?.nome ?? null,
+      isLinhaProxy: true,
+    };
+  }
+
+  const pdv = await prisma.rioCompPdv.findUnique({
+    where: { id: rioCompPdvId },
+    include: {
+      cliente: {
+        select: {
+          nomeFantasia: true,
+          razaoSocial: true,
+          documento: true,
+          rioGrupo: { select: { nome: true } },
+        },
+      },
+    },
+  });
+  if (!pdv) return null;
+  return {
+    requestId: rioCompPdvId,
+    rioPdvId: pdv.id,
+    nome: pdv.nome,
+    documento: pdv.documento,
+    clienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+    marcaNome: pdv.cliente.rioGrupo?.nome ?? null,
+    isLinhaProxy: false,
+  };
+}
+
+/** Cria o PDV na Planilha Rio quando o cliente ainda é «cliente = PDV». */
+export async function materializeLinhaProxyPdv(rioCompPdvId: string): Promise<string> {
+  if (!isLinhaAsPdvKey(rioCompPdvId)) return rioCompPdvId;
+
+  const linhaId = linhaIdFromAsPdvKey(rioCompPdvId);
+  if (!linhaId) throw new Error("rio_linha_not_found");
+
+  const linha = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: linhaId },
+    include: {
+      pdvs: {
+        where: { movimento: { not: "saida" } },
+        orderBy: [{ sortOrder: "asc" }],
+        take: 1,
+      },
+    },
+  });
+  if (!linha || linha.movimento === "saida") throw new Error("rio_linha_not_found");
+  if (linha.pdvs.length > 0) return linha.pdvs[0]!.id;
+
+  const nome = (linha.nomeFantasia || linha.razaoSocial || "").trim() || "PDV 1";
+  const { pdv } = await createRioCompPdv(linhaId, nome);
+  if (linha.documento && !pdv.documento) {
+    await prisma.rioCompPdv.update({
+      where: { id: pdv.id },
+      data: { documento: linha.documento },
+    });
+  }
+  return pdv.id;
+}
 
 export type PainelPdvLinkConflict = {
   painelPdvId: number;
@@ -75,6 +189,8 @@ export type VinculoRow = {
   clienteLinhaId: string;
   clienteNome: string;
   marcaNome: string | null;
+  /** Cliente Rio sem PDV filho — um PDV no painel legado. */
+  isLinhaProxy?: boolean;
   link: {
     id: string;
     painelPdvId: number;
@@ -113,6 +229,23 @@ export async function listVinculosForMonth(ym: number): Promise<{
 
   const rows: VinculoRow[] = [];
   for (const linha of month.linhas) {
+    const activePdvs = linha.pdvs.filter((p) => p.movimento !== "saida");
+    if (activePdvs.length === 0 && linha.movimento !== "saida") {
+      const clienteNome = linha.nomeFantasia || linha.razaoSocial;
+      rows.push({
+        rioPdvId: linhaAsPdvKey(linha.id),
+        rioPdvNome: clienteNome,
+        rioDocumento: linha.documento,
+        rioPdvMovimento: linha.movimento ?? "estavel",
+        clienteLinhaId: linha.id,
+        clienteNome,
+        marcaNome: linha.rioGrupo?.nome ?? null,
+        isLinhaProxy: true,
+        link: null,
+      });
+      continue;
+    }
+
     for (const pdv of linha.pdvs) {
       rows.push({
         rioPdvId: pdv.id,
@@ -150,25 +283,20 @@ export async function suggestForRioPdv(rioCompPdvId: string): Promise<{
   rioPdvId: string;
   suggestions: PainelMatchSuggestion[];
 }> {
-  const pdv = await prisma.rioCompPdv.findUnique({
-    where: { id: rioCompPdvId },
-    include: {
-      cliente: { select: { nomeFantasia: true, razaoSocial: true } },
-    },
-  });
-  if (!pdv) throw new Error("rio_pdv_not_found");
+  const ctx = await resolveRioPdvMatchContext(rioCompPdvId);
+  if (!ctx) throw new Error("rio_pdv_not_found");
 
   const takenPairs = await loadPainelPdvTakenPairs();
   const suggestions = filterAvailableSuggestions(
     suggestPainelMatches({
-      rioPdvNome: pdv.nome,
-      rioDocumento: pdv.documento,
-      rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+      rioPdvNome: ctx.nome,
+      rioDocumento: ctx.documento,
+      rioClienteNome: ctx.clienteNome,
     }),
-    takenPainelIdsForRio(takenPairs, pdv.id),
+    takenPainelIdsForRio(takenPairs, ctx.rioPdvId),
   );
 
-  return { rioPdvId: pdv.id, suggestions };
+  return { rioPdvId: ctx.requestId, suggestions };
 }
 
 export async function upsertPainelPdvLink(input: {
@@ -181,8 +309,11 @@ export async function upsertPainelPdvLink(input: {
 }): Promise<{
   link: Prisma.PainelPdvLinkGetPayload<object>;
   cadastroImport: Awaited<ReturnType<typeof importProducaoCadastroFromPainel>>;
+  rioCompPdvId: string;
+  materializedFromProxy: boolean;
 }> {
-  const pdv = await prisma.rioCompPdv.findUnique({ where: { id: input.rioCompPdvId } });
+  const resolvedId = await materializeLinhaProxyPdv(input.rioCompPdvId);
+  const pdv = await prisma.rioCompPdv.findUnique({ where: { id: resolvedId } });
   if (!pdv) throw new Error("rio_pdv_not_found");
 
   if (!Number.isFinite(input.painelPdvId) || input.painelPdvId <= 0) {
@@ -194,7 +325,7 @@ export async function upsertPainelPdvLink(input: {
 
   const conflict = await findPainelPdvLinkConflict(
     input.painelPdvId,
-    input.rioCompPdvId,
+    resolvedId,
   );
   if (conflict) {
     const err = new Error("painel_pdv_ja_vinculado") as Error & {
@@ -219,19 +350,24 @@ export async function upsertPainelPdvLink(input: {
   };
 
   const link = await prisma.painelPdvLink.upsert({
-    where: { rioCompPdvId: input.rioCompPdvId },
-    create: { rioCompPdvId: input.rioCompPdvId, ...data },
+    where: { rioCompPdvId: resolvedId },
+    create: { rioCompPdvId: resolvedId, ...data },
     update: data,
   });
 
   const cadastroImport = await importProducaoCadastroFromPainel(
-    input.rioCompPdvId,
+    resolvedId,
     input.painelPdvId,
     input.painelClienteId,
     input.cadastroCsvOnly ? { csvOnly: true, refreshCobranca: false } : undefined,
   );
 
-  return { link, cadastroImport };
+  return {
+    link,
+    cadastroImport,
+    rioCompPdvId: resolvedId,
+    materializedFromProxy: resolvedId !== input.rioCompPdvId,
+  };
 }
 
 export async function deletePainelPdvLink(rioCompPdvId: string): Promise<void> {
@@ -259,29 +395,20 @@ export async function suggestBulkForRioPdvs(
 
   const minScore = opts?.minScore ?? BULK_SUGGEST_MIN_SCORE;
 
-  const pdvs = await prisma.rioCompPdv.findMany({
-    where: { id: { in: rioCompPdvIds } },
-    include: {
-      cliente: {
-        select: { nomeFantasia: true, razaoSocial: true, rioGrupo: { select: { nome: true } } },
-      },
-    },
-  });
-  const byId = new Map(pdvs.map((p) => [p.id, p]));
   const takenPairs = await loadPainelPdvTakenPairs();
 
   const items: BulkSuggestItem[] = [];
   for (const id of rioCompPdvIds) {
-    const pdv = byId.get(id);
-    if (!pdv) continue;
+    const ctx = await resolveRioPdvMatchContext(id);
+    if (!ctx) continue;
 
     const all = filterAvailableSuggestions(
       suggestPainelMatches({
-        rioPdvNome: pdv.nome,
-        rioDocumento: pdv.documento,
-        rioClienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
+        rioPdvNome: ctx.nome,
+        rioDocumento: ctx.documento,
+        rioClienteNome: ctx.clienteNome,
       }),
-      takenPainelIdsForRio(takenPairs, id),
+      takenPainelIdsForRio(takenPairs, ctx.rioPdvId),
     );
     const filtered =
       minScore > 0 ? filterSuggestionsForBulk(all, minScore) : (
@@ -291,11 +418,11 @@ export async function suggestBulkForRioPdvs(
 
     const [best, ...rest] = filtered;
     items.push({
-      rioPdvId: pdv.id,
-      rioPdvNome: pdv.nome,
-      rioDocumento: pdv.documento,
-      clienteNome: pdv.cliente.nomeFantasia || pdv.cliente.razaoSocial,
-      marcaNome: pdv.cliente.rioGrupo?.nome ?? null,
+      rioPdvId: ctx.requestId,
+      rioPdvNome: ctx.nome,
+      rioDocumento: ctx.documento,
+      clienteNome: ctx.clienteNome,
+      marcaNome: ctx.marcaNome,
       suggestion: best,
       alternatives: rest,
     });

@@ -32,7 +32,7 @@ export function semPainelMotivo(pdv: ProducaoPdvRef): SemPainelMotivo | null {
 
 export function semPainelMotivoLabel(motivo: SemPainelMotivo): string {
   if (motivo === "linha_proxy") {
-    return "fora da lista vínculos (cliente = PDV)";
+    return "cliente = PDV (lista vínculos)";
   }
   return "na lista vínculos";
 }
