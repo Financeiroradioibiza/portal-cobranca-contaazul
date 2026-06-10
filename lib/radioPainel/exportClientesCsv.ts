@@ -261,6 +261,28 @@ export function csvGetPdvByPainelId(pdvId: string): CsvPdvRecord | null {
   return hit ? pdvToRecord(hit) : null;
 }
 
+/** PDVs cujo blob contém ao menos um token significativo (OR, não AND). */
+export function csvFindPdvsByAnyToken(tokens: string[]): CsvPdvRecord[] {
+  const { pdvs } = loadCsv();
+  const sig = [
+    ...new Set(
+      tokens
+        .map((t) => compactAlphaNum(t))
+        .filter((t) => t.length >= 3),
+    ),
+  ];
+  if (!sig.length) return [];
+  const seen = new Set<string>();
+  const out: CsvPdvRecord[] = [];
+  for (const p of pdvs) {
+    if (seen.has(p.pdvId)) continue;
+    if (!sig.some((t) => p.blob.includes(t))) continue;
+    seen.add(p.pdvId);
+    out.push(pdvToRecord(p));
+  }
+  return out;
+}
+
 /** Match exato por CNPJ/CPF (só dígitos, 11 ou 14). */
 export function csvFindPdvByCnpjDigits(digits: string): CsvPdvRecord | null {
   const d = onlyDigits(digits);
