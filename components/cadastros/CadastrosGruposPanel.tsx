@@ -52,6 +52,12 @@ import {
   type RioLinhaForProducao,
 } from "@/lib/cadastros/producaoHierarchy";
 import {
+  buildVinculosReconcileReport,
+  collectProducaoPdvs,
+  semPainelMotivo,
+  semPainelMotivoLabel,
+} from "@/lib/cadastros/vinculosReconcile";
+import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
 } from "@/lib/manualReminders/yearMonth";
@@ -82,6 +88,7 @@ function DraggableProdPdv({
     disabled: !editMode,
   });
   const linked = Boolean(pdv.painelLink);
+  const motivo = linked ? null : semPainelMotivo(pdv);
 
   return (
     <div
@@ -113,8 +120,23 @@ function DraggableProdPdv({
           <span className="ml-1 text-[10px] text-amber-600">· cliente = PDV</span>
         : null}
         <span className="ml-1 text-[10px] text-slate-400">
-          {linked ? `· painel #${pdv.painelLink!.painelPdvId}` : "· sem painel"}
+          {linked ?
+            `· painel #${pdv.painelLink!.painelPdvId}`
+          : "· sem painel"}
         </span>
+        {motivo ?
+          <span
+            className={
+              "ml-1 text-[10px] " +
+              (motivo === "linha_proxy" ?
+                "text-amber-700 dark:text-amber-400"
+              : "text-sky-700 dark:text-sky-400")
+            }
+            title={semPainelMotivoLabel(motivo)}
+          >
+            · {semPainelMotivoLabel(motivo)}
+          </span>
+        : null}
       </button>
     </div>
   );
@@ -171,6 +193,9 @@ export function CadastrosGruposPanel() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [q, setQ] = useState("");
+  const [onlySemPainel, setOnlySemPainel] = useState(false);
+  const [showVinculoDiag, setShowVinculoDiag] = useState(false);
+  const [vinculosStats, setVinculosStats] = useState({ total: 0, linked: 0, unlinked: 0 });
   const [rioExpanded, setRioExpanded] = useState<Set<string>>(new Set());
   const [rioClienteOpen, setRioClienteOpen] = useState<Set<string>>(new Set());
   const [prodExpanded, setProdExpanded] = useState<Set<string>>(new Set());
@@ -215,19 +240,40 @@ export function CadastrosGruposPanel() {
   );
 
   const clientesFiltered = useMemo(() => {
-    if (!rioSel) return clientesVisiveis;
-    if (rioSel.tipo === "cliente") {
-      return clientesForRioSelection(clientesVisiveis, {
-        tipo: "cliente",
-        rioLinhaId: rioSel.rioLinhaId,
-      });
+    let base = clientesVisiveis;
+    if (rioSel) {
+      if (rioSel.tipo === "cliente") {
+        base = clientesForRioSelection(clientesVisiveis, {
+          tipo: "cliente",
+          rioLinhaId: rioSel.rioLinhaId,
+        });
+      } else {
+        base = clientesForRioSelection(
+          clientesVisiveis,
+          { tipo: "marca", marcaNome: rioSel.marcaNome },
+          rioSel.linhaIds,
+        );
+      }
     }
-    return clientesForRioSelection(
-      clientesVisiveis,
-      { tipo: "marca", marcaNome: rioSel.marcaNome },
-      rioSel.linhaIds,
-    );
-  }, [clientesVisiveis, rioSel]);
+    if (!onlySemPainel) return base;
+    return base
+      .map((c) => ({
+        ...c,
+        pdvs: c.pdvs.filter((p) => !p.painelLink),
+        pdvCount: c.pdvs.filter((p) => !p.painelLink).length,
+      }))
+      .filter((c) => c.pdvCount > 0);
+  }, [clientesVisiveis, rioSel, onlySemPainel]);
+
+  const vinculoDiag = useMemo(
+    () =>
+      buildVinculosReconcileReport({
+        linhas: linhasRio,
+        vinculosStats,
+        producaoPdvs: collectProducaoPdvs(clientesVisiveis),
+      }),
+    [linhasRio, vinculosStats, clientesVisiveis],
+  );
 
   const rioSelLabel = useMemo(() => {
     if (!rioSel) return null;
@@ -285,6 +331,7 @@ export function CadastrosGruposPanel() {
       const monthData = (await mRes.json()) as RioMonthBundle & { error?: string };
       const vincData = (await vRes.json()) as {
         ok?: boolean;
+        stats?: { total: number; linked: number; unlinked: number };
         rows?: Array<{
           rioPdvId: string;
           link: {
@@ -315,6 +362,13 @@ export function CadastrosGruposPanel() {
         });
       }
       setLinkMap(links);
+      setVinculosStats(
+        vincData.stats ?? {
+          total: vincData.rows?.length ?? 0,
+          linked: vincData.rows?.filter((r) => r.link).length ?? 0,
+          unlinked: vincData.rows?.filter((r) => !r.link).length ?? 0,
+        },
+      );
 
       const bundle = { grupos: monthData.grupos ?? [], linhas: monthData.linhas ?? [] };
       const rioTree = buildProducaoTree(bundle, links);
@@ -330,6 +384,7 @@ export function CadastrosGruposPanel() {
         razaoSocial: ln.razaoSocial,
         documento: ln.documento,
         movimento: ln.movimento,
+        numeroPdvSite: (ln as { numeroPdvSite?: number }).numeroPdvSite ?? 0,
         pdvs: ln.pdvs,
       }));
       setLinhasRio(linhasForProd);
@@ -803,7 +858,31 @@ export function CadastrosGruposPanel() {
                     " ✓"
                   : ` (Rio: ${rioPdvTotal})`}
                 </p>
-                <div className="mt-1 flex gap-1">
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    className={
+                      "rounded border px-2 py-0.5 text-[10px] " +
+                      (onlySemPainel ?
+                        "border-amber-400 bg-amber-50 text-amber-900 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-200"
+                      : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300")
+                    }
+                    onClick={() => setOnlySemPainel((v) => !v)}
+                  >
+                    {onlySemPainel ? "Só sem painel ✓" : "Só sem painel"}
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      "rounded border px-2 py-0.5 text-[10px] " +
+                      (showVinculoDiag ?
+                        "border-violet-400 bg-violet-50 text-violet-900 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-200"
+                      : "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300")
+                    }
+                    onClick={() => setShowVinculoDiag((v) => !v)}
+                  >
+                    {showVinculoDiag ? "Diagnóstico ✓" : "Diagnóstico vínculos"}
+                  </button>
                   <button
                     type="button"
                     className="rounded border border-slate-300 px-2 py-0.5 text-[10px] text-slate-600 dark:border-slate-600 dark:text-slate-300"
@@ -866,6 +945,77 @@ export function CadastrosGruposPanel() {
                 </button>
               </div>
             </div>
+            {showVinculoDiag ?
+              <div className="shrink-0 border-b border-violet-200 bg-violet-50/80 px-3 py-2 text-[11px] text-violet-950 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+                <p className="font-semibold">
+                  Por que {vinculoDiag.numeroPdvSiteTotal} ≠ {vinculoDiag.vinculosTotal}?
+                </p>
+                <p className="mt-1 text-violet-800 dark:text-violet-200">
+                  A Planilha Rio soma a coluna <strong>Nº PDV</strong> (cobrança). A Lista vínculos só
+                  mostra PDVs <strong>registrados</strong> no sistema — um registro por loja.
+                </p>
+                <dl className="mt-2 grid gap-1 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-violet-600 dark:text-violet-300">Nº PDV planilha (cobrança)</dt>
+                    <dd className="font-bold tabular-nums">{vinculoDiag.numeroPdvSiteTotal}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-violet-600 dark:text-violet-300">PDVs registrados (lista vínculos)</dt>
+                    <dd className="font-bold tabular-nums">{vinculoDiag.vinculosTotal}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-violet-600 dark:text-violet-300">Sem vínculo painel (lista)</dt>
+                    <dd className="font-bold tabular-nums">{vinculoDiag.vinculosUnlinked}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-violet-600 dark:text-violet-300">Sem painel na produção</dt>
+                    <dd className="font-bold tabular-nums">{vinculoDiag.producaoSemPainel}</dd>
+                  </div>
+                </dl>
+                <ul className="mt-2 list-disc space-y-0.5 pl-4">
+                  <li>
+                    <strong>{vinculoDiag.semPainelListaVinculos}</strong> sem painel estão na{" "}
+                    <a href="/cadastros/vinculos" className="underline">
+                      lista vínculos
+                    </a>{" "}
+                    — dá para vincular lá.
+                  </li>
+                  <li>
+                    <strong>{vinculoDiag.semPainelLinhaProxy}</strong> são{" "}
+                    <span className="text-amber-800 dark:text-amber-300">cliente = PDV</span> (sem loja
+                    cadastrada na Rio) — não entram na lista vínculos. Cadastre o PDV na Planilha Rio ou
+                    importe o layout MARCA.
+                  </li>
+                  {vinculoDiag.faltamPdvSlots > 0 ?
+                    <li>
+                      <strong>{vinculoDiag.faltamPdvSlots}</strong> lojas faltando: Nº PDV da cobrança é
+                      maior que PDVs cadastrados em{" "}
+                      <strong>{vinculoDiag.linhasComFaltamPdv.length}</strong> clientes.
+                    </li>
+                  : null}
+                </ul>
+                {vinculoDiag.linhasComFaltamPdv.length > 0 ?
+                  <details className="mt-2">
+                    <summary className="cursor-pointer font-medium">
+                      Clientes com Nº PDV &gt; lojas cadastradas (
+                      {vinculoDiag.linhasComFaltamPdv.length})
+                    </summary>
+                    <ul className="mt-1 max-h-28 overflow-y-auto pl-2 text-[10px]">
+                      {vinculoDiag.linhasComFaltamPdv.slice(0, 40).map((g) => (
+                        <li key={g.linhaId}>
+                          {g.clienteNome}: Nº PDV {g.numeroPdvSite}, cadastrados{" "}
+                          {g.pdvsRegistrados === 0 ? "0 (vira cliente=PDV)" : g.pdvsRegistrados}, faltam{" "}
+                          {g.faltam}
+                        </li>
+                      ))}
+                      {vinculoDiag.linhasComFaltamPdv.length > 40 ?
+                        <li>… e mais {vinculoDiag.linhasComFaltamPdv.length - 40}</li>
+                      : null}
+                    </ul>
+                  </details>
+                : null}
+              </div>
+            : null}
             <div className="flex min-h-0 flex-1">
               <div className="min-w-0 flex-1 overflow-y-auto p-3">
                 {PRODUCAO_MOVIMENTO_TOP_ENABLED ?

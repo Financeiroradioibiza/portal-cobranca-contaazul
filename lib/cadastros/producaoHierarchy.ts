@@ -42,6 +42,8 @@ export type RioLinhaForProducao = {
   razaoSocial?: string;
   documento?: string | null;
   movimento?: string;
+  /** Coluna Nº PDV da Planilha Rio (cobrança) — pode ser maior que pdvs.length. */
+  numeroPdvSite?: number;
   pdvs: Array<{
     id: string;
     nome: string;
