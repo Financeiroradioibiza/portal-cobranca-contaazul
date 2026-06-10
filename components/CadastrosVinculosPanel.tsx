@@ -63,6 +63,19 @@ function linkFromSuggestion(rioPdvId: string, s: Suggestion): VinculoLink {
   };
 }
 
+async function parseApiJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const hint =
+      text.trimStart().startsWith("<")
+        ? "resposta HTML (timeout ou erro do servidor — tente menos itens de uma vez)"
+        : text.trim().slice(0, 120);
+    throw new Error(`Erro ${res.status}: ${hint}`);
+  }
+}
+
 function linkFromApi(
   raw: {
     id: string;
@@ -312,7 +325,7 @@ export function CadastrosVinculosPanel() {
           verified: true,
         }),
       });
-      const data = (await res.json()) as {
+      const data = await parseApiJson<{
         ok?: boolean;
         error?: string;
         link?: {
@@ -325,7 +338,7 @@ export function CadastrosVinculosPanel() {
           verifiedAt: string | null;
         };
         cadastroImport?: { imported?: boolean; source?: string; fields?: string[] };
-      };
+      }>(res);
       if (!res.ok || !data.ok || !data.link) throw new Error(data.error ?? "save_erro");
       setSuggestFor(null);
       setManualOpen(null);
@@ -376,46 +389,57 @@ export function CadastrosVinculosPanel() {
     let totalLinked = 0;
     let totalCadastro = 0;
     const allFailed: Array<{ rioCompPdvId: string; error: string }> = [];
-    const batches = chunkIds(selected, BULK_BATCH);
 
     try {
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i]!;
-        const res = await fetch("/api/cadastros/pdv-link/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            links: batch.map((item) => ({
+      for (let i = 0; i < selected.length; i++) {
+        const item = selected[i]!;
+        try {
+          const res = await fetch("/api/cadastros/pdv-link", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
               rioCompPdvId: item.rioPdvId,
               painelPdvId: item.suggestion.painelPdvId,
               painelClienteId: item.suggestion.painelClienteId,
               matchMethod: item.suggestion.matchMethod,
-            })),
-          }),
-        });
-        const data = (await res.json()) as {
-          ok?: boolean;
-          linked?: number;
-          cadastroImported?: number;
-          failed?: Array<{ rioCompPdvId: string; error: string }>;
-          error?: string;
-        };
-        if (!res.ok || !data.ok) throw new Error(data.error ?? "bulk_link_erro");
+              verified: true,
+            }),
+          });
+          const data = await parseApiJson<{
+            ok?: boolean;
+            error?: string;
+            link?: {
+              id: string;
+              painelPdvId: number;
+              painelClienteId: number;
+              matchMethod: string;
+              painelPdvNome: string | null;
+              painelClienteNome: string | null;
+              verifiedAt: string | null;
+            };
+            cadastroImport?: { imported?: boolean };
+          }>(res);
+          if (!res.ok || !data.ok || !data.link) {
+            throw new Error(data.error ?? "save_erro");
+          }
 
-        const failedIds = new Set((data.failed ?? []).map((f) => f.rioCompPdvId));
-        for (const item of batch) {
-          if (failedIds.has(item.rioPdvId)) continue;
-          applyLinkLocally(item.rioPdvId, linkFromSuggestion(item.rioPdvId, item.suggestion));
+          applyLinkLocally(
+            item.rioPdvId,
+            linkFromApi({
+              ...data.link,
+              verifiedAt: data.link.verifiedAt ?? new Date().toISOString(),
+            }),
+          );
+          totalLinked += 1;
+          if (data.cadastroImport?.imported) totalCadastro += 1;
+        } catch (e) {
+          allFailed.push({
+            rioCompPdvId: item.rioPdvId,
+            error: e instanceof Error ? e.message : "erro",
+          });
         }
 
-        totalLinked += data.linked ?? 0;
-        totalCadastro += data.cadastroImported ?? 0;
-        if (data.failed?.length) allFailed.push(...data.failed);
-
-        setBulkLinkProgress({
-          done: Math.min((i + 1) * BULK_BATCH, selected.length),
-          total: selected.length,
-        });
+        setBulkLinkProgress({ done: i + 1, total: selected.length });
       }
 
       const failNote = allFailed.length > 0 ? ` ${allFailed.length} falha(s).` : "";

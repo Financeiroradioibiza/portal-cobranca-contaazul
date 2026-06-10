@@ -118,6 +118,7 @@ export async function upsertPainelPdvLink(input: {
   painelClienteId: number;
   matchMethod?: PainelMatchMethod;
   verified?: boolean;
+  cadastroCsvOnly?: boolean;
 }): Promise<{
   link: Prisma.PainelPdvLinkGetPayload<object>;
   cadastroImport: Awaited<ReturnType<typeof importProducaoCadastroFromPainel>>;
@@ -156,6 +157,7 @@ export async function upsertPainelPdvLink(input: {
     input.rioCompPdvId,
     input.painelPdvId,
     input.painelClienteId,
+    input.cadastroCsvOnly ? { csvOnly: true, refreshCobranca: false } : undefined,
   );
 
   return { link, cadastroImport };
@@ -250,6 +252,7 @@ export async function upsertPainelPdvLinksBulk(links: BulkLinkInput[]): Promise<
       const { cadastroImport } = await upsertPainelPdvLink({
         ...item,
         verified: true,
+        cadastroCsvOnly: true,
       });
       linked += 1;
       if (cadastroImport.imported) cadastroImported += 1;

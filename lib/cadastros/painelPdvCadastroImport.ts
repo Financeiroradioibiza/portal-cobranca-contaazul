@@ -128,14 +128,13 @@ export async function importProducaoCadastroFromPainel(
   rioCompPdvId: string,
   painelPdvId: number,
   painelClienteId: number,
+  opts?: { csvOnly?: boolean; refreshCobranca?: boolean },
 ): Promise<PainelCadastroImportResult> {
-  const [live, csv] = await Promise.all([
-    fetchLivePainelPdv(painelPdvId, painelClienteId),
-    Promise.resolve(
-      csvGetPdvCadastroDetail(String(painelPdvId), painelClienteId)
-        ?? csvGetPdvCadastroDetail(String(painelPdvId)),
-    ),
-  ]);
+  const csv =
+    csvGetPdvCadastroDetail(String(painelPdvId), painelClienteId)
+    ?? csvGetPdvCadastroDetail(String(painelPdvId));
+  const live =
+    opts?.csvOnly ? null : await fetchLivePainelPdv(painelPdvId, painelClienteId);
 
   const patch = buildImportPatch(live, csv);
   if (!patch) {
@@ -147,7 +146,8 @@ export async function importProducaoCadastroFromPainel(
     };
   }
 
-  await getOrCreatePdvCadastro(rioCompPdvId, { refreshCobranca: true });
+  const refreshCobranca = opts?.refreshCobranca !== false && !opts?.csvOnly;
+  await getOrCreatePdvCadastro(rioCompPdvId, { refreshCobranca });
   await updatePdvCadastro(rioCompPdvId, patch);
 
   const source: PainelCadastroImportResult["source"] =
