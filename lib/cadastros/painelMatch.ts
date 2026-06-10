@@ -4,6 +4,7 @@ import {
   csvFindPdvsByAnyToken,
   csvFindPdvsByCnpjDigits,
   csvGetPdvByPainelId,
+  csvListAllPdvs,
   csvMatchPdvsPorTexto,
   type CsvPdvRecord,
 } from "@/lib/radioPainel/exportClientesCsv";
@@ -45,7 +46,7 @@ const MATCH_STOP_WORDS = new Set([
   "promoção",
 ]);
 
-/** Tokens de marca/categoria — sozinhos não distinguem lojas. */
+/** Tokens de categoria — sozinhos não distinguem lojas. */
 const GENERIC_TOKENS = new Set([
   "hering",
   "shopping",
@@ -58,6 +59,7 @@ const GENERIC_TOKENS = new Set([
   "park",
   "mall",
   "outlet",
+  "super",
   "f",
 ]);
 
@@ -85,12 +87,16 @@ function cleanRioNomeForMatch(s: string): string {
     .trim();
 }
 
-function stripNoiseForMatch(s: string): string {
+export function stripNoiseForMatch(s: string): string {
   return cleanRioNomeForMatch(s)
     .replace(/\(\s*f\s*\)/gi, " ")
     .replace(/\b20\d{2}\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function pdvNomeCompact(s: string): string {
+  return compactAlphaNum(stripNoiseForMatch(s));
 }
 
 function rioPdvSearchVariants(rioPdvNome: string): string[] {
@@ -119,13 +125,44 @@ function tokensMatch(a: string, b: string): boolean {
   return a === b || (a.length >= 4 && b.includes(a)) || (b.length >= 4 && a.includes(b));
 }
 
+/** Primeiro token do nome (marca) — ex. HERING em «HERING SUPER SHOPPING OSASCO». */
+function primaryBrandToken(nome: string): string | null {
+  const toks = significantTokens(nome);
+  return toks[0] ?? null;
+}
+
+/**
+ * Cliente painel precisa ter relação com a marca Rio (HERING ≠ EUDORA).
+ * Quando cliente = PDV, usa a marca do nome do PDV.
+ */
+function clienteNomeCompatible(
+  rioPdvNome: string,
+  rioClienteNome: string,
+  painelClienteNome: string,
+): boolean {
+  const rioPdvC = pdvNomeCompact(rioPdvNome);
+  const rioCliC = pdvNomeCompact(rioClienteNome);
+  const refNome =
+    rioCliC && rioCliC !== rioPdvC ? stripNoiseForMatch(rioClienteNome) : stripNoiseForMatch(rioPdvNome);
+
+  const brand = primaryBrandToken(refNome);
+  if (!brand || brand.length < 3) return true;
+
+  const painelC = pdvNomeCompact(painelClienteNome);
+  const painelToks = significantTokens(painelClienteNome);
+
+  return (
+    painelC.includes(brand)
+    || painelToks.some((t) => tokensMatch(brand, t))
+  );
+}
+
 /**
  * Comparação principal: nome PDV Rio × nome PDV painel.
- * Exige cobertura simétrica de tokens e penaliza lojas só com marca genérica (HERING + SHOPPING).
  */
 function pdvNomeMatchScore(rioNome: string, painelNome: string): number {
-  const a = compactAlphaNum(stripNoiseForMatch(rioNome));
-  const b = compactAlphaNum(stripNoiseForMatch(painelNome));
+  const a = pdvNomeCompact(rioNome);
+  const b = pdvNomeCompact(painelNome);
   if (!a || !b) return 0;
   if (a === b) return 98;
   if (a.includes(b) || b.includes(a)) return 92;
@@ -146,6 +183,10 @@ function pdvNomeMatchScore(rioNome: string, painelNome: string): number {
   if (distRio.length > 0) {
     const distHits = distRio.filter((t) => tb.some((u) => tokensMatch(t, u))).length;
     const distRatio = distHits / distRio.length;
+
+    if (distHits < 2 && distRio.length >= 2) {
+      return Math.round(Math.min(52, symmetric * 40));
+    }
     if (distRatio < 0.5) {
       return Math.round(Math.min(48, symmetric * 45));
     }
@@ -166,12 +207,12 @@ function clienteNomeBonus(rioClienteNome: string, painelClienteNome: string): nu
   const rc = stripNoiseForMatch(rioClienteNome);
   const pc = stripNoiseForMatch(painelClienteNome);
   if (!rc || !pc) return 0;
-  if (compactAlphaNum(rc) === compactAlphaNum(pc)) return 6;
-  const dist = distinctiveTokens(rc);
-  if (!dist.length) return 0;
-  const hits = dist.filter((t) => significantTokens(pc).some((u) => tokensMatch(t, u))).length;
-  if (!hits) return 0;
-  return Math.min(5, Math.round((hits / dist.length) * 5));
+  if (pdvNomeCompact(rc) === pdvNomeCompact(pc)) return 6;
+  const brand = primaryBrandToken(rc);
+  if (!brand) return 0;
+  const painelToks = significantTokens(pc);
+  if (!painelToks.some((t) => tokensMatch(brand, t))) return 0;
+  return 4;
 }
 
 function bestPainelMatch(
@@ -179,11 +220,15 @@ function bestPainelMatch(
   rioClienteNome: string,
   rec: CsvPdvRecord,
 ): { score: number; method: PainelMatchMethod } | null {
+  if (!clienteNomeCompatible(rioPdvNome, rioClienteNome, rec.nomeCliente)) {
+    return null;
+  }
+
   const pdvScore = pdvNomeMatchScore(rioPdvNome, rec.pdvNome);
 
   if (pdvScore >= 55) {
     const bonus =
-      rioClienteNome.trim() && compactAlphaNum(rioClienteNome) !== compactAlphaNum(rioPdvNome) ?
+      rioClienteNome.trim() && pdvNomeCompact(rioClienteNome) !== pdvNomeCompact(rioPdvNome) ?
         clienteNomeBonus(rioClienteNome, rec.nomeCliente)
       : 0;
     return {
@@ -192,15 +237,7 @@ function bestPainelMatch(
     };
   }
 
-  if (pdvScore < 45) return null;
-
-  const bonus = clienteNomeBonus(rioClienteNome, rec.nomeCliente);
-  if (bonus <= 0) return null;
-
-  return {
-    score: Math.min(68, pdvScore + bonus),
-    method: "nome_cliente",
-  };
+  return null;
 }
 
 function collectPainelCandidates(rioPdvNome: string): Map<string, CsvPdvRecord> {
@@ -210,6 +247,20 @@ function collectPainelCandidates(rioPdvNome: string): Map<string, CsvPdvRecord> 
     if (!rec) return;
     cand.set(rec.pdvId, rec);
   };
+
+  const compactRio = pdvNomeCompact(rioPdvNome);
+  if (compactRio.length >= 8) {
+    for (const rec of csvListAllPdvs()) {
+      const compactPainel = pdvNomeCompact(rec.pdvNome);
+      if (
+        compactRio === compactPainel
+        || compactRio.includes(compactPainel)
+        || compactPainel.includes(compactRio)
+      ) {
+        addRec(rec);
+      }
+    }
+  }
 
   for (const term of rioPdvSearchVariants(rioPdvNome)) {
     for (const hit of csvMatchPdvsPorTexto(term)) {
@@ -221,13 +272,6 @@ function collectPainelCandidates(rioPdvNome: string): Map<string, CsvPdvRecord> 
   if (dist.length > 0) {
     for (const rec of csvFindPdvsByAnyToken(dist)) {
       addRec(rec);
-    }
-  } else {
-    const sig = significantTokens(rioPdvNome).filter((t) => !GENERIC_TOKENS.has(t));
-    if (sig.length >= 2) {
-      for (const rec of csvFindPdvsByAnyToken(sig)) {
-        addRec(rec);
-      }
     }
   }
 
@@ -255,6 +299,7 @@ export function suggestPainelMatches(input: {
   const doc = input.rioDocumento ? onlyDigits(input.rioDocumento) : "";
   if (doc.length === 11 || doc.length === 14) {
     for (const rec of csvFindPdvsByCnpjDigits(doc)) {
+      if (!clienteNomeCompatible(rioPdvNome, rioClienteNome, rec.nomeCliente)) continue;
       push(suggestionFromRecord(rec, "cnpj", 100));
     }
   }

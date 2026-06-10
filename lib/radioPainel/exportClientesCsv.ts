@@ -261,6 +261,11 @@ export function csvGetPdvByPainelId(pdvId: string): CsvPdvRecord | null {
   return hit ? pdvToRecord(hit) : null;
 }
 
+/** Todos os PDVs do export (cache em memória). */
+export function csvListAllPdvs(): CsvPdvRecord[] {
+  return loadCsv().pdvs.map(pdvToRecord);
+}
+
 /** PDVs cujo blob contém ao menos um token significativo (OR, não AND). */
 export function csvFindPdvsByAnyToken(tokens: string[]): CsvPdvRecord[] {
   const { pdvs } = loadCsv();
