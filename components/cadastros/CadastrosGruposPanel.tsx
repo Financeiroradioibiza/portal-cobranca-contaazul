@@ -34,7 +34,6 @@ import {
   buildProducaoClientes,
   clientesForRioSelection,
   countHiddenEmptyClientes,
-  collectEmptyRioShellKeys,
   countProducaoMusicalPdvs,
   countRioPlanilhaPdvs,
   filterProducaoClientesVisiveis,
@@ -72,14 +71,18 @@ type RioSel =
 function DraggableProdPdv({
   pdv,
   selected,
+  multiSelected,
   editMode,
   onSelect,
+  onToggleMulti,
   tone = "normal",
 }: {
   pdv: ProducaoPdvRef;
   selected: boolean;
+  multiSelected: boolean;
   editMode: boolean;
   onSelect: () => void;
+  onToggleMulti: (checked: boolean) => void;
   tone?: "normal" | "novo";
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -97,6 +100,8 @@ function DraggableProdPdv({
         "mb-1 flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-opacity " +
         (selected ?
           "border-[#C4146A] bg-pink-50 dark:border-pink-500 dark:bg-pink-950/30"
+        : multiSelected ?
+          "border-violet-500 bg-violet-50 ring-1 ring-violet-300 dark:border-violet-400 dark:bg-violet-950/40 dark:ring-violet-600"
         : tone === "novo" ?
           "border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-950/30"
         : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900") +
@@ -104,15 +109,25 @@ function DraggableProdPdv({
       }
     >
       {editMode ?
-        <button
-          type="button"
-          className="cursor-grab text-slate-400 active:cursor-grabbing"
-          aria-label="Arrastar PDV"
-          {...listeners}
-          {...attributes}
-        >
-          ⠿
-        </button>
+        <>
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 shrink-0 accent-violet-600"
+            checked={multiSelected}
+            aria-label={`Selecionar ${pdv.nome}`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onToggleMulti(e.target.checked)}
+          />
+          <button
+            type="button"
+            className="cursor-grab text-slate-400 active:cursor-grabbing"
+            aria-label="Arrastar PDV"
+            {...listeners}
+            {...attributes}
+          >
+            ⠿
+          </button>
+        </>
       : <span className="w-4 text-slate-300">📻</span>}
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
         <span className="font-medium text-slate-800 dark:text-slate-100">{pdv.nome}</span>
@@ -203,6 +218,8 @@ export function CadastrosGruposPanel() {
   const [rioSel, setRioSel] = useState<RioSel>(null);
   const [selProdPdvId, setSelProdPdvId] = useState<string | null>(null);
   const [dragPdv, setDragPdv] = useState<ProducaoPdvRef | null>(null);
+  const [dragBatch, setDragBatch] = useState<ProducaoPdvRef[]>([]);
+  const [selectedPdvIds, setSelectedPdvIds] = useState<Set<string>>(new Set());
   const saveLayoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -274,6 +291,14 @@ export function CadastrosGruposPanel() {
       }),
     [linhasRio, vinculosStats, clientesVisiveis],
   );
+
+  const allProdPdvs = useMemo(() => {
+    const novos =
+      PRODUCAO_MOVIMENTO_TOP_ENABLED ?
+        prodMovimentos.novos.map((item) => movimentoItemToPdvRef(item))
+      : [];
+    return [...novos, ...clientesFiltered.flatMap((c) => c.pdvs)];
+  }, [prodMovimentos.novos, clientesFiltered]);
 
   const rioSelLabel = useMemo(() => {
     if (!rioSel) return null;
@@ -402,15 +427,24 @@ export function CadastrosGruposPanel() {
         acknowledgedPdvs: layoutData.layout?.acknowledgedPdvs ?? [],
       };
       const reconciled = reconcileProducaoLayout(linhasForProd, rawLayout);
-      const shellsOnLoad = collectEmptyRioShellKeys(
-        mergeProducaoLayout(prod, reconciled, { showHidden: true }),
-      );
+      const {
+        remappedPlacementCount,
+        droppedPlacementCount: _dropped,
+        ...persistableLayout
+      } = reconciled;
       setClienteNomes(reconciled.clienteNomes);
       setPlacements(reconciled.pdvPlacements);
-      setHiddenClienteKeys([...new Set([...reconciled.hiddenClienteKeys, ...shellsOnLoad])]);
+      setHiddenClienteKeys(reconciled.hiddenClienteKeys);
       setCustomClientes(reconciled.customClientes);
       setAcknowledgedPdvs(reconciled.acknowledgedPdvs ?? []);
       setShowHiddenGroups(false);
+      if (remappedPlacementCount > 0) {
+        void fetch(`/api/cadastros/month/${ym}/producao-layout`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(persistableLayout),
+        }).catch(() => {});
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao carregar.");
       setRioGrupos([]);
@@ -552,46 +586,74 @@ export function CadastrosGruposPanel() {
     setMsg("Grupo manual removido.");
   }
 
+  function togglePdvSelection(rioPdvId: string, checked: boolean) {
+    setSelectedPdvIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(rioPdvId);
+      else next.delete(rioPdvId);
+      return next;
+    });
+  }
+
+  function clearPdvSelection() {
+    setSelectedPdvIds(new Set());
+  }
+
+  function movePdvsToCliente(batch: ProducaoPdvRef[], clienteKey: string) {
+    if (!batch.length) return;
+    const movingIds = new Set(batch.map((p) => p.rioPdvId));
+    const nextPlacements: PdvPlacementOverride[] = [
+      ...placements.filter((o) => !movingIds.has(o.rioPdvId)),
+      ...batch.map((pdv) => {
+        const linha = linhasRio.find((l) => l.id === pdv.rioLinhaId);
+        return {
+          rioPdvId: pdv.rioPdvId,
+          targetClienteKey: clienteKey,
+          ...(linha?.caPersonId ? { caPersonId: linha.caPersonId } : {}),
+        };
+      }),
+    ];
+    const nextHidden = hiddenClienteKeys.filter((k) => k !== clienteKey);
+    const nextAck = [...new Set([...acknowledgedPdvs, ...movingIds])];
+    applyLayoutChange({
+      pdvPlacements: nextPlacements,
+      hiddenClienteKeys: nextHidden,
+      acknowledgedPdvs: nextAck,
+    });
+    const destNome = clientes.find((c) => c.key === clienteKey)?.nome ?? "grupo";
+    setMsg(
+      batch.length === 1 ?
+        `PDV «${batch[0]!.nome}» movido para «${destNome}».`
+      : `${batch.length} PDVs movidos para «${destNome}».`,
+    );
+    setSelectedPdvIds((prev) => {
+      const next = new Set(prev);
+      for (const id of movingIds) next.delete(id);
+      return next;
+    });
+  }
+
   function onDragStart(ev: DragStartEvent) {
     if (!editMode) return;
     const pdv = ev.active.data.current?.pdv as ProducaoPdvRef | undefined;
-    if (pdv) setDragPdv(pdv);
+    if (!pdv) return;
+    const ids =
+      selectedPdvIds.has(pdv.rioPdvId) && selectedPdvIds.size > 0 ?
+        [...selectedPdvIds]
+      : [pdv.rioPdvId];
+    const batch = allProdPdvs.filter((p) => ids.includes(p.rioPdvId));
+    setDragBatch(batch);
+    setDragPdv(batch[0] ?? pdv);
   }
 
   function onDragEnd(ev: DragEndEvent) {
+    const batch = dragBatch;
     setDragPdv(null);
+    setDragBatch([]);
     if (!editMode) return;
-    const pdv = ev.active.data.current?.pdv as ProducaoPdvRef | undefined;
     const clienteKey = ev.over?.data.current?.clienteKey as string | undefined;
-    if (!pdv || !clienteKey) return;
-
-    const linha = linhasRio.find((l) => l.id === pdv.rioLinhaId);
-    const nextPlacements = [
-      ...placements.filter((o) => o.rioPdvId !== pdv.rioPdvId),
-      {
-        rioPdvId: pdv.rioPdvId,
-        targetClienteKey: clienteKey,
-        ...(linha?.caPersonId ? { caPersonId: linha.caPersonId } : {}),
-      },
-    ];
-    const nextHidden = hiddenClienteKeys.filter((k) => k !== clienteKey);
-    const nextAck = [...new Set([...acknowledgedPdvs, pdv.rioPdvId])];
-    const nextLayout: ProducaoLayoutState = {
-      clienteNomes,
-      pdvPlacements: nextPlacements,
-      hiddenClienteKeys: nextHidden,
-      customClientes,
-      acknowledgedPdvs: nextAck,
-    };
-    const mergedAfter = mergeProducaoLayout(clientesBase, nextLayout, { showHidden: true });
-    const shellHidden = collectEmptyRioShellKeys(mergedAfter);
-    const hiddenMerged = [...new Set([...nextHidden, ...shellHidden])];
-    applyLayoutChange({
-      pdvPlacements: nextPlacements,
-      hiddenClienteKeys: hiddenMerged,
-      acknowledgedPdvs: nextAck,
-    });
-    setMsg(`PDV «${pdv.nome}» movido para «${clientes.find((c) => c.key === clienteKey)?.nome ?? "grupo"}».`);
+    if (!batch.length || !clienteKey) return;
+    movePdvsToCliente(batch, clienteKey);
   }
 
   const rioPdvTotal = useMemo(() => countRioPlanilhaPdvs(linhasRio), [linhasRio]);
@@ -911,6 +973,15 @@ export function CadastrosGruposPanel() {
                     : `Ver ocultos (${hiddenEmptyCount})`}
                   </button>
                 : null}
+                {editMode && selectedPdvIds.size > 0 ?
+                  <button
+                    type="button"
+                    className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-600"
+                    onClick={clearPdvSelection}
+                  >
+                    Limpar seleção ({selectedPdvIds.size})
+                  </button>
+                : null}
                 {editMode ?
                   <>
                     <button
@@ -939,11 +1010,21 @@ export function CadastrosGruposPanel() {
                       "bg-violet-700 text-white"
                     : "border border-violet-300 text-violet-800 dark:border-violet-600 dark:text-violet-200")
                   }
-                  onClick={() => setEditMode((v) => !v)}
+                  onClick={() => {
+                    setEditMode((v) => {
+                      if (v) clearPdvSelection();
+                      return !v;
+                    });
+                  }}
                 >
                   {editMode ? "Edição ativa" : "Editar produção"}
                 </button>
               </div>
+              {editMode ?
+                <p className="mt-1 text-[10px] text-violet-700 dark:text-violet-300">
+                  Marque vários PDVs com o checkbox e arraste juntos para outro grupo.
+                </p>
+              : null}
             </div>
             {showVinculoDiag ?
               <div className="shrink-0 border-b border-violet-200 bg-violet-50/80 px-3 py-2 text-[11px] text-violet-950 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
@@ -1065,7 +1146,11 @@ export function CadastrosGruposPanel() {
                                   editMode={editMode}
                                   tone="novo"
                                   selected={selProdPdvId === item.rioPdvId}
+                                  multiSelected={selectedPdvIds.has(item.rioPdvId)}
                                   onSelect={() => setSelProdPdvId(item.rioPdvId)}
+                                  onToggleMulti={(checked) =>
+                                    togglePdvSelection(item.rioPdvId, checked)
+                                  }
                                 />
                               ))}
                             </div>
@@ -1178,7 +1263,11 @@ export function CadastrosGruposPanel() {
                                   pdv={pdv}
                                   editMode={editMode}
                                   selected={selProdPdvId === pdv.rioPdvId}
+                                  multiSelected={selectedPdvIds.has(pdv.rioPdvId)}
                                   onSelect={() => setSelProdPdvId(pdv.rioPdvId)}
+                                  onToggleMulti={(checked) =>
+                                    togglePdvSelection(pdv.rioPdvId, checked)
+                                  }
                                 />
                               ))
                             }
@@ -1202,8 +1291,11 @@ export function CadastrosGruposPanel() {
 
       <DragOverlay>
         {dragPdv ?
-          <div className="rounded-md border border-violet-300 bg-white px-3 py-2 text-xs shadow-lg">
-            📻 {dragPdv.nome}
+          <div className="rounded-md border border-violet-300 bg-white px-3 py-2 text-xs shadow-lg dark:bg-slate-900">
+            📻{" "}
+            {dragBatch.length > 1 ?
+              `${dragBatch.length} PDVs selecionados`
+            : dragPdv.nome}
           </div>
         : null}
       </DragOverlay>

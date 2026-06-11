@@ -118,3 +118,7 @@ A Conta Azul indica limites da ordem de **600 req/min** por conta ERP; a sincron
 ## Protótipo estático
 
 [`public/prototype.html`](public/prototype.html) — HTML de referência (tabela de exemplo; sem integração Painel).
+
+## Roadmap — Produção musical (Fase 2)
+
+Visão e arquitetura da próxima fase (produção como coração do sistema, Rio entrada/saída, transposição do painel legado, gateway para ~4k players): [`docs/FASE-2-PRODUCAO-MUSICAL.md`](docs/FASE-2-PRODUCAO-MUSICAL.md).

@@ -1,5 +1,7 @@
 import {
+  isLinhaAsPdvKey,
   linhaAsPdvKey,
+  linhaIdFromAsPdvKey,
   type PdvPlacementOverride,
   type ProducaoClienteBucket,
   type ProducaoLayoutState,
@@ -56,6 +58,62 @@ export function collectActiveRioPdvIds(linhas: RioLinhaForProducao[]): Set<strin
   return ids;
 }
 
+/**
+ * Mantém arrastes salvos quando o ID do PDV muda (ex.: `linha:{id}` → PDV real após vínculo).
+ * Não reorganiza grupos — só reatacha o mesmo destino a um ID ainda ativo.
+ */
+export function remapPlacementsToActivePdvs(
+  linhas: RioLinhaForProducao[],
+  placements: PdvPlacementOverride[],
+): { placements: PdvPlacementOverride[]; remappedCount: number } {
+  const activeIds = collectActiveRioPdvIds(linhas);
+  const linhaById = new Map(linhas.map((ln) => [ln.id, ln]));
+  let remappedCount = 0;
+  const out: PdvPlacementOverride[] = [];
+
+  for (const p of placements) {
+    let rioPdvId = p.rioPdvId;
+
+    if (!activeIds.has(rioPdvId)) {
+      if (isLinhaAsPdvKey(rioPdvId)) {
+        const linhaId = linhaIdFromAsPdvKey(rioPdvId);
+        const ln = linhaId ? linhaById.get(linhaId) : undefined;
+        const active = ln?.pdvs.filter((pdv) => pdv.movimento !== "saida") ?? [];
+        if (active.length === 1) {
+          rioPdvId = active[0]!.id;
+          remappedCount += 1;
+        }
+      } else {
+        const ca = p.caPersonId?.trim();
+        if (ca) {
+          const ln = linhas.find((l) => l.caPersonId?.trim() === ca && l.movimento !== "saida");
+          if (ln) {
+            const active = ln.pdvs.filter((pdv) => pdv.movimento !== "saida");
+            if (active.length === 1) {
+              rioPdvId = active[0]!.id;
+              remappedCount += 1;
+            } else if (active.length === 0) {
+              const proxy = linhaAsPdvKey(ln.id);
+              if (activeIds.has(proxy)) {
+                rioPdvId = proxy;
+                remappedCount += 1;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (!activeIds.has(rioPdvId)) continue;
+    out.push({ ...p, rioPdvId });
+  }
+
+  const byPdv = new Map<string, PdvPlacementOverride>();
+  for (const p of out) byPdv.set(p.rioPdvId, p);
+
+  return { placements: [...byPdv.values()], remappedCount };
+}
+
 /** Reatacha `linha:{id}` antigos via `caPersonId` quando a Rio recria linhas. */
 export function remapPlacementsByCaPerson(
   linhas: RioLinhaForProducao[],
@@ -81,19 +139,26 @@ export function remapPlacementsByCaPerson(
   });
 }
 
-/** Remapeia IDs estáveis; não grava no banco sozinho (evita apagar layout ao abrir a tela). */
+export type ReconcileProducaoLayoutResult = ProducaoLayoutState & {
+  remappedPlacementCount: number;
+  droppedPlacementCount: number;
+};
+
+/** Remapeia IDs estáveis; não reorganiza grupos automaticamente. */
 export function reconcileProducaoLayout(
   linhas: RioLinhaForProducao[],
   layout: ProducaoLayoutState,
-): ProducaoLayoutState {
-  const remapped = remapPlacementsByCaPerson(linhas, layout.pdvPlacements);
-  const activeIds = collectActiveRioPdvIds(linhas);
-  const pdvPlacements = remapped.filter((p) => activeIds.has(p.rioPdvId));
+): ReconcileProducaoLayoutResult {
+  const byCa = remapPlacementsByCaPerson(linhas, layout.pdvPlacements);
+  const { placements: pdvPlacements, remappedCount } = remapPlacementsToActivePdvs(linhas, byCa);
+  const droppedPlacementCount = layout.pdvPlacements.length - pdvPlacements.length;
   const ack = acknowledgedSet({ ...layout, pdvPlacements });
   return {
     ...layout,
     pdvPlacements,
     acknowledgedPdvs: [...ack],
+    remappedPlacementCount: remappedCount,
+    droppedPlacementCount,
   };
 }
 
