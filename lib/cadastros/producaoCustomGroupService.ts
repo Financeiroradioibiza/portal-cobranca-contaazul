@@ -98,16 +98,18 @@ type MoveItem = {
   caPersonId?: string;
 };
 
-type LayoutDraft = {
+export type ProducaoLayoutDraft = {
   customClientes: Array<{ key: string; nome: string }>;
   clienteNomes: Record<string, string>;
   pdvPlacements: PdvPlacementOverride[];
   hiddenClienteKeys: string[];
 };
 
-function ensureCustomGroupKey(
+export { loadProducaoMergeContext };
+
+export function ensureCustomGroupKey(
   groupName: string,
-  draft: LayoutDraft,
+  draft: ProducaoLayoutDraft,
 ): string {
   let groupKey = findCustomGroupKey(groupName, draft.customClientes, draft.clienteNomes);
   if (!groupKey) {
@@ -118,7 +120,7 @@ function ensureCustomGroupKey(
   return groupKey;
 }
 
-function planGroupMoves(
+export function planGroupMoves(
   merged: ProducaoClienteBucket[],
   groupKey: string,
   options: GroupIntoCustomOptions,
@@ -189,13 +191,13 @@ function planGroupMoves(
   return { toMove, skippedMultiPdv };
 }
 
-function applyMovesToDraft(
-  draft: LayoutDraft,
+export function applyMovesToDraft(
+  draft: ProducaoLayoutDraft,
   groupKey: string,
   toMove: MoveItem[],
   base: ProducaoClienteBucket[],
   caByLinhaId: Map<string, string>,
-  layoutSeed: LayoutDraft,
+  layoutSeed: ProducaoLayoutDraft,
 ): void {
   const moveIds = new Set(toMove.map((x) => x.rioPdvId));
   const moveLinhaIds = new Set(toMove.map((x) => x.rioLinhaId));
@@ -243,7 +245,7 @@ export async function groupIntoCustom(
   options: GroupIntoCustomOptions,
 ): Promise<CustomGroupMoveResult> {
   const { caByLinhaId, layout, base, merged } = await loadProducaoMergeContext(yearMonth);
-  const draft: LayoutDraft = {
+  const draft: ProducaoLayoutDraft = {
     customClientes: [...layout.customClientes],
     clienteNomes: { ...layout.clienteNomes },
     pdvPlacements: [...layout.pdvPlacements],
@@ -307,7 +309,7 @@ export async function restoreConfiguredGroups(
   yearMonth: number,
 ): Promise<RestoreConfiguredGroupsResult> {
   const { caByLinhaId, layout, base } = await loadProducaoMergeContext(yearMonth);
-  const draft: LayoutDraft = {
+  const draft: ProducaoLayoutDraft = {
     customClientes: [...layout.customClientes],
     clienteNomes: { ...layout.clienteNomes },
     pdvPlacements: [...layout.pdvPlacements],

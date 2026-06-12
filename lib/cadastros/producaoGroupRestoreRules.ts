@@ -38,25 +38,32 @@ function isHeringProprias(ctx: GroupMatchContext): boolean {
   return /\bpropria(s)?\b/.test(combined);
 }
 
+/** Clientes Rio franquia HERING (multi-PDV ou grupos CIA MARCAS) → pasta «Hering». */
+export function matchesHeringFranchiseBucket(
+  ctx: GroupMatchContext,
+  bucketPdvCount: number,
+): boolean {
+  if (isHeringProprias(ctx)) return false;
+
+  const bucket = normalizeNomeToken(ctx.bucketNome);
+  if (!bucket.includes("hering")) return false;
+
+  if (bucketPdvCount > 1) return true;
+  if (bucket.includes("dubelas") || bucket.includes("franquia")) return true;
+  if (/\bhering\s*2\b/.test(bucket)) return true;
+  if (bucket.includes("cia marcas") && bucket.includes("grupo")) return true;
+
+  const pdv = normalizeNomeToken(ctx.pdvNome);
+  if (bucketPdvCount === 1 && pdv.startsWith("hering")) return false;
+
+  return false;
+}
+
 /** Franquias / grupos HERING → pasta «Hering». Próprias e lojas 1 PDV (HERINGTODAS) ficam de fora. */
 export const heringMasterGroupRule: GroupRestoreRule = {
   groupName: HERING_MASTER_GROUP_NAME,
   moveWholeBucket: true,
-  match: (ctx, bucketPdvCount) => {
-    if (isHeringProprias(ctx)) return false;
-
-    const bucket = normalizeNomeToken(ctx.bucketNome);
-    if (!bucket.includes("hering")) return false;
-
-    if (bucketPdvCount > 1) return true;
-    if (bucket.includes("dubelas") || bucket.includes("franquia")) return true;
-    if (/\bhering\s*2\b/.test(bucket)) return true;
-
-    const pdv = normalizeNomeToken(ctx.pdvNome);
-    if (bucketPdvCount === 1 && pdv.startsWith("hering")) return false;
-
-    return false;
-  },
+  match: matchesHeringFranchiseBucket,
 };
 
 /** Marcas com pasta manual (1 PDV por loja Rio → pasta da marca). HERINGTODAS é botão separado. */

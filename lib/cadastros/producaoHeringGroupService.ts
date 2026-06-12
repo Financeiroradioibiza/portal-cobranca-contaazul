@@ -1,15 +1,18 @@
-import { prisma } from "@/lib/prisma";
-import {
-  buildCaByLinhaId,
-  buildProducaoClientes,
-  collectEmptyRioShellKeys,
-  CUSTOM_CLIENTE_PREFIX,
-  mergeProducaoLayout,
-  newCustomClienteKey,
-  type PdvPlacementOverride,
-  type RioLinhaForProducao,
-} from "@/lib/cadastros/producaoHierarchy";
 import { remapPlacementsByCaPerson } from "@/lib/cadastros/producaoMovimento";
+import {
+  applyMovesToDraft,
+  ensureCustomGroupKey,
+  loadProducaoMergeContext,
+  planGroupMoves,
+  type ProducaoLayoutDraft,
+} from "@/lib/cadastros/producaoCustomGroupService";
+import { mergeProducaoLayout } from "@/lib/cadastros/producaoHierarchy";
+import {
+  HERING_MASTER_GROUP_NAME,
+  heringMasterGroupRule,
+  matchesHeringFranchiseBucket,
+  type GroupMatchContext,
+} from "@/lib/cadastros/producaoGroupRestoreRules";
 import { getProducaoLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 
 export const HERING_TODAS_GROUP_NAME = "HERINGTODAS";
@@ -18,166 +21,105 @@ function pdvNomeStartsWithHering(nome: string): boolean {
   return nome.trim().toLowerCase().startsWith("hering");
 }
 
-function findCustomGroupKey(
-  groupName: string,
-  customClientes: Array<{ key: string; nome: string }>,
-  clienteNomes: Record<string, string>,
-): string | undefined {
-  const target = groupName.trim().toUpperCase();
-  const fromCustom = customClientes.find((c) => c.nome.trim().toUpperCase() === target)?.key;
-  if (fromCustom) return fromCustom;
-  return Object.entries(clienteNomes).find(
-    ([k, n]) => k.startsWith(CUSTOM_CLIENTE_PREFIX) && n.trim().toUpperCase() === target,
-  )?.[0];
+function matchesHeringTodasSinglePdv(ctx: GroupMatchContext, bucketPdvCount: number): boolean {
+  if (bucketPdvCount !== 1) return false;
+  if (matchesHeringFranchiseBucket(ctx, bucketPdvCount)) return false;
+  return pdvNomeStartsWithHering(ctx.pdvNome);
 }
 
 export type GroupHeringResult = {
   yearMonth: number;
   heringGroupKey: string;
+  heringMasterGroupKey: string;
   movedCount: number;
   movedNames: string[];
+  heringMasterMovedCount: number;
+  heringTodasMovedCount: number;
   skippedMultiPdv: string[];
   remappedCount: number;
 };
 
 /**
- * Na produção: grupos com exatamente 1 PDV cujo nome começa com «HERING»
- * → move para o grupo manual HERINGTODAS.
+ * Botão «Hering → HERINGTODAS»:
+ * - Clientes franquia (Dubelas, CIA MARCAS, Hering 2, etc.) → pasta «Hering»
+ * - Lojas avulsas com 1 PDV cujo nome começa com HERING → HERINGTODAS
+ * - Hering Próprias ficam onde estão
  */
 export async function groupHeringSinglePointPdvs(yearMonth: number): Promise<GroupHeringResult> {
-  const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth },
-    include: {
-      linhas: {
-        orderBy: [{ sortOrder: "asc" }],
-        include: { pdvs: { orderBy: [{ sortOrder: "asc" }] } },
-      },
-    },
-  });
-
-  if (!month) throw new Error("month_not_found");
-
-  const linhasForProd: RioLinhaForProducao[] = month.linhas.map((ln) => ({
-    id: ln.id,
-    caPersonId: ln.caPersonId,
-    nomeFantasia: ln.nomeFantasia,
-    razaoSocial: ln.razaoSocial,
-    documento: ln.documento,
-    movimento: ln.movimento,
-    pdvs: ln.pdvs.map((p) => ({
-      id: p.id,
-      nome: p.nome,
-      documento: p.documento,
-      movimento: p.movimento,
-    })),
-  }));
-
-  const caByLinhaId = buildCaByLinhaId(linhasForProd);
-
-  const layout = await getProducaoLayout(yearMonth);
-  let customClientes = [...layout.customClientes];
-  const clienteNomes = { ...layout.clienteNomes };
-
-  let heringTodasKey = findCustomGroupKey(HERING_TODAS_GROUP_NAME, customClientes, clienteNomes);
-
-  if (!heringTodasKey) {
-    heringTodasKey = newCustomClienteKey();
-    customClientes.push({ key: heringTodasKey, nome: HERING_TODAS_GROUP_NAME });
-    clienteNomes[heringTodasKey] = HERING_TODAS_GROUP_NAME;
-  }
+  const layout = await getProducaoLayout(yearMonth, { repairPlacements: true });
+  const { caByLinhaId, base, linhasForProd } = await loadProducaoMergeContext(yearMonth);
 
   const remappedBefore = remapPlacementsByCaPerson(linhasForProd, layout.pdvPlacements);
   const remappedCount = remappedBefore.filter(
     (p, i) => p.rioPdvId !== layout.pdvPlacements[i]?.rioPdvId,
   ).length;
 
-  const base = buildProducaoClientes(linhasForProd, new Map());
-  const merged = mergeProducaoLayout(base, layout, {
-    showHidden: true,
-    caByLinhaId,
-  });
+  const layoutSeed: ProducaoLayoutDraft = {
+    customClientes: layout.customClientes,
+    clienteNomes: layout.clienteNomes,
+    pdvPlacements: remappedBefore,
+    hiddenClienteKeys: layout.hiddenClienteKeys,
+  };
 
-  const toMove: Array<{
-    rioPdvId: string;
-    nome: string;
-    rioLinhaId: string;
-    caPersonId?: string;
-  }> = [];
-  const skippedMultiPdv: string[] = [];
+  const draft: ProducaoLayoutDraft = {
+    customClientes: [...layout.customClientes],
+    clienteNomes: { ...layout.clienteNomes },
+    pdvPlacements: [...remappedBefore],
+    hiddenClienteKeys: [...layout.hiddenClienteKeys],
+  };
 
-  for (const bucket of merged) {
-    if (bucket.key === heringTodasKey) continue;
+  const heringMasterKey = ensureCustomGroupKey(HERING_MASTER_GROUP_NAME, draft);
+  const heringTodasKey = ensureCustomGroupKey(HERING_TODAS_GROUP_NAME, draft);
 
-    if (bucket.pdvCount === 1) {
-      const pdv = bucket.pdvs[0]!;
-      if (pdvNomeStartsWithHering(pdv.nome)) {
-        toMove.push({
-          rioPdvId: pdv.rioPdvId,
-          nome: pdv.nome,
-          rioLinhaId: pdv.rioLinhaId,
-          caPersonId: caByLinhaId.get(pdv.rioLinhaId),
-        });
-      }
-      continue;
-    }
+  let merged = mergeProducaoLayout(base, draft, { showHidden: true, caByLinhaId });
 
-    if (bucket.pdvCount > 1 && bucket.pdvs.some((p) => pdvNomeStartsWithHering(p.nome))) {
-      skippedMultiPdv.push(`${bucket.nome} (${bucket.pdvCount} PDVs)`);
-    }
+  const masterPlan = planGroupMoves(merged, heringMasterKey, {
+    moveWholeBucket: heringMasterGroupRule.moveWholeBucket,
+    match: heringMasterGroupRule.match,
+  }, caByLinhaId);
+
+  if (masterPlan.toMove.length > 0) {
+    applyMovesToDraft(draft, heringMasterKey, masterPlan.toMove, base, caByLinhaId, layoutSeed);
   }
 
-  toMove.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }));
+  merged = mergeProducaoLayout(base, draft, { showHidden: true, caByLinhaId });
 
-  const moveIds = new Set(toMove.map((x) => x.rioPdvId));
-  const moveLinhaIds = new Set(toMove.map((x) => x.rioLinhaId));
-  const moveCas = new Set(toMove.map((x) => x.caPersonId).filter(Boolean));
-  const pdvPlacements: PdvPlacementOverride[] = layout.pdvPlacements.filter((p) => {
-    if (moveIds.has(p.rioPdvId)) return false;
-    if (p.rioLinhaId && moveLinhaIds.has(p.rioLinhaId)) return false;
-    if (p.caPersonId && moveCas.has(p.caPersonId)) return false;
-    return true;
-  });
+  const todasPlan = planGroupMoves(merged, heringTodasKey, {
+    match: matchesHeringTodasSinglePdv,
+  }, caByLinhaId);
 
-  for (const item of toMove) {
-    pdvPlacements.push({
-      rioPdvId: item.rioPdvId,
-      targetClienteKey: heringTodasKey,
-      rioLinhaId: item.rioLinhaId,
-      ...(item.caPersonId ? { caPersonId: item.caPersonId } : {}),
+  if (todasPlan.toMove.length > 0) {
+    applyMovesToDraft(draft, heringTodasKey, todasPlan.toMove, base, caByLinhaId, layoutSeed);
+  }
+
+  const heringMasterMovedCount = masterPlan.toMove.length;
+  const heringTodasMovedCount = todasPlan.toMove.length;
+  const movedCount = heringMasterMovedCount + heringTodasMovedCount;
+  const movedNames = [
+    ...masterPlan.toMove.map((x) => x.nome),
+    ...todasPlan.toMove.map((x) => x.nome),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+
+  if (movedCount > 0) {
+    await saveProducaoLayout(yearMonth, draft);
+  } else if (remappedCount > 0) {
+    await saveProducaoLayout(yearMonth, {
+      clienteNomes: draft.clienteNomes,
+      customClientes: draft.customClientes,
+      pdvPlacements: draft.pdvPlacements,
+      hiddenClienteKeys: draft.hiddenClienteKeys,
     });
   }
-
-  const mergedAfter = mergeProducaoLayout(
-    base,
-    {
-      ...layout,
-      pdvPlacements,
-      customClientes,
-      clienteNomes,
-    },
-    { showHidden: true, caByLinhaId },
-  );
-  const shellHidden = collectEmptyRioShellKeys(mergedAfter);
-  const hiddenClienteKeys = [
-    ...new Set([
-      ...layout.hiddenClienteKeys.filter((k) => k !== heringTodasKey),
-      ...shellHidden,
-    ]),
-  ];
-
-  await saveProducaoLayout(yearMonth, {
-    clienteNomes,
-    customClientes,
-    pdvPlacements,
-    hiddenClienteKeys,
-  });
 
   return {
     yearMonth,
     heringGroupKey: heringTodasKey,
-    movedCount: toMove.length,
-    movedNames: toMove.map((x) => x.nome),
-    skippedMultiPdv,
+    heringMasterGroupKey: heringMasterKey,
+    movedCount,
+    movedNames,
+    heringMasterMovedCount,
+    heringTodasMovedCount,
+    skippedMultiPdv: masterPlan.skippedMultiPdv,
     remappedCount,
   };
 }

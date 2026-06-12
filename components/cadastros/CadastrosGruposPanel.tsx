@@ -667,6 +667,9 @@ export function CadastrosGruposPanel() {
         result?: {
           movedCount: number;
           heringGroupKey: string;
+          heringMasterGroupKey?: string;
+          heringMasterMovedCount?: number;
+          heringTodasMovedCount?: number;
           skippedMultiPdv?: string[];
           remappedCount?: number;
         };
@@ -676,14 +679,21 @@ export function CadastrosGruposPanel() {
         data.result.remappedCount ?
           ` ${data.result.remappedCount} vínculo(s) remapeado(s).`
         : "";
-      const skipped = data.result.skippedMultiPdv?.length ?? 0;
+      const master = data.result.heringMasterMovedCount ?? 0;
+      const todas = data.result.heringTodasMovedCount ?? data.result.movedCount;
+      const parts: string[] = [];
+      if (master > 0) parts.push(`${master} PDV(s) franquia → «Hering»`);
+      if (todas > 0) parts.push(`${todas} PDV(s) avulsos → HERINGTODAS`);
       setMsg(
-        `${data.result.movedCount} PDV(s) HERING (grupo com 1 PDV) → HERINGTODAS.` +
-          (skipped ? ` ${skipped} grupo(s) com vários PDVs mantidos.` : "") +
-          remapped,
+        (parts.length ? parts.join("; ") + "." : "Nenhum PDV HERING para mover.") + remapped,
       );
       await loadAll(activeYm);
-      setProdExpanded((prev) => new Set([...prev, data.result!.heringGroupKey]));
+      setProdExpanded((prev) => {
+        const n = new Set(prev);
+        n.add(data.result!.heringGroupKey);
+        if (data.result!.heringMasterGroupKey) n.add(data.result!.heringMasterGroupKey);
+        return n;
+      });
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao agrupar Hering.");
     } finally {
@@ -1158,7 +1168,7 @@ export function CadastrosGruposPanel() {
                       className="rounded-md border border-amber-300 px-2 py-1 text-[11px] font-semibold text-amber-900 dark:border-amber-700 dark:text-amber-200"
                       disabled={busy}
                       onClick={() => void groupHeringSinglePoint()}
-                      title="Grupos com 1 PDV cujo nome começa com HERING → HERINGTODAS"
+                      title="Franquias HERING (Dubelas, CIA MARCAS, etc.) → pasta Hering; lojas avulsas 1 PDV → HERINGTODAS"
                     >
                       Hering → HERINGTODAS
                     </button>
