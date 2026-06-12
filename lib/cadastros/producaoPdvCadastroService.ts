@@ -13,6 +13,7 @@ export type ProducaoPdvCadastroDto = {
   rioPdvKey: string;
   nome: string;
   programacaoMusical: string;
+  versaoPlayer: string;
   cep: string;
   endereco: string;
   numero: string;
@@ -106,6 +107,7 @@ function rowToDto(
     rioPdvKey: row.rioPdvKey,
     nome: row.nome,
     programacaoMusical: row.programacaoMusical,
+    versaoPlayer: row.versaoPlayer,
     cep: row.cep,
     endereco: row.endereco,
     numero: row.numero,
@@ -238,6 +240,7 @@ export async function updatePdvCadastro(
       ...(patch.programacaoMusical !== undefined ?
         { programacaoMusical: patch.programacaoMusical }
       : {}),
+      ...(patch.versaoPlayer !== undefined ? { versaoPlayer: patch.versaoPlayer } : {}),
       ...(patch.cep !== undefined ? { cep: patch.cep } : {}),
       ...(patch.endereco !== undefined ? { endereco: patch.endereco } : {}),
       ...(patch.numero !== undefined ? { numero: patch.numero } : {}),

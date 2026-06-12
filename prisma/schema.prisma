@@ -367,6 +367,7 @@ model ProducaoPdvCadastro {
 
   nome               String @default("") @db.Text
   programacaoMusical String @default("Padrão") @map("programacao_musical") @db.VarChar(120)
+  versaoPlayer       String @default("") @map("versao_player") @db.VarChar(64)
   cep                String @default("") @db.VarChar(16)
   endereco           String @default("") @db.Text
   numero             String @default("") @db.VarChar(32)

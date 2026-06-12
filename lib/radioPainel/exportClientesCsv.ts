@@ -320,6 +320,7 @@ export type CsvPdvCadastroDetail = {
   cidade: string;
   estado: string;
   programacaoMusical: string;
+  versaoPlayer: string;
   placaCarro: boolean;
   controlarPlayer: boolean;
   controlarPlaylist: boolean;
@@ -388,7 +389,15 @@ export function csvGetPdvCadastroDetail(
     const pdvNome = cols[pnomi]?.trim() ?? "";
     if (!pdvNome) continue;
 
-    const programacao = csvCol(ix, cols, "pdvversaoplayer", "pdv versao player");
+    const versaoPlayer = csvCol(ix, cols, "pdvversaoplayer", "pdv versao player");
+    const programacao = csvCol(
+      ix,
+      cols,
+      "pdvprogramacaomusical",
+      "pdv programacao musical",
+      "pdvprog",
+      "pdv prog",
+    );
     return {
       pdvId: rowPdvId,
       clienteId: rowClienteId,
@@ -404,6 +413,7 @@ export function csvGetPdvCadastroDetail(
       cidade: csvCol(ix, cols, "pdvcidade", "pdv cidade"),
       estado: csvCol(ix, cols, "pdvuf", "pdv uf"),
       programacaoMusical: programacao || "Padrão",
+      versaoPlayer,
       placaCarro: csvPainelSimNao(csvCol(ix, cols, "pdvdctrlplacacarro", "pdv ctrl placa carro")),
       controlarPlayer: csvPainelSimNao(csvCol(ix, cols, "pdvctrlplayer", "pdv ctrl player")),
       controlarPlaylist: csvPainelSimNao(csvCol(ix, cols, "pdvctrlplaylists", "pdv ctrl playlists")),

@@ -89,6 +89,9 @@ function buildImportPatch(
   const programacao = pickText(live?.programacaoMusical, csv?.programacaoMusical);
   if (programacao) patch.programacaoMusical = programacao;
 
+  const versaoPlayer = pickText(live?.versaoPlayer, csv?.versaoPlayer);
+  if (versaoPlayer) patch.versaoPlayer = versaoPlayer;
+
   if (csv) {
     patch.placaCarro = csv.placaCarro;
     patch.controlarPlayer = csv.controlarPlayer;

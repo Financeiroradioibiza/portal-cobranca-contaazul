@@ -9,6 +9,7 @@ import {
 import { ensureProducaoLayoutCarriedFromDonor } from "@/lib/cadastros/producaoLayoutCarryService";
 import { getProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
+import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
 
 export type DashboardPdvTelemetry = {
@@ -244,19 +245,27 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
         semPingPdvs += 1;
       }
 
+      const { programacaoMusical, playerVersion } = resolveProgramacaoAndPlayerVersion({
+        programacaoMusical: cad?.programacaoMusical,
+        versaoPlayer: cad?.versaoPlayer,
+      });
+
       return {
         rioPdvKey: p.rioPdvId,
         nome: cad?.nome?.trim() || p.nome,
         rioLinhaId: p.rioLinhaId,
         rioLinhaNome: p.rioLinhaNome,
-        programacaoMusical: cad?.programacaoMusical?.trim() || "Padrão",
+        programacaoMusical,
         statusPlayer,
         controlarPlayer,
         controlarPlaylist,
         cnpj: cad?.cnpj ?? p.documento ?? "",
         cidade: cad?.cidade ?? "",
         estado: cad?.estado ?? "",
-        telemetry,
+        telemetry: {
+          ...telemetry,
+          playerVersion: playerVersion ?? telemetry.playerVersion,
+        },
       };
     });
 

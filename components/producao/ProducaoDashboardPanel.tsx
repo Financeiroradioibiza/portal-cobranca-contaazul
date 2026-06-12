@@ -364,7 +364,7 @@ function ClienteBlock({
             <span>PDV</span>
             <span>Cache</span>
             <span>Programação</span>
-            <span>Player</span>
+            <span>Versão player</span>
             <span>1º ping</span>
             <span>Último ping</span>
           </div>

@@ -22,6 +22,7 @@ export type PdvPainelResponse = {
   cidade: string;
   estado: string;
   programacaoMusical: string;
+  versaoPlayer: string;
   placaCarro: boolean;
   controlarPlayer: boolean;
   controlarPlaylist: boolean;
@@ -620,13 +621,19 @@ export function buildPdvPainelPayload(
     "razaoSocialCliente",
   ]);
 
-  const programacaoMusical = pickPrimeiro(flat, MODELOS_PDV_BASE, [
+  const versaoPlayer = pickPrimeiro(flat, MODELOS_PDV_BASE, [
     "versaoPlayerPdvsCliente",
     "versaoPlayerPdvCliente",
     "versaoPlayerPdv",
     "versaoPlayer",
+  ]);
+
+  const programacaoMusical = pickPrimeiro(flat, MODELOS_PDV_BASE, [
     "programacaoMusicalPdv",
+    "programacaoMusicalPdvsCliente",
+    "programacaoMusicalPdvCliente",
     "programacaoMusical",
+    "dscProgramacaoMusicalPdvsCliente",
   ]);
 
   const placaCarroRaw = pickPrimeiro(flat, MODELOS_PDV_BASE, [
@@ -831,6 +838,7 @@ export function buildPdvPainelPayload(
     cidade: cidade.trim(),
     estado: estado.trim(),
     programacaoMusical: programacaoMusical.trim() || "Padrão",
+    versaoPlayer: versaoPlayer.trim(),
     placaCarro: painelSimNao(placaCarroRaw),
     controlarPlayer: painelSimNao(controlarPlayerRaw),
     controlarPlaylist: painelSimNao(controlarPlaylistRaw),
