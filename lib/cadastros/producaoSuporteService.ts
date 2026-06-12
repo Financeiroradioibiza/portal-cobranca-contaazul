@@ -1,0 +1,113 @@
+import { prisma } from "@/lib/prisma";
+import { buildGoogleMapsFromPdvAddress } from "@/lib/cadastros/googleMapsFromCadastro";
+import {
+  getProducaoDashboard,
+  type DashboardPdvTelemetry,
+} from "@/lib/cadastros/producaoDashboardService";
+import type {
+  ProducaoSuportePayload,
+  SuportePdvRow,
+} from "@/lib/cadastros/producaoSuporteTypes";
+
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+function isSemPing5Dias(
+  telemetry: DashboardPdvTelemetry,
+  controlarPlayer: boolean,
+  statusPlayer: "Ativo" | "Inativo",
+): boolean {
+  if (!controlarPlayer || statusPlayer !== "Ativo") return false;
+  const last = telemetry.lastPingAt;
+  if (!last) return true;
+  const age = Date.now() - new Date(last).getTime();
+  return age > FIVE_DAYS_MS;
+}
+
+export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSuportePayload> {
+  const dash = await getProducaoDashboard(yearMonth);
+  const pdvKeys = dash.clientes.flatMap((c) => c.pdvs.map((p) => p.rioPdvKey));
+
+  if (pdvKeys.length === 0) {
+    return {
+      yearMonth,
+      overview: { totalPdvs: 0, semPing5Dias: 0, chamadosAbertos: null },
+      pdvs: [],
+    };
+  }
+
+  const [cadastros, rioPdvs] = await Promise.all([
+    prisma.producaoPdvCadastro.findMany({
+      where: { rioPdvKey: { in: pdvKeys } },
+      select: {
+        rioPdvKey: true,
+        endereco: true,
+        bairro: true,
+        contatoLojaNome: true,
+        contatoLojaTelefone: true,
+        contatoLojaEmail: true,
+        createdAt: true,
+      },
+    }),
+    prisma.rioCompPdv.findMany({
+      where: { id: { in: pdvKeys } },
+      select: { id: true, createdAt: true },
+    }),
+  ]);
+
+  const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
+  const rioCreatedByKey = new Map(rioPdvs.map((p) => [p.id, p.createdAt]));
+
+  const rows: SuportePdvRow[] = [];
+
+  for (const cliente of dash.clientes) {
+    for (const pdv of cliente.pdvs) {
+      const cad = cadastroByKey.get(pdv.rioPdvKey);
+      const rioCreated = rioCreatedByKey.get(pdv.rioPdvKey);
+      const instaladoAt = (cad?.createdAt ?? rioCreated ?? new Date(0)).toISOString();
+      const maps = buildGoogleMapsFromPdvAddress({
+        nome: pdv.nome,
+        endereco: cad?.endereco ?? "",
+        bairro: cad?.bairro ?? "",
+      });
+      const semPing5Dias = isSemPing5Dias(
+        pdv.telemetry,
+        pdv.controlarPlayer,
+        pdv.statusPlayer,
+      );
+
+      rows.push({
+        rioPdvKey: pdv.rioPdvKey,
+        nome: pdv.nome,
+        cnpj: pdv.cnpj,
+        clienteNome: cliente.nome,
+        clienteKey: cliente.key,
+        programacaoMusical: pdv.programacaoMusical,
+        playerVersion: pdv.telemetry.playerVersion,
+        contatoLojaNome: cad?.contatoLojaNome?.trim() ?? "",
+        contatoLojaTelefone: cad?.contatoLojaTelefone?.trim() ?? "",
+        contatoLojaEmail: cad?.contatoLojaEmail?.trim() ?? "",
+        googleMapsQuery: maps.query,
+        googleMapsUrl: maps.url,
+        instaladoAt,
+        semPing5Dias,
+        telemetry: pdv.telemetry,
+        statusPlayer: pdv.statusPlayer,
+        controlarPlayer: pdv.controlarPlayer,
+      });
+    }
+  }
+
+  rows.sort((a, b) => b.instaladoAt.localeCompare(a.instaladoAt));
+
+  const semPing5Dias = rows.filter((r) => r.semPing5Dias).length;
+
+  return {
+    yearMonth,
+    overview: {
+      totalPdvs: rows.length,
+      semPing5Dias,
+      chamadosAbertos: null,
+    },
+    pdvs: rows,
+  };
+}
