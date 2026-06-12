@@ -527,6 +527,51 @@ export function CadastrosGruposPanel() {
     setMsg(`Grupo «${nome}» criado — arraste PDVs para ele.`);
   }
 
+  async function restoreEmptyManualGroups() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/cadastros/month/${activeYm}/producao-layout/restore-empty-groups`,
+        { method: "POST" },
+      );
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        result?: {
+          restored: Array<{ groupName: string; movedCount: number; groupKey: string }>;
+          skipped: Array<{ groupName: string; reason: string }>;
+        };
+      };
+      if (!res.ok || !data.ok || !data.result) throw new Error(data.error ?? "erro");
+      const parts = data.result.restored.map(
+        (r) => `«${r.groupName}»: ${r.movedCount} PDV(s)`,
+      );
+      setMsg(
+        parts.length ?
+          `Pastas restauradas: ${parts.join("; ")}.`
+        : "Nenhuma pasta vazia precisou restaurar.",
+      );
+      if (data.result.skipped.length) {
+        const skip = data.result.skipped
+          .filter((s) => !s.reason.startsWith("já tem"))
+          .map((s) => `${s.groupName} (${s.reason})`)
+          .slice(0, 5);
+        if (skip.length) setMsg((m) => `${m} Sem match: ${skip.join("; ")}.`);
+      }
+      await loadAll(activeYm);
+      setProdExpanded((prev) => {
+        const n = new Set(prev);
+        for (const r of data.result!.restored) n.add(r.groupKey);
+        return n;
+      });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao restaurar pastas.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function groupAgilitaPdvs() {
     setBusy(true);
     setMsg("");
@@ -1031,6 +1076,15 @@ export function CadastrosGruposPanel() {
                       onClick={addCustomCliente}
                     >
                       + Novo grupo
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-emerald-400 px-2 py-1 text-[11px] font-semibold text-emerald-900 dark:border-emerald-700 dark:text-emerald-200"
+                      disabled={busy}
+                      onClick={() => void restoreEmptyManualGroups()}
+                      title="Reconstrói pastas manuais vazias (Agilitá, Maria Filo, etc.) sem mexer nas que já têm PDVs"
+                    >
+                      Restaurar pastas vazias
                     </button>
                     <button
                       type="button"

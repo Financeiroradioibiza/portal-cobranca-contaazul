@@ -176,3 +176,74 @@ export function matchAgilitaNome(nome: string): boolean {
 export async function groupAgilitaPdvs(yearMonth: number): Promise<CustomGroupMoveResult> {
   return groupSinglePdvIntoCustom(yearMonth, "Agilitá", matchAgilitaNome);
 }
+
+export function matchFromGroupName(groupName: string): (nome: string) => boolean {
+  const g = normalizeNomeToken(groupName);
+  if (g === "heringtodas" || g === "hering todas") {
+    return (nome) => normalizeNomeToken(nome).startsWith("hering");
+  }
+  return (nome) => normalizeNomeToken(nome).includes(g);
+}
+
+export type RestoreEmptyGroupsResult = {
+  yearMonth: number;
+  restored: CustomGroupMoveResult[];
+  skipped: Array<{ groupName: string; reason: string }>;
+};
+
+/**
+ * Reconstrói pastas manuais que ficaram vazias após perda de arrastes.
+ * Pula grupos que já têm PDVs (ex.: HERINGTODAS intacta).
+ */
+export async function restoreEmptyManualGroups(yearMonth: number): Promise<RestoreEmptyGroupsResult> {
+  const layout = await getProducaoLayout(yearMonth, { repairPlacements: true });
+  const month = await prisma.rioCompMonth.findUnique({
+    where: { yearMonth },
+    include: {
+      linhas: {
+        orderBy: [{ sortOrder: "asc" }],
+        include: { pdvs: { orderBy: [{ sortOrder: "asc" }] } },
+      },
+    },
+  });
+  if (!month) throw new Error("month_not_found");
+
+  const linhasForProd: RioLinhaForProducao[] = month.linhas
+    .filter((ln) => ln.movimento !== "saida")
+    .map((ln) => ({
+      id: ln.id,
+      caPersonId: ln.caPersonId,
+      nomeFantasia: ln.nomeFantasia,
+      razaoSocial: ln.razaoSocial,
+      documento: ln.documento,
+      movimento: ln.movimento,
+      pdvs: ln.pdvs.filter((p) => p.movimento !== "saida"),
+    }));
+
+  const caByLinhaId = buildCaByLinhaId(linhasForProd);
+  const base = buildProducaoClientes(linhasForProd, new Map());
+  const merged = mergeProducaoLayout(base, layout, { showHidden: true, caByLinhaId });
+
+  const restored: CustomGroupMoveResult[] = [];
+  const skipped: Array<{ groupName: string; reason: string }> = [];
+
+  for (const custom of layout.customClientes) {
+    const groupName = (layout.clienteNomes[custom.key] || custom.nome).trim();
+    if (!groupName) continue;
+
+    const bucket = merged.find((c) => c.key === custom.key);
+    if (bucket && bucket.pdvCount > 0) {
+      skipped.push({ groupName, reason: `já tem ${bucket.pdvCount} PDV(s)` });
+      continue;
+    }
+
+    const result = await groupSinglePdvIntoCustom(yearMonth, groupName, matchFromGroupName(groupName));
+    if (result.movedCount > 0) {
+      restored.push(result);
+    } else {
+      skipped.push({ groupName, reason: "nenhum PDV encontrado para o nome do grupo" });
+    }
+  }
+
+  return { yearMonth, restored, skipped };
+}
