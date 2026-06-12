@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+/** PDVs renderizados por vez ao expandir um cliente (evita travar com 200+ lojas). */
+const DASHBOARD_PDV_BATCH = 40;
 import { ProducaoClienteDrawer } from "@/components/producao/ProducaoClienteDrawer";
 import type {
   DashboardClienteDetail,
@@ -298,8 +301,8 @@ export function ProducaoDashboardPanel() {
         </div>
 
         <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          Padrão fechado para performance. Com muitos PDVs, abrir tudo automático relenta o scroll.
-          Use os botões para controlar manualmente.
+          Clientes fechados por padrão. Ao expandir, mostramos {DASHBOARD_PDV_BATCH} PDVs por vez —
+          use «Mostrar mais» para o restante.
         </p>
       </section>
 
@@ -319,6 +322,16 @@ function ClienteBlock({
   onToggle: () => void;
   onOpenDetail: () => void;
 }) {
+  const [pdvLimit, setPdvLimit] = useState(DASHBOARD_PDV_BATCH);
+
+  useEffect(() => {
+    if (!open) setPdvLimit(DASHBOARD_PDV_BATCH);
+  }, [open]);
+
+  const visiblePdvs = cliente.pdvs.slice(0, pdvLimit);
+  const remaining = cliente.pdvCount - visiblePdvs.length;
+  const hasMore = remaining > 0;
+
   return (
     <div className="border-b border-slate-200 dark:border-slate-700">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 hover:bg-white/60 dark:hover:bg-slate-800/40">
@@ -355,11 +368,19 @@ function ClienteBlock({
           <span className="font-semibold text-slate-800 dark:text-slate-200">
             {cliente.pdvCount} PDVs
           </span>
+          {cliente.pdvCount > DASHBOARD_PDV_BATCH ?
+            <span className="text-[10px] text-slate-400">· páginas de {DASHBOARD_PDV_BATCH}</span>
+          : null}
         </div>
       </div>
 
       {open ?
         <div className="bg-white/50 pb-2 ps-10 pe-4 dark:bg-slate-900/30">
+          {cliente.pdvCount > DASHBOARD_PDV_BATCH ?
+            <p className="mb-1 px-2 text-[10px] text-slate-500">
+              Mostrando {visiblePdvs.length} de {cliente.pdvCount} PDVs
+            </p>
+          : null}
           <div className="mb-1 hidden grid-cols-[1fr_100px_120px_90px_100px_100px] gap-2 px-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 lg:grid">
             <span>PDV</span>
             <span>Cache</span>
@@ -368,7 +389,7 @@ function ClienteBlock({
             <span>1º ping</span>
             <span>Último ping</span>
           </div>
-          {cliente.pdvs.map((p) => (
+          {visiblePdvs.map((p) => (
             <div
               key={p.rioPdvKey}
               className="mb-1 grid gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-900 lg:grid-cols-[1fr_100px_120px_90px_100px_100px] lg:items-center"
@@ -394,6 +415,30 @@ function ClienteBlock({
               <span className="text-slate-500">{fmtPing(p.telemetry.lastPingAt)}</span>
             </div>
           ))}
+          {hasMore || pdvLimit > DASHBOARD_PDV_BATCH ?
+            <div className="mt-1 flex flex-wrap gap-2 px-2">
+              {hasMore ?
+                <button
+                  type="button"
+                  className="rounded border border-fuchsia-300 px-2 py-1 text-[11px] font-semibold text-fuchsia-800 dark:border-fuchsia-700 dark:text-fuchsia-200"
+                  onClick={() =>
+                    setPdvLimit((n) => Math.min(n + DASHBOARD_PDV_BATCH, cliente.pdvCount))
+                  }
+                >
+                  Mostrar mais ({Math.min(DASHBOARD_PDV_BATCH, remaining)} de {remaining})
+                </button>
+              : null}
+              {pdvLimit > DASHBOARD_PDV_BATCH ?
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-600"
+                  onClick={() => setPdvLimit(DASHBOARD_PDV_BATCH)}
+                >
+                  Recolher lista
+                </button>
+              : null}
+            </div>
+          : null}
         </div>
       : null}
     </div>
