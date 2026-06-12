@@ -7,6 +7,7 @@ import {
   mergeProducaoLayout,
   newCustomClienteKey,
   type PdvPlacementOverride,
+  type ProducaoClienteBucket,
   type RioLinhaForProducao,
 } from "@/lib/cadastros/producaoHierarchy";
 import { getProducaoLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
@@ -90,35 +91,43 @@ async function loadProducaoMergeContext(yearMonth: number) {
   return { linhasForProd, caByLinhaId, layout, base, merged };
 }
 
-/**
- * Move PDVs que combinam com a regra → pasta manual.
- * Suporta buckets multi-PDV quando `moveWholeBucket` está ativo.
- */
-export async function groupIntoCustom(
-  yearMonth: number,
+type MoveItem = {
+  rioPdvId: string;
+  nome: string;
+  rioLinhaId: string;
+  caPersonId?: string;
+};
+
+type LayoutDraft = {
+  customClientes: Array<{ key: string; nome: string }>;
+  clienteNomes: Record<string, string>;
+  pdvPlacements: PdvPlacementOverride[];
+  hiddenClienteKeys: string[];
+};
+
+function ensureCustomGroupKey(
   groupName: string,
+  draft: LayoutDraft,
+): string {
+  let groupKey = findCustomGroupKey(groupName, draft.customClientes, draft.clienteNomes);
+  if (!groupKey) {
+    groupKey = newCustomClienteKey();
+    draft.customClientes.push({ key: groupKey, nome: groupName });
+    draft.clienteNomes[groupKey] = groupName;
+  }
+  return groupKey;
+}
+
+function planGroupMoves(
+  merged: ProducaoClienteBucket[],
+  groupKey: string,
   options: GroupIntoCustomOptions,
-): Promise<CustomGroupMoveResult> {
+  caByLinhaId: Map<string, string>,
+): { toMove: MoveItem[]; skippedMultiPdv: string[] } {
   const onlySinglePdvBuckets = options.onlySinglePdvBuckets ?? true;
   const onlyFromNonCustomBuckets = options.onlyFromNonCustomBuckets ?? true;
 
-  const { caByLinhaId, layout, base, merged } = await loadProducaoMergeContext(yearMonth);
-  let customClientes = [...layout.customClientes];
-  const clienteNomes = { ...layout.clienteNomes };
-
-  let groupKey = findCustomGroupKey(groupName, customClientes, clienteNomes);
-  if (!groupKey) {
-    groupKey = newCustomClienteKey();
-    customClientes.push({ key: groupKey, nome: groupName });
-    clienteNomes[groupKey] = groupName;
-  }
-
-  const toMove: Array<{
-    rioPdvId: string;
-    nome: string;
-    rioLinhaId: string;
-    caPersonId?: string;
-  }> = [];
+  const toMove: MoveItem[] = [];
   const skippedMultiPdv: string[] = [];
 
   for (const bucket of merged) {
@@ -177,12 +186,22 @@ export async function groupIntoCustom(
   }
 
   toMove.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }));
+  return { toMove, skippedMultiPdv };
+}
 
+function applyMovesToDraft(
+  draft: LayoutDraft,
+  groupKey: string,
+  toMove: MoveItem[],
+  base: ProducaoClienteBucket[],
+  caByLinhaId: Map<string, string>,
+  layoutSeed: LayoutDraft,
+): void {
   const moveIds = new Set(toMove.map((x) => x.rioPdvId));
   const moveLinhaIds = new Set(toMove.map((x) => x.rioLinhaId));
   const moveCas = new Set(toMove.map((x) => x.caPersonId).filter(Boolean));
 
-  const pdvPlacements: PdvPlacementOverride[] = layout.pdvPlacements.filter((p) => {
+  draft.pdvPlacements = draft.pdvPlacements.filter((p) => {
     if (moveIds.has(p.rioPdvId)) return false;
     if (p.rioLinhaId && moveLinhaIds.has(p.rioLinhaId)) return false;
     if (p.caPersonId && moveCas.has(p.caPersonId)) return false;
@@ -190,7 +209,7 @@ export async function groupIntoCustom(
   });
 
   for (const item of toMove) {
-    pdvPlacements.push({
+    draft.pdvPlacements.push({
       rioPdvId: item.rioPdvId,
       targetClienteKey: groupKey,
       rioLinhaId: item.rioLinhaId,
@@ -200,20 +219,47 @@ export async function groupIntoCustom(
 
   const mergedAfter = mergeProducaoLayout(
     base,
-    { ...layout, pdvPlacements, customClientes, clienteNomes },
+    {
+      customClientes: draft.customClientes,
+      clienteNomes: draft.clienteNomes,
+      pdvPlacements: draft.pdvPlacements,
+      hiddenClienteKeys: draft.hiddenClienteKeys,
+    },
     { showHidden: true, caByLinhaId },
   );
   const shellHidden = collectEmptyRioShellKeys(mergedAfter);
-  const hiddenClienteKeys = [
-    ...new Set([...layout.hiddenClienteKeys.filter((k) => k !== groupKey), ...shellHidden]),
+  draft.hiddenClienteKeys = [
+    ...new Set([...layoutSeed.hiddenClienteKeys.filter((k) => k !== groupKey), ...shellHidden]),
   ];
+}
 
-  await saveProducaoLayout(yearMonth, {
-    clienteNomes,
-    customClientes,
-    pdvPlacements,
-    hiddenClienteKeys,
+/**
+ * Move PDVs que combinam com a regra → pasta manual.
+ * Suporta buckets multi-PDV quando `moveWholeBucket` está ativo.
+ */
+export async function groupIntoCustom(
+  yearMonth: number,
+  groupName: string,
+  options: GroupIntoCustomOptions,
+): Promise<CustomGroupMoveResult> {
+  const { caByLinhaId, layout, base, merged } = await loadProducaoMergeContext(yearMonth);
+  const draft: LayoutDraft = {
+    customClientes: [...layout.customClientes],
+    clienteNomes: { ...layout.clienteNomes },
+    pdvPlacements: [...layout.pdvPlacements],
+    hiddenClienteKeys: [...layout.hiddenClienteKeys],
+  };
+
+  const groupKey = ensureCustomGroupKey(groupName, draft);
+  const { toMove, skippedMultiPdv } = planGroupMoves(merged, groupKey, options, caByLinhaId);
+  applyMovesToDraft(draft, groupKey, toMove, base, caByLinhaId, {
+    customClientes: layout.customClientes,
+    clienteNomes: layout.clienteNomes,
+    pdvPlacements: layout.pdvPlacements,
+    hiddenClienteKeys: layout.hiddenClienteKeys,
   });
+
+  await saveProducaoLayout(yearMonth, draft);
 
   return {
     yearMonth,
@@ -260,16 +306,49 @@ export type RestoreConfiguredGroupsResult = {
 export async function restoreConfiguredGroups(
   yearMonth: number,
 ): Promise<RestoreConfiguredGroupsResult> {
+  const { caByLinhaId, layout, base } = await loadProducaoMergeContext(yearMonth);
+  const draft: LayoutDraft = {
+    customClientes: [...layout.customClientes],
+    clienteNomes: { ...layout.clienteNomes },
+    pdvPlacements: [...layout.pdvPlacements],
+    hiddenClienteKeys: [...layout.hiddenClienteKeys],
+  };
+
   const applied: CustomGroupMoveResult[] = [];
   const skipped: Array<{ groupName: string; reason: string }> = [];
 
   for (const rule of PRODUCAO_GROUP_RESTORE_RULES) {
-    const result = await applyGroupRestoreRule(yearMonth, rule);
-    if (result.movedCount > 0) {
-      applied.push(result);
-    } else {
+    const merged = mergeProducaoLayout(base, draft, { showHidden: true, caByLinhaId });
+    const groupKey = ensureCustomGroupKey(rule.groupName, draft);
+    const { toMove, skippedMultiPdv } = planGroupMoves(merged, groupKey, {
+      moveWholeBucket: rule.moveWholeBucket,
+      match: rule.match,
+    }, caByLinhaId);
+
+    if (toMove.length === 0) {
       skipped.push({ groupName: rule.groupName, reason: "nenhum PDV encontrado" });
+      continue;
     }
+
+    applyMovesToDraft(draft, groupKey, toMove, base, caByLinhaId, {
+      customClientes: layout.customClientes,
+      clienteNomes: layout.clienteNomes,
+      pdvPlacements: layout.pdvPlacements,
+      hiddenClienteKeys: layout.hiddenClienteKeys,
+    });
+
+    applied.push({
+      yearMonth,
+      groupKey,
+      groupName: rule.groupName,
+      movedCount: toMove.length,
+      movedNames: toMove.map((x) => x.nome),
+      skippedMultiPdv,
+    });
+  }
+
+  if (applied.length > 0) {
+    await saveProducaoLayout(yearMonth, draft);
   }
 
   return { yearMonth, applied, skipped };

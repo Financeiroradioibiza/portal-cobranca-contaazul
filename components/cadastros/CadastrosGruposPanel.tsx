@@ -612,7 +612,18 @@ export function CadastrosGruposPanel() {
         `/api/cadastros/month/${activeYm}/producao-layout/restore-configured-groups`,
         { method: "POST" },
       );
-      const data = (await res.json()) as {
+      const raw = await res.text();
+      const ctype = res.headers.get("content-type") ?? "";
+      if (!ctype.includes("application/json")) {
+        const timeout =
+          res.status === 504 || raw.trim().toUpperCase().startsWith("<HTML");
+        throw new Error(
+          timeout ?
+            "A operação demorou demais no servidor (timeout). Aguarde o deploy e tente de novo."
+          : `Resposta inválida do servidor (${res.status}).`,
+        );
+      }
+      const data = JSON.parse(raw) as {
         ok?: boolean;
         error?: string;
         result?: {

@@ -3,6 +3,7 @@ import { restoreConfiguredGroups } from "@/lib/cadastros/producaoCustomGroupServ
 import { parseCadastrosYearMonth } from "@/lib/cadastros/painelPdvLinkService";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ ym: string }> };
 
