@@ -548,9 +548,11 @@ export function CadastrosVinculosPanel() {
           Vínculos PDV — Rio × painel legado
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-          Cruza PDVs da Planilha Rio com o painel de produção (export CSV). Ao vincular, importa o
-          cadastro do painel (endereço, contato da loja, player). Contato cobrança continua vindo da
-          Conta Azul / planilha Rio. Não altera o painel legado nem os players.
+          Cruza PDVs ativos da Planilha Rio com o painel de produção (export CSV). Clientes e PDVs
+          com movimento <strong>saída</strong> não aparecem — não faz sentido vincular quem saiu. Ao
+          vincular, importa o cadastro do painel (endereço, contato da loja, player). Contato
+          cobrança continua vindo da Conta Azul / planilha Rio. Não altera o painel legado nem os
+          players.
         </p>
       </header>
 

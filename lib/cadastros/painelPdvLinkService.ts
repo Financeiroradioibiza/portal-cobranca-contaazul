@@ -78,12 +78,13 @@ async function resolveRioPdvMatchContext(
           nomeFantasia: true,
           razaoSocial: true,
           documento: true,
+          movimento: true,
           rioGrupo: { select: { nome: true } },
         },
       },
     },
   });
-  if (!pdv) return null;
+  if (!pdv || pdv.movimento === "saida" || pdv.cliente.movimento === "saida") return null;
   return {
     requestId: rioCompPdvId,
     rioPdvId: pdv.id,
@@ -229,8 +230,10 @@ export async function listVinculosForMonth(ym: number): Promise<{
 
   const rows: VinculoRow[] = [];
   for (const linha of month.linhas) {
+    if (linha.movimento === "saida") continue;
+
     const activePdvs = linha.pdvs.filter((p) => p.movimento !== "saida");
-    if (activePdvs.length === 0 && linha.movimento !== "saida") {
+    if (activePdvs.length === 0) {
       const clienteNome = linha.nomeFantasia || linha.razaoSocial;
       rows.push({
         rioPdvId: linhaAsPdvKey(linha.id),
@@ -246,7 +249,7 @@ export async function listVinculosForMonth(ym: number): Promise<{
       continue;
     }
 
-    for (const pdv of linha.pdvs) {
+    for (const pdv of activePdvs) {
       rows.push({
         rioPdvId: pdv.id,
         rioPdvNome: pdv.nome,
@@ -315,8 +318,14 @@ export async function upsertPainelPdvLink(input: {
   materializedFromProxy: boolean;
 }> {
   const resolvedId = await materializeLinhaProxyPdv(input.rioCompPdvId);
-  const pdv = await prisma.rioCompPdv.findUnique({ where: { id: resolvedId } });
+  const pdv = await prisma.rioCompPdv.findUnique({
+    where: { id: resolvedId },
+    include: { cliente: { select: { movimento: true } } },
+  });
   if (!pdv) throw new Error("rio_pdv_not_found");
+  if (pdv.movimento === "saida" || pdv.cliente.movimento === "saida") {
+    throw new Error("rio_pdv_saida");
+  }
 
   if (!Number.isFinite(input.painelPdvId) || input.painelPdvId <= 0) {
     throw new Error("painel_pdv_id_invalido");
