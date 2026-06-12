@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { donorYearMonthFor, isUserMarcaGrupo } from "@/lib/rio/rioTurnover";
+import { carryProducaoLayoutFromDonor } from "@/lib/cadastros/producaoLayoutCarryService";
 import { getRioCompMonthWithLinhas } from "@/lib/rio/rioClienteCompService";
 
 /**
@@ -106,11 +107,14 @@ export async function cloneRioCompMonthFromDonor(targetYm: number) {
     { timeout: 240_000, maxWait: 45_000 },
   );
 
+  const layoutCarry = await carryProducaoLayoutFromDonor(donorYm, targetYm);
+
   const full = await getRioCompMonthWithLinhas(targetYm);
   if (!full) throw new Error("hydrate_failed");
   return {
     donorYearMonth: donorYm,
     closedDonor: true,
+    layoutCarry,
     ...full,
   };
 }

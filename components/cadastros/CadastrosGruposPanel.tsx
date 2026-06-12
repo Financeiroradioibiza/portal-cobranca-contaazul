@@ -57,6 +57,7 @@ import {
   semPainelMotivo,
   semPainelMotivoLabel,
 } from "@/lib/cadastros/vinculosReconcile";
+import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
@@ -190,7 +191,10 @@ function ClienteDropZone({
 export function CadastrosGruposPanel() {
   const todayYm = useMemo(() => currentBrazilYearMonth(), []);
   const [months, setMonths] = useState<MonthMeta[]>([]);
-  const [activeYm, setActiveYm] = useState(todayYm);
+  const vigenteYm = useMemo(
+    () => pickVigenteRioYearMonth(months, todayYm),
+    [months, todayYm],
+  );
   const [rioGrupos, setRioGrupos] = useState<ProducaoGrupoNode[]>([]);
   const [clientesBase, setClientesBase] = useState<ProducaoClienteBucket[]>([]);
   const [clienteNomes, setClienteNomes] = useState<Record<string, string>>({});
@@ -341,10 +345,10 @@ export function CadastrosGruposPanel() {
       setHiddenClienteKeys(next.hiddenClienteKeys);
       setCustomClientes(next.customClientes);
       setAcknowledgedPdvs(next.acknowledgedPdvs ?? []);
-      persistLayout(next, activeYm);
+      persistLayout(next, vigenteYm);
       return next;
     },
-    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, persistLayout, activeYm],
+    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, persistLayout, vigenteYm],
   );
 
   const loadAll = useCallback(async (ym: number) => {
@@ -453,18 +457,14 @@ export function CadastrosGruposPanel() {
     void fetch("/api/rio-planilha/clientes/months")
       .then((r) => r.json())
       .then((d: { months?: MonthMeta[] }) => {
-        const list = d.months ?? [];
-        setMonths(list);
-        if (list.length && !list.some((m) => m.yearMonth === activeYm)) {
-          setActiveYm(list.find((m) => m.yearMonth === todayYm)?.yearMonth ?? list[0]!.yearMonth);
-        }
+        setMonths(d.months ?? []);
       })
       .catch(() => {});
-  }, [activeYm, todayYm]);
+  }, []);
 
   useEffect(() => {
-    void loadAll(activeYm);
-  }, [activeYm, loadAll]);
+    void loadAll(vigenteYm);
+  }, [vigenteYm, loadAll]);
 
   const filteredRio = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -532,7 +532,7 @@ export function CadastrosGruposPanel() {
     setMsg("");
     try {
       const res = await fetch(
-        `/api/cadastros/month/${activeYm}/producao-layout/restore-empty-groups`,
+        `/api/cadastros/month/${vigenteYm}/producao-layout/restore-empty-groups`,
         { method: "POST" },
       );
       const data = (await res.json()) as {
@@ -559,7 +559,7 @@ export function CadastrosGruposPanel() {
           .slice(0, 5);
         if (skip.length) setMsg((m) => `${m} Sem match: ${skip.join("; ")}.`);
       }
-      await loadAll(activeYm);
+      await loadAll(vigenteYm);
       setProdExpanded((prev) => {
         const n = new Set(prev);
         for (const r of data.result!.restored) n.add(r.groupKey);
@@ -577,7 +577,7 @@ export function CadastrosGruposPanel() {
     setMsg("");
     try {
       const res = await fetch(
-        `/api/cadastros/month/${activeYm}/producao-layout/group-agilita`,
+        `/api/cadastros/month/${vigenteYm}/producao-layout/group-agilita`,
         { method: "POST" },
       );
       const data = (await res.json()) as {
@@ -595,7 +595,7 @@ export function CadastrosGruposPanel() {
         `${data.result.movedCount} PDV(s) Agilitá → pasta «Agilitá».` +
           (skipped ? ` ${skipped} grupo(s) com vários PDVs mantidos.` : ""),
       );
-      await loadAll(activeYm);
+      await loadAll(vigenteYm);
       setProdExpanded((prev) => new Set([...prev, data.result!.groupKey]));
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao agrupar Agilitá.");
@@ -609,7 +609,7 @@ export function CadastrosGruposPanel() {
     setMsg("");
     try {
       const res = await fetch(
-        `/api/cadastros/month/${activeYm}/producao-layout/restore-configured-groups`,
+        `/api/cadastros/month/${vigenteYm}/producao-layout/restore-configured-groups`,
         { method: "POST" },
       );
       const raw = await res.text();
@@ -640,7 +640,7 @@ export function CadastrosGruposPanel() {
           `Grupos padrão aplicados: ${parts.join("; ")}.`
         : "Nenhum PDV encontrado para os grupos padrão.",
       );
-      await loadAll(activeYm);
+      await loadAll(vigenteYm);
       setProdExpanded((prev) => {
         const n = new Set(prev);
         for (const r of data.result!.applied) n.add(r.groupKey);
@@ -658,7 +658,7 @@ export function CadastrosGruposPanel() {
     setMsg("");
     try {
       const res = await fetch(
-        `/api/cadastros/month/${activeYm}/producao-layout/group-hering`,
+        `/api/cadastros/month/${vigenteYm}/producao-layout/group-hering`,
         { method: "POST" },
       );
       const data = (await res.json()) as {
@@ -687,7 +687,7 @@ export function CadastrosGruposPanel() {
       setMsg(
         (parts.length ? parts.join("; ") + "." : "Nenhum PDV HERING para mover.") + remapped,
       );
-      await loadAll(activeYm);
+      await loadAll(vigenteYm);
       setProdExpanded((prev) => {
         const n = new Set(prev);
         n.add(data.result!.heringGroupKey);
@@ -824,23 +824,18 @@ export function CadastrosGruposPanel() {
             Rio (cobrança) × Produção
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-            <strong>Esquerda:</strong> espelho da Planilha Rio (marcas).{" "}
-            <strong>Direita:</strong> produção organizada por você (arrastar grupos e nomes).
+            <strong>Esquerda:</strong> espelho da Planilha Rio vigente.{" "}
+            <strong>Direita:</strong> produção organizada por você — mantida na virada de mês.
           </p>
         </header>
 
         <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 px-1">
-          <select
-            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
-            value={activeYm}
-            onChange={(e) => setActiveYm(Number(e.target.value))}
+          <span
+            className="rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-sm font-semibold text-violet-900 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-100"
+            title="Rio × Produção usa sempre a competência vigente da Planilha Rio"
           >
-            {(months.length ? months : [{ id: "", yearMonth: activeYm }]).map((m) => (
-              <option key={m.yearMonth} value={m.yearMonth}>
-                {formatYearMonthLabel(m.yearMonth)}
-              </option>
-            ))}
-          </select>
+            Vigente: {formatYearMonthLabel(vigenteYm)}
+          </span>
           <input
             className="min-w-[180px] flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
             placeholder="Buscar…"

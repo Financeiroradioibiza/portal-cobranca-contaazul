@@ -6,6 +6,7 @@ import {
   cloneDonorLinhasBatch,
   cloneDonorReset,
 } from "@/lib/rio/cloneRioCompMonthBatched";
+import { carryProducaoLayoutFromDonor } from "@/lib/cadastros/producaoLayoutCarryService";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 
 export const runtime = "nodejs";
@@ -67,12 +68,14 @@ export async function POST(req: Request, context: Ctx) {
 
     if (body.phase === "finish") {
       const full = await cloneDonorFinish(ym);
+      const layoutCarry = await carryProducaoLayoutFromDonor(full.donorYearMonth, ym);
       return NextResponse.json({
         ok: true,
         phase: "finish",
         mode: "batched" as const,
         donorYearMonth: full.donorYearMonth,
         closedDonor: full.closedDonor,
+        layoutCarry,
         grupos: full.grupos,
         linhas: full.linhas,
         message: `${formatYearMonthLabel(ym)} copiado de ${formatYearMonthLabel(full.donorYearMonth)} (${full.linhaCount} linhas).`,

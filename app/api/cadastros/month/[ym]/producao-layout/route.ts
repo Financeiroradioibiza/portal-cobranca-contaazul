@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { parseCadastrosYearMonth } from "@/lib/cadastros/painelPdvLinkService";
+import { ensureProducaoLayoutCarriedFromDonor } from "@/lib/cadastros/producaoLayoutCarryService";
 import { getProducaoLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
+import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
 
 export const runtime = "nodejs";
 
@@ -11,6 +13,10 @@ export async function GET(_req: Request, context: Ctx) {
   const ym = parseCadastrosYearMonth(ymRaw ?? "");
   if (ym == null) return NextResponse.json({ error: "invalid_year_month" }, { status: 400 });
   try {
+    const donorYm = donorYearMonthFor(ym);
+    if (donorYm !== ym) {
+      await ensureProducaoLayoutCarriedFromDonor(ym, donorYm);
+    }
     const layout = await getProducaoLayout(ym, { repairPlacements: true });
     return NextResponse.json({ ok: true, layout });
   } catch (e) {

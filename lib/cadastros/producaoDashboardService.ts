@@ -6,7 +6,9 @@ import {
   type ProducaoLayoutState,
   type RioLinhaForProducao,
 } from "@/lib/cadastros/producaoHierarchy";
+import { ensureProducaoLayoutCarriedFromDonor } from "@/lib/cadastros/producaoLayoutCarryService";
 import { getProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
+import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
 
 export type DashboardPdvTelemetry = {
@@ -157,6 +159,10 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
   }
 
   const linkMap = await loadPainelLinkMap();
+  const donorYm = donorYearMonthFor(yearMonth);
+  if (donorYm !== yearMonth) {
+    await ensureProducaoLayoutCarriedFromDonor(yearMonth, donorYm);
+  }
   const rawLayout = await getProducaoLayout(yearMonth, { repairPlacements: true });
 
   const linhasForProd: RioLinhaForProducao[] = month.linhas

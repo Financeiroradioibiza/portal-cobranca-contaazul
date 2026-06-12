@@ -7,6 +7,7 @@ import type {
   DashboardClienteRow,
   ProducaoDashboardPayload,
 } from "@/lib/cadastros/producaoDashboardService";
+import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
@@ -94,7 +95,10 @@ function OverviewCard({
 export function ProducaoDashboardPanel() {
   const todayYm = useMemo(() => currentBrazilYearMonth(), []);
   const [months, setMonths] = useState<MonthMeta[]>([]);
-  const [activeYm, setActiveYm] = useState(todayYm);
+  const vigenteYm = useMemo(
+    () => pickVigenteRioYearMonth(months, todayYm),
+    [months, todayYm],
+  );
   const [data, setData] = useState<ProducaoDashboardPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -123,18 +127,14 @@ export function ProducaoDashboardPanel() {
     void fetch("/api/rio-planilha/clientes/months")
       .then((r) => r.json())
       .then((d: { months?: MonthMeta[] }) => {
-        const list = d.months ?? [];
-        setMonths(list);
-        if (list.length && !list.some((m) => m.yearMonth === activeYm)) {
-          setActiveYm(list.find((m) => m.yearMonth === todayYm)?.yearMonth ?? list[0]!.yearMonth);
-        }
+        setMonths(d.months ?? []);
       })
       .catch(() => {});
-  }, [activeYm, todayYm]);
+  }, []);
 
   useEffect(() => {
-    void load(activeYm);
-  }, [activeYm, load]);
+    void load(vigenteYm);
+  }, [vigenteYm, load]);
 
   const filtered = useMemo(() => {
     const list = data?.clientes ?? [];
@@ -174,24 +174,12 @@ export function ProducaoDashboardPanel() {
             Visão geral do portal
           </h1>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-slate-600 dark:text-slate-400">Competência</span>
-          <select
-            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
-            value={activeYm}
-            onChange={(e) => setActiveYm(Number(e.target.value))}
-            disabled={busy}
-          >
-            {months.length === 0 ?
-              <option value={activeYm}>{formatYearMonthLabel(activeYm)}</option>
-            : months.map((m) => (
-                <option key={m.id} value={m.yearMonth}>
-                  {formatYearMonthLabel(m.yearMonth)}
-                </option>
-              ))
-            }
-          </select>
-        </label>
+        <span
+          className="rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-sm font-semibold text-violet-900 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-100"
+          title="Dashboard usa a competência vigente da Planilha Rio"
+        >
+          Vigente: {formatYearMonthLabel(vigenteYm)}
+        </span>
       </header>
 
       {msg ?
