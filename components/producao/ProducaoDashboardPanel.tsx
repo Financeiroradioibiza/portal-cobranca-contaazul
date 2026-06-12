@@ -1,9 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-/** PDVs renderizados por vez ao expandir um cliente (evita travar com 200+ lojas). */
-const DASHBOARD_PDV_BATCH = 40;
 import { ProducaoClienteDrawer } from "@/components/producao/ProducaoClienteDrawer";
 import type {
   DashboardClienteDetail,
@@ -16,7 +13,48 @@ import {
   formatYearMonthLabel,
 } from "@/lib/manualReminders/yearMonth";
 
+/** Lotes ao expandir cliente (evita travar com 200+ lojas). */
+const DASHBOARD_PDV_BATCH_OPTIONS = [20, 50, 100] as const;
+const DEFAULT_DASHBOARD_PDV_BATCH = DASHBOARD_PDV_BATCH_OPTIONS[0];
+type DashboardPdvBatchSize = (typeof DASHBOARD_PDV_BATCH_OPTIONS)[number];
+
 type MonthMeta = { id: string; yearMonth: number };
+
+function PdvBatchSizePicker({
+  value,
+  onChange,
+}: {
+  value: DashboardPdvBatchSize;
+  onChange: (size: DashboardPdvBatchSize) => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      title="Quantos PDVs carregar por vez ao expandir um cliente"
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        Por vez
+      </span>
+      <div className="inline-flex overflow-hidden rounded border border-slate-300 dark:border-slate-600">
+        {DASHBOARD_PDV_BATCH_OPTIONS.map((size) => (
+          <button
+            key={size}
+            type="button"
+            className={
+              "px-2 py-1 text-[11px] font-semibold transition-colors " +
+              (value === size ?
+                "bg-fuchsia-600 text-white"
+              : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900")
+            }
+            onClick={() => onChange(size)}
+          >
+            {size}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function fmtPing(iso: string | null): string {
   if (!iso) return "—";
@@ -107,6 +145,7 @@ export function ProducaoDashboardPanel() {
   const [msg, setMsg] = useState("");
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [pdvBatchSize, setPdvBatchSize] = useState<DashboardPdvBatchSize>(DEFAULT_DASHBOARD_PDV_BATCH);
   const [clienteDetail, setClienteDetail] = useState<DashboardClienteDetail | null>(null);
 
   const load = useCallback(async (ym: number) => {
@@ -259,6 +298,7 @@ export function ProducaoDashboardPanel() {
             </span>
           </div>
           <div className="ms-auto flex flex-wrap items-center gap-2">
+            <PdvBatchSizePicker value={pdvBatchSize} onChange={setPdvBatchSize} />
             <button
               type="button"
               className="rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-600"
@@ -293,6 +333,7 @@ export function ProducaoDashboardPanel() {
                 key={c.key}
                 cliente={c}
                 open={expanded.has(c.key)}
+                pdvBatchSize={pdvBatchSize}
                 onToggle={() => toggleCliente(c.key)}
                 onOpenDetail={() => setClienteDetail(c.detail)}
               />
@@ -301,8 +342,8 @@ export function ProducaoDashboardPanel() {
         </div>
 
         <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          Clientes fechados por padrão. Ao expandir, mostramos {DASHBOARD_PDV_BATCH} PDVs por vez —
-          use «Mostrar mais» para o restante.
+          Clientes fechados por padrão. Ao expandir, mostramos {pdvBatchSize} PDVs por vez (ajuste
+          20/50/100 acima) — use «Mostrar mais» para o restante.
         </p>
       </section>
 
@@ -314,19 +355,25 @@ export function ProducaoDashboardPanel() {
 function ClienteBlock({
   cliente,
   open,
+  pdvBatchSize,
   onToggle,
   onOpenDetail,
 }: {
   cliente: DashboardClienteRow;
   open: boolean;
+  pdvBatchSize: DashboardPdvBatchSize;
   onToggle: () => void;
   onOpenDetail: () => void;
 }) {
-  const [pdvLimit, setPdvLimit] = useState(DASHBOARD_PDV_BATCH);
+  const [pdvLimit, setPdvLimit] = useState<number>(pdvBatchSize);
 
   useEffect(() => {
-    if (!open) setPdvLimit(DASHBOARD_PDV_BATCH);
-  }, [open]);
+    if (!open) {
+      setPdvLimit(pdvBatchSize);
+      return;
+    }
+    setPdvLimit((prev) => Math.min(cliente.pdvCount, Math.max(prev, pdvBatchSize)));
+  }, [open, pdvBatchSize, cliente.pdvCount]);
 
   const visiblePdvs = cliente.pdvs.slice(0, pdvLimit);
   const remaining = cliente.pdvCount - visiblePdvs.length;
@@ -368,17 +415,17 @@ function ClienteBlock({
           <span className="font-semibold text-slate-800 dark:text-slate-200">
             {cliente.pdvCount} PDVs
           </span>
-          {cliente.pdvCount > DASHBOARD_PDV_BATCH ?
-            <span className="text-[10px] text-slate-400">· páginas de {DASHBOARD_PDV_BATCH}</span>
+          {cliente.pdvCount > pdvBatchSize ?
+            <span className="text-[10px] text-slate-400">· lotes de {pdvBatchSize}</span>
           : null}
         </div>
       </div>
 
       {open ?
         <div className="bg-white/50 pb-2 ps-10 pe-4 dark:bg-slate-900/30">
-          {cliente.pdvCount > DASHBOARD_PDV_BATCH ?
+          {cliente.pdvCount > pdvBatchSize ?
             <p className="mb-1 px-2 text-[10px] text-slate-500">
-              Mostrando {visiblePdvs.length} de {cliente.pdvCount} PDVs
+              Mostrando {visiblePdvs.length} de {cliente.pdvCount} PDVs (lotes de {pdvBatchSize})
             </p>
           : null}
           <div className="mb-1 hidden grid-cols-[1fr_100px_120px_90px_100px_100px] gap-2 px-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 lg:grid">
@@ -415,24 +462,24 @@ function ClienteBlock({
               <span className="text-slate-500">{fmtPing(p.telemetry.lastPingAt)}</span>
             </div>
           ))}
-          {hasMore || pdvLimit > DASHBOARD_PDV_BATCH ?
+          {hasMore || pdvLimit > pdvBatchSize ?
             <div className="mt-1 flex flex-wrap gap-2 px-2">
               {hasMore ?
                 <button
                   type="button"
                   className="rounded border border-fuchsia-300 px-2 py-1 text-[11px] font-semibold text-fuchsia-800 dark:border-fuchsia-700 dark:text-fuchsia-200"
                   onClick={() =>
-                    setPdvLimit((n) => Math.min(n + DASHBOARD_PDV_BATCH, cliente.pdvCount))
+                    setPdvLimit((n) => Math.min(n + pdvBatchSize, cliente.pdvCount))
                   }
                 >
-                  Mostrar mais ({Math.min(DASHBOARD_PDV_BATCH, remaining)} de {remaining})
+                  Mostrar mais ({Math.min(pdvBatchSize, remaining)} de {remaining})
                 </button>
               : null}
-              {pdvLimit > DASHBOARD_PDV_BATCH ?
+              {pdvLimit > pdvBatchSize ?
                 <button
                   type="button"
                   className="rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-600"
-                  onClick={() => setPdvLimit(DASHBOARD_PDV_BATCH)}
+                  onClick={() => setPdvLimit(pdvBatchSize)}
                 >
                   Recolher lista
                 </button>
