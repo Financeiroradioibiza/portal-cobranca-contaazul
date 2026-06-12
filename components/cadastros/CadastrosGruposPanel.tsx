@@ -604,6 +604,44 @@ export function CadastrosGruposPanel() {
     }
   }
 
+  async function restoreConfiguredGroups() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/cadastros/month/${activeYm}/producao-layout/restore-configured-groups`,
+        { method: "POST" },
+      );
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        result?: {
+          applied: Array<{ groupName: string; movedCount: number; groupKey: string }>;
+          skipped: Array<{ groupName: string; reason: string }>;
+        };
+      };
+      if (!res.ok || !data.ok || !data.result) throw new Error(data.error ?? "erro");
+      const parts = data.result.applied.map(
+        (r) => `«${r.groupName}»: ${r.movedCount} PDV(s)`,
+      );
+      setMsg(
+        parts.length ?
+          `Grupos padrão aplicados: ${parts.join("; ")}.`
+        : "Nenhum PDV encontrado para os grupos padrão.",
+      );
+      await loadAll(activeYm);
+      setProdExpanded((prev) => {
+        const n = new Set(prev);
+        for (const r of data.result!.applied) n.add(r.groupKey);
+        return n;
+      });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao restaurar grupos padrão.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function groupHeringSinglePoint() {
     setBusy(true);
     setMsg("");
@@ -1079,10 +1117,19 @@ export function CadastrosGruposPanel() {
                     </button>
                     <button
                       type="button"
+                      className="rounded-md border border-emerald-500 px-2 py-1 text-[11px] font-semibold text-emerald-950 dark:border-emerald-600 dark:text-emerald-100"
+                      disabled={busy}
+                      onClick={() => void restoreConfiguredGroups()}
+                      title="Cria e preenche pastas padrão (Banzeiro, Brewteco, Hering franquias, Vans, etc.)"
+                    >
+                      Restaurar grupos padrão
+                    </button>
+                    <button
+                      type="button"
                       className="rounded-md border border-emerald-400 px-2 py-1 text-[11px] font-semibold text-emerald-900 dark:border-emerald-700 dark:text-emerald-200"
                       disabled={busy}
                       onClick={() => void restoreEmptyManualGroups()}
-                      title="Reconstrói pastas manuais vazias (Agilitá, Maria Filo, etc.) sem mexer nas que já têm PDVs"
+                      title="Reconstrói pastas manuais vazias já existentes sem mexer nas que já têm PDVs"
                     >
                       Restaurar pastas vazias
                     </button>
