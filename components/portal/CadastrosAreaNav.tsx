@@ -38,10 +38,16 @@ export function CadastrosAreaNav() {
           })}
         </div>
         <Link
+          href="/producao/dashboard"
+          className="rounded-md px-2 py-1 text-[11px] font-medium text-fuchsia-700 hover:bg-fuchsia-50 dark:text-fuchsia-300 dark:hover:bg-fuchsia-950/50"
+        >
+          Produção
+        </Link>
+        <Link
           href="/cobranca/planilha-rio"
           className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
         >
-          ← Cobrança
+          Cobrança
         </Link>
         <ThemeToggle />
       </div>

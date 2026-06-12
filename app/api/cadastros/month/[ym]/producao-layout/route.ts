@@ -11,7 +11,7 @@ export async function GET(_req: Request, context: Ctx) {
   const ym = parseCadastrosYearMonth(ymRaw ?? "");
   if (ym == null) return NextResponse.json({ error: "invalid_year_month" }, { status: 400 });
   try {
-    const layout = await getProducaoLayout(ym);
+    const layout = await getProducaoLayout(ym, { repairPlacements: true });
     return NextResponse.json({ ok: true, layout });
   } catch (e) {
     return NextResponse.json(

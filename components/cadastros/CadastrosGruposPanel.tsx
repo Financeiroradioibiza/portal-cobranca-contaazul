@@ -31,6 +31,7 @@ import {
   stripNovosFromClientes,
 } from "@/lib/cadastros/producaoMovimento";
 import {
+  buildCaByLinhaId,
   buildProducaoClientes,
   clientesForRioSelection,
   countHiddenEmptyClientes,
@@ -235,16 +236,21 @@ export function CadastrosGruposPanel() {
     [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs],
   );
 
+  const caByLinhaId = useMemo(() => buildCaByLinhaId(linhasRio), [linhasRio]);
+
   const prodMovimentos = useMemo(
     () => extractRioMovimentos(linhasRio, linkMap, layoutState),
     [linhasRio, linkMap, layoutState],
   );
 
   const clientes = useMemo(() => {
-    const merged = mergeProducaoLayout(clientesBase, layoutState, { showHidden: showHiddenGroups });
+    const merged = mergeProducaoLayout(clientesBase, layoutState, {
+      showHidden: showHiddenGroups,
+      caByLinhaId,
+    });
     if (!PRODUCAO_MOVIMENTO_TOP_ENABLED) return merged;
     return stripNovosFromClientes(merged, prodMovimentos.novos);
-  }, [clientesBase, layoutState, showHiddenGroups, prodMovimentos.novos]);
+  }, [clientesBase, layoutState, showHiddenGroups, prodMovimentos.novos, caByLinhaId]);
 
   const hiddenEmptyCount = useMemo(
     () => countHiddenEmptyClientes(clientesBase, layoutState),
@@ -310,19 +316,16 @@ export function CadastrosGruposPanel() {
     return "Cliente selecionado";
   }, [rioSel, rioGrupos]);
 
-  const persistLayout = useCallback(
-    (layout: ProducaoLayoutState) => {
-      if (saveLayoutTimer.current) clearTimeout(saveLayoutTimer.current);
-      saveLayoutTimer.current = setTimeout(() => {
-        void fetch(`/api/cadastros/month/${activeYm}/producao-layout`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(layout),
-        }).catch(() => {});
-      }, 600);
-    },
-    [activeYm],
-  );
+  const persistLayout = useCallback((layout: ProducaoLayoutState, yearMonth: number) => {
+    if (saveLayoutTimer.current) clearTimeout(saveLayoutTimer.current);
+    saveLayoutTimer.current = setTimeout(() => {
+      void fetch(`/api/cadastros/month/${yearMonth}/producao-layout`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(layout),
+      }).catch(() => {});
+    }, 600);
+  }, []);
 
   const applyLayoutChange = useCallback(
     (partial: Partial<ProducaoLayoutState>) => {
@@ -338,13 +341,17 @@ export function CadastrosGruposPanel() {
       setHiddenClienteKeys(next.hiddenClienteKeys);
       setCustomClientes(next.customClientes);
       setAcknowledgedPdvs(next.acknowledgedPdvs ?? []);
-      persistLayout(next);
+      persistLayout(next, activeYm);
       return next;
     },
-    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, persistLayout],
+    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, persistLayout, activeYm],
   );
 
   const loadAll = useCallback(async (ym: number) => {
+    if (saveLayoutTimer.current) {
+      clearTimeout(saveLayoutTimer.current);
+      saveLayoutTimer.current = null;
+    }
     setBusy(true);
     setMsg("");
     try {
@@ -427,24 +434,12 @@ export function CadastrosGruposPanel() {
         acknowledgedPdvs: layoutData.layout?.acknowledgedPdvs ?? [],
       };
       const reconciled = reconcileProducaoLayout(linhasForProd, rawLayout);
-      const {
-        remappedPlacementCount,
-        droppedPlacementCount: _dropped,
-        ...persistableLayout
-      } = reconciled;
-      setClienteNomes(reconciled.clienteNomes);
-      setPlacements(reconciled.pdvPlacements);
-      setHiddenClienteKeys(reconciled.hiddenClienteKeys);
-      setCustomClientes(reconciled.customClientes);
-      setAcknowledgedPdvs(reconciled.acknowledgedPdvs ?? []);
+      setClienteNomes(rawLayout.clienteNomes);
+      setPlacements(rawLayout.pdvPlacements);
+      setHiddenClienteKeys(rawLayout.hiddenClienteKeys);
+      setCustomClientes(rawLayout.customClientes);
+      setAcknowledgedPdvs(reconciled.acknowledgedPdvs ?? rawLayout.acknowledgedPdvs ?? []);
       setShowHiddenGroups(false);
-      if (remappedPlacementCount > 0) {
-        void fetch(`/api/cadastros/month/${ym}/producao-layout`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(persistableLayout),
-        }).catch(() => {});
-      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao carregar.");
       setRioGrupos([]);
@@ -532,6 +527,38 @@ export function CadastrosGruposPanel() {
     setMsg(`Grupo «${nome}» criado — arraste PDVs para ele.`);
   }
 
+  async function groupAgilitaPdvs() {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/cadastros/month/${activeYm}/producao-layout/group-agilita`,
+        { method: "POST" },
+      );
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        result?: {
+          movedCount: number;
+          groupKey: string;
+          skippedMultiPdv?: string[];
+        };
+      };
+      if (!res.ok || !data.ok || !data.result) throw new Error(data.error ?? "erro");
+      const skipped = data.result.skippedMultiPdv?.length ?? 0;
+      setMsg(
+        `${data.result.movedCount} PDV(s) Agilitá → pasta «Agilitá».` +
+          (skipped ? ` ${skipped} grupo(s) com vários PDVs mantidos.` : ""),
+      );
+      await loadAll(activeYm);
+      setProdExpanded((prev) => new Set([...prev, data.result!.groupKey]));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao agrupar Agilitá.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function groupHeringSinglePoint() {
     setBusy(true);
     setMsg("");
@@ -599,16 +626,30 @@ export function CadastrosGruposPanel() {
     setSelectedPdvIds(new Set());
   }
 
+  function placementMatchesBatch(o: PdvPlacementOverride, batch: ProducaoPdvRef[]): boolean {
+    const batchIds = new Set(batch.map((p) => p.rioPdvId));
+    const batchLinhaIds = new Set(batch.map((p) => p.rioLinhaId));
+    if (batchIds.has(o.rioPdvId)) return true;
+    if (o.rioLinhaId && batchLinhaIds.has(o.rioLinhaId)) return true;
+    for (const pdv of batch) {
+      const linha = linhasRio.find((l) => l.id === pdv.rioLinhaId);
+      const ca = linha?.caPersonId?.trim();
+      if (ca && o.caPersonId?.trim() === ca) return true;
+    }
+    return false;
+  }
+
   function movePdvsToCliente(batch: ProducaoPdvRef[], clienteKey: string) {
     if (!batch.length) return;
     const movingIds = new Set(batch.map((p) => p.rioPdvId));
     const nextPlacements: PdvPlacementOverride[] = [
-      ...placements.filter((o) => !movingIds.has(o.rioPdvId)),
+      ...placements.filter((o) => !placementMatchesBatch(o, batch)),
       ...batch.map((pdv) => {
         const linha = linhasRio.find((l) => l.id === pdv.rioLinhaId);
         return {
           rioPdvId: pdv.rioPdvId,
           targetClienteKey: clienteKey,
+          rioLinhaId: pdv.rioLinhaId,
           ...(linha?.caPersonId ? { caPersonId: linha.caPersonId } : {}),
         };
       }),
@@ -990,6 +1031,15 @@ export function CadastrosGruposPanel() {
                       onClick={addCustomCliente}
                     >
                       + Novo grupo
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-sky-300 px-2 py-1 text-[11px] font-semibold text-sky-900 dark:border-sky-700 dark:text-sky-200"
+                      disabled={busy}
+                      onClick={() => void groupAgilitaPdvs()}
+                      title="Lojas com nome Agilitá (1 PDV por grupo) → pasta Agilitá"
+                    >
+                      Agilitá → pasta Agilitá
                     </button>
                     <button
                       type="button"

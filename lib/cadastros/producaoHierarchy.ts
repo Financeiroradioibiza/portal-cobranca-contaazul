@@ -63,7 +63,60 @@ export type PdvPlacementOverride = {
   targetClienteKey: string;
   /** ID estável CA — permite remapear após edições na Planilha Rio. */
   caPersonId?: string;
+  /** Linha Rio — fallback quando o ID do PDV muda após sync/vínculo. */
+  rioLinhaId?: string;
 };
+
+export function buildCaByLinhaId(linhas: RioLinhaForProducao[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const ln of linhas) {
+    const ca = ln.caPersonId?.trim();
+    if (ca) m.set(ln.id, ca);
+  }
+  return m;
+}
+
+/** Resolve arraste salvo → PDV(s) atuais na árvore (nunca descarta organização manual). */
+export function resolvePlacementPdvIds(
+  override: PdvPlacementOverride,
+  allPdvs: ProducaoPdvRef[],
+  caByLinhaId?: Map<string, string>,
+): string[] {
+  if (allPdvs.some((p) => p.rioPdvId === override.rioPdvId)) {
+    return [override.rioPdvId];
+  }
+
+  const linhaId = override.rioLinhaId?.trim();
+  if (linhaId) {
+    const onLinha = allPdvs.filter((p) => p.rioLinhaId === linhaId);
+    if (onLinha.length === 1) return [onLinha[0]!.rioPdvId];
+    const proxy = allPdvs.find((p) => p.rioPdvId === override.rioPdvId);
+    if (proxy) return [proxy.rioPdvId];
+  }
+
+  const ca = override.caPersonId?.trim();
+  if (ca && caByLinhaId) {
+    const linhaIdForCa = [...caByLinhaId.entries()].find(([, v]) => v === ca)?.[0];
+    if (linhaIdForCa) {
+      const onLinha = allPdvs.filter((p) => p.rioLinhaId === linhaIdForCa);
+      if (onLinha.length === 1) return [onLinha[0]!.rioPdvId];
+      const exact = onLinha.find((p) => p.rioPdvId === override.rioPdvId);
+      if (exact) return [exact.rioPdvId];
+    }
+  }
+
+  if (isLinhaAsPdvKey(override.rioPdvId)) {
+    const proxyLinhaId = linhaIdFromAsPdvKey(override.rioPdvId);
+    if (proxyLinhaId) {
+      const onLinha = allPdvs.filter((p) => p.rioLinhaId === proxyLinhaId);
+      if (onLinha.length === 1) return [onLinha[0]!.rioPdvId];
+      const proxy = allPdvs.find((p) => p.rioPdvId === override.rioPdvId);
+      if (proxy) return [proxy.rioPdvId];
+    }
+  }
+
+  return [];
+}
 
 export type ProducaoCustomCliente = {
   key: string;
@@ -184,10 +237,12 @@ function withCustomBuckets(
 export function mergeProducaoLayout(
   base: ProducaoClienteBucket[],
   layout: ProducaoLayoutState,
-  opts?: { showHidden?: boolean },
+  opts?: { showHidden?: boolean; caByLinhaId?: Map<string, string> },
 ): ProducaoClienteBucket[] {
   let list = withCustomBuckets(base, layout.customClientes);
-  list = applyPdvPlacementOverrides(list, layout.pdvPlacements);
+  list = applyPdvPlacementOverrides(list, layout.pdvPlacements, {
+    caByLinhaId: opts?.caByLinhaId,
+  });
 
   list = applyClienteNomeOverrides(list, layout.clienteNomes);
 
@@ -227,19 +282,30 @@ export function countHiddenEmptyClientes(
 export function applyPdvPlacementOverrides(
   clientes: ProducaoClienteBucket[],
   overrides: PdvPlacementOverride[],
+  opts?: { caByLinhaId?: Map<string, string> },
 ): ProducaoClienteBucket[] {
   if (!overrides.length) return clientes;
 
   const clone: ProducaoClienteBucket[] = JSON.parse(
     JSON.stringify(clientes),
   ) as ProducaoClienteBucket[];
-  const byPdv = new Map(overrides.map((o) => [o.rioPdvId, o]));
+  const allPdvs = clone.flatMap((c) => c.pdvs);
+  const pdvIdsToMove = new Set<string>();
+  const pdvIdToTarget = new Map<string, string>();
+
+  for (const o of overrides) {
+    for (const id of resolvePlacementPdvIds(o, allPdvs, opts?.caByLinhaId)) {
+      pdvIdsToMove.add(id);
+      pdvIdToTarget.set(id, o.targetClienteKey);
+    }
+  }
+
   const detached: ProducaoPdvRef[] = [];
 
   for (const c of clone) {
     const keep: ProducaoPdvRef[] = [];
     for (const p of c.pdvs) {
-      if (byPdv.has(p.rioPdvId)) detached.push(p);
+      if (pdvIdsToMove.has(p.rioPdvId)) detached.push(p);
       else keep.push(p);
     }
     c.pdvs = keep;
@@ -247,9 +313,10 @@ export function applyPdvPlacementOverrides(
   }
 
   for (const p of detached) {
-    const o = byPdv.get(p.rioPdvId)!;
-    let target = clone.find((c) => c.key === o.targetClienteKey);
-    if (!target && !isCustomClienteKey(o.targetClienteKey)) {
+    const targetKey = pdvIdToTarget.get(p.rioPdvId);
+    if (!targetKey) continue;
+    let target = clone.find((c) => c.key === targetKey);
+    if (!target && !isCustomClienteKey(targetKey)) {
       target = clone.find((c) => c.rioLinhaId === p.rioLinhaId);
     }
     if (!target) continue;
