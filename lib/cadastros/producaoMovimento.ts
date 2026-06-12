@@ -49,11 +49,16 @@ function acknowledgedSet(layout: ProducaoLayoutState): Set<string> {
 
 export function stablePlacementKey(p: PdvPlacementOverride): string {
   const target = p.targetClienteKey.trim();
+  const pdvId = p.rioPdvId.trim();
+  // Vários PDVs na mesma linha Rio podem ir para pastas diferentes — nunca colapsar por linha.
+  if (pdvId && !isLinhaAsPdvKey(pdvId)) {
+    return `pdv:${pdvId}→${target}`;
+  }
   const linha = p.rioLinhaId?.trim();
   if (linha) return `linha:${linha}→${target}`;
   const ca = p.caPersonId?.trim();
   if (ca) return `ca:${ca}→${target}`;
-  return `pdv:${p.rioPdvId}→${target}`;
+  return `pdv:${pdvId}→${target}`;
 }
 
 /** Completa metadados e reatacha IDs atuais — não muda destino editorial. */

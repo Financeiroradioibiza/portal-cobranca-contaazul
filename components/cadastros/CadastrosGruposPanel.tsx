@@ -732,15 +732,7 @@ export function CadastrosGruposPanel() {
 
   function placementMatchesBatch(o: PdvPlacementOverride, batch: ProducaoPdvRef[]): boolean {
     const batchIds = new Set(batch.map((p) => p.rioPdvId));
-    const batchLinhaIds = new Set(batch.map((p) => p.rioLinhaId));
-    if (batchIds.has(o.rioPdvId)) return true;
-    if (o.rioLinhaId && batchLinhaIds.has(o.rioLinhaId)) return true;
-    for (const pdv of batch) {
-      const linha = linhasRio.find((l) => l.id === pdv.rioLinhaId);
-      const ca = linha?.caPersonId?.trim();
-      if (ca && o.caPersonId?.trim() === ca) return true;
-    }
-    return false;
+    return batchIds.has(o.rioPdvId);
   }
 
   function movePdvsToCliente(batch: ProducaoPdvRef[], clienteKey: string) {

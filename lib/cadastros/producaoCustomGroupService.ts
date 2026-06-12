@@ -200,15 +200,8 @@ export function applyMovesToDraft(
   layoutSeed: ProducaoLayoutDraft,
 ): void {
   const moveIds = new Set(toMove.map((x) => x.rioPdvId));
-  const moveLinhaIds = new Set(toMove.map((x) => x.rioLinhaId));
-  const moveCas = new Set(toMove.map((x) => x.caPersonId).filter(Boolean));
 
-  draft.pdvPlacements = draft.pdvPlacements.filter((p) => {
-    if (moveIds.has(p.rioPdvId)) return false;
-    if (p.rioLinhaId && moveLinhaIds.has(p.rioLinhaId)) return false;
-    if (p.caPersonId && moveCas.has(p.caPersonId)) return false;
-    return true;
-  });
+  draft.pdvPlacements = draft.pdvPlacements.filter((p) => !moveIds.has(p.rioPdvId));
 
   for (const item of toMove) {
     draft.pdvPlacements.push({

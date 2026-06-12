@@ -79,6 +79,7 @@ export async function getProducaoLayout(
       const enriched = enrichPlacementOverrides(withLinha, linhas);
       if (JSON.stringify(enriched) !== JSON.stringify(pdvPlacements)) {
         pdvPlacements = enriched;
+        // Só persiste reparo de metadados (IDs/linha); destino editorial nunca muda aqui.
         await prisma.cadastroProducaoLayout.upsert({
           where: { yearMonth },
           create: {
