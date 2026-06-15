@@ -2,6 +2,12 @@
 
 Next.js + Prisma (Postgres) + OAuth2 Conta Azul. Lista **clientes com parcelas de receita vencidas e em aberto** (filtro por intervalo de **data de vencimento** na API), enriquecidas com **cadastro de pessoas** (CNPJ/documento e e-mail quando a API devolver).
 
+## Documentação do projeto
+
+- **[Onde estamos](docs/ONDE-ESTAMOS.md)** — mapa do portal, legado, estratégia Envyron e pendências  
+- **[Backup e restauração](docs/BACKUP-E-RESTAURACAO.md)** — como proteger código, Neon e configs  
+- **[Fase 2 — Produção musical](docs/FASE-2-PRODUCAO-MUSICAL.md)** — visão do webservice e migração gradual  
+
 ## Variáveis de ambiente
 
 Copie [`.env.example`](.env.example) para `.env` e preencha:
