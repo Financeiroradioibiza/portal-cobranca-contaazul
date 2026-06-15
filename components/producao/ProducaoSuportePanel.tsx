@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { matchesSuporteSearch } from "@/lib/cadastros/producaoSuporteSearch";
 import type {
@@ -20,9 +20,222 @@ type BatchSize = (typeof BATCH_OPTIONS)[number];
 
 type MonthMeta = { id: string; yearMonth: number };
 type ListFilter = "todos" | "sem_ping";
+type ViewMode = "pdv" | "cliente";
 
-function suporteColCount(showPlayer: boolean, showContatos: boolean): number {
-  return 5 + (showPlayer ? 5 : 0) + (showContatos ? 4 : 0);
+type SuporteClienteOption = {
+  key: string;
+  nome: string;
+  painelClienteId: number | null;
+  pdvCount: number;
+  semPingCount: number;
+};
+
+function suporteColCount(
+  showPlayer: boolean,
+  showContatos: boolean,
+  clienteMode: boolean,
+): number {
+  const identCols = clienteMode ? 3 : 5;
+  return identCols + (showPlayer ? 5 : 0) + (showContatos ? 4 : 0);
+}
+
+function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
+  const map = new Map<string, SuporteClienteOption>();
+  for (const row of pdvs) {
+    let opt = map.get(row.clienteKey);
+    if (!opt) {
+      opt = {
+        key: row.clienteKey,
+        nome: row.clienteNome,
+        painelClienteId: row.painelClienteId,
+        pdvCount: 0,
+        semPingCount: 0,
+      };
+      map.set(row.clienteKey, opt);
+    }
+    opt.pdvCount += 1;
+    if (row.semPing5Dias) opt.semPingCount += 1;
+    if (row.painelClienteId != null && opt.painelClienteId == null) {
+      opt.painelClienteId = row.painelClienteId;
+    }
+  }
+  return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+function ViewModePicker({
+  value,
+  onChange,
+}: {
+  value: ViewMode;
+  onChange: (mode: ViewMode) => void;
+}) {
+  return (
+    <div
+      className="inline-flex overflow-hidden rounded-lg border border-slate-300 bg-white p-0.5 shadow-sm dark:border-slate-600 dark:bg-slate-950"
+      role="group"
+      aria-label="Forma de visualização"
+    >
+      {(
+        [
+          { id: "pdv" as const, label: "PDV" },
+          { id: "cliente" as const, label: "Cliente" },
+        ] as const
+      ).map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          aria-pressed={value === opt.id}
+          className={
+            "rounded-md px-3 py-1.5 text-xs font-bold tracking-wide transition-colors " +
+            (value === opt.id ?
+              "bg-slate-800 text-white shadow-sm dark:bg-slate-200 dark:text-slate-900"
+            : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900")
+          }
+          onClick={() => onChange(opt.id)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SuporteClientePickerDialog({
+  open,
+  clients,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  clients: SuporteClienteOption[];
+  onClose: () => void;
+  onSelect: (clienteKey: string) => void;
+}) {
+  const dlgRef = useRef<HTMLDialogElement>(null);
+  const [needle, setNeedle] = useState("");
+
+  useEffect(() => {
+    const dlg = dlgRef.current;
+    if (!dlg) return;
+    if (open && !dlg.open) {
+      setNeedle("");
+      dlg.showModal();
+    } else if (!open && dlg.open) {
+      dlg.close();
+    }
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    const q = needle.trim().toLowerCase();
+    if (!q) return clients;
+    const digits = q.replace(/\D/g, "");
+    return clients.filter((c) => {
+      if (c.nome.toLowerCase().includes(q)) return true;
+      if (digits && c.painelClienteId != null && String(c.painelClienteId).includes(digits)) {
+        return true;
+      }
+      return false;
+    });
+  }, [clients, needle]);
+
+  return (
+    <dialog
+      ref={dlgRef}
+      className="w-[min(520px,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-0 shadow-2xl backdrop:bg-slate-900/40 dark:border-slate-700 dark:bg-slate-900"
+      onClose={onClose}
+    >
+      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white">Escolher cliente</h2>
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          Busque pelo nome ou ID do painel. A lista mostra só PDVs da competência vigente.
+        </p>
+        <input
+          type="search"
+          autoFocus
+          placeholder="Nome ou ID do cliente…"
+          className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+          value={needle}
+          onChange={(e) => setNeedle(e.target.value)}
+        />
+      </div>
+      <ul className="max-h-[min(420px,55vh)] overflow-y-auto py-1">
+        {filtered.length === 0 ?
+          <li className="px-4 py-6 text-center text-sm text-slate-500">Nenhum cliente encontrado.</li>
+        : filtered.map((c) => (
+            <li key={c.key}>
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-sky-50 dark:hover:bg-sky-950/30"
+                onClick={() => onSelect(c.key)}
+              >
+                <span className="font-mono text-[11px] font-bold tabular-nums text-sky-700 dark:text-sky-400">
+                  {c.painelClienteId ?? "—"}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    {c.nome}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    {c.pdvCount} PDV{c.pdvCount === 1 ? "" : "s"}
+                    {c.semPingCount > 0 ? ` · ${c.semPingCount} sem ping 5d+` : ""}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))
+        }
+      </ul>
+      <div className="flex justify-end border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+        <button
+          type="button"
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300"
+          onClick={onClose}
+        >
+          Cancelar
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
+function ClienteFocusHeader({
+  cliente,
+  pdvCount,
+  semPingCount,
+  onChangeCliente,
+}: {
+  cliente: SuporteClienteOption;
+  pdvCount: number;
+  semPingCount: number;
+  onChangeCliente: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-b border-sky-200/80 bg-gradient-to-r from-sky-50/90 to-white px-4 py-3 dark:border-sky-900/50 dark:from-sky-950/40 dark:to-slate-900">
+      <IdCell
+        id={cliente.painelClienteId}
+        label="Copiar ID do cliente no painel"
+        variant="cliente"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-base font-bold text-slate-900 dark:text-white">{cliente.nome}</p>
+        <p className="text-[11px] text-slate-500">
+          {pdvCount} PDV{pdvCount === 1 ? "" : "s"} nesta competência
+          {semPingCount > 0 ?
+            <span className="ms-1 font-semibold text-rose-600 dark:text-rose-400">
+              · {semPingCount} sem ping 5d+
+            </span>
+          : null}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-sky-800 hover:bg-sky-50 dark:border-sky-700 dark:bg-slate-900 dark:text-sky-200"
+        onClick={onChangeCliente}
+      >
+        Trocar cliente
+      </button>
+    </div>
+  );
 }
 
 const BLOCK_DIVIDER =
@@ -269,10 +482,12 @@ function PdvRow({
   row,
   showPlayerBlock,
   showContatosBlock,
+  clienteMode,
 }: {
   row: SuportePdvRow;
   showPlayerBlock: boolean;
   showContatosBlock: boolean;
+  clienteMode: boolean;
 }) {
   const telHref =
     row.contatoLojaTelefone ?
@@ -310,16 +525,20 @@ function PdvRow({
           mono
         />
       </td>
-      <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
-        <IdCell
-          id={row.painelClienteId}
-          label="Copiar ID do cliente no painel"
-          variant="cliente"
-        />
-      </td>
-      <td className="min-w-[8rem] max-w-[12rem] px-2 py-2 align-top">
-        <CopyableCell text={row.clienteNome} label="Copiar nome do cliente" />
-      </td>
+      {!clienteMode ?
+        <>
+          <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
+            <IdCell
+              id={row.painelClienteId}
+              label="Copiar ID do cliente no painel"
+              variant="cliente"
+            />
+          </td>
+          <td className="min-w-[8rem] max-w-[12rem] px-2 py-2 align-top">
+            <CopyableCell text={row.clienteNome} label="Copiar nome do cliente" />
+          </td>
+        </>
+      : null}
       {showPlayerBlock ?
         <>
           <td className={"px-2 py-2 align-top " + BLOCK_DIVIDER}>
@@ -387,9 +606,24 @@ export function ProducaoSuportePanel() {
   const [visibleCount, setVisibleCount] = useState<number>(DEFAULT_BATCH);
   const [showPlayerBlock, setShowPlayerBlock] = useState(false);
   const [showContatosBlock, setShowContatosBlock] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("pdv");
+  const [selectedClienteKey, setSelectedClienteKey] = useState<string | null>(null);
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
 
-  const colCount = suporteColCount(showPlayerBlock, showContatosBlock);
+  const clienteMode = viewMode === "cliente" && Boolean(selectedClienteKey);
+  const colCount = suporteColCount(showPlayerBlock, showContatosBlock, clienteMode);
+  const identColSpan = clienteMode ? 3 : 5;
   const hasExtraColumns = showPlayerBlock || showContatosBlock;
+
+  const clienteOptions = useMemo(
+    () => buildClienteOptions(data?.pdvs ?? []),
+    [data?.pdvs],
+  );
+
+  const selectedCliente = useMemo(
+    () => clienteOptions.find((c) => c.key === selectedClienteKey) ?? null,
+    [clienteOptions, selectedClienteKey],
+  );
 
   const load = useCallback(async (ym: number) => {
     setBusy(true);
@@ -429,9 +663,35 @@ export function ProducaoSuportePanel() {
     const list = data?.pdvs ?? [];
     return list.filter((row) => {
       if (listFilter === "sem_ping" && !row.semPing5Dias) return false;
+      if (viewMode === "cliente" && selectedClienteKey && row.clienteKey !== selectedClienteKey) {
+        return false;
+      }
       return matchesSuporteSearch(row, q);
     });
-  }, [data?.pdvs, listFilter, q]);
+  }, [data?.pdvs, listFilter, q, viewMode, selectedClienteKey]);
+
+  function handleViewModeChange(mode: ViewMode) {
+    setViewMode(mode);
+    setVisibleCount(batchSize);
+    if (mode === "cliente") {
+      setClientPickerOpen(true);
+    } else {
+      setClientPickerOpen(false);
+    }
+  }
+
+  function handleClienteSelect(key: string) {
+    setSelectedClienteKey(key);
+    setClientPickerOpen(false);
+    setVisibleCount(batchSize);
+  }
+
+  function handleClientPickerClose() {
+    setClientPickerOpen(false);
+    if (viewMode === "cliente" && !selectedClienteKey) {
+      setViewMode("pdv");
+    }
+  }
 
   const visible = filtered.slice(0, visibleCount);
   const remaining = filtered.length - visible.length;
@@ -523,6 +783,7 @@ export function ProducaoSuportePanel() {
             >
               Sem ping 5d ({ov?.semPing5Dias ?? 0})
             </button>
+            <ViewModePicker value={viewMode} onChange={handleViewModeChange} />
           </div>
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <BatchSizePicker value={batchSize} onChange={setBatchSize} />
@@ -538,6 +799,35 @@ export function ProducaoSuportePanel() {
             />
           </div>
         </div>
+
+        {viewMode === "cliente" && selectedCliente ?
+          <ClienteFocusHeader
+            cliente={selectedCliente}
+            pdvCount={filtered.length}
+            semPingCount={filtered.filter((r) => r.semPing5Dias).length}
+            onChangeCliente={() => setClientPickerOpen(true)}
+          />
+        : viewMode === "cliente" ?
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-dashed border-sky-200 bg-sky-50/50 px-4 py-4 dark:border-sky-900/40 dark:bg-sky-950/20">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Escolha um cliente para ver só os PDVs dele.
+            </p>
+            <button
+              type="button"
+              className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-800 dark:bg-sky-600"
+              onClick={() => setClientPickerOpen(true)}
+            >
+              Escolher cliente
+            </button>
+          </div>
+        : null}
+
+        <SuporteClientePickerDialog
+          open={clientPickerOpen}
+          clients={clienteOptions}
+          onClose={handleClientPickerClose}
+          onSelect={handleClienteSelect}
+        />
 
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 bg-white/60 px-4 py-2 dark:border-slate-700 dark:bg-slate-900/40">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -589,11 +879,14 @@ export function ProducaoSuportePanel() {
             : "")
           }
         >
+          {viewMode === "cliente" && !selectedClienteKey ?
+            null
+          : <>
           <table className="w-max min-w-full border-collapse text-left text-xs">
             <thead className="bg-[#f5f0e8] text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800/95">
               <tr className="text-[9px] font-semibold normal-case tracking-normal text-slate-400">
-                <th colSpan={5} className="px-2 pb-0 pt-2 text-left">
-                  Identificação
+                <th colSpan={identColSpan} className="px-2 pb-0 pt-2 text-left">
+                  {clienteMode ? "PDVs do cliente" : "Identificação"}
                 </th>
                 {showPlayerBlock ?
                   <th colSpan={5} className={"px-2 pb-0 pt-2 text-left " + BLOCK_DIVIDER}>
@@ -612,10 +905,14 @@ export function ProducaoSuportePanel() {
                 </th>
                 <th className="min-w-[9rem] px-2 py-2">PDV</th>
                 <th className="whitespace-nowrap px-2 py-2">CNPJ PDV</th>
-                <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID cliente no painel legado">
-                  ID cli.
-                </th>
-                <th className="min-w-[8rem] px-2 py-2">Cliente</th>
+                {!clienteMode ?
+                  <>
+                    <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID cliente no painel legado">
+                      ID cli.
+                    </th>
+                    <th className="min-w-[8rem] px-2 py-2">Cliente</th>
+                  </>
+                : null}
                 {showPlayerBlock ?
                   <>
                     <th className={"whitespace-nowrap px-2 py-2 " + BLOCK_DIVIDER}>Cache</th>
@@ -645,7 +942,11 @@ export function ProducaoSuportePanel() {
               : filtered.length === 0 ?
                 <tr>
                   <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
-                    Nenhum PDV encontrado.
+                    {viewMode === "cliente" && !selectedClienteKey ?
+                      "Nenhum PDV — escolha um cliente acima."
+                    : viewMode === "cliente" ?
+                      "Nenhum PDV deste cliente com os filtros atuais."
+                    : "Nenhum PDV encontrado."}
                   </td>
                 </tr>
               : visible.map((row) => (
@@ -654,10 +955,12 @@ export function ProducaoSuportePanel() {
                     row={row}
                     showPlayerBlock={showPlayerBlock}
                     showContatosBlock={showContatosBlock}
+                    clienteMode={clienteMode}
                   />
                 ))}
             </tbody>
           </table>
+          </>}
         </div>
 
         {hasExtraColumns ?
@@ -667,11 +970,12 @@ export function ProducaoSuportePanel() {
           </p>
         : null}
 
-        {filtered.length > 0 ?
+        {filtered.length > 0 && !(viewMode === "cliente" && !selectedClienteKey) ?
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
             <span className="text-[11px] text-slate-500">
-              Mostrando {visible.length} de {filtered.length} PDVs · ordenados por instalação
-              (mais recentes)
+              {viewMode === "cliente" && selectedCliente ?
+                `Cliente ${selectedCliente.nome} · ${visible.length} de ${filtered.length} PDVs`
+              : `Mostrando ${visible.length} de ${filtered.length} PDVs · ordenados por instalação (mais recentes)`}
             </span>
             {remaining > 0 ?
               <button
