@@ -141,6 +141,8 @@ export function RioClientesCompPanel() {
   const [clashNavLinhaId, setClashNavLinhaId] = useState<string | null>(null);
   const [refreshingCa, setRefreshingCa] = useState(false);
   const [exportingMonth, setExportingMonth] = useState(false);
+  /** Painel de configuração (textos, sync, import) — oculto por padrão para mostrar a planilha. */
+  const [rioConfigOpen, setRioConfigOpen] = useState(false);
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months", { credentials: "include" });
@@ -1814,31 +1816,40 @@ export function RioClientesCompPanel() {
         </div>
       : null}
 
-      <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <Link
-            href={COBRANCA_HOME_HREF}
-            className="text-[11px] font-semibold text-sky-600 underline-offset-4 hover:underline dark:text-sky-400"
+      <header className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+          Planilha Rio — clientes ativos Conta Azul
+        </h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-slate-600 dark:text-slate-400">Competência</span>
+            <select
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+              value={activeYm}
+              onChange={(e) => setActiveYm(Number(e.target.value))}
+            >
+              {months.length === 0 ?
+                <option value={activeYm}>{formatYearMonthLabel(activeYm)}</option>
+              : months.map((m) => (
+                  <option key={m.id} value={m.yearMonth}>
+                    {formatYearMonthLabel(m.yearMonth)}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className={
+              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors " +
+              (rioConfigOpen ?
+                "border-slate-400 bg-slate-100 text-slate-800 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+              : "border-amber-700 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-900/60")
+            }
+            aria-expanded={rioConfigOpen}
+            onClick={() => setRioConfigOpen((v) => !v)}
           >
-            ← Vencidos
-          </Link>
-          <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Planilha Rio — clientes ativos Conta Azul
-          </h1>
-          <p className="mt-1 max-w-[52rem] text-sm text-slate-600 dark:text-slate-400">
-            Cada competência guarda clientes por <strong>importar CSV/Excel</strong> (export Conta Azul) ou{" "}
-            <strong>sincronizar Conta Azul</strong>. Use <strong>Vincular CA</strong> (ou «Casar por CNPJ») para a
-            planilha seguir o cadastro CA como fonte única de e-mail e dados. Organize por <strong>MARCA</strong> («Nova
-            MARCA» + coluna «Marca bloco»). PDVs ao expandir o cliente.
-          </p>
-          <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-500">
-            {monthInfo?.lastSyncedAt ?
-              <>Última virada/sync: {new Date(monthInfo.lastSyncedAt).toLocaleString("pt-BR")}</>
-            : <>Ainda sem virada do mês nesta competência.</>}
-            {monthInfo?.closedAt ?
-              <> · <strong className="text-amber-800 dark:text-amber-300">Mês fechado</strong></>
-            : null}
-          </p>
+            {rioConfigOpen ? "▲ Ocultar configuração" : "⚙ Configuração da planilha"}
+          </button>
         </div>
       </header>
 
@@ -1848,14 +1859,39 @@ export function RioClientesCompPanel() {
         onGoToClashLine={scrollToRioLinha}
       />
 
+      {rioConfigOpen ?
+        <div className="mb-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+          <div>
+            <Link
+              href={COBRANCA_HOME_HREF}
+              className="text-[11px] font-semibold text-sky-600 underline-offset-4 hover:underline dark:text-sky-400"
+            >
+              ← Vencidos
+            </Link>
+            <p className="mt-2 max-w-[52rem] text-sm text-slate-600 dark:text-slate-400">
+              Cada competência guarda clientes por <strong>importar CSV/Excel</strong> (export Conta Azul) ou{" "}
+              <strong>sincronizar Conta Azul</strong>. Use <strong>Vincular CA</strong> (ou «Casar por CNPJ») para a
+              planilha seguir o cadastro CA como fonte única de e-mail e dados. Organize por <strong>MARCA</strong> («Nova
+              MARCA» + coluna «Marca bloco»). PDVs ao expandir o cliente.
+            </p>
+            <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-500">
+              {monthInfo?.lastSyncedAt ?
+                <>Última virada/sync: {new Date(monthInfo.lastSyncedAt).toLocaleString("pt-BR")}</>
+              : <>Ainda sem virada do mês nesta competência.</>}
+              {monthInfo?.closedAt ?
+                <> · <strong className="text-amber-800 dark:text-amber-300">Mês fechado</strong></>
+              : null}
+            </p>
+          </div>
+
       {monthClosed ?
-        <div className="mb-3 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200">
+        <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200">
           Competência <strong>fechada</strong> (somente consulta). Crie o mês seguinte para continuar a editar.
         </div>
       : null}
 
       {singleMonthInBase && !monthClosed ?
-        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
           Só há <strong>{formatYearMonthLabel(activeYm)}</strong> na base — não existe mês anterior para repor o sync de
           27/05. Use <strong>Remover inativos do sync</strong> para tirar clientes inativos da Conta Azul; MARCAs
           apagadas no sync precisam ser recriadas ou importadas de CSV/Excel.
@@ -1863,7 +1899,7 @@ export function RioClientesCompPanel() {
       : null}
 
       {turnoverMonth && !monthClosed ?
-        <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
           A partir desta competência: <strong>Novo mês seguinte</strong> copia a competência que está a ver (ex. maio →
           junho).           Se junho ficou vazio, use <strong>Copiar de {formatYearMonthLabel(donorYearMonthFor(activeYm))}</strong> (lotes
           de {RIO_CLONE_DONOR_BATCH_SIZE}). Depois <strong>Virada do mês</strong> compara com a CA em páginas e lotes de{" "}
@@ -1873,7 +1909,7 @@ export function RioClientesCompPanel() {
       : null}
 
       {caServerConnected === false ?
-        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40">
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40">
           <strong>Conta Azul desconectada.</strong> Vincular e atualizar e-mails exige OAuth no{" "}
           <Link href={COBRANCA_HOME_HREF} className="font-semibold underline">
             vencidos
@@ -1883,14 +1919,14 @@ export function RioClientesCompPanel() {
       : null}
 
       {!loading && linhas.length > 0 && grupoOrd.length === 0 ?
-        <div className="mb-3 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
           Ainda não há blocos <strong>MARCA</strong> nesta competência. Clique em{" "}
           <strong>Nova MARCA</strong> ou importe a coluna <code className="text-xs">grupo</code> /{" "}
           <code className="text-xs">grupo_site</code> no CSV — depois atribua cada cliente na coluna «Marca bloco».
         </div>
       : null}
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-6 sm:gap-y-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-6 sm:gap-y-2">
         <label className="flex max-w-md cursor-pointer items-start gap-2 text-xs text-slate-600 dark:text-slate-400">
           <input
             type="checkbox"
@@ -1917,23 +1953,7 @@ export function RioClientesCompPanel() {
         </label>
       </div>
 
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-slate-600 dark:text-slate-400">Competência</span>
-          <select
-            className="rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
-            value={activeYm}
-            onChange={(e) => setActiveYm(Number(e.target.value))}
-          >
-            {months.length === 0 ?
-              <option value={activeYm}>{formatYearMonthLabel(activeYm)}</option>
-            : months.map((m) => (
-                <option key={m.id} value={m.yearMonth}>
-                  {formatYearMonthLabel(m.yearMonth)}
-                </option>
-              ))}
-          </select>
-        </label>
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           className="rounded-lg border border-emerald-800 bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-50"
@@ -2077,7 +2097,7 @@ export function RioClientesCompPanel() {
         </button>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <label className="flex max-w-xl cursor-pointer items-start gap-2 text-[11px] text-slate-600 dark:text-slate-400">
           <input
             type="checkbox"
@@ -2092,6 +2112,8 @@ export function RioClientesCompPanel() {
           </span>
         </label>
       </div>
+        </div>
+      : null}
 
       {!loading && linhas.length > 0 ?
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/80">
