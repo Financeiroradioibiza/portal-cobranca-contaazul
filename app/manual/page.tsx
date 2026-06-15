@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function LegacyManualEnviosPage() {
-  redirect("/cobranca/envios-oc");
+export default function ManualLegacyPage() {
+  redirect("/financeiro/envios-oc");
 }

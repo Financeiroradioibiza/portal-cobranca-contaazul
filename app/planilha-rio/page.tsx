@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function LegacyPlanilhaRioPage() {
-  redirect("/cobranca/planilha-rio");
+export default function PlanilhaRioLegacyPage() {
+  redirect("/financeiro/planilha-rio");
 }

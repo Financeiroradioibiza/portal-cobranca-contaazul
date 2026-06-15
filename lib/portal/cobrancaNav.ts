@@ -1,9 +1,7 @@
-/** Submenu do módulo Financeiro / Cobrança (ordem acordada). */
-export const COBRANCA_NAV = [
-  { href: "/cobranca/planilha-rio", label: "Planilha Rio", short: "Rio" },
-  { href: "/cobranca/vencidos", label: "Vencidos", short: "Vencidos" },
-  { href: "/cobranca/envios-oc", label: "Envios manuais OC", short: "Envios OC" },
-  { href: "/cobranca/consulta-painel", label: "Consulta painel", short: "Painel" },
-] as const;
-
-export const COBRANCA_HOME_HREF = "/cobranca/vencidos";
+/** @deprecated use financeiroNav.ts */
+export {
+  FINANCEIRO_NAV as COBRANCA_NAV,
+  FINANCEIRO_HOME_HREF as COBRANCA_HOME_HREF,
+  FINANCEIRO_NAV,
+  FINANCEIRO_HOME_HREF,
+} from "@/lib/portal/financeiroNav";

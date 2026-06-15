@@ -26,8 +26,14 @@ function securityHeaders(): { key: string; value: string }[] {
 const nextConfig: NextConfig = {
   async redirects() {
     return [
-      { source: "/planilha-rio", destination: "/cobranca/planilha-rio", permanent: true },
-      { source: "/manual", destination: "/cobranca/envios-oc", permanent: true },
+      { source: "/planilha-rio", destination: "/financeiro/planilha-rio", permanent: true },
+      { source: "/manual", destination: "/financeiro/envios-oc", permanent: true },
+      { source: "/cobranca", destination: "/financeiro/planilha-rio", permanent: false },
+      { source: "/cobranca/:path*", destination: "/financeiro/:path*", permanent: true },
+      { source: "/producao", destination: "/", permanent: true },
+      { source: "/producao/dashboard", destination: "/", permanent: true },
+      { source: "/producao/suporte", destination: "/suporte", permanent: true },
+      { source: "/producao/:path*", destination: "/", permanent: false },
     ];
   },
   async headers() {

@@ -1,9 +1,9 @@
 /** Árvore de menus do portal (alinhada ao mockup v5). */
 export const PORTAL_MENU_MODULES = [
   {
-    id: "cobranca",
+    id: "financeiro",
     icon: "💰",
-    label: "Cobrança",
+    label: "Financeiro",
     subs: [
       { id: "planilha-rio", label: "Planilha Rio" },
       { id: "vencidos", label: "Vencidos" },
@@ -96,7 +96,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     sortOrder: 3,
     desc: "Cobrança e planilha Rio. Visualiza cadastros.",
     perm: {
-      cobranca: "all",
+      financeiro: "all",
       cadastros: ["vinculos"],
       config: ["logs"],
     },
@@ -108,7 +108,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     sortOrder: 4,
     desc: "Suporte operacional e consulta painel.",
     perm: {
-      cobranca: ["consulta-painel"],
+      financeiro: ["consulta-painel"],
       cadastros: ["vinculos"],
       producao: "all",
       config: ["logs"],

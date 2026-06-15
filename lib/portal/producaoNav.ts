@@ -1,7 +1,7 @@
-/** Submenu do módulo Produção musical. */
+/** @deprecated Produção virou Dashboard (/) e Suporte (/suporte). */
 export const PRODUCAO_NAV = [
-  { href: "/producao/dashboard", label: "Dashboard", short: "Dash" },
-  { href: "/producao/suporte", label: "Suporte", short: "Sup." },
+  { href: "/", label: "Dashboard", short: "Dash" },
+  { href: "/suporte", label: "Suporte", short: "Sup." },
 ] as const;
 
-export const PRODUCAO_HOME_HREF = "/producao/dashboard";
+export const PRODUCAO_HOME_HREF = "/";

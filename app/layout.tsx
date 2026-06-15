@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: `${COMPANY_NAME} — Portal Cobrança (Conta Azul)`,
-  description: `Painel ${COMPANY_NAME}: clientes com parcelas vencidas em aberto.`,
+  title: `${COMPANY_NAME} — Portal`,
+  description: `Portal ${COMPANY_NAME}: dashboard, financeiro, cadastros e suporte.`,
 };
 
 export default function RootLayout({
