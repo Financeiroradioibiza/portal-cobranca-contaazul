@@ -21,6 +21,58 @@ type BatchSize = (typeof BATCH_OPTIONS)[number];
 type MonthMeta = { id: string; yearMonth: number };
 type ListFilter = "todos" | "sem_ping";
 
+function suporteColCount(showPlayer: boolean, showContatos: boolean): number {
+  return 5 + (showPlayer ? 5 : 0) + (showContatos ? 4 : 0);
+}
+
+const BLOCK_DIVIDER =
+  "border-l-2 border-slate-200/90 pl-2 dark:border-slate-600/80";
+
+function BlockColumnToggle({
+  active = false,
+  onClick,
+  label,
+  alwaysOn,
+}: {
+  active?: boolean;
+  onClick?: () => void;
+  label: string;
+  alwaysOn?: boolean;
+}) {
+  if (alwaysOn) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200/80 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-600">
+        <span className="text-emerald-600" aria-hidden>
+          ●
+        </span>
+        {label}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={
+        "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all " +
+        (active ?
+          "bg-white text-fuchsia-800 shadow-sm ring-1 ring-fuchsia-200 dark:bg-slate-900 dark:text-fuchsia-200 dark:ring-fuchsia-800/60"
+        : "text-slate-500 hover:bg-white/70 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-200")
+      }
+    >
+      <span
+        className={active ? "text-fuchsia-500" : "text-slate-300 dark:text-slate-600"}
+        aria-hidden
+      >
+        {active ? "●" : "○"}
+      </span>
+      {label}
+    </button>
+  );
+}
+
 function fmtPing(iso: string | null): string {
   if (!iso) return "—";
   try {
@@ -213,7 +265,15 @@ function IdCell({
   );
 }
 
-function PdvRow({ row }: { row: SuportePdvRow }) {
+function PdvRow({
+  row,
+  showPlayerBlock,
+  showContatosBlock,
+}: {
+  row: SuportePdvRow;
+  showPlayerBlock: boolean;
+  showContatosBlock: boolean;
+}) {
   const telHref =
     row.contatoLojaTelefone ?
       `tel:${row.contatoLojaTelefone.replace(/\s/g, "")}`
@@ -260,41 +320,53 @@ function PdvRow({ row }: { row: SuportePdvRow }) {
       <td className="min-w-[8rem] max-w-[12rem] px-2 py-2 align-top">
         <CopyableCell text={row.clienteNome} label="Copiar nome do cliente" />
       </td>
-      <td className="px-3 py-2 align-top">
-        <DownloadBar percent={row.telemetry.downloadPercent} />
-      </td>
-      <td className="px-3 py-2 align-top text-slate-700 dark:text-slate-300">
-        {row.programacaoMusical}
-      </td>
-      <td className="px-3 py-2 align-top text-slate-500">{row.playerVersion ?? "—"}</td>
-      <td className="whitespace-nowrap px-3 py-2 align-top text-slate-500">
-        {fmtPing(row.telemetry.firstPingAt)}
-      </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top text-slate-500">
-        {fmtPing(row.telemetry.lastPingAt)}
-      </td>
-      <td className="px-3 py-2 align-top">
-        <ContactCell value={row.contatoLojaNome} />
-      </td>
-      <td className="px-3 py-2 align-top">
-        <ContactCell value={row.contatoLojaTelefone} href={telHref} />
-      </td>
-      <td className="px-3 py-2 align-top">
-        <ContactCell value={row.contatoLojaEmail} href={mailHref} copyLabel="Copiar e-mail da loja" />
-      </td>
-      <td className="px-3 py-2 align-top">
-        {row.googleMapsUrl ?
-          <a
-            href={row.googleMapsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-0.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-50 dark:border-slate-600 dark:text-sky-400 dark:hover:bg-sky-950/40"
-            title={row.googleMapsQuery || "Abrir no Google Maps"}
-          >
-            Maps
-          </a>
-        : <span className="text-slate-400">—</span>}
-      </td>
+      {showPlayerBlock ?
+        <>
+          <td className={"px-2 py-2 align-top " + BLOCK_DIVIDER}>
+            <DownloadBar percent={row.telemetry.downloadPercent} />
+          </td>
+          <td className="px-2 py-2 align-top text-slate-700 dark:text-slate-300">
+            {row.programacaoMusical}
+          </td>
+          <td className="px-2 py-2 align-top text-slate-500">{row.playerVersion ?? "—"}</td>
+          <td className="whitespace-nowrap px-2 py-2 align-top text-slate-500">
+            {fmtPing(row.telemetry.firstPingAt)}
+          </td>
+          <td className="whitespace-nowrap px-2 py-2 align-top text-slate-500">
+            {fmtPing(row.telemetry.lastPingAt)}
+          </td>
+        </>
+      : null}
+      {showContatosBlock ?
+        <>
+          <td className={"px-2 py-2 align-top " + BLOCK_DIVIDER}>
+            <ContactCell value={row.contatoLojaNome} />
+          </td>
+          <td className="px-2 py-2 align-top">
+            <ContactCell value={row.contatoLojaTelefone} href={telHref} />
+          </td>
+          <td className="px-2 py-2 align-top">
+            <ContactCell
+              value={row.contatoLojaEmail}
+              href={mailHref}
+              copyLabel="Copiar e-mail da loja"
+            />
+          </td>
+          <td className="px-2 py-2 align-top">
+            {row.googleMapsUrl ?
+              <a
+                href={row.googleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-0.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-50 dark:border-slate-600 dark:text-sky-400 dark:hover:bg-sky-950/40"
+                title={row.googleMapsQuery || "Abrir no Google Maps"}
+              >
+                Maps
+              </a>
+            : <span className="text-slate-400">—</span>}
+          </td>
+        </>
+      : null}
     </tr>
   );
 }
@@ -313,6 +385,11 @@ export function ProducaoSuportePanel() {
   const [listFilter, setListFilter] = useState<ListFilter>("todos");
   const [batchSize, setBatchSize] = useState<BatchSize>(DEFAULT_BATCH);
   const [visibleCount, setVisibleCount] = useState<number>(DEFAULT_BATCH);
+  const [showPlayerBlock, setShowPlayerBlock] = useState(false);
+  const [showContatosBlock, setShowContatosBlock] = useState(false);
+
+  const colCount = suporteColCount(showPlayerBlock, showContatosBlock);
+  const hasExtraColumns = showPlayerBlock || showContatosBlock;
 
   const load = useCallback(async (ym: number) => {
     setBusy(true);
@@ -462,9 +539,73 @@ export function ProducaoSuportePanel() {
           </div>
         </div>
 
-        <div className="w-full max-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
-          <table className="w-max min-w-full text-left text-xs">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 bg-white/60 px-4 py-2 dark:border-slate-700 dark:bg-slate-900/40">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Blocos
+          </span>
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200/90 bg-slate-100/70 p-0.5 dark:border-slate-600 dark:bg-slate-800/50">
+            <BlockColumnToggle alwaysOn label="Identificação" />
+            <BlockColumnToggle
+              active={showPlayerBlock}
+              label="Player & cache"
+              onClick={() => setShowPlayerBlock((v) => !v)}
+            />
+            <BlockColumnToggle
+              active={showContatosBlock}
+              label="Contatos"
+              onClick={() => setShowContatosBlock((v) => !v)}
+            />
+          </div>
+          <button
+            type="button"
+            className="text-[10px] font-semibold text-slate-500 underline-offset-2 hover:text-fuchsia-700 hover:underline dark:text-slate-400 dark:hover:text-fuchsia-300"
+            onClick={() => {
+              setShowPlayerBlock(true);
+              setShowContatosBlock(true);
+            }}
+          >
+            Abrir tudo
+          </button>
+          <span className="text-slate-300 dark:text-slate-600" aria-hidden>
+            ·
+          </span>
+          <button
+            type="button"
+            className="text-[10px] font-semibold text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline dark:text-slate-400"
+            onClick={() => {
+              setShowPlayerBlock(false);
+              setShowContatosBlock(false);
+            }}
+          >
+            Só identificação
+          </button>
+        </div>
+
+        <div
+          className={
+            "suporte-table-scroll w-full max-w-full overflow-x-scroll overscroll-x-contain [-webkit-overflow-scrolling:touch] " +
+            (hasExtraColumns ?
+              "border-b border-slate-100 dark:border-slate-800"
+            : "")
+          }
+        >
+          <table className="w-max min-w-full border-collapse text-left text-xs">
             <thead className="bg-[#f5f0e8] text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800/95">
+              <tr className="text-[9px] font-semibold normal-case tracking-normal text-slate-400">
+                <th colSpan={5} className="px-2 pb-0 pt-2 text-left">
+                  Identificação
+                </th>
+                {showPlayerBlock ?
+                  <th colSpan={5} className={"px-2 pb-0 pt-2 text-left " + BLOCK_DIVIDER}>
+                    Player & cache
+                  </th>
+                : null}
+                {showContatosBlock ?
+                  <th colSpan={4} className={"px-2 pb-0 pt-2 text-left " + BLOCK_DIVIDER}>
+                    Contatos
+                  </th>
+                : null}
+              </tr>
               <tr>
                 <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID PDV no painel legado">
                   ID PDV
@@ -475,43 +616,62 @@ export function ProducaoSuportePanel() {
                   ID cli.
                 </th>
                 <th className="min-w-[8rem] px-2 py-2">Cliente</th>
-                <th className="px-2 py-2">Cache</th>
-                <th className="px-2 py-2">Programação</th>
-                <th className="whitespace-nowrap px-2 py-2">Versão player</th>
-                <th className="whitespace-nowrap px-2 py-2">1º ping</th>
-                <th className="whitespace-nowrap px-2 py-2">Último ping</th>
-                <th className="px-2 py-2">Contato loja</th>
-                <th className="px-2 py-2">Telefone</th>
-                <th className="px-2 py-2">E-mail</th>
-                <th className="px-2 py-2">Maps</th>
+                {showPlayerBlock ?
+                  <>
+                    <th className={"whitespace-nowrap px-2 py-2 " + BLOCK_DIVIDER}>Cache</th>
+                    <th className="px-2 py-2">Programação</th>
+                    <th className="whitespace-nowrap px-2 py-2">Versão player</th>
+                    <th className="whitespace-nowrap px-2 py-2">1º ping</th>
+                    <th className="whitespace-nowrap px-2 py-2">Último ping</th>
+                  </>
+                : null}
+                {showContatosBlock ?
+                  <>
+                    <th className={"px-2 py-2 " + BLOCK_DIVIDER}>Contato loja</th>
+                    <th className="px-2 py-2">Telefone</th>
+                    <th className="px-2 py-2">E-mail</th>
+                    <th className="px-2 py-2">Maps</th>
+                  </>
+                : null}
               </tr>
             </thead>
             <tbody>
               {busy && !data ?
                 <tr>
-                  <td colSpan={14} className="px-4 py-6 text-sm text-slate-500">
+                  <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
                     Carregando…
                   </td>
                 </tr>
               : filtered.length === 0 ?
                 <tr>
-                  <td colSpan={14} className="px-4 py-6 text-sm text-slate-500">
+                  <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
                     Nenhum PDV encontrado.
                   </td>
                 </tr>
-              : visible.map((row) => <PdvRow key={row.rioPdvKey} row={row} />)}
+              : visible.map((row) => (
+                  <PdvRow
+                    key={row.rioPdvKey}
+                    row={row}
+                    showPlayerBlock={showPlayerBlock}
+                    showContatosBlock={showContatosBlock}
+                  />
+                ))}
             </tbody>
           </table>
         </div>
+
+        {hasExtraColumns ?
+          <p className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50/80 px-4 py-1.5 text-[10px] text-slate-400 dark:border-slate-800 dark:bg-slate-900/30">
+            <span aria-hidden>↔</span>
+            Deslize horizontalmente para ver todas as colunas abertas
+          </p>
+        : null}
 
         {filtered.length > 0 ?
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
             <span className="text-[11px] text-slate-500">
               Mostrando {visible.length} de {filtered.length} PDVs · ordenados por instalação
               (mais recentes)
-            </span>
-            <span className="hidden text-[10px] text-slate-400 sm:inline">
-              ← deslize horizontalmente para ver telefone, e-mail e maps →
             </span>
             {remaining > 0 ?
               <button

@@ -279,3 +279,26 @@ body {
   min-width: 0;
 }
 
+.suporte-table-scroll {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.suporte-table-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.suporte-table-scroll::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.8);
+}
+
+.suporte-table-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+  border-radius: 999px;
+}
+
+.suporte-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
