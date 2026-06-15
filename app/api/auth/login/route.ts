@@ -58,7 +58,7 @@ export async function POST(request: Request) {
 
   if (!verifyPortalTotp(totpCode, user.totpSecret)) {
     await new Promise((r) => setTimeout(r, 400));
-    return NextResponse.json({ error: "invalid_totp" }, { status: 401 });
+    return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
   }
 
   await touchPortalUserLastLogin(user.email);

@@ -35,7 +35,7 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
     };
   }
 
-  const [cadastros, rioPdvs] = await Promise.all([
+  const [cadastros, rioPdvs, painelLinks] = await Promise.all([
     prisma.producaoPdvCadastro.findMany({
       where: { rioPdvKey: { in: pdvKeys } },
       select: {
@@ -52,16 +52,22 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
       where: { id: { in: pdvKeys } },
       select: { id: true, createdAt: true },
     }),
+    prisma.painelPdvLink.findMany({
+      where: { rioCompPdvId: { in: pdvKeys } },
+      select: { rioCompPdvId: true, painelPdvId: true, painelClienteId: true },
+    }),
   ]);
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
   const rioCreatedByKey = new Map(rioPdvs.map((p) => [p.id, p.createdAt]));
+  const linkByKey = new Map(painelLinks.map((l) => [l.rioCompPdvId, l]));
 
   const rows: SuportePdvRow[] = [];
 
   for (const cliente of dash.clientes) {
     for (const pdv of cliente.pdvs) {
       const cad = cadastroByKey.get(pdv.rioPdvKey);
+      const link = linkByKey.get(pdv.rioPdvKey);
       const rioCreated = rioCreatedByKey.get(pdv.rioPdvKey);
       const instaladoAt = (cad?.createdAt ?? rioCreated ?? new Date(0)).toISOString();
       const maps = buildGoogleMapsFromPdvAddress({
@@ -81,6 +87,8 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
         cnpj: pdv.cnpj,
         clienteNome: cliente.nome,
         clienteKey: cliente.key,
+        painelPdvId: link?.painelPdvId ?? null,
+        painelClienteId: link?.painelClienteId ?? null,
         programacaoMusical: pdv.programacaoMusical,
         playerVersion: pdv.telemetry.playerVersion,
         contatoLojaNome: cad?.contatoLojaNome?.trim() ?? "",

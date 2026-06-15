@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireConsultaPainelSession } from "@/lib/auth/portalAccess";
 import {
   csvMatchClientesPorTexto,
   csvMatchPdvsPorTexto,
@@ -17,9 +18,11 @@ function painelEnabled(): boolean {
 }
 
 export async function POST(request: Request) {
-  const secret = process.env.RADIO_PAINEL_PROXY_SECRET?.trim();
-  if (secret && request.headers.get("x-radio-painel-secret") !== secret) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  try {
+    await requireConsultaPainelSession();
+  } catch (e) {
+    if (e instanceof Response) return e;
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   if (!painelEnabled()) {

@@ -11,5 +11,10 @@ export function matchesSuporteSearch(row: SuportePdvRow, needle: string): boolea
     if (rowDigits.includes(cnpjDigits)) return true;
   }
 
+  if (/^\d+$/.test(q)) {
+    if (row.painelPdvId != null && String(row.painelPdvId).includes(q)) return true;
+    if (row.painelClienteId != null && String(row.painelClienteId).includes(q)) return true;
+  }
+
   return row.nome.toLowerCase().includes(q) || row.clienteNome.toLowerCase().includes(q);
 }

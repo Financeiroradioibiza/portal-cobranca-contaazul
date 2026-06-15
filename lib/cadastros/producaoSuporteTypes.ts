@@ -6,6 +6,9 @@ export type SuportePdvRow = {
   cnpj: string;
   clienteNome: string;
   clienteKey: string;
+  /** ID no painel legado (vínculo cadastro), se existir. */
+  painelPdvId: number | null;
+  painelClienteId: number | null;
   programacaoMusical: string;
   playerVersion: string | null;
   contatoLojaNome: string;

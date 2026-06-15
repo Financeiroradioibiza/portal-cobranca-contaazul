@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
+import { portalAccessDenied } from "@/lib/auth/portalAccess";
+import {
+  isRouteAccessAllowed,
+  resolveRouteAccessRule,
+} from "@/lib/auth/routeAccess";
 import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
 import { userHasRole } from "@/lib/auth/roles";
-import { configAccessDenied } from "@/lib/auth/portalAccess";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -59,9 +63,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  /** Prototipo público `/prototype.html` e proxy opcional `/api/radio-painel` (credenciais Painel ficam só no servidor). */
-  if (pathname.startsWith("/api/radio-painel") || pathname === "/prototype.html") {
-    return NextResponse.next();
+  if (pathname === "/prototype.html" && process.env.NODE_ENV === "production") {
+    return new NextResponse("Not Found", { status: 404 });
   }
 
   if (!configured) {
@@ -80,7 +83,6 @@ export async function middleware(request: NextRequest) {
     const isBrowserOAuthStart =
       pathname === "/api/contaazul/login" ||
       pathname.startsWith("/api/contaazul/login/");
-    // APIs devem responder JSON; exceção: GET em /api/contaazul/login (link "Conectar") precisa redirect HTML.
     if (pathname.startsWith("/api/") && !isBrowserOAuthStart) {
       return NextResponse.json(
         { error: "unauthorized", connected: false },
@@ -99,8 +101,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/config")
   ) {
     if (!userHasRole(session.roles, "master")) {
-      return configAccessDenied(request);
+      return portalAccessDenied(request);
     }
+  }
+
+  const accessRule = resolveRouteAccessRule(pathname);
+  if (accessRule && !isRouteAccessAllowed(accessRule, session.roles)) {
+    return portalAccessDenied(request);
   }
 
   return NextResponse.next();

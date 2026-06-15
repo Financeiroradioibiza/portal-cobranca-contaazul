@@ -54,8 +54,6 @@ export function LoginForm() {
       if (!res.ok) {
         if (data.error === "invalid_credentials") {
           setFormError("E-mail, senha ou autenticador incorretos.");
-        } else if (data.error === "invalid_totp") {
-          setFormError("Código do Google Authenticator inválido ou expirado.");
         } else if (data.error === "auth_not_configured") {
           setFormError("Autenticação não configurada no servidor.");
         } else if (data.error === "missing_fields") {

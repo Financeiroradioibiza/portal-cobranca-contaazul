@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CopyTextButton } from "@/components/CopyTextButton";
 import { matchesSuporteSearch } from "@/lib/cadastros/producaoSuporteSearch";
 import type {
   ProducaoSuportePayload,
@@ -129,20 +130,72 @@ function BatchSizePicker({
   );
 }
 
-function ContactCell({ value, href }: { value: string; href?: string }) {
-  const text = value.trim() || "—";
-  if (!value.trim() || !href) {
-    return <span className="text-slate-600 dark:text-slate-300">{text}</span>;
-  }
+function CopyableCell({
+  text,
+  label,
+  mono = false,
+  className = "",
+}: {
+  text: string;
+  label: string;
+  mono?: boolean;
+  className?: string;
+}) {
+  const trimmed = text.trim();
+  const display = trimmed || "—";
   return (
-    <a
-      href={href}
-      className="text-sky-700 hover:underline dark:text-sky-400"
-      target={href.startsWith("http") ? "_blank" : undefined}
-      rel={href.startsWith("http") ? "noopener noreferrer" : undefined}
-    >
-      {text}
-    </a>
+    <div className={"flex min-w-0 items-center gap-0.5 " + className}>
+      <span
+        className={
+          mono ?
+            "font-mono text-[10px] text-slate-500 dark:text-slate-400"
+          : "min-w-0 truncate text-slate-700 dark:text-slate-200"
+        }
+        title={display !== "—" ? display : undefined}
+      >
+        {display}
+      </span>
+      {trimmed ?
+        <CopyTextButton size="compact" variant="icon" text={trimmed} label={label} />
+      : null}
+    </div>
+  );
+}
+
+function ContactCell({ value, href, copyLabel }: { value: string; href?: string; copyLabel?: string }) {
+  const text = value.trim() || "—";
+  const trimmed = value.trim();
+  const content =
+    !trimmed || !href ?
+      <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">{text}</span>
+    : <a
+        href={href}
+        className="min-w-0 truncate text-sky-700 hover:underline dark:text-sky-400"
+        target={href.startsWith("http") ? "_blank" : undefined}
+        rel={href.startsWith("http") ? "noopener noreferrer" : undefined}
+      >
+        {text}
+      </a>;
+
+  return (
+    <div className="flex min-w-0 items-center gap-0.5">
+      {content}
+      {trimmed && copyLabel ?
+        <CopyTextButton size="compact" variant="icon" text={trimmed} label={copyLabel} />
+      : null}
+    </div>
+  );
+}
+
+function IdCell({ id, label }: { id: number | null; label: string }) {
+  const text = id != null ? String(id) : "";
+  return (
+    <CopyableCell
+      text={text}
+      label={label}
+      mono
+      className="max-w-[4.5rem] justify-end"
+    />
   );
 }
 
@@ -164,17 +217,31 @@ function PdvRow({ row }: { row: SuportePdvRow }) {
       }
     >
       <td className="px-3 py-2 align-top">
-        <div className="font-semibold text-slate-800 dark:text-slate-100">{row.nome}</div>
+        <div className="font-semibold text-slate-800 dark:text-slate-100">
+          <CopyableCell text={row.nome} label="Copiar nome do PDV" />
+        </div>
         {row.semPing5Dias ?
           <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">
             Sem ping 5d+
           </span>
         : null}
       </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top text-slate-600 dark:text-slate-300">
-        {displayBrazilianTaxId(row.cnpj)}
+      <td className="w-[4.75rem] whitespace-nowrap px-1 py-2 align-top">
+        <IdCell id={row.painelPdvId} label="Copiar ID do PDV no painel" />
       </td>
-      <td className="px-3 py-2 align-top text-slate-700 dark:text-slate-200">{row.clienteNome}</td>
+      <td className="whitespace-nowrap px-3 py-2 align-top">
+        <CopyableCell
+          text={displayBrazilianTaxId(row.cnpj)}
+          label="Copiar CNPJ do PDV"
+          mono
+        />
+      </td>
+      <td className="px-3 py-2 align-top">
+        <CopyableCell text={row.clienteNome} label="Copiar nome do cliente" />
+      </td>
+      <td className="w-[4.75rem] whitespace-nowrap px-1 py-2 align-top">
+        <IdCell id={row.painelClienteId} label="Copiar ID do cliente no painel" />
+      </td>
       <td className="px-3 py-2 align-top">
         <DownloadBar percent={row.telemetry.downloadPercent} />
       </td>
@@ -195,7 +262,7 @@ function PdvRow({ row }: { row: SuportePdvRow }) {
         <ContactCell value={row.contatoLojaTelefone} href={telHref} />
       </td>
       <td className="px-3 py-2 align-top">
-        <ContactCell value={row.contatoLojaEmail} href={mailHref} />
+        <ContactCell value={row.contatoLojaEmail} href={mailHref} copyLabel="Copiar e-mail da loja" />
       </td>
       <td className="px-3 py-2 align-top">
         {row.googleMapsUrl ?
@@ -366,7 +433,7 @@ export function ProducaoSuportePanel() {
             <BatchSizePicker value={batchSize} onChange={setBatchSize} />
             <input
               type="search"
-              placeholder="CNPJ, PDV ou cliente…"
+              placeholder="CNPJ, PDV, cliente ou ID…"
               className="min-w-[200px] rounded-md border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-950"
               value={q}
               onChange={(e) => {
@@ -378,12 +445,18 @@ export function ProducaoSuportePanel() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left text-xs">
+          <table className="w-full min-w-[1280px] text-left text-xs">
             <thead className="sticky top-0 z-10 bg-[#f5f0e8] text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800/95">
               <tr>
                 <th className="px-3 py-2">PDV</th>
+                <th className="w-[4.75rem] px-1 py-2 text-center" title="ID PDV no painel legado">
+                  ID PDV
+                </th>
                 <th className="px-3 py-2">CNPJ PDV</th>
                 <th className="px-3 py-2">Cliente</th>
+                <th className="w-[4.75rem] px-1 py-2 text-center" title="ID cliente no painel legado">
+                  ID cli.
+                </th>
                 <th className="px-3 py-2">Cache</th>
                 <th className="px-3 py-2">Programação</th>
                 <th className="px-3 py-2">Versão player</th>
@@ -398,13 +471,13 @@ export function ProducaoSuportePanel() {
             <tbody>
               {busy && !data ?
                 <tr>
-                  <td colSpan={12} className="px-4 py-6 text-sm text-slate-500">
+                  <td colSpan={14} className="px-4 py-6 text-sm text-slate-500">
                     Carregando…
                   </td>
                 </tr>
               : filtered.length === 0 ?
                 <tr>
-                  <td colSpan={12} className="px-4 py-6 text-sm text-slate-500">
+                  <td colSpan={14} className="px-4 py-6 text-sm text-slate-500">
                     Nenhum PDV encontrado.
                   </td>
                 </tr>
@@ -442,7 +515,8 @@ export function ProducaoSuportePanel() {
 
         <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
           Ordem: últimos cadastros/instalações primeiro. Busca aceita CNPJ com ou sem máscara, nome
-          do PDV ou do cliente. Google Maps usa nome + endereço + bairro (igual Consulta Painel).
+          do PDV ou do cliente, ou ID numérico do painel. Google Maps usa nome + endereço + bairro
+          (igual Consulta Painel).
         </p>
       </section>
     </div>

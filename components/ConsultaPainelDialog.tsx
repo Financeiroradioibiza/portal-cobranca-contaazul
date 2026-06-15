@@ -2,30 +2,16 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
-declare global {
-  interface Window {
-    __RADIO_PAINEL_PROXY_SECRET?: string;
-  }
-}
-
 type ClienteCand = { clienteId: string; textoLinha: string };
 type PdvCand = { clienteId: string; pdvId: string; textoLinha: string };
 
 type Tab = "cNome" | "cId" | "pNome" | "pId";
 
-function painelHeaders(): HeadersInit {
-  const h: Record<string, string> = { "Content-Type": "application/json" };
-  if (typeof window !== "undefined" && window.__RADIO_PAINEL_PROXY_SECRET) {
-    h["x-radio-painel-secret"] = window.__RADIO_PAINEL_PROXY_SECRET;
-  }
-  return h;
-}
-
 async function painelPost(body: Record<string, unknown>) {
   const res = await fetch("/api/radio-painel/query", {
     method: "POST",
     credentials: "same-origin",
-    headers: painelHeaders(),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -549,12 +535,6 @@ export function ConsultaPainelDialog({ openOnMount, hideTrigger }: ConsultaPaine
               ) : null}
             </div>
           ) : null}
-
-          <p className="mt-4 border-t border-slate-100 pt-3 text-[0.65rem] text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            Secreto opcional (Netlify igual):{' '}
-            <code className="text-[0.65rem]">window.__RADIO_PAINEL_PROXY_SECRET=&quot;…&quot;</code>{' '}
-            na consola do browser antes de usar, se usar <code>RADIO_PAINEL_PROXY_SECRET</code>.
-          </p>
         </div>
       </dialog>
     </Fragment>

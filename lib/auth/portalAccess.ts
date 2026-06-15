@@ -5,6 +5,10 @@ import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
 import type { PortalRole } from "@/lib/auth/roles";
 import { userHasRole } from "@/lib/auth/roles";
 import {
+  isRouteAccessAllowed,
+  resolveRouteAccessRule,
+} from "@/lib/auth/routeAccess";
+import {
   verifyPortalSessionToken,
   type PortalSessionPayload,
 } from "@/lib/auth/sessionToken";
@@ -40,12 +44,28 @@ export async function requireMasterSession(): Promise<PortalSessionPayload> {
   return session;
 }
 
+function requireRouteAccess(pathname: string, session: PortalSessionPayload): void {
+  const rule = resolveRouteAccessRule(pathname);
+  if (rule && !isRouteAccessAllowed(rule, session.roles)) {
+    throw new Response(JSON.stringify({ error: "forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+export async function requireConsultaPainelSession(): Promise<PortalSessionPayload> {
+  const session = requirePortalSession(await getPortalSession());
+  requireRouteAccess("/api/radio-painel/query", session);
+  return session;
+}
+
 export function isMasterRole(roles: PortalRole[]): boolean {
   return roles.includes("master");
 }
 
 /** Middleware helper — redirect HTML or JSON 403. */
-export function configAccessDenied(request: NextRequest): NextResponse {
+export function portalAccessDenied(request: NextRequest): NextResponse {
   if (request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
@@ -54,3 +74,6 @@ export function configAccessDenied(request: NextRequest): NextResponse {
   u.searchParams.set("error", "forbidden");
   return NextResponse.redirect(u);
 }
+
+/** @deprecated Use portalAccessDenied */
+export const configAccessDenied = portalAccessDenied;

@@ -41,13 +41,16 @@ function buildDebug(e: unknown, ctx?: RioApiErrorContext) {
   const id = newDebugId();
   const thrown = serializeThrown(e);
   console.error(`[rio-api] ${id}`, ctx?.route, thrown.message, e);
+  const isProd = process.env.NODE_ENV === "production";
   return {
     id,
     at: new Date().toISOString(),
     route: ctx?.route,
     ym: ctx?.ym,
     linhaId: ctx?.linhaId,
-    ...thrown,
+    ...(isProd ?
+      { message: thrown.message }
+    : thrown),
   };
 }
 
