@@ -14,6 +14,12 @@ import {
 } from "@/lib/rio/sortRioCompLinhas";
 import { formatMoneyBr, valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 
+/** Excel: aba não pode conter * ? : \\ / [ ] e no máx. 31 caracteres. */
+function excelWorksheetName(raw: string): string {
+  const cleaned = raw.replace(/[*?:\\\/\[\]]/g, "-").trim();
+  return (cleaned.slice(0, 31) || "Planilha").trim();
+}
+
 export type RioExportGrupo = {
   id: string;
   nome: string;
@@ -175,7 +181,7 @@ export async function downloadRioMonthStyledExcel(opts: {
 
   const wb = new ExcelJS.Workbook();
   wb.creator = company;
-  const ws = wb.addWorksheet(`Rio ${ymLabel}`, {
+  const ws = wb.addWorksheet(excelWorksheetName(`Rio ${ymLabel}`), {
     views: [{ state: "frozen", ySplit: 3 }],
   });
 
