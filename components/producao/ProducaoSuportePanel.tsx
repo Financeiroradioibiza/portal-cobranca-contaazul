@@ -187,15 +187,29 @@ function ContactCell({ value, href, copyLabel }: { value: string; href?: string;
   );
 }
 
-function IdCell({ id, label }: { id: number | null; label: string }) {
-  const text = id != null ? String(id) : "";
+function IdCell({
+  id,
+  label,
+  variant,
+}: {
+  id: number | null;
+  label: string;
+  variant: "pdv" | "cliente";
+}) {
+  const trimmed = id != null ? String(id) : "";
+  const display = trimmed || "—";
+  const colorClass =
+    variant === "pdv" ?
+      "font-mono text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-400"
+    : "font-mono text-[11px] font-bold tabular-nums text-sky-700 dark:text-sky-400";
+
   return (
-    <CopyableCell
-      text={text}
-      label={label}
-      mono
-      className="max-w-[4.5rem] justify-end"
-    />
+    <div className="flex items-center gap-0.5 whitespace-nowrap">
+      <span className={colorClass}>{display}</span>
+      {trimmed ?
+        <CopyTextButton size="compact" variant="icon" text={trimmed} label={label} />
+      : null}
+    </div>
   );
 }
 
@@ -216,7 +230,10 @@ function PdvRow({ row }: { row: SuportePdvRow }) {
         : "hover:bg-white/80 dark:hover:bg-slate-900/50")
       }
     >
-      <td className="px-3 py-2 align-top">
+      <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
+        <IdCell id={row.painelPdvId} label="Copiar ID do PDV no painel" variant="pdv" />
+      </td>
+      <td className="min-w-[9rem] max-w-[14rem] px-2 py-2 align-top">
         <div className="font-semibold text-slate-800 dark:text-slate-100">
           <CopyableCell text={row.nome} label="Copiar nome do PDV" />
         </div>
@@ -226,21 +243,22 @@ function PdvRow({ row }: { row: SuportePdvRow }) {
           </span>
         : null}
       </td>
-      <td className="w-[4.75rem] whitespace-nowrap px-1 py-2 align-top">
-        <IdCell id={row.painelPdvId} label="Copiar ID do PDV no painel" />
-      </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top">
+      <td className="whitespace-nowrap px-2 py-2 align-top">
         <CopyableCell
           text={displayBrazilianTaxId(row.cnpj)}
           label="Copiar CNPJ do PDV"
           mono
         />
       </td>
-      <td className="px-3 py-2 align-top">
-        <CopyableCell text={row.clienteNome} label="Copiar nome do cliente" />
+      <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
+        <IdCell
+          id={row.painelClienteId}
+          label="Copiar ID do cliente no painel"
+          variant="cliente"
+        />
       </td>
-      <td className="w-[4.75rem] whitespace-nowrap px-1 py-2 align-top">
-        <IdCell id={row.painelClienteId} label="Copiar ID do cliente no painel" />
+      <td className="min-w-[8rem] max-w-[12rem] px-2 py-2 align-top">
+        <CopyableCell text={row.clienteNome} label="Copiar nome do cliente" />
       </td>
       <td className="px-3 py-2 align-top">
         <DownloadBar percent={row.telemetry.downloadPercent} />
@@ -343,7 +361,7 @@ export function ProducaoSuportePanel() {
   const ov = data?.overview;
 
   return (
-    <div className="mx-auto max-w-[1600px] px-3 py-4 sm:px-4">
+    <div className="min-w-0 w-full py-4">
       <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Suporte</p>
@@ -395,7 +413,7 @@ export function ProducaoSuportePanel() {
         />
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className="min-w-0 rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-700 dark:bg-slate-800/80">
           <div className="flex flex-wrap gap-1">
             <button
@@ -444,28 +462,28 @@ export function ProducaoSuportePanel() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1280px] text-left text-xs">
-            <thead className="sticky top-0 z-10 bg-[#f5f0e8] text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800/95">
+        <div className="w-full max-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+          <table className="w-max min-w-full text-left text-xs">
+            <thead className="bg-[#f5f0e8] text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800/95">
               <tr>
-                <th className="px-3 py-2">PDV</th>
-                <th className="w-[4.75rem] px-1 py-2 text-center" title="ID PDV no painel legado">
+                <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID PDV no painel legado">
                   ID PDV
                 </th>
-                <th className="px-3 py-2">CNPJ PDV</th>
-                <th className="px-3 py-2">Cliente</th>
-                <th className="w-[4.75rem] px-1 py-2 text-center" title="ID cliente no painel legado">
+                <th className="min-w-[9rem] px-2 py-2">PDV</th>
+                <th className="whitespace-nowrap px-2 py-2">CNPJ PDV</th>
+                <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID cliente no painel legado">
                   ID cli.
                 </th>
-                <th className="px-3 py-2">Cache</th>
-                <th className="px-3 py-2">Programação</th>
-                <th className="px-3 py-2">Versão player</th>
-                <th className="px-3 py-2">1º ping</th>
-                <th className="px-3 py-2">Último ping</th>
-                <th className="px-3 py-2">Contato loja</th>
-                <th className="px-3 py-2">Telefone</th>
-                <th className="px-3 py-2">E-mail</th>
-                <th className="px-3 py-2">Maps</th>
+                <th className="min-w-[8rem] px-2 py-2">Cliente</th>
+                <th className="px-2 py-2">Cache</th>
+                <th className="px-2 py-2">Programação</th>
+                <th className="whitespace-nowrap px-2 py-2">Versão player</th>
+                <th className="whitespace-nowrap px-2 py-2">1º ping</th>
+                <th className="whitespace-nowrap px-2 py-2">Último ping</th>
+                <th className="px-2 py-2">Contato loja</th>
+                <th className="px-2 py-2">Telefone</th>
+                <th className="px-2 py-2">E-mail</th>
+                <th className="px-2 py-2">Maps</th>
               </tr>
             </thead>
             <tbody>
@@ -491,6 +509,9 @@ export function ProducaoSuportePanel() {
             <span className="text-[11px] text-slate-500">
               Mostrando {visible.length} de {filtered.length} PDVs · ordenados por instalação
               (mais recentes)
+            </span>
+            <span className="hidden text-[10px] text-slate-400 sm:inline">
+              ← deslize horizontalmente para ver telefone, e-mail e maps →
             </span>
             {remaining > 0 ?
               <button
