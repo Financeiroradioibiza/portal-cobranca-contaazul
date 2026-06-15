@@ -82,7 +82,7 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
     return cadastrosApiRule(pathname);
   }
 
-  if (pathname.startsWith("/api/producao") || pathname.startsWith("/producao")) {
+  if (pathname.startsWith("/api/producao") || pathname.startsWith("/api/suporte") || pathname.startsWith("/producao")) {
     return { kind: "roles", roles: PRODUCAO };
   }
 

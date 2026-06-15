@@ -18,7 +18,7 @@ export function PortalSidebar() {
       <div className="portal-sidebar-section">
         <div className="portal-sidebar-heading">{menu.section}</div>
         {menu.items.map((item) => {
-          const active = isSidebarActive(pathname, item.href);
+          const active = isSidebarActive(pathname, item.href, item.exact);
           if (item.soon) {
             return (
               <span key={item.href} className="portal-sidebar-item portal-sidebar-item--disabled" title="Em breve">

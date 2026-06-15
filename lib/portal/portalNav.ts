@@ -18,6 +18,8 @@ export type PortalSidebarItem = {
   icon: string;
   label: string;
   soon?: boolean;
+  /** Só marca ativo na URL exata (ex.: /suporte vs /suporte/avisos-player). */
+  exact?: boolean;
 };
 
 export type PortalTopNavItem = {
@@ -66,7 +68,10 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
   },
   suporte: {
     section: "Suporte",
-    items: [{ href: "/suporte", icon: "🎧", label: "Central de suporte" }],
+    items: [
+      { href: "/suporte", icon: "🎧", label: "Central de suporte", exact: true },
+      { href: "/suporte/avisos-player", icon: "📢", label: "Avisos player" },
+    ],
   },
   config: {
     section: "Configuração",
@@ -87,9 +92,11 @@ export function resolvePortalModule(pathname: string): PortalModuleId {
   return "dashboard";
 }
 
-export function isSidebarActive(pathname: string, href: string): boolean {
+export function isSidebarActive(pathname: string, href: string, exact?: boolean): boolean {
   if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
+  if (pathname === href) return true;
+  if (exact) return false;
+  return pathname.startsWith(`${href}/`);
 }
 
 export function topNavHref(item: PortalTopNavItem): string {
