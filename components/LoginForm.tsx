@@ -13,14 +13,15 @@ export function LoginForm() {
   const err = sp.get("error");
   const next = safeInternalPath(sp.get("next"));
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const configError =
     err === "config"
-      ? "Login do portal não configurado. Defina PORTAL_SESSION_SECRET (≥32 caracteres) no servidor."
+      ? "Login do portal não configurado. Defina PORTAL_SESSION_SECRET e PORTAL_USERS_JSON no servidor."
       : null;
 
   async function onSubmit(e: React.FormEvent) {
@@ -32,7 +33,7 @@ export function LoginForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password, totpCode }),
       });
       const parsed = await readJsonFromResponse<{
         ok?: boolean;
@@ -52,9 +53,13 @@ export function LoginForm() {
 
       if (!res.ok) {
         if (data.error === "invalid_credentials") {
-          setFormError("Usuário ou senha incorretos.");
+          setFormError("E-mail, senha ou autenticador incorretos.");
+        } else if (data.error === "invalid_totp") {
+          setFormError("Código do Google Authenticator inválido ou expirado.");
         } else if (data.error === "auth_not_configured") {
           setFormError("Autenticação não configurada no servidor.");
+        } else if (data.error === "missing_fields") {
+          setFormError("Preencha e-mail, senha e código de 6 dígitos.");
         } else {
           setFormError("Não foi possível entrar. Tente novamente.");
         }
@@ -81,41 +86,42 @@ export function LoginForm() {
             Acesso ao portal
           </h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Informe usuário e senha do portal.
+            E-mail corporativo, senha e código do Google Authenticator.
           </p>
         </div>
         <ThemeToggle />
       </div>
 
-      {configError ? (
+      {configError ?
         <div
           className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
           role="alert"
         >
           {configError}
         </div>
-      ) : null}
+      : null}
 
-      {formError ? (
+      {formError ?
         <div
           className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
           role="alert"
         >
           {formError}
         </div>
-      ) : null}
+      : null}
 
       <form
         onSubmit={(e) => void onSubmit(e)}
         className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900"
       >
         <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-          Usuário
+          E-mail
           <input
-            name="username"
+            name="email"
+            type="email"
             autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
             required
           />
@@ -130,6 +136,23 @@ export function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+            required
+          />
+        </label>
+
+        <label className="mt-3 block text-xs font-medium text-slate-600 dark:text-slate-400">
+          Google Authenticator (6 dígitos)
+          <input
+            name="totp"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            placeholder="000000"
+            value={totpCode}
+            onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono tracking-widest text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
             required
           />
         </label>

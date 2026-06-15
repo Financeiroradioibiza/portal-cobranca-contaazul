@@ -198,6 +198,7 @@ Cliente operacional
 | 2026-05 (sexta) | Envyron: Ubuntu + Docker; deploy isolado `portal-ibiza` |
 | 2026-05 (sexta) | Separar ambientes — não misturar player4, Neon e API nova |
 | Pendente | SSH Envyron → primeiro deploy staging |
+| 2026-06-15 | Doc usuários/papéis — `docs/PORTAL-USUARIOS-PERMISSOES.md` (mind map Portal Ibiza 2026) |
 
 ---
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { COBRANCA_NAV } from "@/lib/portal/cobrancaNav";
+import { PortalModuleLinks } from "@/components/portal/PortalModuleLinks";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function CobrancaAreaNav() {
@@ -37,18 +38,7 @@ export function CobrancaAreaNav() {
             );
           })}
         </div>
-        <Link
-          href="/producao/dashboard"
-          className="rounded-md px-2 py-1 text-[11px] font-medium text-fuchsia-700 hover:bg-fuchsia-50 dark:text-fuchsia-300 dark:hover:bg-fuchsia-950/50"
-        >
-          Produção
-        </Link>
-        <Link
-          href="/cadastros/grupos"
-          className="rounded-md px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/50"
-        >
-          Cadastros
-        </Link>
+        <PortalModuleLinks />
         <ThemeToggle />
       </div>
     </nav>

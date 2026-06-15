@@ -6,6 +6,7 @@ Next.js + Prisma (Postgres) + OAuth2 Conta Azul. Lista **clientes com parcelas d
 
 - **[Onde estamos](docs/ONDE-ESTAMOS.md)** — mapa do portal, legado, estratégia Envyron e pendências  
 - **[Backup e restauração](docs/BACKUP-E-RESTAURACAO.md)** — como proteger código, Neon e configs  
+- **[Usuários e permissões](docs/PORTAL-USUARIOS-PERMISSOES.md)** — papéis por setor, equipe, auditoria (mind map Portal Ibiza 2026)  
 - **[Fase 2 — Produção musical](docs/FASE-2-PRODUCAO-MUSICAL.md)** — visão do webservice e migração gradual  
 
 ## Variáveis de ambiente
@@ -20,7 +21,36 @@ Copie [`.env.example`](.env.example) para `.env` e preencha:
 | `CONTA_AZUL_REDIRECT_URI` | **Exatamente** a URL registrada no app (ex.: `https://SEU-SITE.netlify.app/api/contaazul/callback`) |
 | `NEXT_PUBLIC_SITE_URL` | URL pública do site (mesmo domínio; usada em redirects se necessário) |
 
-Opcionalmente, para **Consulta painel** no painel principal (botão ao lado de “Ver protótipo HTML”) → `POST /api/radio-painel/query`:
+### Login do portal (equipe Ibiza)
+
+| Variável | Uso |
+|----------|-----|
+| `PORTAL_SESSION_SECRET` | Segredo JWT da sessão (≥ 32 caracteres). Ex.: `openssl rand -base64 32` |
+| `PORTAL_USERS_JSON` | Array JSON: `email`, `passwordHash`, `totpSecret`, `roles`, `displayName` opcional |
+| `PORTAL_AUTH_DISABLED` | `true` só em **desenvolvimento local** — desliga login (nunca na Netlify) |
+
+**Gerar credenciais:**
+
+```bash
+npm run portal:hash-password          # bcrypt da senha
+npm run portal:totp-secret -- "Nome"  # segredo Google Authenticator
+```
+
+Exemplo de uma entrada em `PORTAL_USERS_JSON`:
+
+```json
+{
+  "email": "rafael@radioibiza.com.br",
+  "displayName": "Rafael Gasparian",
+  "passwordHash": "$2a$12$...",
+  "totpSecret": "JBSWY3DPEHPK3PXP",
+  "roles": ["master"]
+}
+```
+
+Login na tela `/login`: **e-mail + senha + código de 6 dígitos** do Google Authenticator.
+
+Opcionalmente, para **Consulta painel** no painel principal → `POST /api/radio-painel/query`:
 
 | Variável | Uso |
 |----------|-----|

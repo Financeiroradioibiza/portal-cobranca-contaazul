@@ -55,9 +55,9 @@ export async function DELETE(req: Request, context: Ctx) {
 
   const jar = await cookies();
   const cookieRaw = jar.get(PORTAL_SESSION_COOKIE)?.value;
-  const sessionUser = await verifyPortalSessionToken(cookieRaw);
+  const session = await verifyPortalSessionToken(cookieRaw);
 
-  const passOk = await verifyPortalPasswordReauth(password, sessionUser);
+  const passOk = await verifyPortalPasswordReauth(password, session?.email ?? null);
   if (!passOk) {
     await new Promise((r) => setTimeout(r, 400));
     return NextResponse.json({ error: "invalid_password" }, { status: 403 });

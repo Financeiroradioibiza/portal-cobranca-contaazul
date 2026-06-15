@@ -5,6 +5,8 @@ import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
+import { userHasRole } from "@/lib/auth/roles";
+import { configAccessDenied } from "@/lib/auth/portalAccess";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -33,8 +35,8 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/login" || pathname.startsWith("/login/")) {
     if (configured) {
       const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
-      const sub = await verifyPortalSessionToken(raw);
-      if (sub) {
+      const session = await verifyPortalSessionToken(raw);
+      if (session) {
         return NextResponse.redirect(new URL("/", request.url));
       }
     }
@@ -73,8 +75,8 @@ export async function middleware(request: NextRequest) {
   }
 
   const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
-  const sub = await verifyPortalSessionToken(raw);
-  if (!sub) {
+  const session = await verifyPortalSessionToken(raw);
+  if (!session) {
     const isBrowserOAuthStart =
       pathname === "/api/contaazul/login" ||
       pathname.startsWith("/api/contaazul/login/");
@@ -90,6 +92,15 @@ export async function middleware(request: NextRequest) {
     const nextPath = safeInternalPath(pathname + request.nextUrl.search);
     u.searchParams.set("next", nextPath);
     return NextResponse.redirect(u);
+  }
+
+  if (
+    pathname.startsWith("/config") ||
+    pathname.startsWith("/api/config")
+  ) {
+    if (!userHasRole(session.roles, "master")) {
+      return configAccessDenied(request);
+    }
   }
 
   return NextResponse.next();

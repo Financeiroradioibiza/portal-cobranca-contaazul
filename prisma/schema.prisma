@@ -395,3 +395,44 @@ model ProducaoPdvCadastro {
 
   @@map("producao_pdv_cadastro")
 }
+
+/// Perfil de acesso (Admin, Financeiro, Suporte…) — permissões por menu.
+model PortalProfile {
+  id              String   @id @default(cuid())
+  slug            String   @unique @db.VarChar(40)
+  name            String   @db.VarChar(80)
+  icon            String   @default("👤") @db.VarChar(8)
+  description     String   @default("") @db.Text
+  /// JSON: permissões por módulo (ver lib/portal/menuPermissions.ts).
+  permissionsJson String   @default("{}") @map("permissions_json") @db.Text
+  /// Papéis derivados para JWT / middleware (master, cobranca, …).
+  rolesJson       String   @default("[]") @map("roles_json") @db.Text
+  isSystem        Boolean  @default(true) @map("is_system")
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  users PortalUser[]
+
+  @@map("portal_profile")
+}
+
+/// Usuário do portal (e-mail + senha + TOTP).
+model PortalUser {
+  id           String    @id @default(cuid())
+  email        String    @unique @db.VarChar(200)
+  displayName  String    @default("") @map("display_name") @db.VarChar(120)
+  jobTitle     String    @default("") @map("job_title") @db.VarChar(120)
+  passwordHash String    @map("password_hash") @db.Text
+  totpSecret   String    @map("totp_secret") @db.VarChar(64)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime? @map("last_login_at")
+  profileId    String    @map("profile_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  profile PortalProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+
+  @@index([profileId])
+  @@map("portal_user")
+}

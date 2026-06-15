@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PRODUCAO_NAV } from "@/lib/portal/producaoNav";
+import { PortalModuleLinks } from "@/components/portal/PortalModuleLinks";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function ProducaoAreaNav() {
@@ -37,18 +38,7 @@ export function ProducaoAreaNav() {
             );
           })}
         </div>
-        <Link
-          href="/cadastros/grupos"
-          className="rounded-md px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/50"
-        >
-          Cadastros
-        </Link>
-        <Link
-          href="/cobranca/planilha-rio"
-          className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          Cobrança
-        </Link>
+        <PortalModuleLinks />
         <ThemeToggle />
       </div>
     </nav>
