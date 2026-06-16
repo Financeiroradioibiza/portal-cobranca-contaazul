@@ -1199,7 +1199,7 @@ export async function createRioCompClienteLinha(
       razaoSocial: nomeFantasia,
       documento,
       numeroPdvSite: 1,
-      movimento: isRioTurnoverMonth(month.yearMonth) ? "entrada" : "estavel",
+      movimento: "entrada",
       sortOrder,
     },
   });
@@ -1222,19 +1222,15 @@ export async function createRioCompPdv(linhaId: string, nome: string) {
   });
   if (linha?.month?.closedAt) throw new Error("month_closed");
 
-  const turnover = linha?.month && isRioTurnoverMonth(linha.month.yearMonth);
   const n = await prisma.rioCompPdv.count({
-    where:
-      turnover ?
-        { clienteId: linhaId, movimento: { not: "saida" } }
-      : { clienteId: linhaId },
+    where: { clienteId: linhaId, movimento: { not: "saida" } },
   });
   const pdv = await prisma.rioCompPdv.create({
     data: {
       clienteId: linhaId,
       nome: nome.trim() || `PDV ${n + 1}`,
       sortOrder: n,
-      movimento: turnover ? "entrada" : "estavel",
+      movimento: "entrada",
     },
   });
   const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
@@ -1253,8 +1249,7 @@ export async function createRioCompPdvsBulk(
     select: { month: { select: { yearMonth: true, closedAt: true } } },
   });
   if (linha?.month?.closedAt) throw new Error("month_closed");
-  const turnover = linha?.month && isRioTurnoverMonth(linha.month.yearMonth);
-  const movNovo = turnover ? ("entrada" as const) : ("estavel" as const);
+  const movNovo = "entrada" as const;
 
   const rows: RioPdvBulkRow[] = [];
   const seen = new Set<string>();

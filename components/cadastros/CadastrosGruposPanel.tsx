@@ -85,7 +85,7 @@ function DraggableProdPdv({
   editMode: boolean;
   onSelect: () => void;
   onToggleMulti: (checked: boolean) => void;
-  tone?: "normal" | "novo";
+  tone?: "normal" | "novo" | "pendencia";
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: prodPdvDragId(pdv.rioPdvId),
@@ -104,8 +104,8 @@ function DraggableProdPdv({
           "border-[#C4146A] bg-pink-50 dark:border-pink-500 dark:bg-pink-950/30"
         : multiSelected ?
           "border-violet-500 bg-violet-50 ring-1 ring-violet-300 dark:border-violet-400 dark:bg-violet-950/40 dark:ring-violet-600"
-        : tone === "novo" ?
-          "border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-950/30"
+        : tone === "novo" || tone === "pendencia" ?
+          "border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950/30"
         : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900") +
         (isDragging ? " opacity-40" : "")
       }
@@ -219,7 +219,7 @@ export function CadastrosGruposPanel() {
   const [rioExpanded, setRioExpanded] = useState<Set<string>>(new Set());
   const [rioClienteOpen, setRioClienteOpen] = useState<Set<string>>(new Set());
   const [prodExpanded, setProdExpanded] = useState<Set<string>>(new Set());
-  const [prodNovosOpen, setProdNovosOpen] = useState(false);
+  const [prodNovosOpen, setProdNovosOpen] = useState(true);
   const [rioSel, setRioSel] = useState<RioSel>(null);
   const [selProdPdvId, setSelProdPdvId] = useState<string | null>(null);
   const [dragPdv, setDragPdv] = useState<ProducaoPdvRef | null>(null);
@@ -620,8 +620,14 @@ export function CadastrosGruposPanel() {
   }
 
   const rioPdvTotal = useMemo(() => countRioPlanilhaPdvs(linhasRio), [linhasRio]);
-  const prodPdvTotal = useMemo(() => countProducaoMusicalPdvs(clientes), [clientes]);
+  const prodPdvTotal = useMemo(() => {
+    const placed = countProducaoMusicalPdvs(clientes);
+    const pending =
+      PRODUCAO_MOVIMENTO_TOP_ENABLED ? prodMovimentos.novos.length : 0;
+    return placed + pending;
+  }, [clientes, prodMovimentos.novos]);
   const pdvCountsMatch = rioPdvTotal === prodPdvTotal && linhasRio.length > 0;
+  const pendenciasCount = prodMovimentos.novos.length;
 
   function expandAllRio() {
     setRioExpanded(new Set(filteredRio.map((g) => g.id)));
@@ -755,8 +761,8 @@ export function CadastrosGruposPanel() {
                   />
                   <CadastrosMovimentoBanner
                     variant="novo"
-                    title="Novos na Planilha Rio"
-                    hint="Entradas detectadas na Rio — organize na produção à direita."
+                    title="Entradas na Planilha Rio"
+                    hint="Novos clientes ou PDVs cadastrados na Rio neste mês."
                     items={rioTreeMov.novos.map((r) => ({
                       key: r.id,
                       label: r.nome,
@@ -877,6 +883,11 @@ export function CadastrosGruposPanel() {
                   {pdvCountsMatch ?
                     " ✓"
                   : ` (Rio: ${rioPdvTotal})`}
+                  {pendenciasCount > 0 ?
+                    <span className="ml-1 text-amber-700 dark:text-amber-400">
+                      · {pendenciasCount} pendência{pendenciasCount === 1 ? "" : "s"}
+                    </span>
+                  : null}
                 </p>
                 <div className="mt-1 flex flex-wrap gap-1">
                   <button
@@ -1052,48 +1063,50 @@ export function CadastrosGruposPanel() {
               <div className="min-w-0 flex-1 overflow-y-auto p-3">
                 {PRODUCAO_MOVIMENTO_TOP_ENABLED ?
                   <>
-                    <CadastrosMovimentoBanner
-                      variant="encerrado"
-                      title="Encerrados na produção"
-                      hint="Saíram da Planilha Rio — futuramente o player para de tocar."
-                      items={prodMovimentos.encerrados.map((r) => ({
-                        key: r.rioPdvId,
-                        label: r.nome,
-                        sublabel:
-                          r.kind === "cliente" ? "cliente encerrado" : (
-                            r.rioLinhaNome
-                          ),
-                        linked: r.painelLink != null,
-                      }))}
-                      selectedKey={selProdPdvId}
-                      onSelect={(key) => setSelProdPdvId(key)}
-                    />
+                    {prodMovimentos.encerrados.length > 0 ?
+                      <CadastrosMovimentoBanner
+                        variant="encerrado"
+                        title="Encerrados na produção"
+                        hint="Saíram da Planilha Rio — revisar quando aplicável."
+                        items={prodMovimentos.encerrados.map((r) => ({
+                          key: r.rioPdvId,
+                          label: r.nome,
+                          sublabel:
+                            r.kind === "cliente" ? "cliente encerrado" : (
+                              r.rioLinhaNome
+                            ),
+                          linked: r.painelLink != null,
+                        }))}
+                        selectedKey={selProdPdvId}
+                        onSelect={(key) => setSelProdPdvId(key)}
+                      />
+                    : null}
                     {prodMovimentos.novos.length > 0 ?
-                      <div className="mb-3 overflow-hidden rounded-lg border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40">
+                      <div className="mb-3 overflow-hidden rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40">
                         <button
                           type="button"
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-emerald-900 dark:text-emerald-100"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-amber-900 dark:text-amber-100"
                           onClick={() => setProdNovosOpen((v) => !v)}
                         >
                           <span className="text-slate-500">{prodNovosOpen ? "▾" : "▸"}</span>
                           <span className="flex-1">
-                            Novos na produção ({prodMovimentos.novos.length})
+                            Pendências — definir na produção ({prodMovimentos.novos.length})
                           </span>
                         </button>
                         {prodNovosOpen ?
                           <>
-                            <p className="border-t border-emerald-200 px-3 py-1.5 text-[10px] text-emerald-800/90 dark:border-emerald-800 dark:text-emerald-200/90">
+                            <p className="border-t border-amber-200 px-3 py-1.5 text-[10px] text-amber-900/90 dark:border-amber-800 dark:text-amber-200/90">
                               {editMode ?
-                                "Em edição: arraste para um grupo abaixo para integrar à produção."
+                                "Arraste cada item para o grupo de clientes abaixo. Ao soltar, deixa de ser pendência."
                               : "Ative «Editar produção» para posicionar nos grupos."}
                             </p>
-                            <div className="space-y-0 border-t border-emerald-200 px-2 py-2 dark:border-emerald-800">
+                            <div className="space-y-0 border-t border-amber-200 px-2 py-2 dark:border-amber-800">
                               {prodMovimentos.novos.map((item) => (
                                 <DraggableProdPdv
                                   key={item.rioPdvId}
                                   pdv={movimentoItemToPdvRef(item)}
                                   editMode={editMode}
-                                  tone="novo"
+                                  tone="pendencia"
                                   selected={selProdPdvId === item.rioPdvId}
                                   multiSelected={selectedPdvIds.has(item.rioPdvId)}
                                   onSelect={() => setSelProdPdvId(item.rioPdvId)}

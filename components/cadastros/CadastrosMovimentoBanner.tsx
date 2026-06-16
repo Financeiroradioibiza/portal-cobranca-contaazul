@@ -10,7 +10,7 @@ export type MovimentoBannerItem = {
 };
 
 type Props = {
-  variant: "novo" | "encerrado";
+  variant: "novo" | "pendencia" | "encerrado";
   title: string;
   hint: string;
   items: MovimentoBannerItem[];
@@ -31,19 +31,25 @@ export function CadastrosMovimentoBanner({
   const [open, setOpen] = useState(defaultOpen);
 
   const bannerCls =
-    variant === "novo" ?
-      "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
-    : "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40";
+    variant === "encerrado" ?
+      "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40"
+    : variant === "pendencia" ?
+      "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
+    : "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40";
 
   const headerCls =
-    variant === "novo" ?
-      "text-emerald-900 dark:text-emerald-100"
-    : "text-rose-900 dark:text-rose-100";
+    variant === "encerrado" ?
+      "text-rose-900 dark:text-rose-100"
+    : variant === "pendencia" ?
+      "text-amber-900 dark:text-amber-100"
+    : "text-emerald-900 dark:text-emerald-100";
 
   const itemCls =
-    variant === "novo" ?
-      "border-emerald-200 bg-white text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-50"
-    : "border-rose-200 bg-white text-rose-950 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-50";
+    variant === "encerrado" ?
+      "border-rose-200 bg-white text-rose-950 dark:border-rose-900 dark:bg-rose-950/20 dark:text-rose-50"
+    : variant === "pendencia" ?
+      "border-amber-200 bg-white text-amber-950 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-50"
+    : "border-emerald-200 bg-white text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-50";
 
   const countLabel =
     items.length === 0 ? "nenhum"

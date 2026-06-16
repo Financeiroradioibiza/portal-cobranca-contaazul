@@ -12,11 +12,8 @@ import {
 import { prisma } from "@/lib/prisma";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
 
-/**
- * Seções «Novos/Encerrados na produção» no topo da coluna direita.
- * Desligado enquanto a Planilha Rio é organizada; ativar na virada de mês.
- */
-export const PRODUCAO_MOVIMENTO_TOP_ENABLED = false;
+/** Fila «Pendências» no topo da produção (entradas Rio ainda não posicionadas). */
+export const PRODUCAO_MOVIMENTO_TOP_ENABLED = true;
 
 export type RioMovimento = "estavel" | "entrada" | "saida";
 
