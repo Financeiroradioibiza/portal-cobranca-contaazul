@@ -10,6 +10,7 @@ const FINANCEIRO: PortalRole[] = ["cobranca"];
 const CONSULTA_PAINEL: PortalRole[] = ["cobranca", "suporte"];
 const CADASTROS_FULL: PortalRole[] = ["cadastros"];
 const CADASTROS_VINCULOS: PortalRole[] = ["cadastros", "cobranca", "suporte"];
+const CADASTROS_RELACIONAMENTO: PortalRole[] = ["relacionamento", "cadastros", "cobranca"];
 const PRODUCAO: PortalRole[] = ["producao", "suporte", "criacao", "relacionamento", "cadastros"];
 
 function hasAnyRole(userRoles: PortalRole[], allowed: PortalRole[]): boolean {
@@ -31,6 +32,12 @@ export function isRouteAccessAllowed(rule: RouteAccessRule, roles: PortalRole[])
 }
 
 function cadastrosApiRule(pathname: string): RouteAccessRule {
+  if (
+    pathname.includes("/prospects") ||
+    pathname.includes("/pedidos-cliente")
+  ) {
+    return { kind: "roles", roles: CADASTROS_RELACIONAMENTO };
+  }
   if (
     pathname.includes("/vinculos") ||
     pathname.startsWith("/api/cadastros/pdv-link")
@@ -76,6 +83,12 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
     if (pathname.startsWith("/cadastros/vinculos")) {
       return { kind: "roles", roles: CADASTROS_VINCULOS };
     }
+    if (
+      pathname.startsWith("/cadastros/prospects") ||
+      pathname.startsWith("/cadastros/cliente-pdv-novo")
+    ) {
+      return { kind: "roles", roles: CADASTROS_RELACIONAMENTO };
+    }
     if (pathname.startsWith("/cadastros")) {
       return { kind: "roles", roles: CADASTROS_FULL };
     }
@@ -84,6 +97,10 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
 
   if (pathname.startsWith("/api/producao") || pathname.startsWith("/api/suporte") || pathname.startsWith("/producao")) {
     return { kind: "roles", roles: PRODUCAO };
+  }
+
+  if (pathname.startsWith("/chamados") || pathname.startsWith("/api/chamados")) {
+    return { kind: "authenticated" };
   }
 
   if (pathname === "/" || pathname.startsWith("/suporte")) {

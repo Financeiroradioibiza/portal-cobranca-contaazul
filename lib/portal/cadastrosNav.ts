@@ -2,6 +2,8 @@
 export const CADASTROS_SIDEBAR = [
   { href: "/cadastros/grupos", label: "Rio × Produção", icon: "👥" },
   { href: "/cadastros/vinculos", label: "Lista vínculos", icon: "🔗" },
+  { href: "/cadastros/prospects", label: "Prospects", icon: "🆕" },
+  { href: "/cadastros/cliente-pdv-novo", label: "Cliente / PDV novo", icon: "📝" },
 ] as const;
 
 /** Página principal ao clicar em Cadastros no topo. */

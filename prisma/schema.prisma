@@ -436,3 +436,118 @@ model PortalUser {
   @@index([profileId])
   @@map("portal_user")
 }
+
+enum ChamadoStatus {
+  aberto
+  em_andamento
+  fechado
+}
+
+enum ChamadoPrioridade {
+  baixa
+  media
+  alta
+  urgente
+}
+
+/// Chamado interno (comunicação entre setores / pessoas).
+model Chamado {
+  id               String            @id @default(cuid())
+  titulo           String            @db.VarChar(200)
+  descricao        String            @default("") @db.Text
+  status           ChamadoStatus     @default(aberto)
+  prioridade       ChamadoPrioridade @default(media)
+  /// JSON: slugs de setores (financeiro, suporte, …).
+  setoresJson      String            @default("[]") @map("setores_json") @db.Text
+  /// JSON: e-mails de responsáveis.
+  responsaveisJson String            @default("[]") @map("responsaveis_json") @db.Text
+  criadoPorEmail   String            @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome    String            @map("criado_por_nome") @db.VarChar(120)
+  fechadoPorEmail  String?           @map("fechado_por_email") @db.VarChar(200)
+  fechadoPorNome   String?           @map("fechado_por_nome") @db.VarChar(120)
+  fechadoEm        DateTime?         @map("fechado_em")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@index([status, updatedAt])
+  @@index([criadoPorEmail])
+  @@map("chamado")
+}
+
+enum ProspectEstagio {
+  lead
+  em_contato
+  demo_enviada
+  fechado
+}
+
+/// Lead comercial (funil Relacionamento).
+model Prospect {
+  id                   String          @id @default(cuid())
+  nome                 String          @db.VarChar(200)
+  cidade               String          @default("") @db.VarChar(120)
+  estado               String          @default("") @db.VarChar(2)
+  unidades             Int             @default(1)
+  origem               String          @default("") @db.VarChar(200)
+  statusNota           String          @default("") @map("status_nota") @db.VarChar(200)
+  valorCentavos        Int             @default(0) @map("valor_centavos")
+  estagio              ProspectEstagio @default(lead)
+  contatoNome          String          @default("") @map("contato_nome") @db.VarChar(120)
+  contatoEmail         String          @default("") @map("contato_email") @db.VarChar(200)
+  contatoTelefone      String          @default("") @map("contato_telefone") @db.VarChar(40)
+  observacoes          String          @default("") @db.Text
+  previewMusicalUrl    String          @default("") @map("preview_musical_url") @db.Text
+  previewMusicalNota   String          @default("") @map("preview_musical_nota") @db.VarChar(400)
+  propostaEnviadaEm    DateTime?       @map("proposta_enviada_em")
+  demoEnviadaEm        DateTime?       @map("demo_enviada_em")
+  fechadoEm            DateTime?       @map("fechado_em")
+  rioGrupoNome         String          @default("") @map("rio_grupo_nome") @db.VarChar(200)
+  templateProgramacao  String          @default("") @map("template_programacao") @db.VarChar(200)
+  pedidoClienteId      String?         @map("pedido_cliente_id") @db.VarChar(64)
+  criadoPorEmail       String          @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome        String          @map("criado_por_nome") @db.VarChar(120)
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  @@index([estagio, updatedAt])
+  @@map("prospect")
+}
+
+enum PedidoClienteStatus {
+  rascunho
+  enviado
+  em_analise
+  importado
+  cancelado
+}
+
+/// Pedido Relacionamento → Financeiro (novo cliente + PDVs na Planilha Rio).
+model PedidoClientePdv {
+  id                    String              @id @default(cuid())
+  status                PedidoClienteStatus @default(rascunho)
+  chamadoId             String?             @map("chamado_id") @db.VarChar(64)
+  rioLinhaId            String?             @map("rio_linha_id") @db.VarChar(64)
+  importadoEm           DateTime?           @map("importado_em")
+  importadoPorEmail     String?             @map("importado_por_email") @db.VarChar(200)
+  prospectId            String?             @map("prospect_id") @db.VarChar(64)
+  nomeFantasia          String              @map("nome_fantasia") @db.VarChar(200)
+  razaoSocial           String              @default("") @map("razao_social") @db.Text
+  documento             String?             @db.VarChar(64)
+  emailCobranca         String              @default("") @map("email_cobranca") @db.VarChar(200)
+  origemCliente         String              @default("") @map("origem_cliente") @db.VarChar(10)
+  valorPdvUnitarioTexto String              @default("") @map("valor_pdv_unitario_texto") @db.VarChar(200)
+  numeroPdvSite         Int                 @default(1) @map("numero_pdv_site")
+  categoriaSite         String              @default("") @map("categoria_site") @db.VarChar(120)
+  observacoesCliente    String              @default("") @map("observacoes_cliente") @db.Text
+  rioGrupoId            String?             @map("rio_grupo_id") @db.VarChar(64)
+  grupoSite             String              @default("") @map("grupo_site") @db.VarChar(200)
+  pdvsJson              String              @default("[]") @map("pdvs_json") @db.Text
+  criadoPorEmail        String              @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome         String              @map("criado_por_nome") @db.VarChar(120)
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  @@index([status, updatedAt])
+  @@index([chamadoId])
+  @@map("pedido_cliente_pdv")
+}

@@ -11,7 +11,7 @@ const CONFIG_ICONS: Record<string, string> = {
   "/config/logs": "📋",
 };
 
-export type PortalModuleId = "dashboard" | "financeiro" | "cadastros" | "suporte" | "config";
+export type PortalModuleId = "dashboard" | "financeiro" | "cadastros" | "suporte" | "chamados" | "config";
 
 export type PortalSidebarItem = {
   href: string;
@@ -35,6 +35,7 @@ export const PORTAL_TOP_NAV: PortalTopNavItem[] = [
   { id: "financeiro", label: "Financeiro", icon: "💰", href: FINANCEIRO_HOME_HREF },
   { id: "cadastros", label: "Cadastros", icon: "📋", href: CADASTROS_HOME_HREF },
   { id: "suporte", label: "Suporte", icon: "🎧", href: "/suporte" },
+  { id: "chamados", label: "Chamados", icon: "🎫", href: "/chamados" },
   {
     id: "config",
     label: "Configuração",
@@ -73,6 +74,10 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
       { href: "/suporte/avisos-player", icon: "📢", label: "Avisos player" },
     ],
   },
+  chamados: {
+    section: "Chamados",
+    items: [{ href: "/chamados", icon: "🎫", label: "Quadro kanban" }],
+  },
   config: {
     section: "Configuração",
     items: CONFIG_NAV.map((x) => ({
@@ -88,6 +93,7 @@ export function resolvePortalModule(pathname: string): PortalModuleId {
   if (pathname.startsWith("/financeiro") || pathname.startsWith("/cobranca")) return "financeiro";
   if (pathname.startsWith("/cadastros")) return "cadastros";
   if (pathname.startsWith("/suporte") || pathname.startsWith("/producao/suporte")) return "suporte";
+  if (pathname.startsWith("/chamados")) return "chamados";
   if (pathname.startsWith("/config")) return "config";
   return "dashboard";
 }

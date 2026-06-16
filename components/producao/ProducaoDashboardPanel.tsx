@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChamadosDashboardWidget, useOpenChamadosCount } from "@/components/chamados/ChamadosDashboardWidget";
 import { ProducaoClienteDrawer } from "@/components/producao/ProducaoClienteDrawer";
 import type {
   DashboardClienteDetail,
@@ -134,6 +135,7 @@ function OverviewCard({
 }
 
 export function ProducaoDashboardPanel() {
+  const openChamadosCount = useOpenChamadosCount();
   const todayYm = useMemo(() => currentBrazilYearMonth(), []);
   const [months, setMonths] = useState<MonthMeta[]>([]);
   const vigenteYm = useMemo(
@@ -253,12 +255,15 @@ export function ProducaoDashboardPanel() {
         />
         <OverviewCard
           title="Chamados abertos"
-          value="—"
-          sub="Módulo em breve"
+          value={openChamadosCount == null ? "—" : String(openChamadosCount)}
+          sub={openChamadosCount === 0 ? "Nada pendente para você" : "Seus setores e responsabilidades"}
+          subTone={openChamadosCount != null && openChamadosCount > 0 ? "warn" : "muted"}
           icon="🎫"
           tone="orange"
         />
       </section>
+
+      <ChamadosDashboardWidget />
 
       <section className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

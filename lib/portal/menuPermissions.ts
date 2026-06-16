@@ -18,6 +18,8 @@ export const PORTAL_MENU_MODULES = [
     subs: [
       { id: "grupos", label: "Grupos & Clientes" },
       { id: "vinculos", label: "Lista vínculos" },
+      { id: "prospects", label: "Prospects" },
+      { id: "cliente-pdv-novo", label: "Cliente / PDV novo" },
     ],
   },
   {
@@ -97,7 +99,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     desc: "Cobrança e planilha Rio. Visualiza cadastros.",
     perm: {
       financeiro: "all",
-      cadastros: ["vinculos"],
+      cadastros: ["vinculos", "prospects", "cliente-pdv-novo"],
       config: ["logs"],
     },
     roles: ["cobranca"],
@@ -114,6 +116,18 @@ export const DEFAULT_PORTAL_PROFILES: Record<
       config: ["logs"],
     },
     roles: ["suporte", "producao"],
+  },
+  relacionamento: {
+    name: "Relacionamento",
+    icon: "🤝",
+    sortOrder: 6,
+    desc: "Prospects, pedidos de cliente novo e consulta operacional.",
+    perm: {
+      cadastros: ["prospects", "cliente-pdv-novo"],
+      producao: ["dashboard"],
+      financeiro: ["consulta-painel"],
+    },
+    roles: ["relacionamento"],
   },
   cliente: {
     name: "Cliente",
