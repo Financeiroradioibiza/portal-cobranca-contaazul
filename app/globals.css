@@ -184,8 +184,17 @@ body {
   background: var(--ri-chrome-bar);
   border-right: 1px solid var(--ri-chrome-border);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 10px 0 0;
+}
+
+.portal-sidebar-section {
+  flex: 1;
   overflow-y: auto;
-  padding: 10px 0;
+  min-height: 0;
 }
 
 .portal-sidebar-heading {
@@ -231,6 +240,92 @@ body {
   width: 14px;
   text-align: center;
   font-size: 11px;
+}
+
+.portal-sidebar-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--ri-chrome-border);
+  padding: 10px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.portal-sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 8px;
+  padding: 6px 4px;
+  transition: background 0.1s;
+}
+
+.portal-sidebar-user:hover {
+  background: var(--ri-chrome-bar-hover);
+}
+
+.portal-sidebar-user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, var(--ri-pink), var(--ri-orange));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.portal-sidebar-user-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.portal-sidebar-user-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ri-text-on-dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.portal-sidebar-user-email {
+  font-size: 9px;
+  color: var(--ri-text-on-dark-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.portal-sidebar-logout {
+  width: 100%;
+  border: 1px solid var(--ri-chrome-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ri-text-on-dark-2);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 7px 10px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.portal-sidebar-logout:hover:not(:disabled) {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #fda4af;
+}
+
+.portal-sidebar-logout:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .portal-main {
