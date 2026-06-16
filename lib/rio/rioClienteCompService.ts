@@ -24,6 +24,7 @@ import {
   sortRioCompGruposForDisplay,
 } from "@/lib/rio/sortRioCompLinhas";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
+import { normalizeRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import {
   mergeValorClienteFromContaAzul,
   valorClienteTextoFromPdvUnit,
@@ -966,6 +967,7 @@ export async function patchRioCompClienteLinha(
     valorClienteTexto: string;
     valorPdvUnitarioTexto: string;
     origemCliente: string;
+    tagCobranca: RioTagCobranca;
   }>,
 ) {
   const current = await prisma.rioCompClienteLinha.findUnique({
@@ -995,6 +997,10 @@ export async function patchRioCompClienteLinha(
 
   if (typeof payload.origemCliente === "string") {
     payload.origemCliente = normalizeRioOrigemCliente(payload.origemCliente);
+  }
+
+  if (payload.tagCobranca != null) {
+    payload.tagCobranca = normalizeRioTagCobranca(payload.tagCobranca);
   }
 
   await prisma.rioCompClienteLinha.update({
@@ -1341,12 +1347,26 @@ export async function createRioCompPdvsBulk(
 
 export async function patchRioCompPdv(
   pdvId: string,
-  data: Partial<{ nome: string; documento: string | null; notes: string; sortOrder: number }>,
+  data: Partial<{
+    nome: string;
+    documento: string | null;
+    notes: string;
+    sortOrder: number;
+    tagCobranca: RioTagCobranca;
+  }>,
 ) {
-  const patch: Partial<{ nome: string; documento: string | null; notes: string; sortOrder: number }> =
-    { ...data };
+  const patch: Partial<{
+    nome: string;
+    documento: string | null;
+    notes: string;
+    sortOrder: number;
+    tagCobranca: RioTagCobranca;
+  }> = { ...data };
   if ("documento" in data) {
     patch.documento = normalizeBrazilianTaxIdForStorage(data.documento);
+  }
+  if (patch.tagCobranca != null) {
+    patch.tagCobranca = normalizeRioTagCobranca(patch.tagCobranca);
   }
   await prisma.rioCompPdv.update({ where: { id: pdvId }, data: patch });
 }

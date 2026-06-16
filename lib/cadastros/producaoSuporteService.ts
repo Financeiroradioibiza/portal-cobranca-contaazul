@@ -84,8 +84,10 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
       rows.push({
         rioPdvKey: pdv.rioPdvKey,
         nome: pdv.nome,
+        tagCobranca: pdv.tagCobranca,
         cnpj: pdv.cnpj,
         clienteNome: cliente.nome,
+        clienteTagCobranca: cliente.tagCobranca,
         clienteKey: cliente.key,
         painelPdvId: link?.painelPdvId ?? null,
         painelClienteId: link?.painelClienteId ?? null,

@@ -23,8 +23,10 @@ export type DashboardPdvTelemetry = {
 export type DashboardPdvRow = {
   rioPdvKey: string;
   nome: string;
+  tagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
   rioLinhaId: string;
   rioLinhaNome: string;
+  rioLinhaTagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
   programacaoMusical: string;
   statusPlayer: "Ativo" | "Inativo";
   controlarPlayer: boolean;
@@ -54,6 +56,7 @@ export type DashboardClienteDetail = {
 export type DashboardClienteRow = {
   key: string;
   nome: string;
+  tagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
   rioLinhaId: string;
   isCustom: boolean;
   pdvCount: number;
@@ -176,7 +179,16 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
       documento: ln.documento,
       movimento: ln.movimento,
       numeroPdvSite: ln.numeroPdvSite,
-      pdvs: ln.pdvs.filter((p) => p.movimento !== "saida"),
+      tagCobranca: ln.tagCobranca,
+      pdvs: ln.pdvs
+        .filter((p) => p.movimento !== "saida")
+        .map((p) => ({
+          id: p.id,
+          nome: p.nome,
+          documento: p.documento,
+          movimento: p.movimento,
+          tagCobranca: p.tagCobranca,
+        })),
     }));
 
   const linhaMeta = new Map(
@@ -253,8 +265,10 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
       return {
         rioPdvKey: p.rioPdvId,
         nome: cad?.nome?.trim() || p.nome,
+        tagCobranca: p.tagCobranca ?? "cobrando",
         rioLinhaId: p.rioLinhaId,
         rioLinhaNome: p.rioLinhaNome,
+        rioLinhaTagCobranca: c.tagCobranca ?? "cobrando",
         programacaoMusical,
         statusPlayer,
         controlarPlayer,
@@ -288,6 +302,7 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
     return {
       key: c.key,
       nome: c.nome,
+      tagCobranca: c.tagCobranca ?? "cobrando",
       rioLinhaId: c.rioLinhaId,
       isCustom: Boolean(c.isCustom),
       pdvCount: pdvs.length,

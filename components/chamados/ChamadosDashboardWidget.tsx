@@ -24,7 +24,7 @@ function parseChamados(data: unknown): ChamadoView[] {
   return rows as ChamadoView[];
 }
 
-export function ChamadosDashboardWidget() {
+export function useMyOpenChamados(limit?: number) {
   const [items, setItems] = useState<ChamadoView[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,7 +33,7 @@ export function ChamadosDashboardWidget() {
     try {
       const res = await fetch("/api/chamados?scope=mine", { credentials: "same-origin" });
       const data = res.ok ? await res.json() : null;
-      setItems(parseChamados(data).slice(0, 6));
+      setItems(parseChamados(data));
     } catch {
       setItems([]);
     } finally {
@@ -45,7 +45,12 @@ export function ChamadosDashboardWidget() {
     void load();
   }, [load]);
 
-  const count = items.length;
+  const visible = limit != null ? items.slice(0, limit) : items;
+  return { items: visible, allItems: items, loading, count: items.length, reload: load };
+}
+
+export function ChamadosDashboardWidget() {
+  const { items, loading, count } = useMyOpenChamados(6);
 
   return (
     <section className="mb-4 overflow-hidden rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 via-white to-amber-50 shadow-sm dark:border-orange-900/40 dark:from-orange-950/30 dark:via-slate-900 dark:to-amber-950/20">
@@ -125,22 +130,7 @@ export function ChamadosDashboardWidget() {
 }
 
 export function useOpenChamadosCount(): number | null {
-  const [count, setCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/chamados?scope=mine", { credentials: "same-origin" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled) setCount(parseChamados(data).length);
-      })
-      .catch(() => {
-        if (!cancelled) setCount(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  const { count, loading } = useMyOpenChamados();
+  if (loading) return null;
   return count;
 }

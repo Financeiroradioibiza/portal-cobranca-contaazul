@@ -216,6 +216,12 @@ enum RioPdvMovimento {
   saida
 }
 
+enum RioTagCobranca {
+  cobrando
+  cancelado
+  bloqueio_financeiro
+}
+
 model RioCompMonth {
   id           String    @id @default(cuid())
   yearMonth    Int       @unique @map("year_month")
@@ -284,6 +290,7 @@ model RioCompClienteLinha {
   contratosAtivosTexto String @default("") @map("contratos_ativos_texto") @db.VarChar(400)
 
   movimento RioClienteCompMovimento @default(estavel)
+  tagCobranca RioTagCobranca @default(cobrando) @map("tag_cobranca")
 
   observacoesLinha String @default("") @map("observacoes_linha") @db.Text
   sortOrder        Int                   @default(0) @map("sort_order")
@@ -306,6 +313,7 @@ model RioCompPdv {
   notes     String @default("") @db.Text
   sortOrder Int    @default(0) @map("sort_order")
   movimento RioPdvMovimento @default(estavel)
+  tagCobranca RioTagCobranca @default(cobrando) @map("tag_cobranca")
 
   createdAt DateTime @default(now()) @map("created_at")
 

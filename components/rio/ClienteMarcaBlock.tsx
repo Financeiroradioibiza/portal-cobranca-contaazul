@@ -31,6 +31,9 @@ import {
   downloadRioClientePdvsExcel,
   printRioClientePdvsPdf,
 } from "@/lib/rio/rioPlanilhaExport";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import { rioTagCobrancaSuffix, rioTagCobrancaRowBgClass, rioTagCobrancaTextClass } from "@/lib/rio/rioTagCobranca";
+import { RioTagCobrancaNome, RioTagCobrancaSelect } from "@/components/rio/RioTagCobrancaNome";
 import {
   DndContext,
   type DragEndEvent,
@@ -58,6 +61,7 @@ export type RioPdvCb = {
   notes: string;
   sortOrder: number;
   movimento?: "estavel" | "entrada" | "saida";
+  tagCobranca?: RioTagCobranca;
 };
 
 export type RioGrupoCb = {
@@ -84,6 +88,7 @@ export type RioLinhaCb = {
   categoriaSite: string;
   contratosAtivosTexto: string;
   movimento: MovRioCb;
+  tagCobranca?: RioTagCobranca;
   observacoesLinha: string;
   sortOrder: number;
   pdvs: RioPdvCb[];
@@ -191,6 +196,8 @@ function SortClientRow(props: {
     r.pdvs.filter((p) => (p.movimento ?? "estavel") !== "saida"),
   );
   const temPdvs = r.pdvs.length > 0;
+  const linhaTag = r.tagCobranca ?? "cobrando";
+  const linhaTagClass = rioTagCobrancaTextClass(linhaTag);
 
   return (
     <>
@@ -200,6 +207,7 @@ function SortClientRow(props: {
         style={sty}
         className={
           "h-[2rem] border-b align-middle " +
+          (linhaTagClass ? linhaTagClass + " " : "") +
           (temPdvs ?
             "border-emerald-200/70 bg-emerald-50/90 dark:border-emerald-900/55 dark:bg-emerald-950/80"
           : "border-slate-100 bg-white dark:border-slate-900 dark:bg-slate-950")
@@ -278,7 +286,15 @@ function SortClientRow(props: {
                 title={r.nomeFantasia + (rioOrigemClienteSuffix(origem) ? ` ${rioOrigemClienteSuffix(origem)}` : "")}
                 onClick={onExpand}
               >
-                <ClienteNomeComOrigem nome={r.nomeFantasia} origem={origem} />
+                <span className="inline max-w-full truncate">
+                  <RioTagCobrancaNome nome={r.nomeFantasia} tag={linhaTag} />
+                  {rioOrigemClienteSuffix(origem) ?
+                    <span className="font-bold text-red-600 dark:text-red-500">
+                      {" "}
+                      {rioOrigemClienteSuffix(origem)}
+                    </span>
+                  : null}
+                </span>
               </button>
               <CopyTextButton
                 size="compact"
@@ -494,6 +510,13 @@ function SortClientRow(props: {
                     : "sem etiqueta"}
                   </span>
                 </label>
+                <label className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium text-amber-950 dark:text-amber-200">
+                  <span className="shrink-0 font-bold uppercase">Cliente:</span>
+                  <RioTagCobrancaSelect
+                    value={linhaTag}
+                    onChange={(tagCobranca) => void props.patchLinha(r.id, { tagCobranca })}
+                  />
+                </label>
               </div>
             <ul className="mb-2 max-w-[58rem] space-y-1">
               {pdvsSorted.length > 0 ?
@@ -501,6 +524,7 @@ function SortClientRow(props: {
                   <span className="w-6 shrink-0 text-right">#</span>
                   <span className="min-w-[12rem] flex-1">PDV</span>
                   <span className="w-[11rem] shrink-0">CNPJ do PDV</span>
+                  <span className="w-[9.5rem] shrink-0">Status</span>
                   <span className="w-[3.5rem] shrink-0" />
                 </li>
               : null}
@@ -592,22 +616,41 @@ function SortClientRow(props: {
 function PdvMini(props: {
   indexVis: number;
   p: RioPdvCb;
-  patchPdv: (pdvId: string, patch: { nome?: string; documento?: string | null }) => void;
+  patchPdv: (pdvId: string, patch: { nome?: string; documento?: string | null; tagCobranca?: RioTagCobranca }) => void;
   del: (pdvId: string) => void;
 }) {
   const { indexVis } = props;
   const docDisplay = displayBrazilianTaxId(props.p.documento);
+  const pdvTag = props.p.tagCobranca ?? "cobrando";
+  const tagClass = rioTagCobrancaTextClass(pdvTag);
+  const rowBg = rioTagCobrancaRowBgClass(pdvTag);
   return (
-    <li className="flex flex-nowrap items-center gap-2 rounded-md border border-amber-900/45 bg-amber-100/80 px-2 py-0.5 text-[11px] dark:bg-amber-950/72 dark:border-amber-800/61">
-      <span className="w-6 shrink-0 text-right font-bold tabular-nums text-amber-950 dark:text-amber-100">{indexVis}</span>
-      <input
-        className="min-w-[12rem] flex-1 rounded border border-transparent bg-transparent px-1 py-0 text-[11px] hover:border-amber-800/52 dark:hover:border-amber-600"
-        defaultValue={props.p.nome}
-        onBlur={(ev) => {
-          const nome = ev.target.value.trim();
-          if (nome !== props.p.nome) void props.patchPdv(props.p.id, { nome });
-        }}
-      />
+    <li
+      className={
+        "flex flex-nowrap items-center gap-2 rounded-md border px-2 py-0.5 text-[11px] " +
+        (rowBg || "border-amber-900/45 bg-amber-100/80 dark:bg-amber-950/72 dark:border-amber-800/61") +
+        (tagClass ? " " + tagClass : "")
+      }
+    >
+      <span className={"w-6 shrink-0 text-right font-bold tabular-nums " + (tagClass || "")}>{indexVis}</span>
+      <div className="min-w-[12rem] flex-1">
+        <input
+          className={
+            "w-full rounded border border-transparent bg-transparent px-1 py-0 text-[11px] hover:border-amber-800/52 dark:hover:border-amber-600 " +
+            (tagClass || "")
+          }
+          defaultValue={props.p.nome}
+          onBlur={(ev) => {
+            const nome = ev.target.value.trim();
+            if (nome !== props.p.nome) void props.patchPdv(props.p.id, { nome });
+          }}
+        />
+        {rioTagCobrancaSuffix(pdvTag) ?
+          <span className={"ml-1 text-[10px] font-bold " + (tagClass || "")}>
+            {rioTagCobrancaSuffix(pdvTag)}
+          </span>
+        : null}
+      </div>
       <input
         key={`${props.p.id}-doc-${props.p.documento ?? ""}`}
         className="w-[11rem] shrink-0 rounded border border-transparent bg-transparent px-1 py-0 font-mono text-[10px] hover:border-amber-800/52 dark:hover:border-amber-600"
@@ -619,6 +662,11 @@ function PdvMini(props: {
           const prev = props.p.documento?.trim() || null;
           if (next !== prev) void props.patchPdv(props.p.id, { documento: next });
         }}
+      />
+      <RioTagCobrancaSelect
+        className="w-[9.5rem] shrink-0"
+        value={pdvTag}
+        onChange={(tagCobranca) => void props.patchPdv(props.p.id, { tagCobranca })}
       />
       <button type="button" className="w-[3.5rem] shrink-0 text-right text-rose-600 underline" onClick={() => void props.del(props.p.id)}>
         remover

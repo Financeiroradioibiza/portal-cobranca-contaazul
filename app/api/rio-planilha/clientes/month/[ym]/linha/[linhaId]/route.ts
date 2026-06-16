@@ -6,6 +6,7 @@ import {
 } from "@/lib/rio/rioClienteCompService";
 import { normalizeBrazilianTaxIdForStorage } from "@/lib/format";
 import { normalizeRioOrigemCliente } from "@/lib/rio/rioOrigemCliente";
+import { normalizeRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
 
@@ -49,10 +50,14 @@ export async function PATCH(request: Request, context: Ctx) {
     valorClienteTexto: string;
     valorPdvUnitarioTexto: string;
     origemCliente: string;
+    tagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
   }> = {};
 
   if ("origemCliente" in body) {
     patch.origemCliente = normalizeRioOrigemCliente(body.origemCliente);
+  }
+  if ("tagCobranca" in body) {
+    patch.tagCobranca = normalizeRioTagCobranca(body.tagCobranca);
   }
 
   if (typeof body.nomeFantasia === "string") {

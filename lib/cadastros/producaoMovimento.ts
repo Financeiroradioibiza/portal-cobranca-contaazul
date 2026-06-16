@@ -153,7 +153,16 @@ export async function loadRioLinhasForProducao(yearMonth: number): Promise<RioLi
       documento: ln.documento,
       movimento: ln.movimento,
       numeroPdvSite: ln.numeroPdvSite,
-      pdvs: ln.pdvs.filter((p) => p.movimento !== "saida"),
+      pdvs: ln.pdvs
+        .filter((p) => p.movimento !== "saida")
+        .map((p) => ({
+          id: p.id,
+          nome: p.nome,
+          documento: p.documento,
+          movimento: p.movimento,
+          tagCobranca: p.tagCobranca,
+        })),
+      tagCobranca: ln.tagCobranca,
     }));
 }
 

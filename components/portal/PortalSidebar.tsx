@@ -8,6 +8,7 @@ import {
   isSidebarActive,
   resolvePortalModule,
 } from "@/lib/portal/portalNav";
+import { PortalSidebarChamados } from "@/components/portal/PortalSidebarChamados";
 
 function userInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -87,6 +88,8 @@ export function PortalSidebar() {
           );
         })}
       </div>
+
+      <PortalSidebarChamados />
 
       {session ?
         <div className="portal-sidebar-footer">

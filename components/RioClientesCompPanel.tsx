@@ -1066,7 +1066,10 @@ export function RioClientesCompPanel() {
   );
 
   const patchPdv = useCallback(
-    async (pdvId: string, patch: { nome?: string; documento?: string | null }) => {
+    async (
+      pdvId: string,
+      patch: { nome?: string; documento?: string | null; tagCobranca?: import("@/lib/rio/rioTagCobranca").RioTagCobranca },
+    ) => {
       const res = await fetch(`/api/rio-planilha/clientes/pdv/${pdvId}`, {
         method: "PATCH",
         credentials: "include",
@@ -1085,6 +1088,7 @@ export function RioClientesCompPanel() {
                   ...p,
                   nome: data.pdv!.nome,
                   documento: data.pdv!.documento ?? null,
+                  tagCobranca: data.pdv!.tagCobranca ?? p.tagCobranca,
                 }
               : p,
             ),

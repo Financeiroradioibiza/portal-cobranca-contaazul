@@ -1,4 +1,5 @@
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
 
@@ -28,6 +29,7 @@ export type ProducaoPdvRef = {
   /** Cliente Rio sem PDVs filhos — o próprio cliente vira um PDV na produção. */
   isLinhaProxy?: boolean;
   movimento?: string;
+  tagCobranca?: RioTagCobranca;
 };
 
 export type ProducaoClienteBucket = {
@@ -39,6 +41,7 @@ export type ProducaoClienteBucket = {
   pdvCount: number;
   /** Grupo criado manualmente na produção (não veio da Rio). */
   isCustom?: boolean;
+  tagCobranca?: RioTagCobranca;
 };
 
 export type RioLinhaForProducao = {
@@ -48,6 +51,7 @@ export type RioLinhaForProducao = {
   razaoSocial?: string;
   documento?: string | null;
   movimento?: string;
+  tagCobranca?: RioTagCobranca;
   /** Coluna Nº PDV da Planilha Rio (cobrança) — pode ser maior que pdvs.length. */
   numeroPdvSite?: number;
   pdvs: Array<{
@@ -55,6 +59,7 @@ export type RioLinhaForProducao = {
     nome: string;
     documento: string | null;
     movimento: string;
+    tagCobranca?: RioTagCobranca;
   }>;
 };
 
@@ -147,6 +152,7 @@ export function buildProducaoClientes(
 
   for (const ln of sorted) {
     const nomeCliente = ln.nomeFantasia.trim() || "Sem nome";
+    const linhaTag = ln.tagCobranca ?? "cobrando";
     const activePdvs = sortRioPdvsByNome(ln.pdvs.filter((p) => p.movimento !== "saida"));
     const pdvs: ProducaoPdvRef[] = [];
 
@@ -161,6 +167,7 @@ export function buildProducaoClientes(
         painelLink: linkByRioPdvId.get(proxyId) ?? null,
         isLinhaProxy: true,
         movimento: ln.movimento ?? "estavel",
+        tagCobranca: linhaTag,
       });
     } else {
       for (const p of activePdvs) {
@@ -172,6 +179,7 @@ export function buildProducaoClientes(
           rioLinhaNome: nomeCliente,
           painelLink: linkByRioPdvId.get(p.id) ?? null,
           movimento: p.movimento,
+          tagCobranca: p.tagCobranca ?? linhaTag,
         });
       }
     }
@@ -183,6 +191,7 @@ export function buildProducaoClientes(
       documento: ln.documento ?? null,
       pdvs,
       pdvCount: pdvs.length,
+      tagCobranca: linhaTag,
     });
   }
 

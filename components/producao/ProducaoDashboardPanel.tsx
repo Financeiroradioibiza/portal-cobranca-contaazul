@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChamadosDashboardWidget, useOpenChamadosCount } from "@/components/chamados/ChamadosDashboardWidget";
 import { ProducaoClienteDrawer } from "@/components/producao/ProducaoClienteDrawer";
+import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
 import type {
   DashboardClienteDetail,
   DashboardClienteRow,
@@ -401,7 +402,7 @@ function ClienteBlock({
           className="min-w-0 flex-1 text-left text-sm font-bold text-slate-900 hover:text-fuchsia-800 dark:text-white dark:hover:text-fuchsia-300"
           onClick={onOpenDetail}
         >
-          {cliente.nome}
+          <RioTagCobrancaNome nome={cliente.nome} tag={cliente.tagCobranca} />
           {cliente.isCustom ?
             <span className="ms-1 text-[10px] font-normal text-violet-600">· manual</span>
           : null}
@@ -447,7 +448,7 @@ function ClienteBlock({
               className="mb-1 grid gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-900 lg:grid-cols-[1fr_100px_120px_90px_100px_100px] lg:items-center"
             >
               <div className="min-w-0">
-                <span className="font-semibold text-slate-800 dark:text-slate-100">{p.nome}</span>
+                <RioTagCobrancaNome nome={p.nome} tag={p.tagCobranca} className="font-semibold" />
                 {p.rioLinhaNome !== cliente.nome ?
                   <span className="ms-1 text-[10px] text-slate-400">· {p.rioLinhaNome}</span>
                 : null}

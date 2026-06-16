@@ -14,6 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { CadastrosMovimentoBanner } from "@/components/cadastros/CadastrosMovimentoBanner";
 import { PdvCadastroDrawer } from "@/components/cadastros/PdvCadastroDrawer";
+import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
 import {
   buildProducaoTree,
   extractRioTreeMovimentos,
@@ -132,7 +133,11 @@ function DraggableProdPdv({
         </>
       : <span className="w-4 text-slate-300">📻</span>}
       <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
-        <span className="font-medium text-slate-800 dark:text-slate-100">{pdv.nome}</span>
+        <RioTagCobrancaNome
+          nome={pdv.nome}
+          tag={pdv.tagCobranca}
+          className="font-medium"
+        />
         {pdv.isLinhaProxy ?
           <span className="ml-1 text-[10px] text-amber-600">· cliente = PDV</span>
         : null}
@@ -421,6 +426,7 @@ export function CadastrosGruposPanel() {
         documento: ln.documento,
         movimento: ln.movimento,
         numeroPdvSite: (ln as { numeroPdvSite?: number }).numeroPdvSite ?? 0,
+        tagCobranca: (ln as { tagCobranca?: import("@/lib/rio/rioTagCobranca").RioTagCobranca }).tagCobranca,
         pdvs: ln.pdvs,
       }));
       setLinhasRio(linhasForProd);
@@ -1171,8 +1177,8 @@ export function CadastrosGruposPanel() {
                               value={c.nome}
                               onChange={(e) => renameCliente(c.key, e.target.value)}
                             />
-                          : <span className="flex-1 text-sm font-bold text-slate-900 dark:text-white">
-                              {c.nome}
+                          : <span className="flex-1 text-sm font-bold">
+                              <RioTagCobrancaNome nome={c.nome} tag={c.tagCobranca} />
                             </span>
                           }
                           {isEmpty ?

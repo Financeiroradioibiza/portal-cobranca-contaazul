@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CopyTextButton } from "@/components/CopyTextButton";
+import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
 import { matchesSuporteSearch } from "@/lib/cadastros/producaoSuporteSearch";
 import type {
   ProducaoSuportePayload,
@@ -25,6 +26,7 @@ type ViewMode = "pdv" | "cliente";
 type SuporteClienteOption = {
   key: string;
   nome: string;
+  tagCobranca: SuportePdvRow["tagCobranca"];
   painelClienteId: number | null;
   pdvCount: number;
   semPingCount: number;
@@ -47,6 +49,7 @@ function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
       opt = {
         key: row.clienteKey,
         nome: row.clienteNome,
+        tagCobranca: row.clienteTagCobranca,
         painelClienteId: row.painelClienteId,
         pdvCount: 0,
         semPingCount: 0,
@@ -173,7 +176,7 @@ function SuporteClientePickerDialog({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                    {c.nome}
+                    <RioTagCobrancaNome nome={c.nome} tag={c.tagCobranca} />
                   </span>
                   <span className="text-[10px] text-slate-500">
                     {c.pdvCount} PDV{c.pdvCount === 1 ? "" : "s"}
@@ -217,7 +220,9 @@ function ClienteFocusHeader({
         variant="cliente"
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-base font-bold text-slate-900 dark:text-white">{cliente.nome}</p>
+        <p className="truncate text-base font-bold">
+          <RioTagCobrancaNome nome={cliente.nome} tag={cliente.tagCobranca} />
+        </p>
         <p className="text-[11px] text-slate-500">
           {pdvCount} PDV{pdvCount === 1 ? "" : "s"} nesta competência
           {semPingCount > 0 ?
@@ -510,7 +515,7 @@ function PdvRow({
       </td>
       <td className="min-w-[9rem] max-w-[14rem] px-2 py-2 align-top">
         <div className="font-semibold text-slate-800 dark:text-slate-100">
-          <CopyableCell text={row.nome} label="Copiar nome do PDV" />
+          <RioTagCobrancaNome nome={row.nome} tag={row.tagCobranca} />
         </div>
         {row.semPing5Dias ?
           <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">
@@ -535,7 +540,7 @@ function PdvRow({
             />
           </td>
           <td className="min-w-[8rem] max-w-[12rem] px-2 py-2 align-top">
-            <CopyableCell text={row.clienteNome} label="Copiar nome do cliente" />
+            <RioTagCobrancaNome nome={row.clienteNome} tag={row.clienteTagCobranca} />
           </td>
         </>
       : null}

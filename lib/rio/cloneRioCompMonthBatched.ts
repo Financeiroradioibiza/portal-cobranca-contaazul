@@ -151,6 +151,7 @@ export async function cloneDonorLinhasBatch(
         contratosAtivosTexto: l.contratosAtivosTexto,
         movimento: "estavel",
         observacoesLinha: l.observacoesLinha,
+        tagCobranca: l.tagCobranca,
         sortOrder: off + i,
       },
     });
@@ -163,6 +164,7 @@ export async function cloneDonorLinhasBatch(
           notes: p.notes,
           sortOrder: pi,
           movimento: "estavel" as const,
+          tagCobranca: p.tagCobranca,
         })),
       });
     }

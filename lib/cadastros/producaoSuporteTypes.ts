@@ -3,8 +3,10 @@ import type { DashboardPdvTelemetry } from "@/lib/cadastros/producaoDashboardSer
 export type SuportePdvRow = {
   rioPdvKey: string;
   nome: string;
+  tagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
   cnpj: string;
   clienteNome: string;
+  clienteTagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
   clienteKey: string;
   /** ID no painel legado (vínculo cadastro), se existir. */
   painelPdvId: number | null;
