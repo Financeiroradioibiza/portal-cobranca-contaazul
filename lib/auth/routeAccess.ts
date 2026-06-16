@@ -74,7 +74,8 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
     pathname.startsWith("/api/manual-envios") ||
     pathname.startsWith("/api/clients") ||
     pathname.startsWith("/api/rio-planilha") ||
-    pathname.startsWith("/api/contaazul")
+    pathname.startsWith("/api/contaazul") ||
+    pathname.startsWith("/api/financeiro")
   ) {
     return { kind: "roles", roles: FINANCEIRO };
   }
@@ -85,6 +86,7 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
     }
     if (
       pathname.startsWith("/cadastros/prospects") ||
+      pathname.startsWith("/cadastros/solicitar-pdv") ||
       pathname.startsWith("/cadastros/cliente-pdv-novo")
     ) {
       return { kind: "roles", roles: CADASTROS_RELACIONAMENTO };

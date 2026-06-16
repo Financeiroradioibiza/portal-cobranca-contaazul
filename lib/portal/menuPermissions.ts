@@ -5,6 +5,7 @@ export const PORTAL_MENU_MODULES = [
     icon: "💰",
     label: "Financeiro",
     subs: [
+      { id: "visao-geral", label: "Visão geral" },
       { id: "planilha-rio", label: "Planilha Rio" },
       { id: "vencidos", label: "Vencidos" },
       { id: "envios-oc", label: "Envios OC" },
@@ -19,7 +20,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "grupos", label: "Grupos & Clientes" },
       { id: "vinculos", label: "Lista vínculos" },
       { id: "prospects", label: "Prospects" },
-      { id: "cliente-pdv-novo", label: "Cliente / PDV novo" },
+      { id: "solicitar-pdv", label: "Solicitar PDV" },
     ],
   },
   {
@@ -99,7 +100,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     desc: "Cobrança e planilha Rio. Visualiza cadastros.",
     perm: {
       financeiro: "all",
-      cadastros: ["vinculos", "prospects", "cliente-pdv-novo"],
+      cadastros: ["vinculos", "prospects", "solicitar-pdv"],
       config: ["logs"],
     },
     roles: ["cobranca"],
@@ -123,7 +124,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     sortOrder: 6,
     desc: "Prospects, pedidos de cliente novo e consulta operacional.",
     perm: {
-      cadastros: ["prospects", "cliente-pdv-novo"],
+      cadastros: ["prospects", "solicitar-pdv"],
       producao: ["dashboard"],
       financeiro: ["consulta-painel"],
     },

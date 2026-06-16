@@ -181,35 +181,24 @@ export async function updateProspect(
 
 export function prospectToPedidoPrefill(p: ProspectView): {
   nomeFantasia: string;
+  clienteNome: string;
   razaoSocial: string;
-  numeroPdvSite: number;
-  valorPdvUnitarioTexto: string;
-  observacoesCliente: string;
+  cidade: string;
+  uf: string;
+  contatoLojaNome: string;
+  contatoLojaWhatsapp: string;
+  contatoLojaEmail: string;
   prospectId: string;
-  pdvs: Array<{ nome: string; cidade: string; estado: string; unidades: number }>;
 } {
-  const valorUnit =
-    p.valorCentavos > 0 && p.unidades > 0 ?
-      (p.valorCentavos / 100 / p.unidades).toFixed(2).replace(".", ",")
-    : "";
   return {
     nomeFantasia: p.nome,
+    clienteNome: p.nome,
     razaoSocial: p.nome,
-    numeroPdvSite: p.unidades,
-    valorPdvUnitarioTexto: valorUnit ? `R$ ${valorUnit}` : "",
-    observacoesCliente: [
-      p.observacoes,
-      p.origem ? `Origem: ${p.origem}` : "",
-      p.contatoNome ? `Contato: ${p.contatoNome} ${p.contatoEmail} ${p.contatoTelefone}`.trim() : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    cidade: p.cidade,
+    uf: p.estado,
+    contatoLojaNome: p.contatoNome,
+    contatoLojaWhatsapp: p.contatoTelefone,
+    contatoLojaEmail: p.contatoEmail,
     prospectId: p.id,
-    pdvs: Array.from({ length: Math.max(1, p.unidades) }, (_, i) => ({
-      nome: p.unidades > 1 ? `${p.nome} — unidade ${i + 1}` : p.nome,
-      cidade: p.cidade,
-      estado: p.estado,
-      unidades: 1,
-    })),
   };
 }

@@ -6,7 +6,7 @@ import {
   enviarPedidoCliente,
   getPedidoCliente,
   importPedidoToRio,
-  parsePdvsArray,
+  parsePedidoBody,
   updatePedidoCliente,
 } from "@/lib/cadastros/pedidoClienteService";
 
@@ -30,29 +30,14 @@ export async function PATCH(request: Request, ctx: Ctx) {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json()) as Record<string, unknown>;
-
-    const pedido = await updatePedidoCliente(id, {
-      nomeFantasia: typeof body.nomeFantasia === "string" ? body.nomeFantasia : undefined,
-      razaoSocial: typeof body.razaoSocial === "string" ? body.razaoSocial : undefined,
-      documento: typeof body.documento === "string" ? body.documento : undefined,
-      emailCobranca: typeof body.emailCobranca === "string" ? body.emailCobranca : undefined,
-      origemCliente: typeof body.origemCliente === "string" ? body.origemCliente : undefined,
-      valorPdvUnitarioTexto:
-        typeof body.valorPdvUnitarioTexto === "string" ? body.valorPdvUnitarioTexto : undefined,
-      numeroPdvSite: typeof body.numeroPdvSite === "number" ? body.numeroPdvSite : undefined,
-      categoriaSite: typeof body.categoriaSite === "string" ? body.categoriaSite : undefined,
-      observacoesCliente: typeof body.observacoesCliente === "string" ? body.observacoesCliente : undefined,
-      rioGrupoId: body.rioGrupoId === null ? null : typeof body.rioGrupoId === "string" ? body.rioGrupoId : undefined,
-      grupoSite: typeof body.grupoSite === "string" ? body.grupoSite : undefined,
-      pdvs: body.pdvs !== undefined ? parsePdvsArray(body.pdvs) : undefined,
-      prospectId: body.prospectId === null ? null : typeof body.prospectId === "string" ? body.prospectId : undefined,
-    });
+    const pedido = await updatePedidoCliente(id, parsePedidoBody(body));
     return NextResponse.json({ ok: true, pedido });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "not_found") return NextResponse.json({ error: msg }, { status: 404 });
     if (msg === "pedido_importado") return NextResponse.json({ error: msg }, { status: 409 });
+    if (msg === "nome_obrigatorio") return NextResponse.json({ error: msg }, { status: 400 });
     console.error("[pedidos-cliente PATCH]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
@@ -86,6 +71,10 @@ export async function POST(request: Request, ctx: Ctx) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "not_found") return NextResponse.json({ error: msg }, { status: 404 });
+    if (msg === "cliente_rio_nao_encontrado") {
+      return NextResponse.json({ error: msg }, { status: 409 });
+    }
+    if (msg === "cliente_obrigatorio") return NextResponse.json({ error: msg }, { status: 400 });
     if (msg === "rio_month_not_found") return NextResponse.json({ error: msg }, { status: 409 });
     console.error("[pedidos-cliente POST action]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });

@@ -154,10 +154,10 @@ export function ProspectsBoard() {
           💡
         </span>
         <strong>Dica:</strong> ao fechar um prospect, use{" "}
-        <Link href="/cadastros/cliente-pdv-novo" className="font-semibold text-fuchsia-700 underline dark:text-fuchsia-300">
-          Cliente / PDV novo
+        <Link href="/cadastros/solicitar-pdv" className="font-semibold text-fuchsia-700 underline dark:text-fuchsia-300">
+          Solicitar PDV
         </Link>{" "}
-        para enviar os dados ao financeiro. O pedido gera um chamado e o financeiro importa na Planilha Rio.
+        para enviar os dados ao financeiro. O pedido gera um chamado e o financeiro importa o PDV na Planilha Rio (cliente já cadastrado).
       </div>
 
       {creating ?
@@ -293,7 +293,7 @@ function ProspectDetailModal({
   onClose: () => void;
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
-  const pedidoHref = `/cadastros/cliente-pdv-novo?prospectId=${encodeURIComponent(prospect.id)}`;
+  const pedidoHref = `/cadastros/solicitar-pdv?prospectId=${encodeURIComponent(prospect.id)}`;
 
   return (
     <ModalShell title={prospect.nome} onClose={onClose}>
@@ -360,15 +360,15 @@ function ProspectDetailModal({
       {prospect.pedidoClienteId ?
         <p className="mt-4 text-sm text-emerald-700">
           Pedido vinculado:{" "}
-          <Link href={`/cadastros/cliente-pdv-novo?id=${prospect.pedidoClienteId}`} className="underline">
-            abrir pedido
+          <Link href={`/cadastros/solicitar-pdv?id=${prospect.pedidoClienteId}`} className="underline">
+            abrir solicitação
           </Link>
         </p>
       : <Link
           href={pedidoHref}
           className="mt-4 inline-flex rounded-full bg-fuchsia-600 px-4 py-2 text-sm font-bold text-white"
         >
-          Criar pedido Cliente / PDV →
+          Criar solicitação PDV →
         </Link>
       }
 

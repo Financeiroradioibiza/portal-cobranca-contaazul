@@ -28,68 +28,43 @@ export type ProspectView = {
   updatedAt: string;
 };
 
-export type PedidoPdvPayload = {
-  nome: string;
-  documento: string;
+export type PedidoPdvView = {
+  id: string;
+  status: PedidoClienteStatus;
+  chamadoId: string | null;
+  rioLinhaId: string | null;
+  rioPdvId: string | null;
+  importadoEm: string | null;
+  importadoPorEmail: string | null;
+  prospectId: string | null;
+  nomeFantasia: string;
+  clienteNome: string;
+  razaoSocial: string;
+  documento: string | null;
   cep: string;
   endereco: string;
   numero: string;
   complemento: string;
   bairro: string;
   cidade: string;
-  estado: string;
-  programacaoMusical: string;
+  uf: string;
   contatoLojaNome: string;
+  contatoLojaWhatsapp: string;
   contatoLojaEmail: string;
-  contatoLojaTelefone: string;
   contatoCobrancaNome: string;
   contatoCobrancaEmail: string;
-  contatoCobrancaTelefone: string;
-  observacoes: string;
-};
-
-export type PedidoClienteView = {
-  id: string;
-  status: PedidoClienteStatus;
-  chamadoId: string | null;
-  rioLinhaId: string | null;
-  importadoEm: string | null;
-  importadoPorEmail: string | null;
-  prospectId: string | null;
-  nomeFantasia: string;
-  razaoSocial: string;
-  documento: string | null;
-  emailCobranca: string;
-  origemCliente: string;
-  valorPdvUnitarioTexto: string;
-  numeroPdvSite: number;
-  categoriaSite: string;
-  observacoesCliente: string;
-  rioGrupoId: string | null;
-  grupoSite: string;
-  pdvs: PedidoPdvPayload[];
+  contatoCobrancaTel: string;
   criadoPorEmail: string;
   criadoPorNome: string;
   createdAt: string;
   updatedAt: string;
 };
 
-export const EMPTY_PDVS: PedidoPdvPayload = {
-  nome: "",
-  documento: "",
-  cep: "",
-  endereco: "",
-  numero: "",
-  complemento: "",
-  bairro: "",
-  cidade: "",
-  estado: "",
-  programacaoMusical: "",
-  contatoLojaNome: "",
-  contatoLojaEmail: "",
-  contatoLojaTelefone: "",
-  contatoCobrancaNome: "",
-  contatoCobrancaEmail: "",
-  contatoCobrancaTelefone: "",
-  observacoes: "",
-};
+/** @deprecated legado — use PedidoPdvView */
+export type PedidoClienteView = PedidoPdvView;
+
+/** @deprecated legado */
+export type PedidoPdvPayload = Record<string, never>;
+
+/** @deprecated legado */
+export const EMPTY_PDVS = {} as Record<string, never>;

@@ -521,18 +521,36 @@ enum PedidoClienteStatus {
   cancelado
 }
 
-/// Pedido Relacionamento → Financeiro (novo cliente + PDVs na Planilha Rio).
+/// Pedido Relacionamento → Financeiro (solicitação de PDV na Planilha Rio).
 model PedidoClientePdv {
   id                    String              @id @default(cuid())
   status                PedidoClienteStatus @default(rascunho)
   chamadoId             String?             @map("chamado_id") @db.VarChar(64)
   rioLinhaId            String?             @map("rio_linha_id") @db.VarChar(64)
+  rioPdvId              String?             @map("rio_pdv_id") @db.VarChar(64)
   importadoEm           DateTime?           @map("importado_em")
   importadoPorEmail     String?             @map("importado_por_email") @db.VarChar(200)
   prospectId            String?             @map("prospect_id") @db.VarChar(64)
+  /// Nome fantasia da loja (PDV).
   nomeFantasia          String              @map("nome_fantasia") @db.VarChar(200)
+  /// Cliente já existente na Planilha Rio (referência textual).
+  clienteNome           String              @default("") @map("cliente_nome") @db.VarChar(200)
   razaoSocial           String              @default("") @map("razao_social") @db.Text
   documento             String?             @db.VarChar(64)
+  cep                   String              @default("") @db.VarChar(12)
+  endereco              String              @default("") @db.Text
+  numero                String              @default("") @db.VarChar(20)
+  complemento           String              @default("") @db.VarChar(80)
+  bairro                String              @default("") @db.VarChar(80)
+  cidade                String              @default("") @db.VarChar(80)
+  uf                    String              @default("") @db.VarChar(2)
+  contatoLojaNome       String              @default("") @map("contato_loja_nome") @db.VarChar(120)
+  contatoLojaWhatsapp   String              @default("") @map("contato_loja_whatsapp") @db.VarChar(40)
+  contatoLojaEmail      String              @default("") @map("contato_loja_email") @db.VarChar(200)
+  contatoCobrancaNome   String              @default("") @map("contato_cobranca_nome") @db.VarChar(120)
+  contatoCobrancaEmail  String              @default("") @map("contato_cobranca_email") @db.VarChar(200)
+  contatoCobrancaTel    String              @default("") @map("contato_cobranca_tel") @db.VarChar(40)
+  /// Campos legados (pedidos antigos).
   emailCobranca         String              @default("") @map("email_cobranca") @db.VarChar(200)
   origemCliente         String              @default("") @map("origem_cliente") @db.VarChar(10)
   valorPdvUnitarioTexto String              @default("") @map("valor_pdv_unitario_texto") @db.VarChar(200)

@@ -1,12 +1,8 @@
 import type { PedidoClientePdv, PedidoClienteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createChamado, getChamadoUserContext } from "@/lib/chamados/chamadoService";
-import type { PedidoClienteView, PedidoPdvPayload } from "@/lib/cadastros/prospectTypes";
-import {
-  createRioCompClienteLinha,
-  createRioCompPdvsBulk,
-  patchRioCompClienteLinha,
-} from "@/lib/rio/rioClienteCompService";
+import type { PedidoPdvView } from "@/lib/cadastros/prospectTypes";
+import { createRioCompPdv } from "@/lib/rio/rioClienteCompService";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
 
@@ -23,67 +19,103 @@ export type PedidoUserContext = {
   displayName: string;
 };
 
+export type SavePedidoPdvInput = {
+  nomeFantasia: string;
+  clienteNome?: string;
+  razaoSocial?: string;
+  documento?: string;
+  cep?: string;
+  endereco?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+  contatoLojaNome?: string;
+  contatoLojaWhatsapp?: string;
+  contatoLojaEmail?: string;
+  contatoCobrancaNome?: string;
+  contatoCobrancaEmail?: string;
+  contatoCobrancaTel?: string;
+  prospectId?: string | null;
+};
+
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export function parsePdvsJson(raw: string): PedidoPdvPayload[] {
-  try {
-    const v = JSON.parse(raw || "[]");
-    if (!Array.isArray(v)) return [];
-    return v.filter((x): x is PedidoPdvPayload => typeof x === "object" && x !== null) as PedidoPdvPayload[];
-  } catch {
-    return [];
-  }
-}
-
-export function serializePdvsJson(pdvs: PedidoPdvPayload[]): string {
-  return JSON.stringify(pdvs);
-}
-
-export function normalizePdvPayload(raw: Partial<PedidoPdvPayload>): PedidoPdvPayload {
+function buildPedidoData(input: Partial<SavePedidoPdvInput>) {
   return {
-    nome: str(raw.nome).slice(0, 200),
-    documento: str(raw.documento).slice(0, 64),
-    cep: str(raw.cep).slice(0, 12),
-    endereco: str(raw.endereco).slice(0, 200),
-    numero: str(raw.numero).slice(0, 20),
-    complemento: str(raw.complemento).slice(0, 80),
-    bairro: str(raw.bairro).slice(0, 80),
-    cidade: str(raw.cidade).slice(0, 80),
-    estado: str(raw.estado).slice(0, 2).toUpperCase(),
-    programacaoMusical: str(raw.programacaoMusical).slice(0, 120),
-    contatoLojaNome: str(raw.contatoLojaNome).slice(0, 120),
-    contatoLojaEmail: str(raw.contatoLojaEmail).slice(0, 200),
-    contatoLojaTelefone: str(raw.contatoLojaTelefone).slice(0, 40),
-    contatoCobrancaNome: str(raw.contatoCobrancaNome).slice(0, 120),
-    contatoCobrancaEmail: str(raw.contatoCobrancaEmail).slice(0, 200),
-    contatoCobrancaTelefone: str(raw.contatoCobrancaTelefone).slice(0, 40),
-    observacoes: str(raw.observacoes).slice(0, 2000),
+    ...(input.nomeFantasia !== undefined ?
+      { nomeFantasia: input.nomeFantasia.trim().slice(0, 200) }
+    : {}),
+    ...(input.clienteNome !== undefined ?
+      { clienteNome: input.clienteNome.trim().slice(0, 200) }
+    : {}),
+    ...(input.razaoSocial !== undefined ?
+      { razaoSocial: input.razaoSocial.trim().slice(0, 8000) }
+    : {}),
+    ...(input.documento !== undefined ?
+      { documento: str(input.documento).slice(0, 64) || null }
+    : {}),
+    ...(input.cep !== undefined ? { cep: str(input.cep).slice(0, 12) } : {}),
+    ...(input.endereco !== undefined ? { endereco: str(input.endereco).slice(0, 8000) } : {}),
+    ...(input.numero !== undefined ? { numero: str(input.numero).slice(0, 20) } : {}),
+    ...(input.complemento !== undefined ?
+      { complemento: str(input.complemento).slice(0, 80) }
+    : {}),
+    ...(input.bairro !== undefined ? { bairro: str(input.bairro).slice(0, 80) } : {}),
+    ...(input.cidade !== undefined ? { cidade: str(input.cidade).slice(0, 80) } : {}),
+    ...(input.uf !== undefined ? { uf: str(input.uf).slice(0, 2).toUpperCase() } : {}),
+    ...(input.contatoLojaNome !== undefined ?
+      { contatoLojaNome: str(input.contatoLojaNome).slice(0, 120) }
+    : {}),
+    ...(input.contatoLojaWhatsapp !== undefined ?
+      { contatoLojaWhatsapp: str(input.contatoLojaWhatsapp).slice(0, 40) }
+    : {}),
+    ...(input.contatoLojaEmail !== undefined ?
+      { contatoLojaEmail: str(input.contatoLojaEmail).slice(0, 200) }
+    : {}),
+    ...(input.contatoCobrancaNome !== undefined ?
+      { contatoCobrancaNome: str(input.contatoCobrancaNome).slice(0, 120) }
+    : {}),
+    ...(input.contatoCobrancaEmail !== undefined ?
+      { contatoCobrancaEmail: str(input.contatoCobrancaEmail).slice(0, 200) }
+    : {}),
+    ...(input.contatoCobrancaTel !== undefined ?
+      { contatoCobrancaTel: str(input.contatoCobrancaTel).slice(0, 40) }
+    : {}),
+    ...(input.prospectId !== undefined ? { prospectId: input.prospectId?.trim() || null } : {}),
   };
 }
 
-export function pedidoToView(row: PedidoClientePdv): PedidoClienteView {
+export function pedidoToView(row: PedidoClientePdv): PedidoPdvView {
   return {
     id: row.id,
     status: row.status,
     chamadoId: row.chamadoId,
     rioLinhaId: row.rioLinhaId,
+    rioPdvId: row.rioPdvId,
     importadoEm: row.importadoEm?.toISOString() ?? null,
     importadoPorEmail: row.importadoPorEmail,
     prospectId: row.prospectId,
     nomeFantasia: row.nomeFantasia,
+    clienteNome: row.clienteNome,
     razaoSocial: row.razaoSocial,
     documento: row.documento,
-    emailCobranca: row.emailCobranca,
-    origemCliente: row.origemCliente,
-    valorPdvUnitarioTexto: row.valorPdvUnitarioTexto,
-    numeroPdvSite: row.numeroPdvSite,
-    categoriaSite: row.categoriaSite,
-    observacoesCliente: row.observacoesCliente,
-    rioGrupoId: row.rioGrupoId,
-    grupoSite: row.grupoSite,
-    pdvs: parsePdvsJson(row.pdvsJson),
+    cep: row.cep,
+    endereco: row.endereco,
+    numero: row.numero,
+    complemento: row.complemento,
+    bairro: row.bairro,
+    cidade: row.cidade,
+    uf: row.uf,
+    contatoLojaNome: row.contatoLojaNome,
+    contatoLojaWhatsapp: row.contatoLojaWhatsapp,
+    contatoLojaEmail: row.contatoLojaEmail,
+    contatoCobrancaNome: row.contatoCobrancaNome,
+    contatoCobrancaEmail: row.contatoCobrancaEmail,
+    contatoCobrancaTel: row.contatoCobrancaTel,
     criadoPorEmail: row.criadoPorEmail,
     criadoPorNome: row.criadoPorNome,
     createdAt: row.createdAt.toISOString(),
@@ -91,78 +123,67 @@ export function pedidoToView(row: PedidoClientePdv): PedidoClienteView {
   };
 }
 
-function formatPedidoChamadoDesc(p: PedidoClienteView): string {
-  const lines = [
-    `Pedido #${p.id}`,
-    `Cliente: ${p.nomeFantasia}`,
-    p.razaoSocial ? `Razão social: ${p.razaoSocial}` : "",
-    p.documento ? `CNPJ: ${p.documento}` : "",
-    p.emailCobranca ? `E-mail cobrança: ${p.emailCobranca}` : "",
-    p.valorPdvUnitarioTexto ? `Valor PDV: ${p.valorPdvUnitarioTexto}` : "",
-    `PDVs: ${p.pdvs.length || p.numeroPdvSite}`,
-    p.grupoSite ? `Grupo/MARCA: ${p.grupoSite}` : "",
-    p.observacoesCliente ? `\nObservações:\n${p.observacoesCliente}` : "",
-    "\n--- PDVs ---",
-    ...p.pdvs.map(
-      (pdv, i) =>
-        `${i + 1}. ${pdv.nome}${pdv.documento ? ` (${pdv.documento})` : ""}\n` +
-        `   ${pdv.endereco ? `${pdv.endereco}, ${pdv.numero} — ${pdv.cidade}/${pdv.estado}` : pdv.cidade ? `${pdv.cidade}/${pdv.estado}` : ""}\n` +
-        `   Prog.: ${pdv.programacaoMusical || "—"}`,
-    ),
-    `\nAbrir pedido: /cadastros/cliente-pdv-novo?id=${p.id}`,
-  ];
-  return lines.filter(Boolean).join("\n");
+function formatEndereco(p: PedidoPdvView): string {
+  const parts = [
+    p.endereco,
+    p.numero ? `nº ${p.numero}` : "",
+    p.complemento,
+    p.bairro,
+    p.cidade && p.uf ? `${p.cidade}/${p.uf}` : p.cidade || p.uf,
+    p.cep ? `CEP ${p.cep}` : "",
+  ].filter(Boolean);
+  return parts.join(", ") || "—";
 }
 
-export async function listPedidosCliente(): Promise<PedidoClienteView[]> {
+function formatPedidoChamadoDesc(p: PedidoPdvView): string {
+  return [
+    `Solicitação de PDV #${p.id}`,
+    "",
+    "— Dados do PDV —",
+    `Nome fantasia loja: ${p.nomeFantasia}`,
+    `Cliente (Planilha Rio): ${p.clienteNome || "—"}`,
+    `Razão social: ${p.razaoSocial || "—"}`,
+    `CNPJ: ${p.documento || "—"}`,
+    `Endereço: ${formatEndereco(p)}`,
+    "",
+    "— Contato loja —",
+    `Nome: ${p.contatoLojaNome || "—"}`,
+    `WhatsApp: ${p.contatoLojaWhatsapp || "—"}`,
+    `E-mail: ${p.contatoLojaEmail || "—"}`,
+    "",
+    "— Contato cobrança —",
+    `Responsável: ${p.contatoCobrancaNome || "—"}`,
+    `E-mail: ${p.contatoCobrancaEmail || "—"}`,
+    `Telefone: ${p.contatoCobrancaTel || "—"}`,
+    "",
+    `Abrir pedido: /cadastros/solicitar-pdv?id=${p.id}`,
+    "",
+    "Obs.: cadastre o cliente na Planilha Rio antes de importar o PDV.",
+  ].join("\n");
+}
+
+export async function listPedidosCliente(): Promise<PedidoPdvView[]> {
   const rows = await prisma.pedidoClientePdv.findMany({ orderBy: { updatedAt: "desc" } });
   return rows.map(pedidoToView);
 }
 
-export async function getPedidoCliente(id: string): Promise<PedidoClienteView | null> {
+export async function getPedidoCliente(id: string): Promise<PedidoPdvView | null> {
   const row = await prisma.pedidoClientePdv.findUnique({ where: { id } });
   return row ? pedidoToView(row) : null;
 }
 
-export type SavePedidoInput = {
-  nomeFantasia: string;
-  razaoSocial?: string;
-  documento?: string;
-  emailCobranca?: string;
-  origemCliente?: string;
-  valorPdvUnitarioTexto?: string;
-  numeroPdvSite?: number;
-  categoriaSite?: string;
-  observacoesCliente?: string;
-  rioGrupoId?: string | null;
-  grupoSite?: string;
-  pdvs?: Partial<PedidoPdvPayload>[];
-  prospectId?: string | null;
-};
-
 export async function createPedidoCliente(
-  input: SavePedidoInput,
+  input: SavePedidoPdvInput,
   ctx: PedidoUserContext,
-): Promise<PedidoClienteView> {
+): Promise<PedidoPdvView> {
   const nomeFantasia = input.nomeFantasia.trim().slice(0, 200);
   if (!nomeFantasia) throw new Error("nome_obrigatorio");
-  const pdvs = (input.pdvs ?? []).map(normalizePdvPayload).filter((p) => p.nome);
 
   const row = await prisma.pedidoClientePdv.create({
     data: {
+      ...buildPedidoData(input),
       nomeFantasia,
       razaoSocial: str(input.razaoSocial).slice(0, 8000) || nomeFantasia,
-      documento: str(input.documento).slice(0, 64) || null,
-      emailCobranca: str(input.emailCobranca).slice(0, 200),
-      origemCliente: str(input.origemCliente).slice(0, 10),
-      valorPdvUnitarioTexto: str(input.valorPdvUnitarioTexto).slice(0, 200),
-      numeroPdvSite: Math.max(1, input.numeroPdvSite ?? (pdvs.length || 1)),
-      categoriaSite: str(input.categoriaSite).slice(0, 120),
-      observacoesCliente: str(input.observacoesCliente).slice(0, 8000),
-      rioGrupoId: input.rioGrupoId?.trim() || null,
-      grupoSite: str(input.grupoSite).slice(0, 200),
-      pdvsJson: serializePdvsJson(pdvs),
-      prospectId: input.prospectId?.trim() || null,
       criadoPorEmail: ctx.email,
       criadoPorNome: ctx.displayName,
     },
@@ -172,55 +193,19 @@ export async function createPedidoCliente(
 
 export async function updatePedidoCliente(
   id: string,
-  input: Partial<SavePedidoInput>,
-): Promise<PedidoClienteView> {
+  input: Partial<SavePedidoPdvInput>,
+): Promise<PedidoPdvView> {
   const existing = await prisma.pedidoClientePdv.findUnique({ where: { id } });
   if (!existing) throw new Error("not_found");
   if (existing.status === "importado") throw new Error("pedido_importado");
 
-  const nomeFantasia =
-    input.nomeFantasia !== undefined ?
-      input.nomeFantasia.trim().slice(0, 200)
-    : existing.nomeFantasia;
-  if (!nomeFantasia) throw new Error("nome_obrigatorio");
-
-  const pdvs =
-    input.pdvs !== undefined ?
-      input.pdvs.map(normalizePdvPayload).filter((p) => p.nome)
-    : parsePdvsJson(existing.pdvsJson);
+  if (input.nomeFantasia !== undefined && !input.nomeFantasia.trim()) {
+    throw new Error("nome_obrigatorio");
+  }
 
   const row = await prisma.pedidoClientePdv.update({
     where: { id },
-    data: {
-      nomeFantasia,
-      razaoSocial:
-        input.razaoSocial !== undefined ?
-          str(input.razaoSocial).slice(0, 8000)
-        : undefined,
-      documento: input.documento !== undefined ? str(input.documento).slice(0, 64) || null : undefined,
-      emailCobranca:
-        input.emailCobranca !== undefined ? str(input.emailCobranca).slice(0, 200) : undefined,
-      origemCliente:
-        input.origemCliente !== undefined ? str(input.origemCliente).slice(0, 10) : undefined,
-      valorPdvUnitarioTexto:
-        input.valorPdvUnitarioTexto !== undefined ?
-          str(input.valorPdvUnitarioTexto).slice(0, 200)
-        : undefined,
-      numeroPdvSite:
-        input.numeroPdvSite !== undefined ?
-          Math.max(1, input.numeroPdvSite)
-        : pdvs.length || undefined,
-      categoriaSite:
-        input.categoriaSite !== undefined ? str(input.categoriaSite).slice(0, 120) : undefined,
-      observacoesCliente:
-        input.observacoesCliente !== undefined ?
-          str(input.observacoesCliente).slice(0, 8000)
-        : undefined,
-      rioGrupoId: input.rioGrupoId !== undefined ? input.rioGrupoId?.trim() || null : undefined,
-      grupoSite: input.grupoSite !== undefined ? str(input.grupoSite).slice(0, 200) : undefined,
-      pdvsJson: input.pdvs !== undefined ? serializePdvsJson(pdvs) : undefined,
-      prospectId: input.prospectId !== undefined ? input.prospectId?.trim() || null : undefined,
-    },
+    data: buildPedidoData(input),
   });
   return pedidoToView(row);
 }
@@ -228,7 +213,7 @@ export async function updatePedidoCliente(
 export async function enviarPedidoCliente(
   id: string,
   ctx: PedidoUserContext,
-): Promise<PedidoClienteView> {
+): Promise<PedidoPdvView> {
   const existing = await prisma.pedidoClientePdv.findUnique({ where: { id } });
   if (!existing) throw new Error("not_found");
   if (existing.status !== "rascunho" && existing.status !== "enviado") {
@@ -248,7 +233,7 @@ export async function enviarPedidoCliente(
 
   const chamado = await createChamado(
     {
-      titulo: `Novo cliente: ${view.nomeFantasia}`,
+      titulo: `Solicitar PDV: ${view.nomeFantasia}`,
       descricao: formatPedidoChamadoDesc(view),
       prioridade: "alta",
       setores: ["financeiro"],
@@ -272,18 +257,37 @@ export async function enviarPedidoCliente(
   return pedidoToView(row);
 }
 
+async function findRioLinhaForCliente(clienteNome: string, monthId: string) {
+  const needle = clienteNome.trim().toLowerCase();
+  if (!needle) return null;
+  const linhas = await prisma.rioCompClienteLinha.findMany({
+    where: { monthId },
+    select: { id: true, nomeFantasia: true, razaoSocial: true, grupoSite: true },
+  });
+  return (
+    linhas.find(
+      (l) =>
+        l.nomeFantasia.trim().toLowerCase() === needle ||
+        l.razaoSocial.trim().toLowerCase() === needle ||
+        l.grupoSite.trim().toLowerCase() === needle,
+    ) ?? null
+  );
+}
+
 export async function importPedidoToRio(
   id: string,
   ctx: PedidoUserContext,
-): Promise<PedidoClienteView> {
+): Promise<PedidoPdvView> {
   const existing = await prisma.pedidoClientePdv.findUnique({ where: { id } });
   if (!existing) throw new Error("not_found");
-  if (existing.status === "importado" && existing.rioLinhaId) {
+  if (existing.status === "importado" && existing.rioPdvId) {
     return pedidoToView(existing);
   }
   if (existing.status === "cancelado") throw new Error("pedido_cancelado");
 
   const view = pedidoToView(existing);
+  if (!view.clienteNome.trim()) throw new Error("cliente_obrigatorio");
+
   const months = await prisma.rioCompMonth.findMany({
     orderBy: { yearMonth: "desc" },
     select: { id: true, yearMonth: true, closedAt: true },
@@ -293,42 +297,45 @@ export async function importPedidoToRio(
   const month = openMonths.find((m) => m.yearMonth === vigenteYm) ?? openMonths[0];
   if (!month) throw new Error("rio_month_not_found");
 
-  const linha = await createRioCompClienteLinha(month.id, {
-    rioGrupoId: view.rioGrupoId ?? undefined,
-    nomeFantasia: view.nomeFantasia,
-    documento: view.documento ?? undefined,
-  });
+  const linha = await findRioLinhaForCliente(view.clienteNome, month.id);
+  if (!linha) throw new Error("cliente_rio_nao_encontrado");
 
-  await patchRioCompClienteLinha(linha.id, {
-    razaoSocial: view.razaoSocial || view.nomeFantasia,
-    documento: view.documento,
-    numeroPdvSite: view.numeroPdvSite,
-    categoriaSite: view.categoriaSite,
-    observacoesLinha: view.observacoesCliente,
-    valorPdvUnitarioTexto: view.valorPdvUnitarioTexto,
-    origemCliente: view.origemCliente,
-    grupoSite: view.grupoSite,
-    rioGrupoId: view.rioGrupoId,
-  });
+  const notes = [
+    formatEndereco(view),
+    view.contatoLojaNome ? `Loja: ${view.contatoLojaNome}` : "",
+    view.contatoLojaWhatsapp ? `WhatsApp: ${view.contatoLojaWhatsapp}` : "",
+    view.contatoLojaEmail ? `E-mail loja: ${view.contatoLojaEmail}` : "",
+    view.contatoCobrancaNome ? `Cobrança: ${view.contatoCobrancaNome}` : "",
+    view.contatoCobrancaEmail ? `E-mail cobrança: ${view.contatoCobrancaEmail}` : "",
+    view.contatoCobrancaTel ? `Tel. cobrança: ${view.contatoCobrancaTel}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
-  if (view.emailCobranca) {
-    await prisma.rioCompClienteLinha.update({
-      where: { id: linha.id },
-      data: { emailCobranca: view.emailCobranca },
+  const { pdv } = await createRioCompPdv(linha.id, view.nomeFantasia);
+  if (view.documento || notes) {
+    await prisma.rioCompPdv.update({
+      where: { id: pdv.id },
+      data: {
+        documento: view.documento,
+        notes: notes.slice(0, 8000),
+      },
     });
   }
 
-  const pdvRows = view.pdvs.length > 0 ? view.pdvs : [{ nome: view.nomeFantasia, documento: view.documento }];
-  await createRioCompPdvsBulk(
-    linha.id,
-    pdvRows.map((p) => ({ nome: p.nome || view.nomeFantasia, documento: p.documento || view.documento })),
-  );
+  if (view.contatoCobrancaEmail) {
+    await prisma.rioCompClienteLinha.update({
+      where: { id: linha.id },
+      data: { emailCobranca: view.contatoCobrancaEmail },
+    });
+  }
 
   const row = await prisma.pedidoClientePdv.update({
     where: { id },
     data: {
       status: "importado",
       rioLinhaId: linha.id,
+      rioPdvId: pdv.id,
       importadoEm: new Date(),
       importadoPorEmail: ctx.email,
     },
@@ -337,13 +344,25 @@ export async function importPedidoToRio(
   return pedidoToView(row);
 }
 
-export function parsePedidoStatus(raw: unknown): PedidoClienteStatus | null {
-  if (typeof raw !== "string") return null;
-  const v = raw.trim().toLowerCase() as PedidoClienteStatus;
-  return VALID_STATUS.has(v) ? v : null;
-}
-
-export function parsePdvsArray(raw: unknown): Partial<PedidoPdvPayload>[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((x) => typeof x === "object" && x !== null) as Partial<PedidoPdvPayload>[];
+export function parsePedidoBody(body: Record<string, unknown>): Partial<SavePedidoPdvInput> {
+  return {
+    nomeFantasia: str(body.nomeFantasia),
+    clienteNome: str(body.clienteNome),
+    razaoSocial: str(body.razaoSocial),
+    documento: str(body.documento),
+    cep: str(body.cep),
+    endereco: str(body.endereco),
+    numero: str(body.numero),
+    complemento: str(body.complemento),
+    bairro: str(body.bairro),
+    cidade: str(body.cidade),
+    uf: str(body.uf),
+    contatoLojaNome: str(body.contatoLojaNome),
+    contatoLojaWhatsapp: str(body.contatoLojaWhatsapp),
+    contatoLojaEmail: str(body.contatoLojaEmail),
+    contatoCobrancaNome: str(body.contatoCobrancaNome),
+    contatoCobrancaEmail: str(body.contatoCobrancaEmail),
+    contatoCobrancaTel: str(body.contatoCobrancaTel),
+    prospectId: typeof body.prospectId === "string" ? body.prospectId : null,
+  };
 }
