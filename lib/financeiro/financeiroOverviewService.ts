@@ -1,4 +1,4 @@
-import { fetchAllReceivableInstallments } from "@/lib/contaazul/receivables";
+import { fetchAllReceivableInstallments, RECEIVABLE_STATUSES_PERIOD_TOTAL } from "@/lib/contaazul/receivables";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import type { CaReceivableItem } from "@/lib/contaazul/types";
 import { isPastDueOpen } from "@/lib/contaazul/types";
@@ -51,6 +51,7 @@ function overdueInMonth(items: CaReceivableItem[], ym: number): number {
 async function fetchOverviewInstallments(
   token: string,
   months: number[],
+  currentYm: number,
 ): Promise<CaReceivableItem[]> {
   const maxPages = Math.min(
     20,
@@ -58,7 +59,11 @@ async function fetchOverviewInstallments(
   );
   const chunks = await Promise.all(
     months.map((ym) =>
-      fetchAllReceivableInstallments(token, ymFirstDay(ym), ymLastDay(ym), { maxPages }),
+      fetchAllReceivableInstallments(token, ymFirstDay(ym), ymLastDay(ym), {
+        maxPages,
+        /** Mês atual: inclui RECEBIDO para bater com «Total do período» no CA. */
+        statuses: ym === currentYm ? RECEIVABLE_STATUSES_PERIOD_TOTAL : undefined,
+      }),
     ),
   );
   return chunks.flat();
@@ -69,7 +74,7 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
   if (!token) return { error: "not_connected" };
 
   const ctx = currentOverviewContext();
-  const items = await fetchOverviewInstallments(token, ctx.fetchMonths);
+  const items = await fetchOverviewInstallments(token, ctx.fetchMonths, ctx.ym);
 
   const cards: FinanceiroOverviewCards = {
     totalPrevistoMes: sum(items, (it) =>

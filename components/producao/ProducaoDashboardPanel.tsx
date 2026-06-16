@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChamadosDashboardWidget, useOpenChamadosCount } from "@/components/chamados/ChamadosDashboardWidget";
 import { ProducaoClienteDrawer } from "@/components/producao/ProducaoClienteDrawer";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
+import { rioTagCobrancaRowBgClass } from "@/lib/rio/rioTagCobranca";
 import type {
   DashboardClienteDetail,
   DashboardClienteRow,
@@ -384,10 +385,21 @@ function ClienteBlock({
   const visiblePdvs = cliente.pdvs.slice(0, pdvLimit);
   const remaining = cliente.pdvCount - visiblePdvs.length;
   const hasMore = remaining > 0;
+  const clienteTagBg = rioTagCobrancaRowBgClass(cliente.tagCobranca);
 
   return (
-    <div className="border-b border-slate-200 dark:border-slate-700">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 hover:bg-white/60 dark:hover:bg-slate-800/40">
+    <div
+      className={
+        "border-b " +
+        (clienteTagBg || "border-slate-200 dark:border-slate-700")
+      }
+    >
+      <div
+        className={
+          "flex flex-wrap items-center gap-2 px-4 py-2.5 " +
+          (clienteTagBg || "hover:bg-white/60 dark:hover:bg-slate-800/40")
+        }
+      >
         <button
           type="button"
           className="text-slate-400"
@@ -399,7 +411,7 @@ function ClienteBlock({
         <span className="text-slate-400">📁</span>
         <button
           type="button"
-          className="min-w-0 flex-1 text-left text-sm font-bold text-slate-900 hover:text-fuchsia-800 dark:text-white dark:hover:text-fuchsia-300"
+          className="min-w-0 flex-1 text-left text-sm font-bold hover:text-fuchsia-800 dark:hover:text-fuchsia-300"
           onClick={onOpenDetail}
         >
           <RioTagCobrancaNome nome={cliente.nome} tag={cliente.tagCobranca} />
@@ -442,10 +454,15 @@ function ClienteBlock({
             <span>1º ping</span>
             <span>Último ping</span>
           </div>
-          {visiblePdvs.map((p) => (
+          {visiblePdvs.map((p) => {
+            const pdvTagBg = rioTagCobrancaRowBgClass(p.tagCobranca);
+            return (
             <div
               key={p.rioPdvKey}
-              className="mb-1 grid gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-900 lg:grid-cols-[1fr_100px_120px_90px_100px_100px] lg:items-center"
+              className={
+                "mb-1 grid gap-2 rounded-md border px-3 py-2 text-xs lg:grid-cols-[1fr_100px_120px_90px_100px_100px] lg:items-center " +
+                (pdvTagBg || "border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900")
+              }
             >
               <div className="min-w-0">
                 <RioTagCobrancaNome nome={p.nome} tag={p.tagCobranca} className="font-semibold" />
@@ -467,7 +484,8 @@ function ClienteBlock({
               <span className="text-slate-500">{fmtPing(p.telemetry.firstPingAt)}</span>
               <span className="text-slate-500">{fmtPing(p.telemetry.lastPingAt)}</span>
             </div>
-          ))}
+            );
+          })}
           {hasMore || pdvLimit > pdvBatchSize ?
             <div className="mt-1 flex flex-wrap gap-2 px-2">
               {hasMore ?

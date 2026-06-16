@@ -23,6 +23,13 @@ export function rioTagCobrancaTextClass(tag: RioTagCobranca | null | undefined):
   return "";
 }
 
+export function effectiveRioTagCobranca(
+  pdvTag?: RioTagCobranca | null,
+  linhaTag?: RioTagCobranca | null,
+): RioTagCobranca {
+  return pdvTag ?? linhaTag ?? "cobrando";
+}
+
 export function rioTagCobrancaRowBgClass(tag: RioTagCobranca | null | undefined): string {
   if (tag === "cancelado") {
     return "border-red-300/60 bg-red-50/90 dark:border-red-900/50 dark:bg-red-950/35";

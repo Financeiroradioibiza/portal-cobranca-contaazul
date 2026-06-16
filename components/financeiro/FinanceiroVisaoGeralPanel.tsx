@@ -140,7 +140,7 @@ export function FinanceiroVisaoGeralPanel() {
         <KpiCard
           title="Total previsto no mês"
           value={formatBRL(c.totalPrevistoMes)}
-          sub={data.labels.mesAtual}
+          sub={`Total do período · ${data.labels.mesAtual}`}
           tone="blue"
           icon="📅"
         />

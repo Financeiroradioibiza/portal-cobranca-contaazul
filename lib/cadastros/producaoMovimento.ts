@@ -11,6 +11,7 @@ import {
 } from "@/lib/cadastros/producaoHierarchy";
 import { prisma } from "@/lib/prisma";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 /** Fila «Pendências» no topo da produção (entradas Rio ainda não posicionadas). */
 export const PRODUCAO_MOVIMENTO_TOP_ENABLED = true;
@@ -27,6 +28,7 @@ export type ProducaoMovimentoItem = {
   movimento: "entrada" | "saida";
   painelLink: PainelLinkBrief | null;
   isLinhaProxy?: boolean;
+  tagCobranca?: RioTagCobranca;
 };
 
 export type RioMovimentoLists = {
@@ -297,6 +299,7 @@ export function extractRioMovimentos(
 
   for (const ln of linhas) {
     const nc = nomeCliente(ln);
+    const linhaTag = ln.tagCobranca ?? "cobrando";
     const activePdvs = ln.pdvs.filter((p) => p.movimento !== "saida");
 
     if (ln.movimento === "saida") {
@@ -310,10 +313,12 @@ export function extractRioMovimentos(
         movimento: "saida",
         painelLink: linkMap.get(linhaAsPdvKey(ln.id)) ?? null,
         isLinhaProxy: true,
+        tagCobranca: linhaTag,
       });
     }
 
     for (const p of ln.pdvs) {
+      const pdvTag = p.tagCobranca ?? linhaTag;
       if (p.movimento === "saida") {
         encerrados.push({
           kind: "pdv",
@@ -324,6 +329,7 @@ export function extractRioMovimentos(
           rioLinhaNome: nc,
           movimento: "saida",
           painelLink: linkMap.get(p.id) ?? null,
+          tagCobranca: pdvTag,
         });
       } else if (p.movimento === "entrada" && !ack.has(p.id)) {
         novos.push({
@@ -335,6 +341,7 @@ export function extractRioMovimentos(
           rioLinhaNome: nc,
           movimento: "entrada",
           painelLink: linkMap.get(p.id) ?? null,
+          tagCobranca: pdvTag,
         });
       }
     }
@@ -352,6 +359,7 @@ export function extractRioMovimentos(
           movimento: "entrada",
           painelLink: linkMap.get(proxyId) ?? null,
           isLinhaProxy: true,
+          tagCobranca: linhaTag,
         });
       }
     }
@@ -389,6 +397,7 @@ export function movimentoItemToPdvRef(item: ProducaoMovimentoItem): ProducaoPdvR
     painelLink: item.painelLink,
     isLinhaProxy: item.isLinhaProxy,
     movimento: item.movimento,
+    tagCobranca: item.tagCobranca,
   };
 }
 

@@ -59,8 +59,21 @@ export function normalizeReceivableItem(raw: unknown): CaReceivableItem | null {
     num(raw.saldo) ??
     0;
 
+  const pago =
+    num(raw.pago) ??
+    num(raw.valorPago) ??
+    num(raw.valor_pago) ??
+    num(raw.valorRecebido) ??
+    num(raw.valor_recebido) ??
+    0;
+
   const total =
-    num(raw.total) ?? num(raw.valorTotal) ?? num(raw.valor) ?? nao_pago ?? 0;
+    num(raw.total) ??
+    num(raw.valorTotal) ??
+    num(raw.valor) ??
+    (pago + nao_pago > 0 ? pago + nao_pago : undefined) ??
+    nao_pago ??
+    0;
 
   const descricao =
     str(raw.descricao) ?? str(raw.description) ?? str(raw.memo) ?? "—";

@@ -13,7 +13,19 @@ import type {
 import { normalizeInstallmentDetail } from "./normalizeInstallment";
 import { normalizeReceivableItem } from "./normalizeReceivable";
 
-const RECEIVABLE_STATUSES = ["ATRASADO", "EM_ABERTO", "RECEBIDO_PARCIAL"] as const;
+const RECEIVABLE_STATUSES_OPEN = ["ATRASADO", "EM_ABERTO", "RECEBIDO_PARCIAL"] as const;
+
+/** Todos os status relevantes para «Total do período» no Conta Azul (inclui recebidos). */
+export const RECEIVABLE_STATUSES_PERIOD_TOTAL = [
+  "ATRASADO",
+  "EM_ABERTO",
+  "RECEBIDO_PARCIAL",
+  "RECEBIDO",
+] as const;
+
+export type ReceivableStatusFilter =
+  | (typeof RECEIVABLE_STATUSES_OPEN)[number]
+  | (typeof RECEIVABLE_STATUSES_PERIOD_TOTAL)[number];
 
 function receivableMaxPages(): number {
   return Math.min(
@@ -36,12 +48,13 @@ export async function fetchAllReceivableInstallments(
   accessToken: string,
   dataVencimentoDe: string,
   dataVencimentoAte: string,
-  options?: { maxPages?: number },
+  options?: { maxPages?: number; statuses?: readonly ReceivableStatusFilter[] },
 ): Promise<CaReceivableItem[]> {
   const all: CaReceivableItem[] = [];
   const tamanho_pagina = 500;
   const maxPages = options?.maxPages ?? receivableMaxPages();
   const parallel = receivableParallelBatch();
+  const statuses = options?.statuses ?? RECEIVABLE_STATUSES_OPEN;
 
   const pushChunk = (rows: readonly unknown[] | undefined) => {
     for (const row of rows ?? []) {
@@ -56,7 +69,7 @@ export async function fetchAllReceivableInstallments(
     qs.set("tamanho_pagina", String(tamanho_pagina));
     qs.set("data_vencimento_de", dataVencimentoDe);
     qs.set("data_vencimento_ate", dataVencimentoAte);
-    for (const s of RECEIVABLE_STATUSES) {
+    for (const s of statuses) {
       qs.append("status", s);
     }
     const path = `/v1/financeiro/eventos-financeiros/contas-a-receber/buscar?${qs.toString()}`;

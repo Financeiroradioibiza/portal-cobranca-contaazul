@@ -1,5 +1,6 @@
 import { compareRioLinhasByNomeFantasia, sortRioCompGruposForDisplay } from "@/lib/rio/sortRioCompLinhas";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { effectiveRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 export type PainelLinkBrief = {
   painelPdvId: number;
@@ -13,6 +14,7 @@ export type ProducaoPdvNode = {
   nome: string;
   documento: string | null;
   movimento: string;
+  tagCobranca: RioTagCobranca;
   painelLink: PainelLinkBrief | null;
 };
 
@@ -22,6 +24,7 @@ export type ProducaoClienteNode = {
   razaoSocial: string;
   documento: string | null;
   origemCliente: string;
+  tagCobranca: RioTagCobranca;
   pdvs: ProducaoPdvNode[];
   linkedCount: number;
 };
@@ -46,12 +49,14 @@ export type RioMonthBundle = {
     origemCliente: string;
     caPersonId?: string;
     movimento?: string;
+    tagCobranca?: RioTagCobranca;
     grupo?: { id: string; nome: string } | null;
     pdvs: Array<{
       id: string;
       nome: string;
       documento: string | null;
       movimento: string;
+      tagCobranca?: RioTagCobranca;
     }>;
   }>;
 };
@@ -105,6 +110,7 @@ export function buildProducaoTree(
     const gid = ln.rioGrupoId && grupoMap.has(ln.rioGrupoId) ? ln.rioGrupoId : SEM_MARCA_ID;
     const grupo = grupoMap.get(gid)!;
 
+    const linhaTag = ln.tagCobranca ?? "cobrando";
     const pdvsVisiveis = sortRioPdvsByNome(ln.pdvs.filter((p) => p.movimento !== "saida"));
 
     const pdvNodes: ProducaoPdvNode[] = pdvsVisiveis.map((p) => ({
@@ -112,6 +118,7 @@ export function buildProducaoTree(
       nome: p.nome,
       documento: p.documento,
       movimento: p.movimento,
+      tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
       painelLink: linkByRioPdvId.get(p.id) ?? null,
     }));
 
@@ -126,6 +133,7 @@ export function buildProducaoTree(
       razaoSocial: ln.razaoSocial,
       documento: ln.documento,
       origemCliente: ln.origemCliente,
+      tagCobranca: linhaTag,
       pdvs: pdvNodes,
       linkedCount: linked,
     });

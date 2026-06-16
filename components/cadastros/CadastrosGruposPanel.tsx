@@ -15,6 +15,7 @@ import {
 import { CadastrosMovimentoBanner } from "@/components/cadastros/CadastrosMovimentoBanner";
 import { PdvCadastroDrawer } from "@/components/cadastros/PdvCadastroDrawer";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
+import { rioTagCobrancaRowBgClass } from "@/lib/rio/rioTagCobranca";
 import {
   buildProducaoTree,
   extractRioTreeMovimentos,
@@ -95,6 +96,10 @@ function DraggableProdPdv({
   });
   const linked = Boolean(pdv.painelLink);
   const motivo = linked ? null : semPainelMotivo(pdv);
+  const tagBg =
+    tone === "normal" && !selected && !multiSelected ?
+      rioTagCobrancaRowBgClass(pdv.tagCobranca)
+    : "";
 
   return (
     <div
@@ -107,7 +112,7 @@ function DraggableProdPdv({
           "border-violet-500 bg-violet-50 ring-1 ring-violet-300 dark:border-violet-400 dark:bg-violet-950/40 dark:ring-violet-600"
         : tone === "novo" || tone === "pendencia" ?
           "border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950/30"
-        : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900") +
+        : tagBg || "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900") +
         (isDragging ? " opacity-40" : "")
       }
     >
@@ -426,8 +431,14 @@ export function CadastrosGruposPanel() {
         documento: ln.documento,
         movimento: ln.movimento,
         numeroPdvSite: (ln as { numeroPdvSite?: number }).numeroPdvSite ?? 0,
-        tagCobranca: (ln as { tagCobranca?: import("@/lib/rio/rioTagCobranca").RioTagCobranca }).tagCobranca,
-        pdvs: ln.pdvs,
+        tagCobranca: ln.tagCobranca,
+        pdvs: ln.pdvs.map((p) => ({
+          id: p.id,
+          nome: p.nome,
+          documento: p.documento,
+          movimento: p.movimento,
+          tagCobranca: p.tagCobranca,
+        })),
       }));
       setLinhasRio(linhasForProd);
 
@@ -822,6 +833,7 @@ export function CadastrosGruposPanel() {
                         g.clientes.map((c) => {
                           const cOpen = rioClienteOpen.has(c.id);
                           const active = rioSel?.tipo === "cliente" && rioSel.rioLinhaId === c.id;
+                          const linhaTagBg = rioTagCobrancaRowBgClass(c.tagCobranca);
                           return (
                             <div key={c.id} className="border-t border-slate-100 dark:border-slate-800">
                               <button
@@ -830,6 +842,8 @@ export function CadastrosGruposPanel() {
                                   "flex w-full items-center gap-2 py-2 pl-8 pr-3 text-left text-sm font-semibold " +
                                   (active ?
                                     "border-l-[3px] border-l-[#C4146A] bg-pink-50/50 pl-[29px]"
+                                  : linhaTagBg ?
+                                    linhaTagBg
                                   : "hover:bg-slate-50 dark:hover:bg-slate-800/40")
                                 }
                                 onClick={() => {
@@ -843,7 +857,9 @@ export function CadastrosGruposPanel() {
                                 }}
                               >
                                 <span className="text-[10px] text-slate-400">{cOpen ? "▾" : "▸"}</span>
-                                <span className="flex-1 truncate">{c.nomeFantasia}</span>
+                                <span className="flex-1 truncate">
+                                  <RioTagCobrancaNome nome={c.nomeFantasia} tag={c.tagCobranca} />
+                                </span>
                                 <span className="text-[10px] text-slate-400">
                                   {c.linkedCount}/{c.pdvs.length}
                                 </span>
@@ -852,9 +868,13 @@ export function CadastrosGruposPanel() {
                                 c.pdvs.map((p) => (
                                   <div
                                     key={p.id}
-                                    className="border-t border-slate-50 py-1.5 pl-14 pr-3 text-xs text-slate-600 dark:border-slate-800"
+                                    className={
+                                      "border-t border-slate-50 py-1.5 pl-14 pr-3 text-xs dark:border-slate-800 " +
+                                      (rioTagCobrancaRowBgClass(p.tagCobranca) || "text-slate-600")
+                                    }
                                   >
-                                    📻 {p.nome}
+                                    📻{" "}
+                                    <RioTagCobrancaNome nome={p.nome} tag={p.tagCobranca} />
                                   </div>
                                 ))
                               : null}
@@ -1137,16 +1157,17 @@ export function CadastrosGruposPanel() {
                     const isEmpty = c.pdvCount === 0;
                     const isHidden =
                       isEmpty && hiddenClienteKeys.includes(c.key) && showHiddenGroups;
+                    const clienteTagBg = rioTagCobrancaRowBgClass(c.tagCobranca);
                     return (
                       <div
                         key={c.key}
                         className={
-                          "mb-3 overflow-hidden rounded-lg border " +
+                          "mb-3 overflow-hidden rounded-lg " +
                           (highlight ?
-                            "border-violet-300 dark:border-violet-600"
+                            "border border-violet-300 dark:border-violet-600"
                           : isHidden ?
-                            "border-dashed border-slate-300 opacity-80 dark:border-slate-600"
-                          : "border-slate-200 dark:border-slate-700")
+                            "border border-dashed border-slate-300 opacity-80 dark:border-slate-600"
+                          : clienteTagBg || "border border-slate-200 dark:border-slate-700")
                         }
                       >
                         <div
@@ -1154,7 +1175,7 @@ export function CadastrosGruposPanel() {
                             "flex flex-wrap items-center gap-2 px-3 py-2 " +
                             (isEmpty ?
                               "bg-slate-100 dark:bg-slate-800/60"
-                            : "bg-violet-50 dark:bg-violet-950/30")
+                            : clienteTagBg ? "" : "bg-violet-50 dark:bg-violet-950/30")
                           }
                         >
                           <button
