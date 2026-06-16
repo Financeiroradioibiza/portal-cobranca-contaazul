@@ -53,28 +53,24 @@ export function ymdCompare(a: string, b: string): number {
 
 export function currentOverviewContext(ref = new Date()) {
   const ym = currentBrazilYearMonth(ref);
-  const today = brazilTodayYmd(ref);
+  const mesPassado = shiftYearMonth(ym, -1);
+  const segundoMesPassado = shiftYearMonth(ym, -2);
+  const terceiroMesPassado = shiftYearMonth(ym, -3);
+  const mesSeguinte = shiftYearMonth(ym, 1);
+
   return {
     ym,
-    today,
-    mesPassado: shiftYearMonth(ym, -1),
-    segundoMesPassado: shiftYearMonth(ym, -2),
-    terceiroMesPassado: shiftYearMonth(ym, -3),
-    mesSeguinte: shiftYearMonth(ym, 1),
-    chartStartYm: shiftYearMonth(ym, -11),
-    fetchStart: ymFirstDay(shiftYearMonth(ym, -11)),
-    fetchEnd: ymLastDay(shiftYearMonth(ym, 1)),
-    topDevedoresStart: ymFirstDay(shiftYearMonth(ym, -5)),
-    labelMesPassado: formatYearMonthLabel(shiftYearMonth(ym, -1)),
-    labelSegundoMesPassado: formatYearMonthLabel(shiftYearMonth(ym, -2)),
-    labelTerceiroMesPassado: formatYearMonthLabel(shiftYearMonth(ym, -3)),
-    labelMesSeguinte: formatYearMonthLabel(shiftYearMonth(ym, 1)),
+    today: brazilTodayYmd(ref),
+    mesPassado,
+    segundoMesPassado,
+    terceiroMesPassado,
+    mesSeguinte,
+    /** Só os meses usados nos KPIs — busca paralela, bem menor que 12+ meses. */
+    fetchMonths: [terceiroMesPassado, segundoMesPassado, mesPassado, ym, mesSeguinte],
+    labelMesPassado: formatYearMonthLabel(mesPassado),
+    labelSegundoMesPassado: formatYearMonthLabel(segundoMesPassado),
+    labelTerceiroMesPassado: formatYearMonthLabel(terceiroMesPassado),
+    labelMesSeguinte: formatYearMonthLabel(mesSeguinte),
     labelMesAtual: formatYearMonthLabel(ym),
   };
-}
-
-export function chartMonthsFrom(startYm: number, count: number): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < count; i++) out.push(shiftYearMonth(startYm, i));
-  return out;
 }

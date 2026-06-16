@@ -36,10 +36,11 @@ export async function fetchAllReceivableInstallments(
   accessToken: string,
   dataVencimentoDe: string,
   dataVencimentoAte: string,
+  options?: { maxPages?: number },
 ): Promise<CaReceivableItem[]> {
   const all: CaReceivableItem[] = [];
   const tamanho_pagina = 500;
-  const maxPages = receivableMaxPages();
+  const maxPages = options?.maxPages ?? receivableMaxPages();
   const parallel = receivableParallelBatch();
 
   const pushChunk = (rows: readonly unknown[] | undefined) => {

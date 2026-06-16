@@ -1,15 +1,15 @@
-import { fetchAllReceivableInstallments, fetchPeopleByIds } from "@/lib/contaazul/receivables";
+import { fetchAllReceivableInstallments } from "@/lib/contaazul/receivables";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import type { CaReceivableItem } from "@/lib/contaazul/types";
 import { isPastDueOpen } from "@/lib/contaazul/types";
 import {
   addDaysYmd,
-  chartMonthsFrom,
   currentOverviewContext,
   dueInYearMonth,
+  ymFirstDay,
+  ymLastDay,
   ymdCompare,
 } from "@/lib/financeiro/financeiroOverviewDates";
-import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 
 export type FinanceiroOverviewCards = {
   totalPrevistoMes: number;
@@ -21,24 +21,9 @@ export type FinanceiroOverviewCards = {
   previsaoMesSeguinte: number;
 };
 
-export type FinanceiroTopDevedor = {
-  clientId: string;
-  nome: string;
-  cnpj: string;
-  totalAberto: number;
-  parcelas: number;
-};
-
-export type FinanceiroChartMonth = {
-  ym: number;
-  label: string;
-  totalPeriodo: number;
-};
-
 export type FinanceiroOverviewPayload = {
   ok: true;
   fetchedAt: string;
-  period: { start: string; end: string };
   competenciaAtual: number;
   labels: {
     mesAtual: string;
@@ -48,8 +33,6 @@ export type FinanceiroOverviewPayload = {
     mesSeguinte: string;
   };
   cards: FinanceiroOverviewCards;
-  topDevedores: FinanceiroTopDevedor[];
-  chartMensal: FinanceiroChartMonth[];
 };
 
 function sum(items: CaReceivableItem[], pick: (it: CaReceivableItem) => number): number {
@@ -58,44 +41,27 @@ function sum(items: CaReceivableItem[], pick: (it: CaReceivableItem) => number):
   return Math.round(t * 100) / 100;
 }
 
-function overdueInMonth(items: CaReceivableItem[], ym: number, today: string): number {
+function overdueInMonth(items: CaReceivableItem[], ym: number): number {
   return sum(items, (it) =>
     isPastDueOpen(it) && dueInYearMonth(it.data_vencimento, ym) ? it.nao_pago : 0,
   );
 }
 
-function buildTopDevedores(
-  items: CaReceivableItem[],
-  people: Map<string, { id: string; nome: string; documento?: string | null }>,
-  startYmd: string,
-  endYmd: string,
-): FinanceiroTopDevedor[] {
-  const byClient = new Map<string, { total: number; count: number }>();
-  for (const it of items) {
-    if (!it.nao_pago || it.nao_pago <= 0) continue;
-    const due = it.data_vencimento?.slice(0, 10);
-    if (!due || ymdCompare(due, startYmd) < 0 || ymdCompare(due, endYmd) > 0) continue;
-    const cid = it.cliente?.id;
-    if (!cid) continue;
-    const cur = byClient.get(cid) ?? { total: 0, count: 0 };
-    cur.total += it.nao_pago;
-    cur.count += 1;
-    byClient.set(cid, cur);
-  }
-
-  return [...byClient.entries()]
-    .map(([clientId, agg]) => {
-      const p = people.get(clientId);
-      return {
-        clientId,
-        nome: p?.nome?.trim() || "Cliente",
-        cnpj: p?.documento?.trim() || "—",
-        totalAberto: Math.round(agg.total * 100) / 100,
-        parcelas: agg.count,
-      };
-    })
-    .sort((a, b) => b.totalAberto - a.totalAberto)
-    .slice(0, 5);
+/** Busca mês a mês em paralelo — evita uma única consulta gigante na Conta Azul. */
+async function fetchOverviewInstallments(
+  token: string,
+  months: number[],
+): Promise<CaReceivableItem[]> {
+  const maxPages = Math.min(
+    20,
+    Math.max(5, Number(process.env.CA_OVERVIEW_MAX_PAGES_PER_MONTH ?? "12") || 12),
+  );
+  const chunks = await Promise.all(
+    months.map((ym) =>
+      fetchAllReceivableInstallments(token, ymFirstDay(ym), ymLastDay(ym), { maxPages }),
+    ),
+  );
+  return chunks.flat();
 }
 
 export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPayload | { error: string }> {
@@ -103,7 +69,7 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
   if (!token) return { error: "not_connected" };
 
   const ctx = currentOverviewContext();
-  const items = await fetchAllReceivableInstallments(token, ctx.fetchStart, ctx.fetchEnd);
+  const items = await fetchOverviewInstallments(token, ctx.fetchMonths);
 
   const cards: FinanceiroOverviewCards = {
     totalPrevistoMes: sum(items, (it) =>
@@ -119,35 +85,17 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
       if (ymdCompare(due, desde) < 0 || ymdCompare(due, ctx.today) >= 0) return 0;
       return it.nao_pago;
     }),
-    atrasadoMesPassado: overdueInMonth(items, ctx.mesPassado, ctx.today),
-    atrasadoSegundoMesPassado: overdueInMonth(items, ctx.segundoMesPassado, ctx.today),
-    atrasadoTerceiroMesPassado: overdueInMonth(items, ctx.terceiroMesPassado, ctx.today),
+    atrasadoMesPassado: overdueInMonth(items, ctx.mesPassado),
+    atrasadoSegundoMesPassado: overdueInMonth(items, ctx.segundoMesPassado),
+    atrasadoTerceiroMesPassado: overdueInMonth(items, ctx.terceiroMesPassado),
     previsaoMesSeguinte: sum(items, (it) =>
       dueInYearMonth(it.data_vencimento, ctx.mesSeguinte) ? it.total : 0,
     ),
   };
 
-  const chartMensal: FinanceiroChartMonth[] = chartMonthsFrom(ctx.chartStartYm, 12).map((ym) => ({
-    ym,
-    label: formatYearMonthLabel(ym),
-    totalPeriodo: sum(items, (it) => (dueInYearMonth(it.data_vencimento, ym) ? it.total : 0)),
-  }));
-
-  const topClientIds = new Set<string>();
-  for (const it of items) {
-    if (!it.nao_pago || it.nao_pago <= 0) continue;
-    const due = it.data_vencimento?.slice(0, 10);
-    if (!due || ymdCompare(due, ctx.topDevedoresStart) < 0 || ymdCompare(due, ctx.fetchEnd) > 0) continue;
-    if (it.cliente?.id) topClientIds.add(it.cliente.id);
-  }
-
-  const people = await fetchPeopleByIds(token, [...topClientIds]);
-  const topDevedores = buildTopDevedores(items, people, ctx.topDevedoresStart, ctx.fetchEnd);
-
   return {
     ok: true,
     fetchedAt: new Date().toISOString(),
-    period: { start: ctx.fetchStart, end: ctx.fetchEnd },
     competenciaAtual: ctx.ym,
     labels: {
       mesAtual: ctx.labelMesAtual,
@@ -157,7 +105,5 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
       mesSeguinte: ctx.labelMesSeguinte,
     },
     cards,
-    topDevedores,
-    chartMensal,
   };
 }
