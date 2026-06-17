@@ -1,6 +1,7 @@
 import {
   enrichPlacementOverrides,
   loadRioLinhasForProducao,
+  MOVIMENTO_BASELINE_SKIP,
   remapPlacementsToActivePdvs,
 } from "@/lib/cadastros/producaoMovimento";
 import {
@@ -13,11 +14,12 @@ import {
   type RioLinhaForProducao,
 } from "@/lib/cadastros/producaoHierarchy";
 import { stripDiacritics } from "@/lib/radioPainel/exportClientesCsv";
+import { prisma } from "@/lib/prisma";
+import { getProducaoLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 
 function normalizeNomeToken(nome: string): string {
   return stripDiacritics(nome).toLowerCase().trim();
 }
-import { getProducaoLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 
 export type CarryProducaoLayoutResult = {
   donorYearMonth: number;
@@ -208,6 +210,16 @@ export async function carryProducaoLayoutFromDonor(
     pdvPlacements: finalized,
     hiddenClienteKeys,
     acknowledgedPdvs,
+  });
+
+  // Mês novo: não congela entradas/saídas da virada — só alterações futuras na Rio entram em pendências.
+  await prisma.cadastroProducaoLayout.update({
+    where: { yearMonth: targetYm },
+    data: {
+      movimentoBaselineEntradaIds: [],
+      movimentoBaselineSaidaIds: [],
+      movimentoOrganizedAt: MOVIMENTO_BASELINE_SKIP,
+    },
   });
 
   return {

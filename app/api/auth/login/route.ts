@@ -11,6 +11,7 @@ import {
   findPortalUserForLogin,
   touchPortalUserLastLogin,
 } from "@/lib/config/portalUserService";
+import { recordPortalAuditLog } from "@/lib/audit/portalAuditLog";
 import {
   isPortalAuthConfigured,
   isPortalAuthDisabled,
@@ -70,6 +71,23 @@ export async function POST(request: Request) {
   });
   const jar = await cookies();
   jar.set(PORTAL_SESSION_COOKIE, token, portalSessionCookieOptions());
+
+  try {
+    await recordPortalAuditLog({
+      userEmail: user.email,
+      userDisplayName: user.displayName,
+      method: "POST",
+      path: "/api/auth/login",
+      actionOverride: "Entrou no portal",
+      ip:
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+        request.headers.get("x-real-ip") ??
+        "",
+      userAgent: request.headers.get("user-agent") ?? "",
+    });
+  } catch (e) {
+    console.error("[auth/login audit]", e);
+  }
 
   return NextResponse.json({ ok: true, email: user.email });
 }

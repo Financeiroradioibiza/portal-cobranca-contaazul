@@ -97,9 +97,11 @@ function DraggableProdPdv({
   const linked = Boolean(pdv.painelLink);
   const motivo = linked ? null : semPainelMotivo(pdv);
   const tagBg =
-    tone === "normal" && !selected && !multiSelected ?
+    !selected && !multiSelected ?
       rioTagCobrancaRowBgClass(pdv.tagCobranca)
     : "";
+  const usePendenciaTone =
+    (tone === "novo" || tone === "pendencia") && !tagBg;
 
   return (
     <div
@@ -110,7 +112,7 @@ function DraggableProdPdv({
           "border-[#C4146A] bg-pink-50 dark:border-pink-500 dark:bg-pink-950/30"
         : multiSelected ?
           "border-violet-500 bg-violet-50 ring-1 ring-violet-300 dark:border-violet-400 dark:bg-violet-950/40 dark:ring-violet-600"
-        : tone === "novo" || tone === "pendencia" ?
+        : usePendenciaTone ?
           "border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-950/30"
         : tagBg || "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900") +
         (isDragging ? " opacity-40" : "")
@@ -212,6 +214,8 @@ export function CadastrosGruposPanel() {
   const [hiddenClienteKeys, setHiddenClienteKeys] = useState<string[]>([]);
   const [customClientes, setCustomClientes] = useState<ProducaoCustomCliente[]>([]);
   const [acknowledgedPdvs, setAcknowledgedPdvs] = useState<string[]>([]);
+  const [movimentoBaselineEntradaIds, setMovimentoBaselineEntradaIds] = useState<string[]>([]);
+  const [movimentoBaselineSaidaIds, setMovimentoBaselineSaidaIds] = useState<string[]>([]);
   const [linhasRio, setLinhasRio] = useState<RioLinhaForProducao[]>([]);
   const [linkMap, setLinkMap] = useState<Map<string, PainelLinkBrief>>(new Map());
   const [rioTreeMov, setRioTreeMov] = useState<{
@@ -246,8 +250,10 @@ export function CadastrosGruposPanel() {
       hiddenClienteKeys,
       customClientes,
       acknowledgedPdvs,
+      movimentoBaselineEntradaIds,
+      movimentoBaselineSaidaIds,
     }),
-    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs],
+    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, movimentoBaselineEntradaIds, movimentoBaselineSaidaIds],
   );
 
   const caByLinhaId = useMemo(() => buildCaByLinhaId(linhasRio), [linhasRio]);
@@ -453,6 +459,8 @@ export function CadastrosGruposPanel() {
         hiddenClienteKeys: layoutData.layout?.hiddenClienteKeys ?? [],
         customClientes: layoutData.layout?.customClientes ?? [],
         acknowledgedPdvs: layoutData.layout?.acknowledgedPdvs ?? [],
+        movimentoBaselineEntradaIds: layoutData.layout?.movimentoBaselineEntradaIds ?? [],
+        movimentoBaselineSaidaIds: layoutData.layout?.movimentoBaselineSaidaIds ?? [],
       };
       const reconciled = reconcileProducaoLayout(linhasForProd, rawLayout);
       setClienteNomes(rawLayout.clienteNomes);
@@ -460,6 +468,8 @@ export function CadastrosGruposPanel() {
       setHiddenClienteKeys(rawLayout.hiddenClienteKeys);
       setCustomClientes(rawLayout.customClientes);
       setAcknowledgedPdvs(reconciled.acknowledgedPdvs ?? rawLayout.acknowledgedPdvs ?? []);
+      setMovimentoBaselineEntradaIds(rawLayout.movimentoBaselineEntradaIds ?? []);
+      setMovimentoBaselineSaidaIds(rawLayout.movimentoBaselineSaidaIds ?? []);
       setShowHiddenGroups(false);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao carregar.");
@@ -1125,6 +1135,8 @@ export function CadastrosGruposPanel() {
                               {editMode ?
                                 "Arraste cada item para o grupo de clientes abaixo. Ao soltar, deixa de ser pendência."
                               : "Ative «Editar produção» para posicionar nos grupos."}
+                              {" "}
+                              Só entram aqui alterações novas na Planilha Rio após a organização inicial.
                             </p>
                             <div className="space-y-0 border-t border-amber-200 px-2 py-2 dark:border-amber-800">
                               {prodMovimentos.novos.map((item) => (

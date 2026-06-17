@@ -359,6 +359,12 @@ model CadastroProducaoLayout {
   hiddenClienteKeys  Json     @default("[]") @map("hidden_cliente_keys")
   customClientes     Json     @default("[]") @map("custom_clientes")
   acknowledgedPdvs   Json     @default("[]") @map("acknowledged_pdvs")
+  /// IDs com movimento «entrada» congelados na organização inicial — não entram em pendências.
+  movimentoBaselineEntradaIds Json @default("[]") @map("movimento_baseline_entrada_ids")
+  /// IDs com movimento «saída» congelados na organização inicial — não entram em encerrados.
+  movimentoBaselineSaidaIds   Json @default("[]") @map("movimento_baseline_saida_ids")
+  /// Quando a produção foi considerada organizada (baseline aplicada).
+  movimentoOrganizedAt DateTime? @map("movimento_organized_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("cadastro_producao_layout")
@@ -440,9 +446,31 @@ model PortalUser {
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   profile PortalProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  auditLogs PortalAuditLog[]
 
   @@index([profileId])
   @@map("portal_user")
+}
+
+/// Registro de ações dos usuários no portal (auditoria).
+model PortalAuditLog {
+  id              String   @id @default(cuid())
+  userEmail       String   @map("user_email") @db.VarChar(200)
+  userDisplayName String   @default("") @map("user_display_name") @db.VarChar(120)
+  userId          String?  @map("user_id")
+  action          String   @db.VarChar(200)
+  method          String   @db.VarChar(10)
+  path            String   @db.VarChar(500)
+  query           String   @default("") @db.VarChar(500)
+  ip              String   @default("") @db.VarChar(64)
+  userAgent       String   @default("") @map("user_agent") @db.VarChar(500)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user PortalUser? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userEmail])
+  @@map("portal_audit_log")
 }
 
 enum ChamadoStatus {

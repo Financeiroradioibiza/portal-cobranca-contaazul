@@ -5,6 +5,7 @@ import type {
 } from "@/lib/cadastros/producaoHierarchy";
 import {
   enrichPlacementOverrides,
+  ensureProducaoMovimentoBaseline,
   loadRioLinhasForProducao,
   safeMergePlacements,
 } from "@/lib/cadastros/producaoMovimento";
@@ -16,6 +17,9 @@ export type ProducaoLayoutPayload = {
   hiddenClienteKeys: string[];
   customClientes: ProducaoCustomCliente[];
   acknowledgedPdvs: string[];
+  movimentoBaselineEntradaIds: string[];
+  movimentoBaselineSaidaIds: string[];
+  movimentoOrganizedAt: string | null;
 };
 
 function asRecord(v: unknown): Record<string, string> {
@@ -96,6 +100,8 @@ export async function getProducaoLayout(
     }
   }
 
+  const baseline = await ensureProducaoMovimentoBaseline(yearMonth);
+
   return {
     yearMonth,
     clienteNomes: asRecord(row?.clienteNomes),
@@ -103,6 +109,9 @@ export async function getProducaoLayout(
     hiddenClienteKeys: asStringArray(row?.hiddenClienteKeys),
     customClientes: asCustomClientes(row?.customClientes),
     acknowledgedPdvs: asStringArray(row?.acknowledgedPdvs),
+    movimentoBaselineEntradaIds: baseline.movimentoBaselineEntradaIds,
+    movimentoBaselineSaidaIds: baseline.movimentoBaselineSaidaIds,
+    movimentoOrganizedAt: baseline.movimentoOrganizedAt,
   };
 }
 
@@ -137,5 +146,12 @@ export async function saveProducaoLayout(
     create: { yearMonth, ...next },
     update: next,
   });
-  return { yearMonth, ...next };
+  const baseline = await ensureProducaoMovimentoBaseline(yearMonth);
+  return {
+    yearMonth,
+    ...next,
+    movimentoBaselineEntradaIds: baseline.movimentoBaselineEntradaIds,
+    movimentoBaselineSaidaIds: baseline.movimentoBaselineSaidaIds,
+    movimentoOrganizedAt: baseline.movimentoOrganizedAt,
+  };
 }

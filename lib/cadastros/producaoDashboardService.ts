@@ -11,6 +11,7 @@ import { getProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
 import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
+import { effectiveRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 export type DashboardPdvTelemetry = {
   playerVersion: string | null;
@@ -265,7 +266,7 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
       return {
         rioPdvKey: p.rioPdvId,
         nome: cad?.nome?.trim() || p.nome,
-        tagCobranca: p.tagCobranca ?? "cobrando",
+        tagCobranca: effectiveRioTagCobranca(p.tagCobranca, c.tagCobranca),
         rioLinhaId: p.rioLinhaId,
         rioLinhaNome: p.rioLinhaNome,
         rioLinhaTagCobranca: c.tagCobranca ?? "cobrando",

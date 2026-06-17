@@ -11,7 +11,7 @@ import {
 } from "@/lib/cadastros/producaoHierarchy";
 import { prisma } from "@/lib/prisma";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
-import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import { effectiveRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 /** Fila «Pendências» no topo da produção (entradas Rio ainda não posicionadas). */
 export const PRODUCAO_MOVIMENTO_TOP_ENABLED = true;
@@ -45,6 +45,135 @@ function acknowledgedSet(layout: ProducaoLayoutState): Set<string> {
   for (const p of layout.pdvPlacements) set.add(p.rioPdvId);
   return set;
 }
+
+function baselineEntradaSet(layout: ProducaoLayoutState): Set<string> {
+  return new Set(layout.movimentoBaselineEntradaIds ?? []);
+}
+
+function baselineSaidaSet(layout: ProducaoLayoutState): Set<string> {
+  return new Set(layout.movimentoBaselineSaidaIds ?? []);
+}
+
+/** Todas as linhas/PDVs Rio (inclui saída) para congelar baseline de movimento. */
+export async function loadRioLinhasForMovimentoBaseline(
+  yearMonth: number,
+): Promise<RioLinhaForProducao[]> {
+  const month = await prisma.rioCompMonth.findUnique({
+    where: { yearMonth },
+    include: {
+      linhas: {
+        orderBy: [{ sortOrder: "asc" }],
+        include: { pdvs: { orderBy: [{ sortOrder: "asc" }] } },
+      },
+    },
+  });
+  if (!month) return [];
+  return month.linhas.map((ln) => ({
+    id: ln.id,
+    caPersonId: ln.caPersonId,
+    nomeFantasia: ln.nomeFantasia,
+    razaoSocial: ln.razaoSocial,
+    documento: ln.documento,
+    movimento: ln.movimento,
+    numeroPdvSite: ln.numeroPdvSite,
+    pdvs: ln.pdvs.map((p) => ({
+      id: p.id,
+      nome: p.nome,
+      documento: p.documento,
+      movimento: p.movimento,
+      tagCobranca: p.tagCobranca,
+    })),
+    tagCobranca: ln.tagCobranca,
+  }));
+}
+
+/** IDs de entrada/saída atuais — usados uma vez para zerar pendências da organização inicial. */
+export function collectMovimentoBaselineIds(linhas: RioLinhaForProducao[]): {
+  entradaIds: string[];
+  saidaIds: string[];
+} {
+  const entrada = new Set<string>();
+  const saida = new Set<string>();
+
+  for (const ln of linhas) {
+    const activePdvs = ln.pdvs.filter((p) => p.movimento !== "saida");
+
+    if (ln.movimento === "saida") {
+      saida.add(linhaAsPdvKey(ln.id));
+    }
+    if (ln.movimento === "entrada" && activePdvs.length === 0) {
+      entrada.add(linhaAsPdvKey(ln.id));
+    }
+
+    for (const p of ln.pdvs) {
+      if (p.movimento === "saida") saida.add(p.id);
+      if (p.movimento === "entrada") entrada.add(p.id);
+    }
+  }
+
+  return { entradaIds: [...entrada], saidaIds: [...saida] };
+}
+
+/** Sentinel: layout carregado de outro mês — não congela baseline automaticamente. */
+const MOVIMENTO_BASELINE_SKIP = new Date(0);
+
+/**
+ * Congela entradas/saídas atuais como «já organizadas».
+ * Só roda uma vez por competência (movimentoOrganizedAt ausente).
+ */
+export async function ensureProducaoMovimentoBaseline(yearMonth: number): Promise<{
+  movimentoBaselineEntradaIds: string[];
+  movimentoBaselineSaidaIds: string[];
+  movimentoOrganizedAt: string | null;
+}> {
+  const row = await prisma.cadastroProducaoLayout.findUnique({ where: { yearMonth } });
+  if (row?.movimentoOrganizedAt) {
+    if (row.movimentoOrganizedAt.getTime() === MOVIMENTO_BASELINE_SKIP.getTime()) {
+      return {
+        movimentoBaselineEntradaIds: [],
+        movimentoBaselineSaidaIds: [],
+        movimentoOrganizedAt: null,
+      };
+    }
+    return {
+      movimentoBaselineEntradaIds: asJsonStringArray(row.movimentoBaselineEntradaIds),
+      movimentoBaselineSaidaIds: asJsonStringArray(row.movimentoBaselineSaidaIds),
+      movimentoOrganizedAt: row.movimentoOrganizedAt.toISOString(),
+    };
+  }
+
+  const linhas = await loadRioLinhasForMovimentoBaseline(yearMonth);
+  const { entradaIds, saidaIds } = collectMovimentoBaselineIds(linhas);
+  const now = new Date();
+
+  await prisma.cadastroProducaoLayout.upsert({
+    where: { yearMonth },
+    create: {
+      yearMonth,
+      movimentoBaselineEntradaIds: entradaIds,
+      movimentoBaselineSaidaIds: saidaIds,
+      movimentoOrganizedAt: now,
+    },
+    update: {
+      movimentoBaselineEntradaIds: entradaIds,
+      movimentoBaselineSaidaIds: saidaIds,
+      movimentoOrganizedAt: now,
+    },
+  });
+
+  return {
+    movimentoBaselineEntradaIds: entradaIds,
+    movimentoBaselineSaidaIds: saidaIds,
+    movimentoOrganizedAt: now.toISOString(),
+  };
+}
+
+function asJsonStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+}
+
+export { MOVIMENTO_BASELINE_SKIP };
 
 export function stablePlacementKey(p: PdvPlacementOverride): string {
   const target = p.targetClienteKey.trim();
@@ -294,6 +423,8 @@ export function extractRioMovimentos(
   layout: ProducaoLayoutState,
 ): RioMovimentoLists {
   const ack = acknowledgedSet(layout);
+  const baselineEntrada = baselineEntradaSet(layout);
+  const baselineSaida = baselineSaidaSet(layout);
   const novos: ProducaoMovimentoItem[] = [];
   const encerrados: ProducaoMovimentoItem[] = [];
 
@@ -303,6 +434,8 @@ export function extractRioMovimentos(
     const activePdvs = ln.pdvs.filter((p) => p.movimento !== "saida");
 
     if (ln.movimento === "saida") {
+      const proxyId = linhaAsPdvKey(ln.id);
+      if (baselineSaida.has(proxyId)) continue;
       encerrados.push({
         kind: "cliente",
         rioPdvId: linhaAsPdvKey(ln.id),
@@ -318,8 +451,9 @@ export function extractRioMovimentos(
     }
 
     for (const p of ln.pdvs) {
-      const pdvTag = p.tagCobranca ?? linhaTag;
+      const pdvTag = effectiveRioTagCobranca(p.tagCobranca, linhaTag);
       if (p.movimento === "saida") {
+        if (baselineSaida.has(p.id)) continue;
         encerrados.push({
           kind: "pdv",
           rioPdvId: p.id,
@@ -331,7 +465,11 @@ export function extractRioMovimentos(
           painelLink: linkMap.get(p.id) ?? null,
           tagCobranca: pdvTag,
         });
-      } else if (p.movimento === "entrada" && !ack.has(p.id)) {
+      } else if (
+        p.movimento === "entrada" &&
+        !ack.has(p.id) &&
+        !baselineEntrada.has(p.id)
+      ) {
         novos.push({
           kind: "pdv",
           rioPdvId: p.id,
@@ -348,7 +486,7 @@ export function extractRioMovimentos(
 
     if (activePdvs.length === 0 && ln.movimento === "entrada") {
       const proxyId = linhaAsPdvKey(ln.id);
-      if (!ack.has(proxyId)) {
+      if (!ack.has(proxyId) && !baselineEntrada.has(proxyId)) {
         novos.push({
           kind: "cliente",
           rioPdvId: proxyId,

@@ -1,9 +1,6 @@
-import { ManualEnviosPanel } from "@/components/ManualEnviosPanel";
+import { redirect } from "next/navigation";
+import { ENVIOS_MANUAIS_EXTERNAL_URL } from "@/lib/portal/financeiroNav";
 
-export default function FinanceiroEnviosOcPage() {
-  return (
-    <div className="portal-page min-h-full min-w-0">
-      <ManualEnviosPanel />
-    </div>
-  );
+export default function FinanceiroEnviosManuaisPage() {
+  redirect(ENVIOS_MANUAIS_EXTERNAL_URL);
 }

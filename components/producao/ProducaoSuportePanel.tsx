@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
+import {
+  effectiveRioTagCobranca,
+  rioTagCobrancaRowBgClass,
+} from "@/lib/rio/rioTagCobranca";
 import { matchesSuporteSearch } from "@/lib/cadastros/producaoSuporteSearch";
 import type {
   ProducaoSuportePayload,
@@ -212,8 +216,15 @@ function ClienteFocusHeader({
   semPingCount: number;
   onChangeCliente: () => void;
 }) {
+  const clienteTagBg = rioTagCobrancaRowBgClass(cliente.tagCobranca);
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-sky-200/80 bg-gradient-to-r from-sky-50/90 to-white px-4 py-3 dark:border-sky-900/50 dark:from-sky-950/40 dark:to-slate-900">
+    <div
+      className={
+        "flex flex-wrap items-center gap-3 border-b px-4 py-3 " +
+        (clienteTagBg ||
+          "border-sky-200/80 bg-gradient-to-r from-sky-50/90 to-white dark:border-sky-900/50 dark:from-sky-950/40 dark:to-slate-900")
+      }
+    >
       <IdCell
         id={cliente.painelClienteId}
         label="Copiar ID do cliente no painel"
@@ -500,12 +511,16 @@ function PdvRow({
     : undefined;
   const mailHref =
     row.contatoLojaEmail ? `mailto:${row.contatoLojaEmail.split(/[,;]/)[0]?.trim()}` : undefined;
+  const pdvTag = effectiveRioTagCobranca(row.tagCobranca, row.clienteTagCobranca);
+  const tagBg = rioTagCobrancaRowBgClass(pdvTag);
 
   return (
     <tr
       className={
         "border-b border-slate-100 dark:border-slate-800 " +
-        (row.semPing5Dias ?
+        (tagBg ?
+          tagBg
+        : row.semPing5Dias ?
           "bg-rose-50/70 dark:bg-rose-950/20"
         : "hover:bg-white/80 dark:hover:bg-slate-900/50")
       }
@@ -514,8 +529,8 @@ function PdvRow({
         <IdCell id={row.painelPdvId} label="Copiar ID do PDV no painel" variant="pdv" />
       </td>
       <td className="min-w-[9rem] max-w-[14rem] px-2 py-2 align-top">
-        <div className="font-semibold text-slate-800 dark:text-slate-100">
-          <RioTagCobrancaNome nome={row.nome} tag={row.tagCobranca} />
+        <div className="font-semibold">
+          <RioTagCobrancaNome nome={row.nome} tag={pdvTag} />
         </div>
         {row.semPing5Dias ?
           <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { ENVIOS_MANUAIS_EXTERNAL_URL } from "@/lib/portal/financeiroNav";
 
 export default function ManualLegacyPage() {
-  redirect("/financeiro/envios-oc");
+  redirect(ENVIOS_MANUAIS_EXTERNAL_URL);
 }

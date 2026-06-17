@@ -18,16 +18,20 @@ export function rioTagCobrancaSuffix(tag: RioTagCobranca | null | undefined): st
 }
 
 export function rioTagCobrancaTextClass(tag: RioTagCobranca | null | undefined): string {
-  if (tag === "cancelado") return "text-red-600 dark:text-red-400";
-  if (tag === "bloqueio_financeiro") return "text-orange-600 dark:text-orange-400";
+  if (tag === "cancelado") return "text-red-600 dark:text-red-400 font-semibold";
+  if (tag === "bloqueio_financeiro") return "text-orange-600 dark:text-orange-300 font-semibold";
   return "";
 }
 
+/** Tag efetiva: PDV específica prevalece; senão herda da linha Rio. */
 export function effectiveRioTagCobranca(
   pdvTag?: RioTagCobranca | null,
   linhaTag?: RioTagCobranca | null,
 ): RioTagCobranca {
-  return pdvTag ?? linhaTag ?? "cobrando";
+  const pt = normalizeRioTagCobranca(pdvTag);
+  const lt = normalizeRioTagCobranca(linhaTag);
+  if (pt !== "cobrando") return pt;
+  return lt;
 }
 
 export function rioTagCobrancaRowBgClass(tag: RioTagCobranca | null | undefined): string {

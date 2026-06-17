@@ -1,5 +1,6 @@
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import { effectiveRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
 
@@ -179,7 +180,7 @@ export function buildProducaoClientes(
           rioLinhaNome: nomeCliente,
           painelLink: linkByRioPdvId.get(p.id) ?? null,
           movimento: p.movimento,
-          tagCobranca: p.tagCobranca ?? linhaTag,
+          tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
         });
       }
     }
@@ -216,6 +217,10 @@ export type ProducaoLayoutState = {
   customClientes: ProducaoCustomCliente[];
   /** PDVs novos (entrada) já organizados na produção — saem do topo verde. */
   acknowledgedPdvs?: string[];
+  /** Entradas Rio já existentes quando a produção foi organizada — ignoradas em pendências. */
+  movimentoBaselineEntradaIds?: string[];
+  /** Saídas Rio já existentes quando a produção foi organizada — ignoradas em encerrados. */
+  movimentoBaselineSaidaIds?: string[];
 };
 
 function withCustomBuckets(

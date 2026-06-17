@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import type { NextRequest } from "next/server";
 import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
+import { shouldRecordPortalAudit } from "@/lib/audit/describeAuditAction";
 import { portalAccessDenied } from "@/lib/auth/portalAccess";
 import {
   isRouteAccessAllowed,
@@ -108,6 +109,36 @@ export async function middleware(request: NextRequest) {
   const accessRule = resolveRouteAccessRule(pathname);
   if (accessRule && !isRouteAccessAllowed(accessRule, session.roles)) {
     return portalAccessDenied(request);
+  }
+
+  if (shouldRecordPortalAudit(pathname, request.method)) {
+    const auditBody = {
+      path: pathname,
+      method: request.method,
+      query: request.nextUrl.search || undefined,
+      ip:
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+        request.headers.get("x-real-ip") ??
+        "",
+      userAgent: request.headers.get("user-agent") ?? "",
+    };
+    const cookie = request.headers.get("cookie") ?? "";
+    const origin = request.nextUrl.origin;
+
+    after(async () => {
+      try {
+        await fetch(`${origin}/api/internal/audit-log`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie,
+          },
+          body: JSON.stringify(auditBody),
+        });
+      } catch {
+        /* auditoria não deve bloquear navegação */
+      }
+    });
   }
 
   return NextResponse.next();
