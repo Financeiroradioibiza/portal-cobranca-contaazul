@@ -13,6 +13,7 @@ export async function POST(request: Request) {
       titulo?: string;
       clienteRef?: string;
       clienteNome?: string;
+      uploadTagNome?: string;
       arquivos?: UploadArquivo[];
     };
     try {
@@ -35,6 +36,8 @@ export async function POST(request: Request) {
       clienteRef: body.clienteRef,
       clienteNome: body.clienteNome,
       criativoNome: session.displayName ?? session.email,
+      criativoUserId: session.email,
+      uploadTagNome: body.uploadTagNome,
       arquivos,
     });
 

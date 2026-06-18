@@ -63,6 +63,7 @@ export function isIgnoredUrl(url: string): boolean {
   return (
     url.includes("/api/internal/error-log") ||
     url.includes("/api/internal/audit-log") ||
-    url.includes("/api/auth/me")
+    url.includes("/api/auth/me") ||
+    url.includes("_rsc=")
   );
 }

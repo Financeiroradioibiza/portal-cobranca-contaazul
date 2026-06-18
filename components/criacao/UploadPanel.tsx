@@ -19,6 +19,7 @@ export function UploadPanel() {
   const router = useRouter();
   const [modo, setModo] = useState<Modo>("mp3");
   const [titulo, setTitulo] = useState("");
+  const [uploadTag, setUploadTag] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteBusca, setClienteBusca] = useState("");
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null);
@@ -84,6 +85,7 @@ export function UploadPanel() {
           titulo: titulo || (clienteSel ? `Upload · ${clienteSel.nome}` : "Upload"),
           clienteRef: clienteSel?.ref,
           clienteNome: clienteSel?.nome,
+          uploadTagNome: uploadTag.trim() || undefined,
           arquivos: files.map((f) => ({ nome: f.nome, sizeBytes: f.sizeBytes })),
         }),
       });
@@ -185,7 +187,16 @@ export function UploadPanel() {
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
               />
             </label>
-            <div className="text-sm">
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-slate-500">Tag criativa (ex.: POP 90s)</span>
+              <input
+                value={uploadTag}
+                onChange={(e) => setUploadTag(e.target.value)}
+                placeholder="POP 90s — vira [suas iniciais] POP 90s"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              />
+            </label>
+            <div className="text-sm sm:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente (opcional)</span>
               {clienteSel ?
                 <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">

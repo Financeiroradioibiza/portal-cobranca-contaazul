@@ -28,6 +28,7 @@ function securityHeaders(): { key: string; value: string }[] {
         "img-src 'self' data: blob: https:",
         "font-src 'self' data:",
         "connect-src 'self' https:",
+        "media-src 'self' https://cloud2.radioibiza.app.br https:",
         "frame-ancestors 'self'",
         "base-uri 'self'",
         "form-action 'self'",

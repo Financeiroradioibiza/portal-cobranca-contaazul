@@ -212,7 +212,7 @@ function FaixaEditor({ faixa, onSaved }: { faixa: Faixa; onSaved: (f: Faixa) => 
         {faixa.loudnessLufs != null ? ` · ${faixa.loudnessLufs.toFixed(1)} LUFS` : ""}
       </div>
 
-      <audio ref={audioRef} src={faixa.previewUrl ?? undefined} onTimeUpdate={onTime} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} className="hidden" />
+      <audio ref={audioRef} src={faixa.previewUrl ?? undefined} crossOrigin="anonymous" onTimeUpdate={onTime} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onError={() => setPlaying(false)} className="hidden" />
 
       {/* Régua visual: trim (cinza), trecho útil (branco), cauda de mix (verde) */}
       <div className="relative mb-2 h-10 w-full overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">

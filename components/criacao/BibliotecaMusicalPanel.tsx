@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
-type ManualTag = { id: string; nome: string; cor: string };
+type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
 type TagCriativo = { id: string; nome: string; cor: string; criativoNome: string; usoCount: number };
 
 const CORES_SUGERIDAS = [
@@ -141,8 +141,13 @@ export function BibliotecaMusicalPanel() {
     <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
       <audio
         ref={audioRef}
+        crossOrigin="anonymous"
         onEnded={() => setPlayingId(null)}
         onPause={() => setPlayingId(null)}
+        onError={() => {
+          setAudioError("Não foi possível carregar o áudio (verifique CSP ou link expirado).");
+          setPlayingId(null);
+        }}
         className="hidden"
       />
       {audioError ?
@@ -288,7 +293,9 @@ export function BibliotecaMusicalPanel() {
                       key={t.id}
                       className="inline-flex rounded px-2 py-0.5 text-[10px] font-bold"
                       style={{ background: t.cor, color: readableText(t.cor) }}
+                      title={t.criativoNome ? `${t.criativoNome} · ${t.nome}` : t.nome}
                     >
+                      {t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}
                       {t.nome}
                     </span>
                   ))}

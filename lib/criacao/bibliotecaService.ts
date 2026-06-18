@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
+import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -14,7 +15,13 @@ export const TAG_SOURCE_LABEL: Record<string, string> = {
 
 export type AutoTag = { fonte: string; chave?: string; valor: string };
 
-export type MusicaTagManualView = { id: string; nome: string; cor: string };
+export type MusicaTagManualView = {
+  id: string;
+  nome: string;
+  cor: string;
+  criativoIniciais: string;
+  criativoNome: string;
+};
 
 export type MusicaBibliotecaRow = {
   id: string;
@@ -56,6 +63,43 @@ function parseAutoTags(raw: Prisma.JsonValue | null): AutoTag[] {
     .filter((t): t is AutoTag => t !== null);
 }
 
+function filterAutoTags(auto: AutoTag[]): AutoTag[] {
+  return auto.filter((t) => {
+    if (t.fonte === "deezer") {
+      if (t.chave === "album") return false;
+      // Oculta títulos de álbum longos (mantém ano, BPM numérico, ISRC curto)
+      if (!t.chave && !/^\d{1,4}$/.test(t.valor) && t.valor.length > 12) return false;
+    }
+    if (t.fonte === "local" && (t.chave === "energia" || t.valor.toLowerCase().startsWith("energia"))) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/** Mood/estilo derivados de BPM e energia (análise local). */
+function deriveLocalStyleTags(bpm: number | null, energia: number | null): AutoTag[] {
+  const out: AutoTag[] = [];
+  if (energia != null) {
+    const e = energia;
+    const mood =
+      e < 0.35 ? "Calmo"
+      : e < 0.55 ? "Moderado"
+      : e < 0.75 ? "Animado"
+      : "Alta energia";
+    out.push({ fonte: "local", chave: "mood", valor: mood });
+  }
+  if (bpm != null) {
+    const estilo =
+      bpm < 90 ? "Lento"
+      : bpm < 120 ? "Mid-tempo"
+      : bpm < 140 ? "Upbeat"
+      : "Dance";
+    out.push({ fonte: "local", chave: "estilo", valor: estilo });
+  }
+  return out;
+}
+
 /** Extrai a gravadora das tags automáticas (MusicBrainz/Discogs) quando houver. */
 function extractGravadora(auto: AutoTag[]): string {
   const hit = auto.find(
@@ -72,6 +116,8 @@ export async function listMusicasBiblioteca(opts: {
   search?: string;
   status?: string;
 }): Promise<{ rows: MusicaBibliotecaRow[]; total: number }> {
+  await applyPendingUploadTags().catch(() => {});
+
   const page = Math.max(1, opts.page);
   const pageSize = Math.min(200, Math.max(1, opts.pageSize));
   const skip = (page - 1) * pageSize;
@@ -105,8 +151,28 @@ export async function listMusicasBiblioteca(opts: {
 
   const rejMap = await countRejeicoesPorMusica(items.map((m) => m.id));
 
+  const criativoEmails = [
+    ...new Set(
+      items.flatMap((m) =>
+        m.tagsManuais.map((tm) => tm.tag.criativoUserId).filter((e): e is string => Boolean(e)),
+      ),
+    ),
+  ];
+  const criativoUsers =
+    criativoEmails.length > 0 ?
+      await prisma.portalUser.findMany({
+        where: { email: { in: criativoEmails } },
+        select: { email: true, tagIniciais: true, displayName: true },
+      })
+    : [];
+  const criativoUserMap = new Map(criativoUsers.map((u) => [u.email, u]));
+
   const rows: MusicaBibliotecaRow[] = items.map((m) => {
-    const tagsAuto = parseAutoTags(m.tagsAuto);
+    const tagsAutoRaw = parseAutoTags(m.tagsAuto);
+    const tagsAuto = [
+      ...filterAutoTags(tagsAutoRaw),
+      ...deriveLocalStyleTags(m.bpm, m.energia),
+    ];
     const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
     return {
       id: m.id,
@@ -118,14 +184,20 @@ export async function listMusicasBiblioteca(opts: {
       bpm: m.bpm,
       tom: m.tom,
       energia: m.energia,
-      gravadora: extractGravadora(tagsAuto),
+      gravadora: extractGravadora(tagsAutoRaw),
       status: m.status,
       mixSegundosFinais: m.mixSegundosFinais,
-      tagsManuais: m.tagsManuais.map((tm) => ({
-        id: tm.tag.id,
-        nome: tm.tag.nome,
-        cor: tm.tag.cor,
-      })),
+      tagsManuais: m.tagsManuais.map((tm) => {
+        const u = tm.tag.criativoUserId ? criativoUserMap.get(tm.tag.criativoUserId) : undefined;
+        const criativoNome = tm.tag.criativoNome || u?.displayName || "";
+        return {
+          id: tm.tag.id,
+          nome: tm.tag.nome,
+          cor: tm.tag.cor,
+          criativoIniciais: resolveCriativoIniciais(u?.tagIniciais, criativoNome, tm.tag.criativoUserId),
+          criativoNome,
+        };
+      }),
       tagsAuto,
       previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
       rejeicoesCount: rejMap.get(m.id) ?? 0,

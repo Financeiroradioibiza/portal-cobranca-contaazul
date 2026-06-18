@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { pickDefaultTagCor } from "@/lib/config/portalUserService";
 
 export type TagCriativoRow = {
   id: string;
@@ -38,10 +39,20 @@ export async function createTag(input: {
 }) {
   const nome = (input.nome || "").trim();
   if (!nome) throw new Error("nome_obrigatorio");
+
+  let cor = input.cor;
+  if (!cor?.trim() && input.criativoUserId) {
+    const user = await prisma.portalUser.findUnique({
+      where: { email: input.criativoUserId },
+      select: { tagCor: true },
+    });
+    if (user?.tagCor?.trim()) cor = user.tagCor;
+  }
+
   return prisma.tagCriativo.create({
     data: {
       nome: nome.slice(0, 80),
-      cor: normalizeCor(input.cor),
+      cor: normalizeCor(cor ?? pickDefaultTagCor(input.criativoUserId ?? nome)),
       criativoUserId: input.criativoUserId ?? null,
       criativoNome: (input.criativoNome ?? "").slice(0, 120),
     },

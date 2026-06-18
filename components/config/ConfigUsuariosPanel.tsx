@@ -31,10 +31,17 @@ type UserRow = {
   email: string;
   displayName: string;
   jobTitle: string;
+  tagIniciais: string;
+  tagCor: string;
   active: boolean;
   lastLoginAt: string | null;
   profile: { id: string; slug: string; name: string; icon: string };
 };
+
+const TAG_CORES = [
+  "#eab308", "#f97316", "#ef4444", "#ec4899", "#a855f7",
+  "#6366f1", "#3b82f6", "#06b6d4", "#10b981", "#84cc16", "#64748b",
+];
 
 type Stats = { total: number; admins: number; operadores: number; convidados: number };
 
@@ -109,6 +116,8 @@ export function ConfigUsuariosPanel() {
   const [formProfileId, setFormProfileId] = useState("");
   const [formPassword, setFormPassword] = useState("");
   const [formActive, setFormActive] = useState(true);
+  const [formTagIniciais, setFormTagIniciais] = useState("");
+  const [formTagCor, setFormTagCor] = useState(TAG_CORES[5]!);
   const [formSaving, setFormSaving] = useState(false);
 
   const selectedProfile = useMemo(
@@ -238,6 +247,8 @@ export function ConfigUsuariosPanel() {
     setFormJob("");
     setFormProfileId(profiles[0]?.id ?? "");
     setFormPassword("");
+    setFormTagIniciais("");
+    setFormTagCor(TAG_CORES[5]!);
     setShowNewUser(true);
     setEditUser(null);
     setTotpReveal(null);
@@ -250,6 +261,8 @@ export function ConfigUsuariosPanel() {
     setFormProfileId(u.profile.id);
     setFormPassword("");
     setFormActive(u.active);
+    setFormTagIniciais(u.tagIniciais || initials(u.displayName, u.email));
+    setFormTagCor(u.tagCor || TAG_CORES[5]!);
     setShowNewUser(false);
     setTotpReveal(null);
   }
@@ -294,6 +307,8 @@ export function ConfigUsuariosPanel() {
           profileId: formProfileId,
           active: formActive,
           password: formPassword || undefined,
+          tagIniciais: formTagIniciais,
+          tagCor: formTagCor,
         }),
       });
       const data = (await res.json()) as { totpSecret?: string };
@@ -413,6 +428,17 @@ export function ConfigUsuariosPanel() {
               <div className="min-w-0">
                 <div className="truncate font-semibold">{u.displayName || "—"}</div>
                 <div className="truncate text-xs text-slate-500">{u.email}</div>
+                {u.tagIniciais ?
+                  <div className="mt-1">
+                    <span
+                      className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold"
+                      style={{ background: u.tagCor || TAG_CORES[5], color: "#fff" }}
+                      title={`Tag criativa · ${u.displayName}`}
+                    >
+                      [{u.tagIniciais}] exemplo
+                    </span>
+                  </div>
+                : null}
               </div>
               <div className="text-sm text-slate-700 dark:text-slate-300">{u.jobTitle || "—"}</div>
               <div>
@@ -615,6 +641,42 @@ export function ConfigUsuariosPanel() {
                   />
                   Usuário ativo
                 </label>
+              : null}
+              {editUser ?
+                <>
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">Iniciais da tag (ex.: RG, LA)</span>
+                    <input
+                      value={formTagIniciais}
+                      onChange={(e) => setFormTagIniciais(e.target.value.toUpperCase().slice(0, 8))}
+                      placeholder="RG"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 uppercase dark:border-slate-700 dark:bg-slate-950"
+                    />
+                  </label>
+                  <div className="text-sm">
+                    <span className="mb-1 block font-medium">Cor das tags criativas</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TAG_CORES.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setFormTagCor(c)}
+                          className={`h-7 w-7 rounded-full border-2 ${formTagCor === c ? "border-slate-900 dark:border-white" : "border-transparent"}`}
+                          style={{ background: c }}
+                          aria-label={c}
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-2">
+                      <span
+                        className="inline-flex rounded px-2 py-0.5 text-[10px] font-bold"
+                        style={{ background: formTagCor, color: "#fff" }}
+                      >
+                        [{formTagIniciais || "??"}] POP 90s
+                      </span>
+                    </div>
+                  </div>
+                </>
               : null}
             </div>
             <div className="mt-5 flex flex-wrap justify-end gap-2">

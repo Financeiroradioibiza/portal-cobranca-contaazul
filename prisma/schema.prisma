@@ -5,8 +5,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  /// Conexão direta (sem pooler) — obrigatória para `prisma migrate` no Neon.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 /// Um único registro com os tokens OAuth da empresa conectada ao Conta Azul.
@@ -442,6 +444,10 @@ model PortalUser {
   active       Boolean   @default(true)
   lastLoginAt  DateTime? @map("last_login_at")
   profileId    String    @map("profile_id")
+  /// Iniciais no chip de tag criativa — ex.: RG, LA
+  tagIniciais  String    @default("") @map("tag_iniciais") @db.VarChar(8)
+  /// Cor hex padrão das tags deste criativo
+  tagCor       String    @default("#6366f1") @map("tag_cor") @db.VarChar(9)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -906,6 +912,10 @@ model ProcessamentoJob {
   clienteRef   String?   @map("cliente_ref") @db.VarChar(120)
   clienteNome  String    @default("") @map("cliente_nome") @db.VarChar(200)
   criativoNome String    @default("") @map("criativo_nome") @db.VarChar(120)
+  /// E-mail do criativo (para cor/iniciais da tag de upload)
+  criativoUserId String? @map("criativo_user_id") @db.VarChar(200)
+  /// Tag criativa definida no upload — ex.: POP 90s
+  uploadTagNome  String  @default("") @map("upload_tag_nome") @db.VarChar(80)
   totalItens   Int       @default(0) @map("total_itens")
   itensFeitos  Int       @default(0) @map("itens_feitos")
   erroMsg      String    @default("") @map("erro_msg") @db.Text

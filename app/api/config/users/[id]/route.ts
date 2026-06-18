@@ -15,6 +15,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
       active?: boolean;
       password?: string;
       resetTotp?: boolean;
+      tagIniciais?: string;
+      tagCor?: string;
     };
     const result = await updatePortalUser(id, body);
     return NextResponse.json({

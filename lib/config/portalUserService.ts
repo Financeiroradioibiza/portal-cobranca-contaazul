@@ -15,6 +15,8 @@ export type DbPortalUserView = {
   email: string;
   displayName: string;
   jobTitle: string;
+  tagIniciais: string;
+  tagCor: string;
   active: boolean;
   lastLoginAt: Date | null;
   profile: {
@@ -24,6 +26,21 @@ export type DbPortalUserView = {
     icon: string;
   };
 };
+
+const TAG_PALETTE = [
+  "#eab308", "#f97316", "#ef4444", "#ec4899", "#a855f7",
+  "#6366f1", "#3b82f6", "#06b6d4", "#10b981", "#84cc16",
+];
+
+function defaultTagCor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h + seed.charCodeAt(i) * 17) % TAG_PALETTE.length;
+  return TAG_PALETTE[h]!;
+}
+
+export function pickDefaultTagCor(seed: string): string {
+  return defaultTagCor(seed);
+}
 
 function dbUserToRecord(row: {
   email: string;
@@ -116,6 +133,8 @@ export async function listPortalUsers(): Promise<DbPortalUserView[]> {
     email: r.email,
     displayName: r.displayName,
     jobTitle: r.jobTitle,
+    tagIniciais: r.tagIniciais,
+    tagCor: r.tagCor,
     active: r.active,
     lastLoginAt: r.lastLoginAt,
     profile: r.profile,
@@ -168,6 +187,8 @@ export async function createPortalUser(input: {
       passwordHash,
       totpSecret,
       profileId: profile.id,
+      tagIniciais: initials(input.displayName.trim(), email),
+      tagCor: defaultTagCor(email),
     },
     include: {
       profile: { select: { id: true, slug: true, name: true, icon: true } },
@@ -180,6 +201,8 @@ export async function createPortalUser(input: {
       email: row.email,
       displayName: row.displayName,
       jobTitle: row.jobTitle,
+      tagIniciais: row.tagIniciais,
+      tagCor: row.tagCor,
       active: row.active,
       lastLoginAt: row.lastLoginAt,
       profile: row.profile,
@@ -197,6 +220,8 @@ export async function updatePortalUser(
     active?: boolean;
     password?: string;
     resetTotp?: boolean;
+    tagIniciais?: string;
+    tagCor?: string;
   },
 ): Promise<{ user: DbPortalUserView; totpSecret?: string }> {
   const data: {
@@ -206,12 +231,23 @@ export async function updatePortalUser(
     active?: boolean;
     passwordHash?: string;
     totpSecret?: string;
+    tagIniciais?: string;
+    tagCor?: string;
   } = {};
 
   if (patch.displayName !== undefined) data.displayName = patch.displayName.trim();
   if (patch.jobTitle !== undefined) data.jobTitle = patch.jobTitle.trim();
   if (patch.profileId !== undefined) data.profileId = patch.profileId;
   if (patch.active !== undefined) data.active = patch.active;
+  if (patch.tagIniciais !== undefined) {
+    data.tagIniciais = patch.tagIniciais.trim().toUpperCase().slice(0, 8);
+  }
+  if (patch.tagCor !== undefined) {
+    const c = patch.tagCor.trim();
+    data.tagCor = /^#?[0-9a-fA-F]{6}$/.test(c) ?
+      (c.startsWith("#") ? c : `#${c}`).toLowerCase()
+    : defaultTagCor(id);
+  }
   if (patch.password?.trim()) {
     data.passwordHash = await bcrypt.hash(patch.password, 12);
   }
@@ -235,6 +271,8 @@ export async function updatePortalUser(
       email: row.email,
       displayName: row.displayName,
       jobTitle: row.jobTitle,
+      tagIniciais: row.tagIniciais,
+      tagCor: row.tagCor,
       active: row.active,
       lastLoginAt: row.lastLoginAt,
       profile: row.profile,
