@@ -142,24 +142,46 @@ export function BibliotecaMusicalPanel() {
   const enrichLabels = useCallback(async () => {
     setEnriching(true);
     setEnrichMsg(null);
+    let totalProcessed = 0;
+    let totalUpdated = 0;
     try {
-      const res = await fetch("/api/criacao/biblioteca/enriquecer-tags", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: 40, onlyMissing: true }),
-      });
-      const data = (await res.json().catch(() => null)) as {
-        processed?: number;
-        updated?: number;
-        error?: string;
-      } | null;
-      if (!res.ok) throw new Error(data?.error ?? "enrich_failed");
+      for (let round = 0; round < 50; round += 1) {
+        setEnrichMsg(
+          round === 0
+            ? "Buscando gravadoras (MusicBrainz/Deezer)…"
+            : `${totalUpdated} gravadoras encontradas · ${totalProcessed} faixas analisadas…`,
+        );
+        const res = await fetch("/api/criacao/biblioteca/enriquecer-tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: 6, onlyMissing: true }),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          processed?: number;
+          updated?: number;
+          hasMore?: boolean;
+          error?: string;
+        } | null;
+        if (!res.ok) throw new Error(data?.error ?? "enrich_failed");
+        totalProcessed += data?.processed ?? 0;
+        totalUpdated += data?.updated ?? 0;
+        if (!data?.hasMore || (data?.processed ?? 0) === 0) break;
+      }
       setEnrichMsg(
-        `${data?.updated ?? 0} de ${data?.processed ?? 0} faixa(s) receberam gravadora (MusicBrainz/Deezer).`,
+        totalUpdated > 0
+          ? `${totalUpdated} faixa(s) receberam gravadora (${totalProcessed} analisadas).`
+          : totalProcessed > 0
+            ? `${totalProcessed} faixa(s) analisadas — nenhuma gravadora encontrada neste lote.`
+            : "Nenhuma faixa pendente de gravadora.",
       );
       await load();
     } catch {
-      setEnrichMsg("Não foi possível atualizar gravadoras. Tente novamente.");
+      setEnrichMsg(
+        totalProcessed > 0
+          ? `Parcial: ${totalUpdated} gravadoras em ${totalProcessed} faixas. Tente novamente para continuar.`
+          : "Não foi possível atualizar gravadoras. Tente novamente.",
+      );
+      if (totalUpdated > 0) await load();
     } finally {
       setEnriching(false);
     }

@@ -20,3 +20,21 @@ export async function cloud2Fetch(path: string, init: RequestInit = {}): Promise
   }
   return fetch(url, { ...init, headers });
 }
+
+/** cloud2Fetch com abort se a rota não responder (evita 504 no Netlify). */
+export async function cloud2FetchWithTimeout(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs = 8000,
+): Promise<Response | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await cloud2Fetch(path, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") return null;
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
