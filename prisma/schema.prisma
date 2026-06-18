@@ -785,11 +785,45 @@ model Programacao {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  pastas   Pasta[]
-  vinhetas Vinheta[]
+  pastas       Pasta[]
+  vinhetas     Vinheta[]
+  agendamentos Agendamento[]
 
   @@index([clienteRef])
   @@map("programacao")
+}
+
+enum AgendamentoAlvo {
+  pasta
+  vinheta
+}
+
+/// Cronograma: quando uma pasta ou vinheta toca (dias da semana + janela de horário
+/// + intervalo de datas opcional). Para vinhetas, frequenciaMin repete dentro da janela.
+model Agendamento {
+  id            String          @id @default(cuid())
+  programacaoId String          @map("programacao_id")
+  alvoTipo      AgendamentoAlvo @map("alvo_tipo")
+  alvoId        String          @map("alvo_id")
+  /// Dias da semana como CSV de 0..6 (0=domingo). Vazio = todos os dias.
+  diasSemana    String          @default("") @map("dias_semana") @db.VarChar(32)
+  horaInicio    String          @default("00:00") @map("hora_inicio") @db.VarChar(5)
+  horaFim       String          @default("23:59") @map("hora_fim") @db.VarChar(5)
+  /// Intervalo de datas (opcional): ex.: tocar de 07 a 10 de junho.
+  dataInicio    DateTime?       @map("data_inicio") @db.Date
+  dataFim       DateTime?       @map("data_fim") @db.Date
+  /// Para vinhetas: tocar a cada N minutos dentro da janela (null = uma vez/contínuo).
+  frequenciaMin Int?            @map("frequencia_min")
+  prioridade    Int             @default(0)
+  ativo         Boolean         @default(true)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  programacao Programacao @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
+
+  @@index([programacaoId])
+  @@index([alvoTipo, alvoId])
+  @@map("agendamento")
 }
 
 /// Pasta/playlist dentro de uma programação.

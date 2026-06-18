@@ -660,6 +660,8 @@ function ProgramacaoEditor({
 
       <VinhetasSection programacaoId={id} />
 
+      <CronogramaSection programacaoId={id} pastas={prog.pastas.map((p) => ({ id: p.id, nome: p.nome }))} />
+
       {addTo ?
         <AddMusicasModal
           pasta={addTo}
@@ -859,6 +861,266 @@ function VinhetasSection({ programacaoId }: { programacaoId: string }) {
               }
             </div>
           ))}
+        </div>
+      }
+    </div>
+  );
+}
+
+const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+type Agendamento = {
+  id: string;
+  alvoTipo: string;
+  alvoId: string;
+  alvoNome: string;
+  diasSemana: string;
+  horaInicio: string;
+  horaFim: string;
+  dataInicio: string | null;
+  dataFim: string | null;
+  frequenciaMin: number | null;
+  prioridade: number;
+  ativo: boolean;
+};
+
+function diasLabel(csv: string): string {
+  if (!csv.trim()) return "todos os dias";
+  const ds = csv.split(",").map((n) => DOW[Number(n)] ?? "").filter(Boolean);
+  return ds.join(", ");
+}
+
+function CronogramaSection({
+  programacaoId,
+  pastas,
+}: {
+  programacaoId: string;
+  pastas: { id: string; nome: string }[];
+}) {
+  const [ags, setAgs] = useState<Agendamento[]>([]);
+  const [vinhetas, setVinhetas] = useState<{ id: string; nome: string }[]>([]);
+  const [open, setOpen] = useState(false);
+
+  // form
+  const [alvo, setAlvo] = useState("");
+  const [dias, setDias] = useState<Set<number>>(new Set());
+  const [hIni, setHIni] = useState("08:00");
+  const [hFim, setHFim] = useState("22:00");
+  const [dIni, setDIni] = useState("");
+  const [dFim, setDFim] = useState("");
+  const [freq, setFreq] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [ra, rv] = await Promise.all([
+        fetch(`/api/criacao/programacoes/${programacaoId}/agendamentos`),
+        fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`),
+      ]);
+      if (ra.ok) setAgs(((await ra.json()) as { agendamentos: Agendamento[] }).agendamentos);
+      if (rv.ok) setVinhetas(((await rv.json()) as { vinhetas: { id: string; nome: string }[] }).vinhetas);
+    } catch {
+      /* silencioso */
+    }
+  }, [programacaoId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const alvoIsVinheta = alvo.startsWith("vinheta:");
+
+  async function criar() {
+    if (!alvo || busy) return;
+    const [alvoTipo, alvoId] = alvo.split(":");
+    setBusy(true);
+    try {
+      await fetch(`/api/criacao/programacoes/${programacaoId}/agendamentos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alvoTipo,
+          alvoId,
+          diasSemana: Array.from(dias).sort((a, b) => a - b).join(","),
+          horaInicio: hIni,
+          horaFim: hFim,
+          dataInicio: dIni || undefined,
+          dataFim: dFim || undefined,
+          frequenciaMin: alvoTipo === "vinheta" && freq ? Number(freq) : undefined,
+        }),
+      });
+      setDias(new Set());
+      setDIni("");
+      setDFim("");
+      setFreq("");
+      setOpen(false);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remover(id: string) {
+    await fetch(`/api/criacao/agendamentos/${id}`, { method: "DELETE" });
+    await load();
+  }
+
+  async function toggleAtivo(a: Agendamento) {
+    await fetch(`/api/criacao/agendamentos/${a.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ativo: !a.ativo }),
+    });
+    await load();
+  }
+
+  return (
+    <div className="mt-8">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Cronograma</h2>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
+        >
+          {open ? "Fechar" : "+ Regra"}
+        </button>
+      </div>
+
+      {open ?
+        <div className="mb-3 rounded-xl border border-slate-300 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-slate-500">O que toca</span>
+              <select
+                value={alvo}
+                onChange={(e) => setAlvo(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              >
+                <option value="">Selecione…</option>
+                {pastas.length > 0 ?
+                  <optgroup label="Pastas">
+                    {pastas.map((p) => (
+                      <option key={p.id} value={`pasta:${p.id}`}>
+                        {p.nome}
+                      </option>
+                    ))}
+                  </optgroup>
+                : null}
+                {vinhetas.length > 0 ?
+                  <optgroup label="Vinhetas">
+                    {vinhetas.map((v) => (
+                      <option key={v.id} value={`vinheta:${v.id}`}>
+                        {v.nome}
+                      </option>
+                    ))}
+                  </optgroup>
+                : null}
+              </select>
+            </label>
+            <div className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-slate-500">Dias da semana</span>
+              <div className="flex flex-wrap gap-1">
+                {DOW.map((d, i) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() =>
+                      setDias((prev) => {
+                        const n = new Set(prev);
+                        if (n.has(i)) n.delete(i);
+                        else n.add(i);
+                        return n;
+                      })
+                    }
+                    className={`h-8 w-9 rounded text-xs font-semibold ${
+                      dias.has(i) ?
+                        "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                      : "border border-slate-200 text-slate-500 dark:border-slate-700"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-1 text-[10px] text-slate-400">Nenhum marcado = todos os dias.</div>
+            </div>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-slate-500">Horário</span>
+              <div className="flex items-center gap-2">
+                <input type="time" value={hIni} onChange={(e) => setHIni(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+                <span className="text-slate-400">até</span>
+                <input type="time" value={hFim} onChange={(e) => setHFim(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+              </div>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-slate-500">Período (opcional)</span>
+              <div className="flex items-center gap-2">
+                <input type="date" value={dIni} onChange={(e) => setDIni(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+                <span className="text-slate-400">a</span>
+                <input type="date" value={dFim} onChange={(e) => setDFim(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+              </div>
+            </label>
+            {alvoIsVinheta ?
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">Repetir a cada (min)</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={freq}
+                  onChange={(e) => setFreq(e.target.value)}
+                  placeholder="ex.: 30"
+                  className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                />
+              </label>
+            : null}
+          </div>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => void criar()}
+              disabled={busy || !alvo}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
+            >
+              Adicionar regra
+            </button>
+          </div>
+        </div>
+      : null}
+
+      {ags.length === 0 ?
+        <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400 dark:border-slate-700">
+          Sem regras de cronograma. Por padrão, as pastas tocam o tempo todo.
+        </div>
+      : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {ags.map((a) => (
+              <li key={a.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm ${a.ativo ? "" : "opacity-50"}`}>
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">
+                  {a.alvoTipo}
+                </span>
+                <span className="font-semibold">{a.alvoNome}</span>
+                <span className="text-slate-500">{diasLabel(a.diasSemana)}</span>
+                <span className="tabular-nums text-slate-500">{a.horaInicio}–{a.horaFim}</span>
+                {a.dataInicio || a.dataFim ?
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                    {a.dataInicio ?? "…"} → {a.dataFim ?? "…"}
+                  </span>
+                : null}
+                {a.frequenciaMin ?
+                  <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] text-sky-800 dark:bg-sky-950 dark:text-sky-200">
+                    a cada {a.frequenciaMin}min
+                  </span>
+                : null}
+                <div className="ml-auto flex items-center gap-2">
+                  <button type="button" onClick={() => void toggleAtivo(a)} className="text-xs text-slate-400 hover:text-slate-600">
+                    {a.ativo ? "pausar" : "ativar"}
+                  </button>
+                  <button type="button" onClick={() => void remover(a.id)} className="text-slate-300 hover:text-red-600" title="Excluir">🗑</button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       }
     </div>
