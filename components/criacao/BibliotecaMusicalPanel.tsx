@@ -5,6 +5,12 @@ import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string };
+type TagCriativo = { id: string; nome: string; cor: string; criativoNome: string; usoCount: number };
+
+const CORES_SUGERIDAS = [
+  "#eab308", "#f97316", "#ef4444", "#ec4899", "#a855f7",
+  "#6366f1", "#3b82f6", "#06b6d4", "#10b981", "#84cc16", "#64748b",
+];
 type Musica = {
   id: string;
   titulo: string;
@@ -62,6 +68,24 @@ export function BibliotecaMusicalPanel() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [tags, setTags] = useState<TagCriativo[]>([]);
+  const [showTagManager, setShowTagManager] = useState(false);
+  const [tagFor, setTagFor] = useState<Musica | null>(null);
+
+  const loadTags = useCallback(async () => {
+    try {
+      const res = await fetch("/api/criacao/tags");
+      if (!res.ok) return;
+      const data = (await res.json()) as { tags: TagCriativo[] };
+      setTags(data.tags);
+    } catch {
+      /* silencioso */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTags();
+  }, [loadTags]);
 
   const togglePlay = useCallback(
     (m: Musica) => {
@@ -135,8 +159,17 @@ export function BibliotecaMusicalPanel() {
             criativo), análise local (BPM/mood) e metadados externos.
           </p>
         </div>
-        <div className="text-right text-xs text-slate-500">
-          <strong className="text-slate-700 dark:text-slate-200">{total}</strong> música{total === 1 ? "" : "s"}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowTagManager(true)}
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            🏷 Gerenciar tags
+          </button>
+          <div className="text-right text-xs text-slate-500">
+            <strong className="text-slate-700 dark:text-slate-200">{total}</strong> música{total === 1 ? "" : "s"}
+          </div>
         </div>
       </div>
 
@@ -261,6 +294,14 @@ export function BibliotecaMusicalPanel() {
                   {m.tagsManuais.length === 0 && m.tagsAuto.length === 0 && m.energia == null ?
                     <span className="text-[11px] text-slate-400">sem tags</span>
                   : null}
+                  <button
+                    type="button"
+                    onClick={() => setTagFor(m)}
+                    title="Tags criativas"
+                    className="inline-flex h-5 items-center rounded border border-dashed border-slate-300 px-1.5 text-[10px] font-bold text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600"
+                  >
+                    + tag
+                  </button>
                 </div>
                 <div className="truncate text-xs text-slate-500">{m.gravadora || "—"}</div>
                 <div className="text-center text-sm tabular-nums text-slate-600 dark:text-slate-300">
@@ -274,6 +315,231 @@ export function BibliotecaMusicalPanel() {
           </ul>
         </div>
       }
+
+      {showTagManager ?
+        <TagManagerModal
+          tags={tags}
+          onClose={() => setShowTagManager(false)}
+          onChanged={async () => {
+            await loadTags();
+            await load();
+          }}
+        />
+      : null}
+
+      {tagFor ?
+        <TagAssignModal
+          musica={tagFor}
+          tags={tags}
+          onClose={() => setTagFor(null)}
+          onChanged={async () => {
+            await loadTags();
+            await load();
+          }}
+        />
+      : null}
+    </div>
+  );
+}
+
+function TagManagerModal({
+  tags,
+  onClose,
+  onChanged,
+}: {
+  tags: TagCriativo[];
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [nome, setNome] = useState("");
+  const [cor, setCor] = useState(CORES_SUGERIDAS[0]);
+  const [busy, setBusy] = useState(false);
+
+  async function criar() {
+    if (!nome.trim() || busy) return;
+    setBusy(true);
+    try {
+      await fetch("/api/criacao/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: nome.trim(), cor }),
+      });
+      setNome("");
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recolor(id: string, novaCor: string) {
+    await fetch(`/api/criacao/tags/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cor: novaCor }),
+    });
+    await onChanged();
+  }
+
+  async function remover(id: string) {
+    if (!confirm("Excluir esta tag de todas as músicas?")) return;
+    await fetch(`/api/criacao/tags/${id}`, { method: "DELETE" });
+    await onChanged();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <h2 className="text-sm font-bold">Tags criativas</h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+
+        <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <div className="mb-2 text-xs font-semibold text-slate-500">Nova tag</div>
+          <div className="flex items-center gap-2">
+            <input
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void criar()}
+              placeholder="Ex.: Lounge Style (Lauro)"
+              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            />
+            <button
+              type="button"
+              onClick={() => void criar()}
+              disabled={busy || !nome.trim()}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
+            >
+              Criar
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {CORES_SUGERIDAS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCor(c)}
+                className={`h-6 w-6 rounded-full border-2 ${cor === c ? "border-slate-900 dark:border-white" : "border-transparent"}`}
+                style={{ background: c }}
+                aria-label={c}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto p-2">
+          {tags.length === 0 ?
+            <div className="py-8 text-center text-sm text-slate-400">Nenhuma tag criada ainda.</div>
+          : <ul className="space-y-1">
+              {tags.map((t) => (
+                <li key={t.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <span className="inline-flex rounded px-2 py-0.5 text-[10px] font-bold" style={{ background: t.cor, color: readableText(t.cor) }}>
+                    {t.nome}
+                  </span>
+                  <span className="text-xs text-slate-400">{t.usoCount} uso{t.usoCount === 1 ? "" : "s"}</span>
+                  <div className="ml-auto flex items-center gap-1">
+                    {CORES_SUGERIDAS.slice(0, 7).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => void recolor(t.id, c)}
+                        className="h-4 w-4 rounded-full border border-white/40"
+                        style={{ background: c }}
+                        aria-label={`cor ${c}`}
+                      />
+                    ))}
+                    <button type="button" onClick={() => void remover(t.id)} className="ml-1 text-slate-300 hover:text-red-600" title="Excluir">🗑</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TagAssignModal({
+  musica,
+  tags,
+  onClose,
+  onChanged,
+}: {
+  musica: Musica;
+  tags: TagCriativo[];
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [assigned, setAssigned] = useState<Set<string>>(new Set(musica.tagsManuais.map((t) => t.id)));
+  const [busy, setBusy] = useState(false);
+
+  async function toggle(tagId: string) {
+    if (busy) return;
+    setBusy(true);
+    const has = assigned.has(tagId);
+    try {
+      if (has) {
+        await fetch(`/api/criacao/musicas/${musica.id}/tags/${tagId}`, { method: "DELETE" });
+        setAssigned((prev) => {
+          const n = new Set(prev);
+          n.delete(tagId);
+          return n;
+        });
+      } else {
+        await fetch(`/api/criacao/musicas/${musica.id}/tags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tagId }),
+        });
+        setAssigned((prev) => new Set(prev).add(tagId));
+      }
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <div className="min-w-0">
+            <div className="text-sm font-bold truncate">{musica.titulo || "(sem título)"}</div>
+            <div className="truncate text-xs text-slate-500">{musica.artista}</div>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="p-4">
+          {tags.length === 0 ?
+            <div className="text-sm text-slate-400">
+              Nenhuma tag criada. Use “Gerenciar tags” para criar.
+            </div>
+          : <div className="flex flex-wrap gap-2">
+              {tags.map((t) => {
+                const on = assigned.has(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => void toggle(t.id)}
+                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition ${on ? "" : "opacity-40 grayscale hover:opacity-70"}`}
+                    style={{ background: t.cor, color: readableText(t.cor) }}
+                  >
+                    {on ? "✓ " : ""}{t.nome}
+                  </button>
+                );
+              })}
+            </div>
+          }
+        </div>
+      </div>
     </div>
   );
 }
