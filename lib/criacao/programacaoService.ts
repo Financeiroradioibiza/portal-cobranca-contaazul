@@ -137,6 +137,7 @@ export async function createProgramacao(input: {
   clienteNome: string;
   nome: string;
   formatoPadrao?: string;
+  criativoUserId?: string;
   criativoNome?: string;
 }) {
   const nome = (input.nome || "").trim();
@@ -150,6 +151,7 @@ export async function createProgramacao(input: {
       clienteNome: (input.clienteNome ?? "").slice(0, 200),
       nome: nome.slice(0, 120),
       formatoPadrao: isFormato(input.formatoPadrao) ? input.formatoPadrao : "mp3_128_mono",
+      criativoUserId: input.criativoUserId?.slice(0, 200) || null,
       criativoNome: (input.criativoNome ?? "").slice(0, 120),
     },
     select: { id: true },

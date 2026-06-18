@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { resolveTagCriativoUser } from "@/lib/criacao/criativoUserService";
 import { createUploadJob, type UploadArquivo } from "@/lib/criacao/filaService";
 import { CRIACAO_INGEST_URL, ingestEnabled, signTicket } from "@/lib/criacao/ingestTicket";
 
@@ -14,6 +15,7 @@ export async function POST(request: Request) {
       clienteRef?: string;
       clienteNome?: string;
       uploadTagNome?: string;
+      tagCriativoUserId?: string;
       programacaoId?: string;
       pastaId?: string;
       arquivos?: UploadArquivo[];
@@ -33,12 +35,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ingest_desabilitado" }, { status: 503 });
     }
 
+    const tagCriativo = await resolveTagCriativoUser(body.tagCriativoUserId, session.email);
+
     const job = await createUploadJob({
       titulo: body.titulo ?? "",
       clienteRef: body.clienteRef,
       clienteNome: body.clienteNome,
       criativoNome: session.displayName ?? session.email,
-      criativoUserId: session.email,
+      criativoUserId: tagCriativo.email,
       uploadTagNome: body.uploadTagNome,
       programacaoId: body.programacaoId,
       pastaId: body.pastaId,

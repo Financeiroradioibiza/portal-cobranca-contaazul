@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FORMATO_LABEL } from "@/lib/criacao/programacaoService";
+import { CriativoTagSelect } from "@/components/criacao/CriativoTagSelect";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
 
@@ -319,6 +320,7 @@ function NovaProgramacaoInline({
 }) {
   const [nome, setNome] = useState("");
   const [formato, setFormato] = useState("mp3_128_mono");
+  const [tagCriativoUserId, setTagCriativoUserId] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -333,6 +335,7 @@ function NovaProgramacaoInline({
           clienteNome: cliente.nome,
           nome: nome.trim(),
           formatoPadrao: formato,
+          tagCriativoUserId: tagCriativoUserId || undefined,
         }),
       });
       if (!res.ok) throw new Error();
@@ -356,6 +359,13 @@ function NovaProgramacaoInline({
             className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
           />
         </label>
+        <CriativoTagSelect
+          value={tagCriativoUserId}
+          onChange={setTagCriativoUserId}
+          label="Estilo de"
+          help="Criativo responsável pelo estilo desta programação."
+          className="min-w-[200px] flex-1"
+        />
         <label className="text-sm">
           <span className="mb-1 block text-[10px] font-semibold text-slate-500">Formato</span>
           <select

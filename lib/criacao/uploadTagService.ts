@@ -57,7 +57,7 @@ export async function applyUploadTagForMusica(input: {
     : null;
 
   const cor = user?.tagCor?.trim() || DEFAULT_COR;
-  const criativoNome = (input.criativoNome || user?.displayName || input.criativoUserId || "").slice(0, 120);
+  const criativoNome = (user?.displayName || input.criativoNome || input.criativoUserId || "").slice(0, 120);
   const criativoUserId = input.criativoUserId;
 
   const existing = await prisma.tagCriativo.findFirst({

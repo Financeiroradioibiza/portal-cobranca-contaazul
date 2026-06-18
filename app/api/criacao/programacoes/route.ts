@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { resolveTagCriativoUser } from "@/lib/criacao/criativoUserService";
 import { createProgramacao, listProgramacoes } from "@/lib/criacao/programacaoService";
 
 export const runtime = "nodejs";
@@ -27,13 +28,16 @@ export async function POST(request: Request) {
       clienteNome?: string;
       nome?: string;
       formatoPadrao?: string;
+      tagCriativoUserId?: string;
     };
+    const tagCriativo = await resolveTagCriativoUser(body.tagCriativoUserId, session.email);
     const created = await createProgramacao({
       clienteRef: body.clienteRef ?? "",
       clienteNome: body.clienteNome ?? "",
       nome: body.nome ?? "",
       formatoPadrao: body.formatoPadrao,
-      criativoNome: session.displayName ?? session.email,
+      criativoUserId: tagCriativo.email,
+      criativoNome: tagCriativo.displayName,
     });
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch (e) {

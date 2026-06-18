@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
@@ -22,6 +23,8 @@ export function UploadPanel() {
   const [modo, setModo] = useState<Modo>("mp3");
   const [titulo, setTitulo] = useState("");
   const [uploadTag, setUploadTag] = useState("");
+  const [tagCriativoUserId, setTagCriativoUserId] = useState("");
+  const [tagCriativoIniciais, setTagCriativoIniciais] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteBusca, setClienteBusca] = useState("");
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null);
@@ -117,6 +120,7 @@ export function UploadPanel() {
           clienteRef: clienteSel?.ref,
           clienteNome: clienteSel?.nome,
           uploadTagNome: uploadTag.trim() || undefined,
+          tagCriativoUserId: tagCriativoUserId || undefined,
           programacaoId: progSel || undefined,
           pastaId: pastaSel || undefined,
           arquivos: files.map((f) => ({ nome: f.nome, sizeBytes: f.sizeBytes })),
@@ -220,12 +224,21 @@ export function UploadPanel() {
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
               />
             </label>
-            <label className="text-sm">
+            <CriativoTagSelect
+              value={tagCriativoUserId}
+              onChange={setTagCriativoUserId}
+              onSelected={(c) => setTagCriativoIniciais(c?.tagIniciais ?? "")}
+            />
+            <label className="text-sm sm:col-span-2">
               <span className="mb-1 block text-xs font-semibold text-slate-500">Tag criativa (ex.: POP 90s)</span>
               <input
                 value={uploadTag}
                 onChange={(e) => setUploadTag(e.target.value)}
-                placeholder="POP 90s — vira [suas iniciais] POP 90s"
+                placeholder={
+                  uploadTag.trim()
+                    ? formatTagChipPreview(tagCriativoIniciais, uploadTag)
+                    : `Ex.: ${formatTagChipPreview(tagCriativoIniciais, "POP 90s")}`
+                }
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
               />
             </label>
