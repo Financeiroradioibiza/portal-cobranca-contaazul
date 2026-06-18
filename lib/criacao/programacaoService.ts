@@ -35,6 +35,66 @@ export type ProgramacaoListRow = {
   updatedAt: string;
 };
 
+export type ArvorePastaNode = {
+  id: string;
+  nome: string;
+  velocidade: string;
+  musicasCount: number;
+};
+
+export type ArvoreVinhetaNode = {
+  id: string;
+  nome: string;
+  tipo: string;
+};
+
+export type ArvoreProgramacaoNode = {
+  id: string;
+  nome: string;
+  formatoPadrao: string;
+  publicada: boolean;
+  pastas: ArvorePastaNode[];
+  vinhetas: ArvoreVinhetaNode[];
+};
+
+export async function getClienteProgramacaoArvore(clienteRef: string): Promise<ArvoreProgramacaoNode[]> {
+  const ref = clienteRef.trim();
+  if (!ref) return [];
+
+  const items = await prisma.programacao.findMany({
+    where: { clienteRef: ref },
+    orderBy: [{ nome: "asc" }, { updatedAt: "desc" }],
+    include: {
+      pastas: {
+        orderBy: { sortOrder: "asc" },
+        include: { _count: { select: { musicas: true } } },
+      },
+      vinhetas: {
+        orderBy: { createdAt: "asc" },
+        select: { id: true, nome: true, tipo: true },
+      },
+    },
+  });
+
+  return items.map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    formatoPadrao: p.formatoPadrao,
+    publicada: p.publicada,
+    pastas: p.pastas.map((f) => ({
+      id: f.id,
+      nome: f.nome,
+      velocidade: f.velocidade,
+      musicasCount: f._count.musicas,
+    })),
+    vinhetas: p.vinhetas.map((v) => ({
+      id: v.id,
+      nome: v.nome,
+      tipo: v.tipo,
+    })),
+  }));
+}
+
 export async function listProgramacoes(opts: {
   search?: string;
   clienteRef?: string;

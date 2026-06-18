@@ -916,6 +916,8 @@ model ProcessamentoJob {
   criativoUserId String? @map("criativo_user_id") @db.VarChar(200)
   /// Tag criativa definida no upload — ex.: POP 90s
   uploadTagNome  String  @default("") @map("upload_tag_nome") @db.VarChar(80)
+  programacaoId  String? @map("programacao_id")
+  pastaId        String? @map("pasta_id")
   totalItens   Int       @default(0) @map("total_itens")
   itensFeitos  Int       @default(0) @map("itens_feitos")
   erroMsg      String    @default("") @map("erro_msg") @db.Text

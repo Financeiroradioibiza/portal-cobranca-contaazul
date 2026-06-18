@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ProgramacoesAdminPanel } from "@/components/criacao/ProgramacoesAdminPanel";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -10,21 +11,6 @@ const FORMATO_LABEL: Record<string, string> = {
 };
 const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"];
 const VELOCIDADE_LABEL: Record<string, string> = { baixa: "Baixa", media: "Média", alta: "Alta" };
-
-type Cliente = { ref: string; nome: string; pdvCount: number };
-
-type ProgramacaoRow = {
-  id: string;
-  nome: string;
-  clienteRef: string;
-  clienteNome: string;
-  formatoPadrao: string;
-  publicada: boolean;
-  criativoNome: string;
-  pastasCount: number;
-  musicasCount: number;
-  updatedAt: string;
-};
 
 type PastaMusicaView = {
   id: string;
@@ -73,305 +59,23 @@ export function ProgramacoesPanel() {
     [playingId],
   );
 
-  return (
-    <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
-      <audio ref={audioRef} onEnded={() => setPlayingId(null)} onPause={() => setPlayingId(null)} className="hidden" />
-      {selectedId ?
+  if (selectedId) {
+    return (
+      <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
+        <audio ref={audioRef} crossOrigin="anonymous" onEnded={() => setPlayingId(null)} onPause={() => setPlayingId(null)} className="hidden" />
         <ProgramacaoEditor
           id={selectedId}
           onBack={() => setSelectedId(null)}
           playingId={playingId}
           onPlay={play}
         />
-      : <ProgramacoesList onOpen={setSelectedId} />}
-    </div>
-  );
-}
-
-function ProgramacoesList({ onOpen }: { onOpen: (id: string) => void }) {
-  const [rows, setRows] = useState<ProgramacaoRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [searchDraft, setSearchDraft] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const qs = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
-      const res = await fetch(`/api/criacao/programacoes${qs}`);
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as { programacoes: ProgramacaoRow[] };
-      setRows(data.programacoes);
-    } catch {
-      setError("Não foi possível carregar as programações.");
-    } finally {
-      setLoading(false);
-    }
-  }, [search]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  return (
-    <>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-            Criação / Programações
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Programações</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Cada programação é amarrada a um cliente e contém pastas (playlists). Monte as pastas com
-            faixas da biblioteca e defina o formato de entrega.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
-        >
-          + Nova programação
-        </button>
       </div>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setSearch(searchDraft);
-        }}
-        className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-      >
-        <label className="min-w-[220px] flex-1 text-sm">
-          <span className="mb-1 block text-xs font-semibold text-slate-500">Buscar por nome ou cliente</span>
-          <input
-            type="search"
-            value={searchDraft}
-            onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Ex.: Padrão, Reserva…"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-        <button
-          type="submit"
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
-        >
-          Filtrar
-        </button>
-      </form>
-
-      {creating ?
-        <CreateProgramacaoForm
-          onClose={() => setCreating(false)}
-          onCreated={(id) => {
-            setCreating(false);
-            onOpen(id);
-          }}
-        />
-      : null}
-
-      {loading ?
-        <div className="py-10 text-sm text-slate-500">Carregando…</div>
-      : error ?
-        <div className="py-10 text-sm text-red-600">{error}</div>
-      : rows.length === 0 ?
-        <div className="rounded-xl border border-dashed border-slate-300 px-4 py-16 text-center dark:border-slate-700">
-          <div className="text-3xl">🎚️</div>
-          <div className="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
-            Nenhuma programação ainda
-          </div>
-          <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-            Crie uma programação para um cliente e monte as pastas com faixas da biblioteca.
-          </p>
-        </div>
-      : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => onOpen(p.id)}
-              className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow dark:border-slate-800 dark:bg-slate-900"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">{p.nome}</div>
-                  <div className="truncate text-xs text-slate-500">{p.clienteNome || p.clienteRef}</div>
-                </div>
-                {p.publicada ?
-                  <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                    Publicada
-                  </span>
-                : <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800">
-                    Rascunho
-                  </span>
-                }
-              </div>
-              <div className="mt-3 flex items-center gap-3 text-xs text-slate-500">
-                <span>📁 {p.pastasCount} pasta{p.pastasCount === 1 ? "" : "s"}</span>
-                <span>🎵 {p.musicasCount}</span>
-                <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px] dark:bg-slate-800">
-                  {FORMATO_LABEL[p.formatoPadrao] ?? p.formatoPadrao}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      }
-    </>
-  );
-}
-
-function CreateProgramacaoForm({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: (id: string) => void;
-}) {
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [busca, setBusca] = useState("");
-  const [clienteSel, setClienteSel] = useState<Cliente | null>(null);
-  const [nome, setNome] = useState("");
-  const [formato, setFormato] = useState("mp3_128_mono");
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/criacao/clientes")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d?.clientes) setClientes(d.clientes as Cliente[]);
-      })
-      .catch(() => {});
-  }, []);
-
-  const filtrados = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return (q ? clientes.filter((c) => c.nome.toLowerCase().includes(q)) : clientes).slice(0, 40);
-  }, [clientes, busca]);
-
-  async function submit() {
-    if (!clienteSel) {
-      setMsg("Escolha o cliente.");
-      return;
-    }
-    if (!nome.trim()) {
-      setMsg("Dê um nome à programação.");
-      return;
-    }
-    setSaving(true);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/criacao/programacoes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clienteRef: clienteSel.ref,
-          clienteNome: clienteSel.nome,
-          nome: nome.trim(),
-          formatoPadrao: formato,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as { id: string };
-      onCreated(data.id);
-    } catch {
-      setMsg("Não foi possível criar a programação.");
-      setSaving(false);
-    }
+    );
   }
 
-  return (
-    <div className="mb-4 rounded-xl border border-slate-300 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold">Nova programação</h2>
-        <button type="button" onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600">
-          fechar
-        </button>
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="text-sm">
-          <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente</span>
-          {clienteSel ?
-            <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-              <span className="truncate text-sm font-medium">{clienteSel.nome}</span>
-              <button
-                type="button"
-                onClick={() => setClienteSel(null)}
-                className="text-xs text-slate-400 hover:text-slate-600"
-              >
-                trocar
-              </button>
-            </div>
-          : <>
-              <input
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder={clientes.length ? "Buscar cliente da produção…" : "Carregando clientes…"}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-              />
-              {busca.trim() && filtrados.length > 0 ?
-                <div className="mt-1 max-h-44 overflow-auto rounded-lg border border-slate-200 bg-white text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                  {filtrados.map((c) => (
-                    <button
-                      type="button"
-                      key={c.ref}
-                      onClick={() => {
-                        setClienteSel(c);
-                        setBusca("");
-                      }}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
-                    >
-                      <span className="truncate">{c.nome}</span>
-                      <span className="ml-2 shrink-0 text-xs text-slate-400">{c.pdvCount} PDV</span>
-                    </button>
-                  ))}
-                </div>
-              : null}
-            </>
-          }
-        </div>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs font-semibold text-slate-500">Nome da programação</span>
-          <input
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            placeholder="Ex.: Padrão"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs font-semibold text-slate-500">Formato de entrega</span>
-          <select
-            value={formato}
-            onChange={(e) => setFormato(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          >
-            {FORMATOS.map((f) => (
-              <option key={f} value={f}>
-                {FORMATO_LABEL[f]}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {msg ? <div className="mt-2 text-sm text-red-600">{msg}</div> : null}
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={() => void submit()}
-          disabled={saving}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
-        >
-          {saving ? "Criando…" : "Criar e abrir"}
-        </button>
-      </div>
-    </div>
-  );
+  return <ProgramacoesAdminPanel onOpenEditor={setSelectedId} />;
 }
+
 
 function ProgramacaoEditor({
   id,

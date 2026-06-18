@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
+type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
+type ArvoreProg = { id: string; nome: string; pastas: ArvorePasta[] };
 type PickedFile = { nome: string; sizeBytes: number; file: File };
 type Ticket = { itemId: string; arquivoNome: string; token: string; exp: number };
 
@@ -23,6 +25,9 @@ export function UploadPanel() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteBusca, setClienteBusca] = useState("");
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null);
+  const [arvore, setArvore] = useState<ArvoreProg[]>([]);
+  const [progSel, setProgSel] = useState("");
+  const [pastaSel, setPastaSel] = useState("");
   const [files, setFiles] = useState<PickedFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +47,32 @@ export function UploadPanel() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!clienteSel) {
+      setArvore([]);
+      setProgSel("");
+      setPastaSel("");
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/criacao/clientes/${encodeURIComponent(clienteSel.ref)}/arvore`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.arvore) setArvore(d.arvore as ArvoreProg[]);
+      })
+      .catch(() => {
+        if (!cancelled) setArvore([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clienteSel]);
+
+  const pastasDisponiveis = useMemo(() => {
+    const prog = arvore.find((p) => p.id === progSel);
+    return prog?.pastas ?? [];
+  }, [arvore, progSel]);
 
   const clientesFiltrados = useMemo(() => {
     const q = clienteBusca.trim().toLowerCase();
@@ -86,6 +117,8 @@ export function UploadPanel() {
           clienteRef: clienteSel?.ref,
           clienteNome: clienteSel?.nome,
           uploadTagNome: uploadTag.trim() || undefined,
+          programacaoId: progSel || undefined,
+          pastaId: pastaSel || undefined,
           arquivos: files.map((f) => ({ nome: f.nome, sizeBytes: f.sizeBytes })),
         }),
       });
@@ -203,7 +236,11 @@ export function UploadPanel() {
                   <span className="truncate text-sm font-medium">{clienteSel.nome}</span>
                   <button
                     type="button"
-                    onClick={() => setClienteSel(null)}
+                    onClick={() => {
+                      setClienteSel(null);
+                      setProgSel("");
+                      setPastaSel("");
+                    }}
                     className="text-xs text-slate-400 hover:text-slate-600"
                   >
                     trocar
@@ -237,6 +274,48 @@ export function UploadPanel() {
                 </>
               }
             </div>
+            {clienteSel ?
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">Programação destino</span>
+                <select
+                  value={progSel}
+                  onChange={(e) => {
+                    setProgSel(e.target.value);
+                    setPastaSel("");
+                  }}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                >
+                  <option value="">— nenhuma —</option>
+                  {arvore.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            : null}
+            {clienteSel && progSel ?
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">Pasta destino (após processar)</span>
+                <select
+                  value={pastaSel}
+                  onChange={(e) => setPastaSel(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                >
+                  <option value="">— só biblioteca —</option>
+                  {pastasDisponiveis.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nome} ({p.musicasCount} faixas)
+                    </option>
+                  ))}
+                </select>
+                {pastasDisponiveis.length === 0 ?
+                  <p className="mt-1 text-[10px] text-amber-600">
+                    Crie pastas em Criação → Programações antes de enviar aqui.
+                  </p>
+                : null}
+              </label>
+            : null}
           </div>
 
           {modo === "externo" ?

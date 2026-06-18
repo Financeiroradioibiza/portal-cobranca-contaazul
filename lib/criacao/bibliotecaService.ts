@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
 import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
+import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -44,7 +45,7 @@ export type MusicaBibliotecaRow = {
   rejeicoesCount: number;
 };
 
-function parseAutoTags(raw: Prisma.JsonValue | null): AutoTag[] {
+export function parseAutoTagsFromJson(raw: Prisma.JsonValue | null): AutoTag[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((t) => {
@@ -63,7 +64,7 @@ function parseAutoTags(raw: Prisma.JsonValue | null): AutoTag[] {
     .filter((t): t is AutoTag => t !== null);
 }
 
-function filterAutoTags(auto: AutoTag[]): AutoTag[] {
+export function filterAutoTags(auto: AutoTag[]): AutoTag[] {
   return auto.filter((t) => {
     if (t.fonte === "deezer") {
       if (t.chave === "album") return false;
@@ -78,7 +79,7 @@ function filterAutoTags(auto: AutoTag[]): AutoTag[] {
 }
 
 /** Mood/estilo derivados de BPM e energia (análise local). */
-function deriveLocalStyleTags(bpm: number | null, energia: number | null): AutoTag[] {
+export function deriveLocalStyleTags(bpm: number | null, energia: number | null): AutoTag[] {
   const out: AutoTag[] = [];
   if (energia != null) {
     const e = energia;
@@ -117,6 +118,7 @@ export async function listMusicasBiblioteca(opts: {
   status?: string;
 }): Promise<{ rows: MusicaBibliotecaRow[]; total: number }> {
   await applyPendingUploadTags().catch(() => {});
+  await applyPendingPastaUploads().catch(() => {});
 
   const page = Math.max(1, opts.page);
   const pageSize = Math.min(200, Math.max(1, opts.pageSize));
@@ -168,7 +170,7 @@ export async function listMusicasBiblioteca(opts: {
   const criativoUserMap = new Map(criativoUsers.map((u) => [u.email, u]));
 
   const rows: MusicaBibliotecaRow[] = items.map((m) => {
-    const tagsAutoRaw = parseAutoTags(m.tagsAuto);
+    const tagsAutoRaw = parseAutoTagsFromJson(m.tagsAuto);
     const tagsAuto = [
       ...filterAutoTags(tagsAutoRaw),
       ...deriveLocalStyleTags(m.bpm, m.energia),

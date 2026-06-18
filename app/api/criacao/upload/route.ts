@@ -14,6 +14,8 @@ export async function POST(request: Request) {
       clienteRef?: string;
       clienteNome?: string;
       uploadTagNome?: string;
+      programacaoId?: string;
+      pastaId?: string;
       arquivos?: UploadArquivo[];
     };
     try {
@@ -38,6 +40,8 @@ export async function POST(request: Request) {
       criativoNome: session.displayName ?? session.email,
       criativoUserId: session.email,
       uploadTagNome: body.uploadTagNome,
+      programacaoId: body.programacaoId,
+      pastaId: body.pastaId,
       arquivos,
     });
 

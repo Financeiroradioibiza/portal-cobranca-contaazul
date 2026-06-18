@@ -1,6 +1,14 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
+import {
+  deriveLocalStyleTags,
+  filterAutoTags,
+  parseAutoTagsFromJson,
+  type AutoTag,
+  type MusicaTagManualView,
+} from "@/lib/criacao/bibliotecaService";
+import { resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 
 export type FaixaEdicaoRow = {
   id: string;
@@ -13,6 +21,8 @@ export type FaixaEdicaoRow = {
   trimInicioMs: number;
   trimFimMs: number;
   previewUrl: string | null;
+  tagsManuais: MusicaTagManualView[];
+  tagsAuto: AutoTag[];
 };
 
 export async function listFaixasEdicao(opts: {
@@ -42,12 +52,34 @@ export async function listFaixasEdicao(opts: {
       mixAuto: true,
       trimInicioMs: true,
       trimFimMs: true,
+      tagsAuto: true,
+      bpm: true,
+      energia: true,
       versoes: { select: { formato: true } },
+      tagsManuais: { include: { tag: true } },
     },
   });
 
+  const criativoEmails = [
+    ...new Set(
+      items.flatMap((m) =>
+        m.tagsManuais.map((tm) => tm.tag.criativoUserId).filter((e): e is string => Boolean(e)),
+      ),
+    ),
+  ];
+  const criativoUsers =
+    criativoEmails.length > 0 ?
+      await prisma.portalUser.findMany({
+        where: { email: { in: criativoEmails } },
+        select: { email: true, tagIniciais: true, displayName: true },
+      })
+    : [];
+  const criativoUserMap = new Map(criativoUsers.map((u) => [u.email, u]));
+
   return items.map((m) => {
     const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
+    const tagsAutoRaw = parseAutoTagsFromJson(m.tagsAuto);
+    const tagsAuto = [...filterAutoTags(tagsAutoRaw), ...deriveLocalStyleTags(m.bpm, m.energia)];
     return {
       id: m.id,
       titulo: m.titulo,
@@ -59,6 +91,18 @@ export async function listFaixasEdicao(opts: {
       trimInicioMs: m.trimInicioMs ?? 0,
       trimFimMs: m.trimFimMs ?? 0,
       previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
+      tagsManuais: m.tagsManuais.map((tm) => {
+        const u = tm.tag.criativoUserId ? criativoUserMap.get(tm.tag.criativoUserId) : undefined;
+        const criativoNome = tm.tag.criativoNome || u?.displayName || "";
+        return {
+          id: tm.tag.id,
+          nome: tm.tag.nome,
+          cor: tm.tag.cor,
+          criativoIniciais: resolveCriativoIniciais(u?.tagIniciais, criativoNome, tm.tag.criativoUserId),
+          criativoNome,
+        };
+      }),
+      tagsAuto,
     };
   });
 }

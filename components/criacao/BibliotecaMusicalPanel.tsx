@@ -72,6 +72,8 @@ export function BibliotecaMusicalPanel() {
   const [tags, setTags] = useState<TagCriativo[]>([]);
   const [showTagManager, setShowTagManager] = useState(false);
   const [tagFor, setTagFor] = useState<Musica | null>(null);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
 
   const loadTags = useCallback(async () => {
@@ -137,6 +139,32 @@ export function BibliotecaMusicalPanel() {
     void load();
   }, [load]);
 
+  const enrichLabels = useCallback(async () => {
+    setEnriching(true);
+    setEnrichMsg(null);
+    try {
+      const res = await fetch("/api/criacao/biblioteca/enriquecer-tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 40, onlyMissing: true }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        processed?: number;
+        updated?: number;
+        error?: string;
+      } | null;
+      if (!res.ok) throw new Error(data?.error ?? "enrich_failed");
+      setEnrichMsg(
+        `${data?.updated ?? 0} de ${data?.processed ?? 0} faixa(s) receberam gravadora (MusicBrainz/Deezer).`,
+      );
+      await load();
+    } catch {
+      setEnrichMsg("Não foi possível atualizar gravadoras. Tente novamente.");
+    } finally {
+      setEnriching(false);
+    }
+  }, [load]);
+
   return (
     <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
       <audio
@@ -166,7 +194,15 @@ export function BibliotecaMusicalPanel() {
             criativo), análise local (BPM/mood) e metadados externos.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            disabled={enriching}
+            onClick={() => void enrichLabels()}
+            className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
+          >
+            {enriching ? "Buscando gravadoras…" : "Atualizar gravadoras"}
+          </button>
           <button
             type="button"
             onClick={() => setShowTagManager(true)}
@@ -179,6 +215,12 @@ export function BibliotecaMusicalPanel() {
           </div>
         </div>
       </div>
+
+      {enrichMsg ?
+        <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200">
+          {enrichMsg}
+        </div>
+      : null}
 
       <form
         onSubmit={(e) => {

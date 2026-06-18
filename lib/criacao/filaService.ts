@@ -10,6 +10,8 @@ export type CreateUploadJobInput = {
   criativoNome?: string;
   criativoUserId?: string;
   uploadTagNome?: string;
+  programacaoId?: string;
+  pastaId?: string;
   arquivos: UploadArquivo[];
 };
 
@@ -38,6 +40,8 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       criativoNome: (input.criativoNome ?? "").slice(0, 120),
       criativoUserId: input.criativoUserId?.slice(0, 200) || null,
       uploadTagNome: (input.uploadTagNome ?? "").trim().slice(0, 80),
+      programacaoId: input.programacaoId || null,
+      pastaId: input.pastaId || null,
       totalItens: arquivos.length,
       itensFeitos: 0,
       itens: {

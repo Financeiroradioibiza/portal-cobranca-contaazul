@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { LazyWaveformBars, WaveformBars } from "@/components/criacao/waveform/WaveformBars";
+
+type AutoTag = { fonte: string; chave?: string; valor: string };
+type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
 
 type Faixa = {
   id: string;
@@ -13,6 +18,8 @@ type Faixa = {
   trimInicioMs: number;
   trimFimMs: number;
   previewUrl: string | null;
+  tagsManuais: ManualTag[];
+  tagsAuto: AutoTag[];
 };
 
 function fmt(s: number): string {
@@ -20,6 +27,60 @@ function fmt(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function readableText(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#fff";
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? "#1e293b" : "#ffffff";
+}
+
+function TagChips({ faixa, max = 6 }: { faixa: Faixa; max?: number }) {
+  const all = [
+    ...faixa.tagsManuais.map((t) => ({
+      key: t.id,
+      label: `${t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}${t.nome}`,
+      style: { background: t.cor, color: readableText(t.cor) } as CSSProperties,
+      title: t.criativoNome,
+    })),
+    ...faixa.tagsAuto.slice(0, 4).map((t, i) => ({
+      key: `${t.fonte}-${i}`,
+      label: `[${TAG_SOURCE_LABEL[t.fonte] ?? t.fonte.slice(0, 2).toUpperCase()}] ${t.valor}`,
+      style: undefined,
+      title: undefined,
+    })),
+  ];
+  const shown = all.slice(0, max);
+  const extra = all.length - shown.length;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {shown.map((t) =>
+        t.style ?
+          <span
+            key={t.key}
+            className="inline-flex rounded px-1.5 py-0.5 text-[9px] font-bold"
+            style={t.style}
+            title={t.title}
+          >
+            {t.label}
+          </span>
+        : <span
+            key={t.key}
+            className="inline-flex rounded border border-slate-700 bg-slate-800/80 px-1.5 py-0.5 text-[9px] text-slate-300"
+          >
+            {t.label}
+          </span>,
+      )}
+      {extra > 0 ?
+        <span className="text-[9px] text-slate-500">+ {extra}</span>
+      : null}
+    </div>
+  );
 }
 
 export function EdicaoPanel() {
@@ -39,6 +100,7 @@ export function EdicaoPanel() {
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { faixas: Faixa[] };
       setFaixas(data.faixas);
+      setSel((prev) => (prev ? data.faixas.find((f) => f.id === prev.id) ?? null : null));
     } catch {
       setError("Não foi possível carregar as faixas.");
     } finally {
@@ -51,92 +113,111 @@ export function EdicaoPanel() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
+    <div className="mx-auto max-w-[1400px] px-3 py-6 sm:px-4">
       <div className="mb-6">
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Edição de música</div>
         <h1 className="text-2xl font-bold tracking-tight">Edição de música</h1>
-        <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          O “tapa” nas faixas já processadas: ajuste o <strong>ponto de mix</strong> (segundos finais do
-          crossfade) e o <strong>trim</strong> (cortar início/fim). É a faixa canônica — vale para todos os
-          clientes que a tocam. O corte é aplicado na entrega.
+        <p className="mt-1 max-w-3xl text-sm text-slate-500">
+          Veja a <strong>forma de onda</strong> de cada faixa — silêncio no início ou fim aparece como espaço vazio.
+          Clique numa faixa para ajustar mix/trim; no editor, <strong>clique na waveform</strong> para tocar a partir daquele ponto.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
-        <div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSearch(draft);
-            }}
-            className="mb-3 flex gap-2"
-          >
-            <input
-              type="search"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Buscar faixa por título ou artista…"
-              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-            />
-            <button type="submit" className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
-              Buscar
-            </button>
-          </form>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSearch(draft);
+        }}
+        className="mb-4 flex gap-2"
+      >
+        <input
+          type="search"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Buscar faixa por título ou artista…"
+          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+        />
+        <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
+          Buscar
+        </button>
+      </form>
 
-          {loading ?
-            <div className="py-8 text-sm text-slate-500">Carregando…</div>
-          : error ?
-            <div className="py-8 text-sm text-red-600">{error}</div>
-          : faixas.length === 0 ?
-            <div className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">
-              Nenhuma faixa pronta. Processe uploads primeiro.
+      {loading ?
+        <div className="py-10 text-sm text-slate-500">Carregando faixas e waveforms…</div>
+      : error ?
+        <div className="py-10 text-sm text-red-600">{error}</div>
+      : faixas.length === 0 ?
+        <div className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">
+          Nenhuma faixa pronta. Processe uploads primeiro.
+        </div>
+      : <>
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-sm dark:border-slate-800">
+            <div className="hidden border-b border-slate-800 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 md:grid md:grid-cols-[minmax(180px,1fr)_minmax(0,2fr)_minmax(220px,1.2fr)] md:gap-4">
+              <span>Forma de onda</span>
+              <span />
+              <span>Faixa · tags</span>
             </div>
-          : <ul className="max-h-[70vh] divide-y divide-slate-100 overflow-auto rounded-xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
-              {faixas.map((f) => (
-                <li key={f.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSel(f)}
-                    className={`flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm ${
-                      sel?.id === f.id ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-slate-800 dark:text-slate-100">{f.titulo || "(sem título)"}</div>
-                      <div className="truncate text-xs text-slate-500">{f.artista || "—"}</div>
-                    </div>
-                    <div className="shrink-0 text-right text-[10px] text-slate-400">
-                      <div>mix {f.mixSegundosFinais ?? "—"}s {f.mixAuto ? "(auto)" : "(manual)"}</div>
-                      {f.trimInicioMs || f.trimFimMs ? <div>trim ✂</div> : null}
-                    </div>
-                  </button>
-                </li>
-              ))}
+            <ul className="divide-y divide-slate-800">
+              {faixas.map((f) => {
+                const active = sel?.id === f.id;
+                const hasTrim = f.trimInicioMs > 0 || f.trimFimMs > 0;
+                return (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSel(f)}
+                      className={
+                        "grid w-full grid-cols-1 gap-3 px-3 py-3 text-left transition md:grid-cols-[minmax(180px,1fr)_minmax(0,2fr)_minmax(220px,1.2fr)] md:items-center md:gap-4 md:px-4 " +
+                        (active ? "bg-slate-800/80 ring-1 ring-inset ring-amber-500/40" : "hover:bg-slate-900/60")
+                      }
+                    >
+                      <LazyWaveformBars previewUrl={f.previewUrl} height={44} barCount={90} barColor="rgba(255,255,255,0.7)" />
+                      <div className="hidden md:block" />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-100">{f.titulo || "(sem título)"}</div>
+                        <div className="truncate text-xs text-slate-400">
+                          {f.artista || "—"}
+                          {f.durationMs ? ` · ${fmt(f.durationMs / 1000)}` : ""}
+                          {f.mixSegundosFinais != null ? ` · mix ${f.mixSegundosFinais}s` : ""}
+                          {hasTrim ? " · trim ✂" : ""}
+                        </div>
+                        <TagChips faixa={f} max={5} />
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
-          }
-        </div>
+          </div>
 
-        <div>
           {sel ?
-            <FaixaEditor
-              key={sel.id}
-              faixa={sel}
-              onSaved={(updated) => {
-                setFaixas((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
-                setSel(updated);
-              }}
-            />
-          : <div className="flex h-full min-h-[200px] items-center justify-center rounded-xl border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">
-              Selecione uma faixa para editar
+            <div className="mt-4">
+              <FaixaEditor
+                key={sel.id}
+                faixa={sel}
+                onClose={() => setSel(null)}
+                onSaved={(updated) => {
+                  setFaixas((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+                  setSel(updated);
+                }}
+              />
             </div>
-          }
-        </div>
-      </div>
+          : null}
+        </>
+      }
     </div>
   );
 }
 
-function FaixaEditor({ faixa, onSaved }: { faixa: Faixa; onSaved: (f: Faixa) => void }) {
+function FaixaEditor({
+  faixa,
+  onSaved,
+  onClose,
+}: {
+  faixa: Faixa;
+  onSaved: (f: Faixa) => void;
+  onClose: () => void;
+}) {
   const durSec = (faixa.durationMs ?? 0) / 1000;
   const [mix, setMix] = useState<number>(faixa.mixSegundosFinais ?? 0);
   const [trimIni, setTrimIni] = useState<number>(faixa.trimInicioMs / 1000);
@@ -146,10 +227,39 @@ function FaixaEditor({ faixa, onSaved }: { faixa: Faixa; onSaved: (f: Faixa) => 
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [seekSec, setSeekSec] = useState(0);
   const [cur, setCur] = useState(0);
 
   const efetivoInicio = Math.min(trimIni, Math.max(0, durSec - 0.1));
   const efetivoFim = Math.max(efetivoInicio + 0.1, durSec - trimFim);
+  const pct = (v: number) => (durSec > 0 ? Math.min(100, Math.max(0, (v / durSec) * 100)) : 0);
+
+  useEffect(() => {
+    setMix(faixa.mixSegundosFinais ?? 0);
+    setTrimIni(faixa.trimInicioMs / 1000);
+    setTrimFim(faixa.trimFimMs / 1000);
+    setSeekSec(0);
+    setCur(0);
+    setPlaying(false);
+  }, [faixa.id, faixa.mixSegundosFinais, faixa.trimInicioMs, faixa.trimFimMs]);
+
+  const seekTo = useCallback(
+    (ratio: number, autoplay = false) => {
+      const t = ratio * durSec;
+      setSeekSec(t);
+      setCur(t);
+      const a = audioRef.current;
+      if (!a) return;
+      a.currentTime = t;
+      if (autoplay && faixa.previewUrl) {
+        void a.play().then(
+          () => setPlaying(true),
+          () => setPlaying(false),
+        );
+      }
+    },
+    [durSec, faixa.previewUrl],
+  );
 
   const togglePlay = useCallback(() => {
     const a = audioRef.current;
@@ -158,18 +268,17 @@ function FaixaEditor({ faixa, onSaved }: { faixa: Faixa; onSaved: (f: Faixa) => 
       a.pause();
       return;
     }
-    a.currentTime = efetivoInicio;
-    a.play().then(() => setPlaying(true), () => setPlaying(false));
-  }, [playing, efetivoInicio, faixa.previewUrl]);
+    a.currentTime = seekSec;
+    void a.play().then(
+      () => setPlaying(true),
+      () => setPlaying(false),
+    );
+  }, [playing, seekSec, faixa.previewUrl]);
 
   function onTime() {
     const a = audioRef.current;
     if (!a) return;
     setCur(a.currentTime);
-    if (a.currentTime >= efetivoFim) {
-      a.pause();
-      a.currentTime = efetivoInicio;
-    }
   }
 
   async function save() {
@@ -202,38 +311,66 @@ function FaixaEditor({ faixa, onSaved }: { faixa: Faixa; onSaved: (f: Faixa) => 
     }
   }
 
-  const pct = (v: number) => (durSec > 0 ? Math.min(100, Math.max(0, (v / durSec) * 100)) : 0);
+  const overlays = [
+    { leftPct: 0, widthPct: pct(efetivoInicio), color: "rgba(100,116,139,0.55)", label: "Corte início" },
+    { leftPct: pct(efetivoFim), widthPct: 100 - pct(efetivoFim), color: "rgba(100,116,139,0.55)", label: "Corte fim" },
+    ...(mix > 0 ?
+      [{
+        leftPct: pct(Math.max(efetivoInicio, efetivoFim - mix)),
+        widthPct: pct(Math.min(mix, efetivoFim - efetivoInicio)),
+        color: "rgba(52,211,153,0.35)",
+        label: "Ponto de mix",
+      }]
+    : []),
+  ];
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="mb-1 text-lg font-bold">{faixa.titulo || "(sem título)"}</div>
-      <div className="mb-4 text-sm text-slate-500">
-        {faixa.artista || "—"} · {fmt(durSec)}
-        {faixa.loudnessLufs != null ? ` · ${faixa.loudnessLufs.toFixed(1)} LUFS` : ""}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-lg font-bold">{faixa.titulo || "(sem título)"}</div>
+          <div className="text-sm text-slate-500">
+            {faixa.artista || "—"} · {fmt(durSec)}
+            {faixa.loudnessLufs != null ? ` · ${faixa.loudnessLufs.toFixed(1)} LUFS` : ""}
+          </div>
+          <TagChips faixa={faixa} max={8} />
+        </div>
+        <button type="button" onClick={onClose} className="text-sm text-slate-400 hover:text-slate-600">
+          Fechar ✕
+        </button>
       </div>
 
-      <audio ref={audioRef} src={faixa.previewUrl ?? undefined} crossOrigin="anonymous" onTimeUpdate={onTime} onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} onError={() => setPlaying(false)} className="hidden" />
+      <audio
+        ref={audioRef}
+        src={faixa.previewUrl ?? undefined}
+        crossOrigin="anonymous"
+        onTimeUpdate={onTime}
+        onEnded={() => setPlaying(false)}
+        onPause={() => setPlaying(false)}
+        onError={() => setPlaying(false)}
+        className="hidden"
+      />
 
-      {/* Régua visual: trim (cinza), trecho útil (branco), cauda de mix (verde) */}
-      <div className="relative mb-2 h-10 w-full overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
-        <div className="absolute inset-y-0 left-0 bg-slate-300/70 dark:bg-slate-700" style={{ width: `${pct(efetivoInicio)}%` }} />
-        <div className="absolute inset-y-0 right-0 bg-slate-300/70 dark:bg-slate-700" style={{ width: `${pct(trimFim)}%` }} />
-        {mix > 0 ?
-          <div
-            className="absolute inset-y-0 bg-emerald-400/40"
-            style={{ left: `${pct(efetivoFim - mix)}%`, width: `${pct(Math.min(mix, efetivoFim - efetivoInicio))}%` }}
-            title="Cauda do crossfade (ponto de mix)"
-          />
-        : null}
-        <div className="absolute inset-y-0 w-0.5 bg-slate-900 dark:bg-slate-100" style={{ left: `${pct(cur)}%` }} />
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        Clique na waveform para posicionar o play · cinza = será cortado · verde = cauda do mix
       </div>
+      <WaveformBars
+        previewUrl={faixa.previewUrl}
+        height={72}
+        barCount={140}
+        interactive
+        playheadPct={pct(cur)}
+        overlays={overlays}
+        onSeek={(ratio) => seekTo(ratio, true)}
+        className="mb-2"
+      />
       <div className="mb-4 flex items-center justify-between text-[10px] text-slate-400">
-        <span>0:00</span>
+        <span>{fmt(cur)}</span>
         <span>trecho útil: {fmt(efetivoInicio)} – {fmt(efetivoFim)}</span>
         <span>{fmt(durSec)}</span>
       </div>
 
-      <div className="mb-5 flex items-center gap-3">
+      <div className="mb-5 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={togglePlay}
@@ -243,15 +380,15 @@ function FaixaEditor({ faixa, onSaved }: { faixa: Faixa; onSaved: (f: Faixa) => 
           {playing ? "⏸" : "▶"}
         </button>
         <span className="text-xs text-slate-500">
-          {faixa.previewUrl ? "Toca só o trecho útil (com o trim aplicado)" : "Sem versão de uso para tocar"}
+          {faixa.previewUrl ?
+            `Toca a partir de ${fmt(seekSec)} — clique na waveform para mudar`
+          : "Sem versão de uso para tocar"}
         </span>
       </div>
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
         <div>
-          <label className="mb-1 block text-xs font-semibold text-slate-500">
-            Ponto de mix (segundos finais)
-          </label>
+          <label className="mb-1 block text-xs font-semibold text-slate-500">Ponto de mix (segundos finais)</label>
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -261,14 +398,7 @@ function FaixaEditor({ faixa, onSaved }: { faixa: Faixa; onSaved: (f: Faixa) => 
               onChange={(e) => setMix(Number(e.target.value))}
               className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
             />
-            <input
-              type="range"
-              min={0}
-              max={30}
-              value={mix}
-              onChange={(e) => setMix(Number(e.target.value))}
-              className="flex-1"
-            />
+            <input type="range" min={0} max={30} value={mix} onChange={(e) => setMix(Number(e.target.value))} className="flex-1" />
           </div>
           <div className="mt-1 text-[10px] text-slate-400">
             {faixa.mixAuto ? "Detectado automaticamente — editar marca como manual." : "Ajustado manualmente."}
