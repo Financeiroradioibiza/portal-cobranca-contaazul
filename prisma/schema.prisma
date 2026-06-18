@@ -23,19 +23,19 @@ model ContaAzulToken {
 /// Anotações do portal por cliente Conta Azul (id da pessoa). Persistem no Postgres mesmo quando
 /// o cliente deixa de aparecer na listagem (ex.: zerou pendências na Conta Azul).
 model ClientPortalMeta {
-  clientId          String   @id @map("client_id")
-  hasActiveContract Boolean  @default(false) @map("has_active_contract")
+  clientId              String    @id @map("client_id")
+  hasActiveContract     Boolean   @default(false) @map("has_active_contract")
   /// Números de contratos ATIVO na CA (vírgulas), cache do painel de cobrança.
-  activeContractNumbers String @default("") @map("active_contract_numbers") @db.VarChar(400)
+  activeContractNumbers String    @default("") @map("active_contract_numbers") @db.VarChar(400)
   contractsFetchedAt    DateTime? @map("contracts_fetched_at")
-  note              String   @default("")
+  note                  String    @default("")
   /// Portal only: marca manual «BLOQUEIO» na listagem principal.
-  painelBloqueio    Boolean  @default(false) @map("painel_bloqueio")
+  painelBloqueio        Boolean   @default(false) @map("painel_bloqueio")
   /// Portal only: marca manual «INATIVO» na listagem principal.
-  painelInativo     Boolean  @default(false) @map("painel_inativo")
+  painelInativo         Boolean   @default(false) @map("painel_inativo")
   /// Cliente especial (estrela) na listagem de vencidos — só visualização no portal.
-  clienteDestaque   Boolean  @default(false) @map("cliente_destaque")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  clienteDestaque       Boolean   @default(false) @map("cliente_destaque")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   @@map("client_portal_meta")
 }
@@ -49,17 +49,17 @@ enum ManualReminderRowStatus {
 
 /// Modelo de linhas (novos meses copiam daqui).
 model ManualReminderTemplate {
-  id              String   @id @default(cuid())
-  emissionDay     Int      @map("emission_day")
-  clienteNome     String   @map("cliente_nome")
-  cnpjDocumento   String?  @map("cnpj_documento")
-  solicitarPedirOc Boolean @default(true) @map("solicitar_pedir_oc")
+  id                       String   @id @default(cuid())
+  emissionDay              Int      @map("emission_day")
+  clienteNome              String   @map("cliente_nome")
+  cnpjDocumento            String?  @map("cnpj_documento")
+  solicitarPedirOc         Boolean  @default(true) @map("solicitar_pedir_oc")
   /// Anexar listagem (clientes mês anterior) ao e-mail de pedido de OC, todo mês.
-  anexarListagemClientesOc Boolean @default(false) @map("anexar_listagem_clientes_oc")
-  spreadsheetHint String?  @map("spreadsheet_hint")
-  sortOrder       Int      @default(0) @map("sort_order")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  anexarListagemClientesOc Boolean  @default(false) @map("anexar_listagem_clientes_oc")
+  spreadsheetHint          String?  @map("spreadsheet_hint")
+  sortOrder                Int      @default(0) @map("sort_order")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@map("manual_reminder_template")
 }
@@ -76,33 +76,33 @@ model ManualReminderMonth {
 }
 
 model ManualReminderRow {
-  id                 String                  @id @default(cuid())
-  monthId            String                  @map("month_id")
-  month              ManualReminderMonth     @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  id      String              @id @default(cuid())
+  monthId String              @map("month_id")
+  month   ManualReminderMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
 
-  emissionDay        Int                     @map("emission_day")
-  clienteNome        String                  @map("cliente_nome")
-  cnpjDocumento      String?                 @map("cnpj_documento")
-  contaAzulPersonId  String?                 @map("conta_azul_person_id")
+  emissionDay       Int     @map("emission_day")
+  clienteNome       String  @map("cliente_nome")
+  cnpjDocumento     String? @map("cnpj_documento")
+  contaAzulPersonId String? @map("conta_azul_person_id")
 
-  solicitarPedirOc   Boolean                 @default(true) @map("solicitar_pedir_oc")
+  solicitarPedirOc         Boolean                 @default(true) @map("solicitar_pedir_oc")
   /// Listagem/imagem dos clientes (mês anterior) a anexar ao e-mail OC; renovar a cada competência.
-  anexarListagemClientesOc Boolean           @default(false) @map("anexar_listagem_clientes_oc")
-  status             ManualReminderRowStatus @default(pendente)
+  anexarListagemClientesOc Boolean                 @default(false) @map("anexar_listagem_clientes_oc")
+  status                   ManualReminderRowStatus @default(pendente)
 
-  emailCobranca      String?                 @map("email_cobranca")
-  spreadsheetHint    String?                 @map("spreadsheet_hint")
-  notes              String                  @default("")
+  emailCobranca              String? @map("email_cobranca")
+  spreadsheetHint            String? @map("spreadsheet_hint")
+  notes                      String  @default("")
   listagemClienteArquivo     Bytes?  @map("listagem_cliente_arquivo") @db.ByteA
   listagemClienteArquivoNome String? @map("listagem_cliente_arquivo_nome") @db.VarChar(480)
   listagemClienteArquivoMime String? @map("listagem_cliente_arquivo_mime") @db.VarChar(160)
 
   /// YYYYMMDD (TZ Brasil): último envio automático OC; impede segundo disparo no mesmo dia (reset ao voltar para pendente).
-  autoOcSentYmd      Int?                    @map("auto_oc_sent_ymd")
+  autoOcSentYmd Int? @map("auto_oc_sent_ymd")
 
-  sortOrder          Int                     @default(0) @map("sort_order")
-  createdAt          DateTime                @default(now()) @map("created_at")
-  updatedAt          DateTime                @updatedAt @map("updated_at")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([monthId, emissionDay, sortOrder])
   @@map("manual_reminder_row")
@@ -165,27 +165,27 @@ model RioPlanilhaRow {
   band RioPlanilhaBand
   kind RioPlanilhaRowKind
 
-  parentId String? @map("parent_id")
+  parentId String?          @map("parent_id")
   parent   RioPlanilhaRow?  @relation("RioPdvParent", fields: [parentId], references: [id], onDelete: Cascade)
   children RioPlanilhaRow[] @relation("RioPdvParent")
 
   /// Só em linhas `secao` — título da faixa (ex.: lojas canceladas).
   tituloSecao String? @map("titulo_secao") @db.Text
 
-  marca          String  @default("")
-  numOrdem       Int?    @map("num_ordem")
-  pdvNome        String  @default("") @map("pdv_nome")
-  cnpjDocumento  String? @map("cnpj_documento")
-  status         String  @default("")
-  valorTexto     String? @map("valor_texto")
-  qtdeTexto      String? @map("qtde_texto")
-  categoria      String  @default("")
-  email          String? @db.Text
-  dataInstall    String? @map("data_install")
-  grupoCobranca  String  @default("") @map("grupo_cobranca") @db.Text
-  razao          String  @default("") @db.Text
-  dataCancel     String? @map("data_cancel")
-  notes          String  @default("") @db.Text
+  marca         String  @default("")
+  numOrdem      Int?    @map("num_ordem")
+  pdvNome       String  @default("") @map("pdv_nome")
+  cnpjDocumento String? @map("cnpj_documento")
+  status        String  @default("")
+  valorTexto    String? @map("valor_texto")
+  qtdeTexto     String? @map("qtde_texto")
+  categoria     String  @default("")
+  email         String? @db.Text
+  dataInstall   String? @map("data_install")
+  grupoCobranca String  @default("") @map("grupo_cobranca") @db.Text
+  razao         String  @default("") @db.Text
+  dataCancel    String? @map("data_cancel")
+  notes         String  @default("") @db.Text
 
   contaAzulPersonId String? @map("conta_azul_person_id")
 
@@ -223,17 +223,17 @@ enum RioTagCobranca {
 }
 
 model RioCompMonth {
-  id           String    @id @default(cuid())
-  yearMonth    Int       @unique @map("year_month")
-  lastSyncedAt DateTime? @map("last_synced_at")
-  closedAt     DateTime? @map("closed_at")
+  id              String    @id @default(cuid())
+  yearMonth       Int       @unique @map("year_month")
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  closedAt        DateTime? @map("closed_at")
   /// Backup imediato antes de «Sincronizar Conta Azul» (permite desfazer).
-  preSyncSnapshot Json? @map("pre_sync_snapshot")
+  preSyncSnapshot Json?     @map("pre_sync_snapshot")
   /// Listagem CA acumulada página a página na virada (junho+).
-  viradaPrepare Json? @map("virada_prepare")
+  viradaPrepare   Json?     @map("virada_prepare")
   /// Estado da cópia maio→junho em lotes (evita timeout Netlify).
-  cloneDonorState Json? @map("clone_donor_state")
-  createdAt    DateTime  @default(now()) @map("created_at")
+  cloneDonorState Json?     @map("clone_donor_state")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   grupos RioCompGrupo[]
   linhas RioCompClienteLinha[]
@@ -243,12 +243,12 @@ model RioCompMonth {
 
 /// Marca agrupadora (PDF «MARCA») — arrastar clientes dentro no painel Rio.
 model RioCompGrupo {
-  id       String       @id @default(cuid())
-  monthId  String       @map("month_id")
-  month    RioCompMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  id      String       @id @default(cuid())
+  monthId String       @map("month_id")
+  month   RioCompMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
 
-  nome      String @default("") @map("nome") @db.Text
-  sortOrder Int    @default(0) @map("sort_order")
+  nome      String  @default("") @map("nome") @db.Text
+  sortOrder Int     @default(0) @map("sort_order")
   /// Blocos fixos da virada: ca_entrada, ca_saida, pdv_entrada, pdv_saida
   systemTag String? @map("system_tag") @db.VarChar(32)
 
@@ -259,11 +259,11 @@ model RioCompGrupo {
 }
 
 model RioCompClienteLinha {
-  id       String       @id @default(cuid())
-  monthId  String       @map("month_id")
-  month    RioCompMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  id      String       @id @default(cuid())
+  monthId String       @map("month_id")
+  month   RioCompMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
 
-  rioGrupoId String?        @map("rio_grupo_id")
+  rioGrupoId String?       @map("rio_grupo_id")
   rioGrupo   RioCompGrupo? @relation(fields: [rioGrupoId], references: [id], onDelete: SetNull)
 
   caPersonId String @map("ca_person_id")
@@ -271,15 +271,15 @@ model RioCompClienteLinha {
   /// Agrupamento interno — não existe no ERP.
   grupoSite String @default("") @map("grupo_site") @db.Text
 
-  nomeFantasia   String @default("") @map("nome_fantasia") @db.Text
+  nomeFantasia  String  @default("") @map("nome_fantasia") @db.Text
   /// APP, OC ou PERMUTA — exibido em vermelho após o nome na coluna cliente.
-  origemCliente  String @default("") @map("origem_cliente") @db.VarChar(10)
-  razaoSocial    String @default("") @map("razao_social") @db.Text
-  documento      String? @db.VarChar(64)
-  emailCobranca  String? @map("email_cobranca") @db.Text
+  origemCliente String  @default("") @map("origem_cliente") @db.VarChar(10)
+  razaoSocial   String  @default("") @map("razao_social") @db.Text
+  documento     String? @db.VarChar(64)
+  emailCobranca String? @map("email_cobranca") @db.Text
 
   // Texto livre (ex.: valor vindo da API CA ou traco)
-  valorClienteTexto String @default("") @map("valor_cliente_texto") @db.VarChar(200)
+  valorClienteTexto     String @default("") @map("valor_cliente_texto") @db.VarChar(200)
   /// Valor manual por PDV; total = unitário × numero_pdv_site
   valorPdvUnitarioTexto String @default("") @map("valor_pdv_unitario_texto") @db.VarChar(200)
 
@@ -289,11 +289,11 @@ model RioCompClienteLinha {
   /// Número(s) de contratos ATIVO no CA quando sincronizou (lista separada por vírgulas).
   contratosAtivosTexto String @default("") @map("contratos_ativos_texto") @db.VarChar(400)
 
-  movimento RioClienteCompMovimento @default(estavel)
-  tagCobranca RioTagCobranca @default(cobrando) @map("tag_cobranca")
+  movimento   RioClienteCompMovimento @default(estavel)
+  tagCobranca RioTagCobranca          @default(cobrando) @map("tag_cobranca")
 
   observacoesLinha String @default("") @map("observacoes_linha") @db.Text
-  sortOrder        Int                   @default(0) @map("sort_order")
+  sortOrder        Int    @default(0) @map("sort_order")
 
   pdvs RioCompPdv[]
 
@@ -307,13 +307,13 @@ model RioCompPdv {
   clienteId String              @map("cliente_id")
   cliente   RioCompClienteLinha @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  nome      String @default("") @db.Text
+  nome        String          @default("") @db.Text
   /// CNPJ/CPF do PDV para vínculo com cadastro de produção.
-  documento String? @db.VarChar(64)
-  notes     String @default("") @db.Text
-  sortOrder Int    @default(0) @map("sort_order")
-  movimento RioPdvMovimento @default(estavel)
-  tagCobranca RioTagCobranca @default(cobrando) @map("tag_cobranca")
+  documento   String?         @db.VarChar(64)
+  notes       String          @default("") @db.Text
+  sortOrder   Int             @default(0) @map("sort_order")
+  movimento   RioPdvMovimento @default(estavel)
+  tagCobranca RioTagCobranca  @default(cobrando) @map("tag_cobranca")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -332,12 +332,12 @@ enum PainelMatchMethod {
 }
 
 model PainelPdvLink {
-  id        String @id @default(cuid())
-  rioCompPdvId String @unique @map("rio_comp_pdv_id")
+  id           String     @id @default(cuid())
+  rioCompPdvId String     @unique @map("rio_comp_pdv_id")
   rioCompPdv   RioCompPdv @relation(fields: [rioCompPdvId], references: [id], onDelete: Cascade)
 
-  painelPdvId     Int @map("painel_pdv_id")
-  painelClienteId Int @map("painel_cliente_id")
+  painelPdvId     Int               @map("painel_pdv_id")
+  painelClienteId Int               @map("painel_cliente_id")
   matchMethod     PainelMatchMethod @map("match_method")
 
   painelPdvNome     String? @map("painel_pdv_nome") @db.Text
@@ -353,19 +353,19 @@ model PainelPdvLink {
 
 /// Layout da coluna Produção (nomes editados + arrastes) por competência.
 model CadastroProducaoLayout {
-  yearMonth          Int      @id @map("year_month")
-  clienteNomes       Json     @default("{}") @map("cliente_nomes")
-  pdvPlacements      Json     @default("[]") @map("pdv_placements")
-  hiddenClienteKeys  Json     @default("[]") @map("hidden_cliente_keys")
-  customClientes     Json     @default("[]") @map("custom_clientes")
-  acknowledgedPdvs   Json     @default("[]") @map("acknowledged_pdvs")
+  yearMonth                   Int       @id @map("year_month")
+  clienteNomes                Json      @default("{}") @map("cliente_nomes")
+  pdvPlacements               Json      @default("[]") @map("pdv_placements")
+  hiddenClienteKeys           Json      @default("[]") @map("hidden_cliente_keys")
+  customClientes              Json      @default("[]") @map("custom_clientes")
+  acknowledgedPdvs            Json      @default("[]") @map("acknowledged_pdvs")
   /// IDs com movimento «entrada» congelados na organização inicial — não entram em pendências.
-  movimentoBaselineEntradaIds Json @default("[]") @map("movimento_baseline_entrada_ids")
+  movimentoBaselineEntradaIds Json      @default("[]") @map("movimento_baseline_entrada_ids")
   /// IDs com movimento «saída» congelados na organização inicial — não entram em encerrados.
-  movimentoBaselineSaidaIds   Json @default("[]") @map("movimento_baseline_saida_ids")
+  movimentoBaselineSaidaIds   Json      @default("[]") @map("movimento_baseline_saida_ids")
   /// Quando a produção foi considerada organizada (baseline aplicada).
-  movimentoOrganizedAt DateTime? @map("movimento_organized_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  movimentoOrganizedAt        DateTime? @map("movimento_organized_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   @@map("cadastro_producao_layout")
 }
@@ -379,21 +379,21 @@ enum ProducaoPlayerStatus {
 model ProducaoPdvCadastro {
   rioPdvKey String @id @map("rio_pdv_key")
 
-  nome               String @default("") @db.Text
-  programacaoMusical String @default("Padrão") @map("programacao_musical") @db.VarChar(120)
-  versaoPlayer       String @default("") @map("versao_player") @db.VarChar(64)
-  cep                String @default("") @db.VarChar(16)
-  endereco           String @default("") @db.Text
-  numero             String @default("") @db.VarChar(32)
-  complemento        String @default("") @db.VarChar(120)
-  bairro             String @default("") @db.VarChar(120)
-  estado             String @default("") @db.VarChar(8)
-  cidade             String @default("") @db.VarChar(120)
-  razaoSocial        String @default("") @map("razao_social") @db.Text
-  cnpj               String @default("") @db.VarChar(64)
-  placaCarro         Boolean @default(false) @map("placa_carro")
-  controlarPlayer    Boolean @default(false) @map("controlar_player")
-  controlarPlaylist  Boolean @default(false) @map("controlar_playlist")
+  nome               String               @default("") @db.Text
+  programacaoMusical String               @default("Padrão") @map("programacao_musical") @db.VarChar(120)
+  versaoPlayer       String               @default("") @map("versao_player") @db.VarChar(64)
+  cep                String               @default("") @db.VarChar(16)
+  endereco           String               @default("") @db.Text
+  numero             String               @default("") @db.VarChar(32)
+  complemento        String               @default("") @db.VarChar(120)
+  bairro             String               @default("") @db.VarChar(120)
+  estado             String               @default("") @db.VarChar(8)
+  cidade             String               @default("") @db.VarChar(120)
+  razaoSocial        String               @default("") @map("razao_social") @db.Text
+  cnpj               String               @default("") @db.VarChar(64)
+  placaCarro         Boolean              @default(false) @map("placa_carro")
+  controlarPlayer    Boolean              @default(false) @map("controlar_player")
+  controlarPlaylist  Boolean              @default(false) @map("controlar_playlist")
   statusPlayer       ProducaoPlayerStatus @default(Ativo) @map("status_player")
 
   contatoLojaNome     String @default("") @map("contato_loja_nome") @db.Text
@@ -445,7 +445,7 @@ model PortalUser {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  profile PortalProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  profile   PortalProfile    @relation(fields: [profileId], references: [id], onDelete: Restrict)
   auditLogs PortalAuditLog[]
 
   @@index([profileId])
@@ -471,6 +471,44 @@ model PortalAuditLog {
   @@index([createdAt(sort: Desc)])
   @@index([userEmail])
   @@map("portal_audit_log")
+}
+
+/// Log de ERROS do portal (client/server/api/render) — visível em Config › Erros.
+/// Foco em desenvolvimento: capturar e exportar falhas para diagnóstico.
+model PortalErrorLog {
+  id        String   @id @default(cuid())
+  /// "error" | "warn" | "info"
+  level     String   @default("error") @db.VarChar(10)
+  /// "client" | "render" | "api" | "server"
+  source    String   @default("client") @db.VarChar(12)
+  message   String   @db.Text
+  stack     String   @default("") @db.Text
+  /// Rota/URL onde ocorreu.
+  path      String   @default("") @db.VarChar(500)
+  method    String   @default("") @db.VarChar(10)
+  /// Status HTTP quando for erro de API.
+  status    Int?
+  userEmail String   @default("") @map("user_email") @db.VarChar(200)
+  userAgent String   @default("") @map("user_agent") @db.VarChar(500)
+  /// Dados extras (payload, request id, etc.).
+  context   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([level])
+  @@index([source])
+  @@map("portal_error_log")
+}
+
+/// Parâmetros globais do portal (chave-valor). Lido pelo portal e pelo worker do cloud2.
+/// Ex.: criacao.ponto_mix_padrao_seg = "4".
+model PortalConfig {
+  chave     String   @id @db.VarChar(120)
+  valor     String   @default("") @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String   @default("") @map("updated_by") @db.VarChar(200)
+
+  @@map("portal_config")
 }
 
 enum ChamadoStatus {
@@ -519,31 +557,31 @@ enum ProspectEstagio {
 
 /// Lead comercial (funil Relacionamento).
 model Prospect {
-  id                   String          @id @default(cuid())
-  nome                 String          @db.VarChar(200)
-  cidade               String          @default("") @db.VarChar(120)
-  estado               String          @default("") @db.VarChar(2)
-  unidades             Int             @default(1)
-  origem               String          @default("") @db.VarChar(200)
-  statusNota           String          @default("") @map("status_nota") @db.VarChar(200)
-  valorCentavos        Int             @default(0) @map("valor_centavos")
-  estagio              ProspectEstagio @default(lead)
-  contatoNome          String          @default("") @map("contato_nome") @db.VarChar(120)
-  contatoEmail         String          @default("") @map("contato_email") @db.VarChar(200)
-  contatoTelefone      String          @default("") @map("contato_telefone") @db.VarChar(40)
-  observacoes          String          @default("") @db.Text
-  previewMusicalUrl    String          @default("") @map("preview_musical_url") @db.Text
-  previewMusicalNota   String          @default("") @map("preview_musical_nota") @db.VarChar(400)
-  propostaEnviadaEm    DateTime?       @map("proposta_enviada_em")
-  demoEnviadaEm        DateTime?       @map("demo_enviada_em")
-  fechadoEm            DateTime?       @map("fechado_em")
-  rioGrupoNome         String          @default("") @map("rio_grupo_nome") @db.VarChar(200)
-  templateProgramacao  String          @default("") @map("template_programacao") @db.VarChar(200)
-  pedidoClienteId      String?         @map("pedido_cliente_id") @db.VarChar(64)
-  criadoPorEmail       String          @map("criado_por_email") @db.VarChar(200)
-  criadoPorNome        String          @map("criado_por_nome") @db.VarChar(120)
-  createdAt            DateTime        @default(now()) @map("created_at")
-  updatedAt            DateTime        @updatedAt @map("updated_at")
+  id                  String          @id @default(cuid())
+  nome                String          @db.VarChar(200)
+  cidade              String          @default("") @db.VarChar(120)
+  estado              String          @default("") @db.VarChar(2)
+  unidades            Int             @default(1)
+  origem              String          @default("") @db.VarChar(200)
+  statusNota          String          @default("") @map("status_nota") @db.VarChar(200)
+  valorCentavos       Int             @default(0) @map("valor_centavos")
+  estagio             ProspectEstagio @default(lead)
+  contatoNome         String          @default("") @map("contato_nome") @db.VarChar(120)
+  contatoEmail        String          @default("") @map("contato_email") @db.VarChar(200)
+  contatoTelefone     String          @default("") @map("contato_telefone") @db.VarChar(40)
+  observacoes         String          @default("") @db.Text
+  previewMusicalUrl   String          @default("") @map("preview_musical_url") @db.Text
+  previewMusicalNota  String          @default("") @map("preview_musical_nota") @db.VarChar(400)
+  propostaEnviadaEm   DateTime?       @map("proposta_enviada_em")
+  demoEnviadaEm       DateTime?       @map("demo_enviada_em")
+  fechadoEm           DateTime?       @map("fechado_em")
+  rioGrupoNome        String          @default("") @map("rio_grupo_nome") @db.VarChar(200)
+  templateProgramacao String          @default("") @map("template_programacao") @db.VarChar(200)
+  pedidoClienteId     String?         @map("pedido_cliente_id") @db.VarChar(64)
+  criadoPorEmail      String          @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome       String          @map("criado_por_nome") @db.VarChar(120)
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
 
   @@index([estagio, updatedAt])
   @@map("prospect")
@@ -604,4 +642,290 @@ model PedidoClientePdv {
   @@index([status, updatedAt])
   @@index([chamadoId])
   @@map("pedido_cliente_pdv")
+}
+
+// ============================================================================
+// CRIAÇÃO MUSICAL — Fase 0 (modelo de dados)
+// Portal = fonte de verdade. Os binários de áudio ficam em object storage
+// (R2 quente + B2 frio); aqui guardamos só metadados/tags/relacionamentos.
+// ============================================================================
+
+enum MusicaProcessStatus {
+  pendente
+  processando
+  revisao_duplicata
+  pronta
+  erro
+}
+
+/// Faixa canônica da biblioteca — UMA por gravação (dedupe por fingerprint).
+model MusicaBiblioteca {
+  id         String @id @default(cuid())
+  titulo     String @default("") @db.Text
+  artista    String @default("") @db.Text
+  ano        Int?
+  durationMs Int?   @map("duration_ms")
+
+  /// Identificação / dedupe.
+  isrc        String? @db.VarChar(32)
+  acoustId    String? @map("acoust_id") @db.VarChar(64)
+  /// Fingerprint Chromaprint (dedupe perceptual — mesma gravação em bitrates diferentes).
+  chromaprint String? @db.Text
+  /// Hash do áudio decodificado (sha256) — dedupe exato/secundário.
+  contentHash String? @map("content_hash") @db.VarChar(80)
+
+  /// Master 192k guardado no B2 (frio); só reprocessamos a partir dele.
+  masterStorageKey String? @map("master_storage_key") @db.VarChar(300)
+  masterBitrate    Int?    @map("master_bitrate")
+  loudnessLufs     Float?  @map("loudness_lufs")
+  truePeakDb       Float?  @map("true_peak_db")
+
+  /// Tags automáticas estruturadas (análise local Essentia).
+  bpm            Int?
+  tom            String? @db.VarChar(16)
+  energia        Float?
+  valencia       Float?
+  danceabilidade Float?
+  acustico       Float?
+  instrumental   Float?
+  /// Tags soltas de fontes externas: [{fonte:"lastfm|deezer|musicbrainz|discogs", chave, valor}].
+  tagsAuto       Json    @default("[]") @map("tags_auto")
+
+  /// Ponto de mix: segundos finais onde começa o crossfade p/ a próxima faixa
+  /// (detectado automaticamente pela queda de energia no fim; equivale ao "~4" do nome legado).
+  mixSegundosFinais Int?    @map("mix_segundos_finais")
+  /// false quando o criativo ajustou o ponto de mix manualmente na "Edição de música".
+  mixAuto           Boolean @default(true) @map("mix_auto")
+  /// Trim manual ("tapa"): corta início/fim em ms. Null = sem corte.
+  trimInicioMs      Int?    @map("trim_inicio_ms")
+  trimFimMs         Int?    @map("trim_fim_ms")
+
+  status    MusicaProcessStatus @default(pendente)
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  tagsManuais MusicaTagManual[]
+  versoes     MusicaVersao[]
+  pastas      PastaMusica[]
+  rejeicoes   MusicaRejeicao[]
+
+  @@index([artista])
+  @@index([titulo])
+  @@index([isrc])
+  @@index([acoustId])
+  @@index([status])
+  @@map("musica_biblioteca")
+}
+
+/// Tag criativa pessoal com cor própria. Ex.: "Lounge Style" amarelo do Lauro.
+model TagCriativo {
+  id             String   @id @default(cuid())
+  nome           String   @db.VarChar(80)
+  /// Cor do chip (hex) — padrão por criativo.
+  cor            String   @default("#888888") @db.VarChar(9)
+  criativoUserId String?  @map("criativo_user_id")
+  criativoNome   String   @default("") @map("criativo_nome") @db.VarChar(120)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  musicas MusicaTagManual[]
+
+  @@unique([nome, criativoUserId])
+  @@index([criativoUserId])
+  @@map("tag_criativo")
+}
+
+model MusicaTagManual {
+  musicaId  String   @map("musica_id")
+  tagId     String   @map("tag_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+  tag    TagCriativo      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([musicaId, tagId])
+  @@index([tagId])
+  @@map("musica_tag_manual")
+}
+
+enum FormatoEntrega {
+  mp3_128_mono
+  mp3_128_stereo
+  mp3_192_mono
+  mp3_192_stereo
+}
+
+/// Versão de uso (transcodificada + .rib AES-256) por formato — no R2 quente.
+model MusicaVersao {
+  id         String         @id @default(cuid())
+  musicaId   String         @map("musica_id")
+  formato    FormatoEntrega
+  /// Chave do arquivo .rib no storage quente (R2).
+  storageKey String         @map("storage_key") @db.VarChar(300)
+  sizeBytes  Int?           @map("size_bytes")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+
+  @@unique([musicaId, formato])
+  @@map("musica_versao")
+}
+
+/// Programação musical amarrada a um cliente da produção.
+model Programacao {
+  id             String         @id @default(cuid())
+  /// Cliente da produção: caPersonId estável quando houver; senão rioLinhaId/custom key.
+  clienteRef     String         @map("cliente_ref") @db.VarChar(120)
+  clienteNome    String         @default("") @map("cliente_nome") @db.VarChar(200)
+  nome           String         @db.VarChar(120)
+  formatoPadrao  FormatoEntrega @default(mp3_128_mono) @map("formato_padrao")
+  publicada      Boolean        @default(false)
+  publishedAt    DateTime?      @map("published_at")
+  criativoUserId String?        @map("criativo_user_id")
+  criativoNome   String         @default("") @map("criativo_nome") @db.VarChar(120)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  pastas   Pasta[]
+  vinhetas Vinheta[]
+
+  @@index([clienteRef])
+  @@map("programacao")
+}
+
+/// Pasta/playlist dentro de uma programação.
+model Pasta {
+  id            String   @id @default(cuid())
+  programacaoId String   @map("programacao_id")
+  nome          String   @db.VarChar(120)
+  /// "baixa" | "media" | "alta" — ritmo da pasta (campo do mockup).
+  velocidade    String   @default("media") @db.VarChar(16)
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  programacao Programacao   @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
+  musicas     PastaMusica[]
+
+  @@index([programacaoId, sortOrder])
+  @@map("pasta")
+}
+
+model PastaMusica {
+  pastaId   String @map("pasta_id")
+  musicaId  String @map("musica_id")
+  sortOrder Int    @default(0) @map("sort_order")
+
+  pasta  Pasta            @relation(fields: [pastaId], references: [id], onDelete: Cascade)
+  musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+
+  @@id([pastaId, musicaId])
+  @@index([musicaId])
+  @@map("pasta_musica")
+}
+
+enum VinhetaTipo {
+  tts
+  audio
+}
+
+/// Vinheta/aviso atrelável a uma programação.
+model Vinheta {
+  id               String      @id @default(cuid())
+  programacaoId    String?     @map("programacao_id")
+  nome             String      @db.VarChar(160)
+  tipo             VinhetaTipo @default(tts)
+  texto            String      @default("") @db.Text
+  voz              String      @default("") @db.VarChar(80)
+  trilhaStorageKey String?     @map("trilha_storage_key") @db.VarChar(300)
+  storageKey       String?     @map("storage_key") @db.VarChar(300)
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  programacao Programacao? @relation(fields: [programacaoId], references: [id], onDelete: SetNull)
+
+  @@index([programacaoId])
+  @@map("vinheta")
+}
+
+enum JobTipo {
+  upload_pasta
+  enriquecer_tags
+  transcode_cliente
+}
+
+enum JobStatus {
+  aguardando
+  processando
+  revisao
+  concluido
+  erro
+  cancelado
+}
+
+/// Job da fila de processamento (separada da fila do webservice do player).
+model ProcessamentoJob {
+  id           String    @id @default(cuid())
+  tipo         JobTipo   @default(upload_pasta)
+  status       JobStatus @default(aguardando)
+  /// upload | normalizacao | deduplicacao | tags | criptografia | distribuicao
+  etapaAtual   String    @default("upload") @map("etapa_atual") @db.VarChar(24)
+  titulo       String    @default("") @db.VarChar(200)
+  clienteRef   String?   @map("cliente_ref") @db.VarChar(120)
+  clienteNome  String    @default("") @map("cliente_nome") @db.VarChar(200)
+  criativoNome String    @default("") @map("criativo_nome") @db.VarChar(120)
+  totalItens   Int       @default(0) @map("total_itens")
+  itensFeitos  Int       @default(0) @map("itens_feitos")
+  erroMsg      String    @default("") @map("erro_msg") @db.Text
+  startedAt    DateTime? @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  itens ProcessamentoItem[]
+
+  @@index([status, createdAt])
+  @@map("processamento_job")
+}
+
+enum ItemStatus {
+  aguardando
+  processando
+  duplicata
+  concluido
+  erro
+}
+
+/// Item (arquivo) dentro de um job de processamento.
+model ProcessamentoItem {
+  id            String     @id @default(cuid())
+  jobId         String     @map("job_id")
+  arquivoNome   String     @default("") @map("arquivo_nome") @db.Text
+  /// Storage do upload bruto (R2 temporário) antes de virar master.
+  rawStorageKey String?    @map("raw_storage_key") @db.VarChar(300)
+  status        ItemStatus @default(aguardando)
+  musicaId      String?    @map("musica_id")
+  /// Quando duplicata: música existente que casou no fingerprint (decisão humana).
+  duplicataDeId String?    @map("duplicata_de_id")
+  erroMsg       String     @default("") @map("erro_msg") @db.Text
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  job ProcessamentoJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, status])
+  @@map("processamento_item")
+}
+
+/// Música rejeitada por um cliente — vira filtro no Wizard ("evitar rejeitadas").
+model MusicaRejeicao {
+  id         String   @id @default(cuid())
+  musicaId   String   @map("musica_id")
+  clienteRef String   @map("cliente_ref") @db.VarChar(120)
+  motivo     String   @default("") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+
+  @@unique([musicaId, clienteRef])
+  @@index([clienteRef])
+  @@map("musica_rejeicao")
 }

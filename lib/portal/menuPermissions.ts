@@ -33,6 +33,21 @@ export const PORTAL_MENU_MODULES = [
     ],
   },
   {
+    id: "criacao",
+    icon: "🎶",
+    label: "Criação",
+    subs: [
+      { id: "programacoes", label: "Programações" },
+      { id: "biblioteca", label: "Biblioteca musical" },
+      { id: "upload", label: "Upload" },
+      { id: "fila", label: "Fila de processamento" },
+      { id: "edicao", label: "Edição de música" },
+      { id: "vinhetas", label: "Vinhetas" },
+      { id: "cronograma", label: "Cronograma" },
+      { id: "wizard", label: "Wizard IA" },
+    ],
+  },
+  {
     id: "config",
     icon: "⚙️",
     label: "Configuração",
@@ -42,6 +57,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "integracoes", label: "Integrações" },
       { id: "seguranca", label: "Segurança" },
       { id: "logs", label: "Logs" },
+      { id: "erros", label: "Erros" },
     ],
   },
 ] as const;
@@ -90,6 +106,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     perm: {
       cadastros: ["grupos"],
       producao: ["dashboard"],
+      criacao: "all",
     },
     roles: ["criacao"],
   },
