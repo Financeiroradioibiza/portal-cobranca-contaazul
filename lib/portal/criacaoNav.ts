@@ -6,6 +6,7 @@ export const CRIACAO_SIDEBAR = [
   { href: "/criacao/fila", label: "Fila de processamento", icon: "⏳" },
   { href: "/criacao/edicao", label: "Edição de música", icon: "✂️" },
   { href: "/criacao/wizard", label: "Wizard IA", icon: "✨" },
+  { href: "/criacao/erros", label: "Diagnóstico", icon: "🔍" },
 ] as const;
 
 /** Página principal ao clicar em Criação no topo. */
