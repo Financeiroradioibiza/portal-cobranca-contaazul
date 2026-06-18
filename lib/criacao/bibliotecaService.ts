@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -29,6 +30,8 @@ export type MusicaBibliotecaRow = {
   mixSegundosFinais: number | null;
   tagsManuais: MusicaTagManualView[];
   tagsAuto: AutoTag[];
+  /** URL assinada para tocar a versão de uso direto do cloud2 (null se indisponível). */
+  previewUrl: string | null;
 };
 
 function parseAutoTags(raw: Prisma.JsonValue | null): AutoTag[] {
@@ -91,6 +94,7 @@ export async function listMusicasBiblioteca(opts: {
       take: pageSize,
       include: {
         tagsManuais: { include: { tag: true } },
+        versoes: { select: { formato: true } },
       },
     }),
     prisma.musicaBiblioteca.count({ where }),
@@ -98,6 +102,7 @@ export async function listMusicasBiblioteca(opts: {
 
   const rows: MusicaBibliotecaRow[] = items.map((m) => {
     const tagsAuto = parseAutoTags(m.tagsAuto);
+    const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
     return {
       id: m.id,
       titulo: m.titulo,
@@ -117,6 +122,7 @@ export async function listMusicasBiblioteca(opts: {
         cor: tm.tag.cor,
       })),
       tagsAuto,
+      previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
     };
   });
 
