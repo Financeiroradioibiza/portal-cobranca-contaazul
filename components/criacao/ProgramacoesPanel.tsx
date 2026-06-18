@@ -389,6 +389,7 @@ function ProgramacaoEditor({
   const [error, setError] = useState<string | null>(null);
   const [novaPasta, setNovaPasta] = useState("");
   const [addTo, setAddTo] = useState<PastaView | null>(null);
+  const [showPublicar, setShowPublicar] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -508,14 +509,14 @@ function ProgramacaoEditor({
           </select>
           <button
             type="button"
-            onClick={() => void patchProg({ publicada: !prog.publicada })}
+            onClick={() => setShowPublicar(true)}
             className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
               prog.publicada ?
                 "bg-emerald-600 text-white hover:bg-emerald-500"
-              : "border border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
+              : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
             }`}
           >
-            {prog.publicada ? "Publicada ✓" : "Publicar"}
+            {prog.publicada ? "Republicar no Player" : "Enviar ao Player 5"}
           </button>
         </div>
       </div>
@@ -668,6 +669,18 @@ function ProgramacaoEditor({
           onClose={() => setAddTo(null)}
           onAdded={async () => {
             setAddTo(null);
+            await load();
+          }}
+        />
+      : null}
+
+      {showPublicar ?
+        <PublicarModal
+          programacaoId={id}
+          clienteNome={prog.clienteNome}
+          onClose={() => setShowPublicar(false)}
+          onDone={async () => {
+            setShowPublicar(false);
             await load();
           }}
         />
@@ -1318,6 +1331,141 @@ function AddMusicasModal({
           >
             {saving ? "Adicionando…" : `Adicionar ${sel.size || ""}`}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type GatewayCliente = { id: number; nome: string; pdvs: number };
+
+function PublicarModal({
+  programacaoId,
+  clienteNome,
+  onClose,
+  onDone,
+}: {
+  programacaoId: string;
+  clienteNome: string;
+  onClose: () => void;
+  onDone: () => void | Promise<void>;
+}) {
+  const [clientes, setClientes] = useState<GatewayCliente[]>([]);
+  const [selId, setSelId] = useState<number | "">("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/criacao/gateway-clientes")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d?.clientes) return;
+        const list = d.clientes as GatewayCliente[];
+        setClientes(list);
+        const alvo = clienteNome.trim().toLowerCase();
+        const sug =
+          list.find((c) => c.nome.trim().toLowerCase() === alvo) ??
+          list.find((c) => c.nome.toLowerCase().includes(alvo) || alvo.includes(c.nome.toLowerCase()));
+        if (sug) setSelId(sug.id);
+        else if (list.length === 1) setSelId(list[0].id);
+      })
+      .catch(() => setError("Não foi possível carregar clientes do Player."))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clienteNome]);
+
+  async function publicar() {
+    if (selId === "" || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/publicar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clienteIdGateway: selId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        playlists?: number;
+        musicas?: number;
+        semArquivo?: number;
+        clienteGatewayNome?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "publicar_falhou");
+      setResultado(
+        `Publicado para ${data.clienteGatewayNome ?? "Player"}: ${data.playlists ?? 0} pasta(s), ${data.musicas ?? 0} faixa(s)` +
+          (data.semArquivo ? ` (${data.semArquivo} sem arquivo de áudio)` : ""),
+      );
+      await onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao publicar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <h2 className="text-sm font-bold">Enviar ao Player 5</h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="p-4">
+          <p className="mb-3 text-xs text-slate-500">
+            Sincroniza pastas e faixas com o webservice do Player 5 (cloud2). O áudio continua sendo baixado
+            direto do cloud2 — nada passa pelo Netlify.
+          </p>
+          {loading ?
+            <div className="py-6 text-center text-sm text-slate-400">Carregando clientes do gateway…</div>
+          : clientes.length === 0 ?
+            <div className="py-6 text-center text-sm text-red-600">
+              Nenhum cliente no gateway. Cadastre um cliente de teste no Player 5 primeiro.
+            </div>
+          : <>
+              <label className="mb-3 block text-sm">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente no Player (gateway)</span>
+                <select
+                  value={selId}
+                  onChange={(e) => setSelId(e.target.value ? Number(e.target.value) : "")}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                >
+                  <option value="">Selecione…</option>
+                  {clientes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} ({c.pdvs} PDV{c.pdvs === 1 ? "" : "s"})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {error ?
+                <div className="mb-2 text-sm text-red-600">{error}</div>
+              : null}
+              {resultado ?
+                <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+                  {resultado}
+                </div>
+              : null}
+              <button
+                type="button"
+                onClick={() => void publicar()}
+                disabled={busy || selId === ""}
+                className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+              >
+                {busy ? "Publicando…" : "Confirmar publicação"}
+              </button>
+            </>
+          }
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
+import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -32,6 +33,8 @@ export type MusicaBibliotecaRow = {
   tagsAuto: AutoTag[];
   /** URL assinada para tocar a versão de uso direto do cloud2 (null se indisponível). */
   previewUrl: string | null;
+  /** Quantos clientes marcaram esta faixa como rejeitada (Wizard IA evita). */
+  rejeicoesCount: number;
 };
 
 function parseAutoTags(raw: Prisma.JsonValue | null): AutoTag[] {
@@ -100,6 +103,8 @@ export async function listMusicasBiblioteca(opts: {
     prisma.musicaBiblioteca.count({ where }),
   ]);
 
+  const rejMap = await countRejeicoesPorMusica(items.map((m) => m.id));
+
   const rows: MusicaBibliotecaRow[] = items.map((m) => {
     const tagsAuto = parseAutoTags(m.tagsAuto);
     const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
@@ -123,6 +128,7 @@ export async function listMusicasBiblioteca(opts: {
       })),
       tagsAuto,
       previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
+      rejeicoesCount: rejMap.get(m.id) ?? 0,
     };
   });
 

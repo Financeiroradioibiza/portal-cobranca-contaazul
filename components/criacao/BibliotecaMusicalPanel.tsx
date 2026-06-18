@@ -27,6 +27,7 @@ type Musica = {
   tagsManuais: ManualTag[];
   tagsAuto: AutoTag[];
   previewUrl: string | null;
+  rejeicoesCount: number;
 };
 
 function formatDuration(ms: number | null): string {
@@ -71,6 +72,7 @@ export function BibliotecaMusicalPanel() {
   const [tags, setTags] = useState<TagCriativo[]>([]);
   const [showTagManager, setShowTagManager] = useState(false);
   const [tagFor, setTagFor] = useState<Musica | null>(null);
+  const [rejectFor, setRejectFor] = useState<Musica | null>(null);
 
   const loadTags = useCallback(async () => {
     try {
@@ -273,6 +275,11 @@ export function BibliotecaMusicalPanel() {
                         {STATUS_LABEL[m.status] ?? m.status}
                       </span>
                     : null}
+                    {m.rejeicoesCount > 0 ?
+                      <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">
+                        rejeitada ×{m.rejeicoesCount}
+                      </span>
+                    : null}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -301,6 +308,14 @@ export function BibliotecaMusicalPanel() {
                     className="inline-flex h-5 items-center rounded border border-dashed border-slate-300 px-1.5 text-[10px] font-bold text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600"
                   >
                     + tag
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRejectFor(m)}
+                    title="Rejeitar faixa (Wizard IA evita)"
+                    className="inline-flex h-5 items-center rounded border border-dashed border-red-200 px-1.5 text-[10px] font-bold text-red-400 hover:border-red-400 hover:text-red-600 dark:border-red-900"
+                  >
+                    🚫
                   </button>
                 </div>
                 <div className="truncate text-xs text-slate-500">{m.gravadora || "—"}</div>
@@ -336,6 +351,14 @@ export function BibliotecaMusicalPanel() {
             await loadTags();
             await load();
           }}
+        />
+      : null}
+
+      {rejectFor ?
+        <RejeicaoModal
+          musica={rejectFor}
+          onClose={() => setRejectFor(null)}
+          onChanged={load}
         />
       : null}
     </div>
@@ -538,6 +561,156 @@ function TagAssignModal({
               })}
             </div>
           }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RejeicaoModal({
+  musica,
+  onClose,
+  onChanged,
+}: {
+  musica: Musica;
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  type Cliente = { ref: string; nome: string };
+  type Rej = { id: string; clienteRef: string; motivo: string };
+
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [rejeicoes, setRejeicoes] = useState<Rej[]>([]);
+  const [busca, setBusca] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const [rc, rr] = await Promise.all([
+      fetch("/api/criacao/clientes"),
+      fetch(`/api/criacao/musicas/${musica.id}/rejeicoes`),
+    ]);
+    if (rc.ok) setClientes(((await rc.json()) as { clientes: Cliente[] }).clientes ?? []);
+    if (rr.ok) setRejeicoes(((await rr.json()) as { rejeicoes: Rej[] }).rejeicoes ?? []);
+  }, [musica.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    const rejRefs = new Set(rejeicoes.map((r) => r.clienteRef));
+    return clientes
+      .filter((c) => !rejRefs.has(c.ref))
+      .filter((c) => !q || c.nome.toLowerCase().includes(q))
+      .slice(0, 30);
+  }, [clientes, rejeicoes, busca]);
+
+  async function rejeitar(clienteRef: string) {
+    setBusy(true);
+    try {
+      await fetch(`/api/criacao/musicas/${musica.id}/rejeicoes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clienteRef, motivo: motivo.trim() }),
+      });
+      setBusca("");
+      await load();
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remover(clienteRef: string) {
+    setBusy(true);
+    try {
+      await fetch(
+        `/api/criacao/musicas/${musica.id}/rejeicoes?clienteRef=${encodeURIComponent(clienteRef)}`,
+        { method: "DELETE" },
+      );
+      await load();
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <div className="min-w-0">
+            <div className="text-sm font-bold truncate">Rejeitar faixa</div>
+            <div className="truncate text-xs text-slate-500">
+              {musica.artista} — {musica.titulo}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="flex-1 overflow-auto p-4">
+          <p className="mb-3 text-xs text-slate-500">
+            Faixas rejeitadas são evitadas pelo Wizard IA. Marque por cliente quando uma gravação não serve
+            para aquele ponto de venda.
+          </p>
+          {rejeicoes.length > 0 ?
+            <ul className="mb-4 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+              {rejeicoes.map((r) => {
+                const nome = clientes.find((c) => c.ref === r.clienteRef)?.nome ?? r.clienteRef;
+                return (
+                  <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{nome}</div>
+                      {r.motivo ?
+                        <div className="truncate text-xs text-slate-400">{r.motivo}</div>
+                      : null}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void remover(r.clienteRef)}
+                      className="shrink-0 text-xs text-red-500 hover:text-red-700"
+                    >
+                      remover
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          : null}
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar cliente para rejeitar…"
+            className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+          />
+          <input
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Motivo (opcional)"
+            className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+          />
+          <ul className="max-h-40 overflow-auto rounded-lg border border-slate-200 dark:border-slate-800">
+            {filtrados.map((c) => (
+              <li key={c.ref}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void rejeitar(c.ref)}
+                  className="flex w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  {c.nome}
+                </button>
+              </li>
+            ))}
+            {filtrados.length === 0 ?
+              <li className="px-3 py-4 text-center text-xs text-slate-400">Nenhum cliente disponível.</li>
+            : null}
+          </ul>
         </div>
       </div>
     </div>
