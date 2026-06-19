@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { getPool } from '../../db/pool.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { criacaoConfig } from '../../criacao/config.js';
+import { publishCronogramasAndVinhetas } from './publishCronogramas.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;
@@ -81,6 +82,9 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       let totalPlaylists = 0;
       let totalMusicas = 0;
       let semArquivo = 0;
+      let totalAgendas = 0;
+      let totalVinhetas = 0;
+      const pastaPlaylistMap = new Map<string, number>();
       try {
         await gw.query('BEGIN');
 
@@ -125,12 +129,13 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
 
           const totalSeg = musRes.rows.reduce((s, m) => s + Math.round((m.duration_ms ?? 0) / 1000), 0);
           const pl = await gw.query<{ id: number }>(
-            `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total)
-               VALUES ($1, NULL, $2, 'N', 'S', make_interval(secs => $3))
+            `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, origem_pasta_id, publicado)
+               VALUES ($1, NULL, $2, 'N', 'S', make_interval(secs => $3), $4, 'S')
              RETURNING id`,
-            [programaId, pasta.nome, totalSeg],
+            [programaId, pasta.nome, totalSeg, pasta.id],
           );
           const playlistId = pl.rows[0].id;
+          pastaPlaylistMap.set(pasta.id, playlistId);
           totalPlaylists++;
 
           let ordem = 0;
@@ -178,6 +183,10 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
           }
         }
 
+        const cron = await publishCronogramasAndVinhetas(gw, programacaoId, programaId, pastaPlaylistMap);
+        totalAgendas = cron.agendas;
+        totalVinhetas = cron.vinhetas;
+
         await gw.query('COMMIT');
       } catch (e) {
         await gw.query('ROLLBACK').catch(() => {});
@@ -189,12 +198,26 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
 
       try {
         const pool = getPool();
-        await pool.query(`UPDATE pdvs SET atualizacao_pendente = 'S' WHERE cliente_id = $1`, [clienteId]);
+        await pool.query(
+          `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE cliente_id = $1`,
+          [clienteId],
+        );
       } catch {
-        /* schema legado pode não ter a coluna ainda */
+        try {
+          await getPool().query(`UPDATE pdvs SET atualizacao_pendente = 'S' WHERE cliente_id = $1`, [clienteId]);
+        } catch {
+          /* colunas podem não existir ainda */
+        }
       }
 
-      return reply.send({ ok: true, playlists: totalPlaylists, musicas: totalMusicas, semArquivo });
+      return reply.send({
+        ok: true,
+        playlists: totalPlaylists,
+        musicas: totalMusicas,
+        semArquivo,
+        agendas: totalAgendas,
+        vinhetas: totalVinhetas,
+      });
     },
   );
 }

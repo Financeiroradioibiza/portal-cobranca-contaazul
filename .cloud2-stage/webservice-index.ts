@@ -5,6 +5,9 @@ import { registerLoginByTokenRoutes } from './webservice/loginByToken.js';
 import { registerPingRoutes } from './webservice/ping.js';
 import { registerPlaylistRoutes } from './webservice/playlist.js';
 import { registerGetMusicaRoutes } from './webservice/getMusica.js';
+import { registerAgendasRoutes } from './webservice/agendas.js';
+import { registerVinhetasProgramadasRoutes } from './webservice/vinhetasProgramadas.js';
+import { registerVinhetasAgendadasRoutes } from './webservice/vinhetasAgendadas.js';
 import { registerUpdatePdvInstaladoRoutes, registerStubRoutes } from './webservice/stubs.js';
 
 const WS_PREFIX = '/api';
@@ -16,6 +19,9 @@ export async function registerWebserviceRoutes(app: FastifyInstance): Promise<vo
   await registerLoginByTokenRoutes(app, WS_PREFIX);
   await registerPingRoutes(app, WS_PREFIX);
   await registerPlaylistRoutes(app, WS_PREFIX);
+  await registerAgendasRoutes(app, WS_PREFIX);
+  await registerVinhetasProgramadasRoutes(app, WS_PREFIX);
+  await registerVinhetasAgendadasRoutes(app, WS_PREFIX);
   await registerGetMusicaRoutes(app, WS_PREFIX);
   await registerUpdatePdvInstaladoRoutes(app, WS_PREFIX);
   await registerStubRoutes(app, WS_PREFIX);

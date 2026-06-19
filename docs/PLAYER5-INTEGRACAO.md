@@ -51,7 +51,9 @@ Agendas e vinhetas: `GET /api/agendas/`, `/vinhetas_programadas/`, `/vinhetas_ag
 | `controlarPlayer` etc. | `ctrl_player`, `ctrl_placa_carro`, `ctrl_playlists` | loginByToken, ping |
 | `statusPlayer` | `pdvs.status` A/I | loginByToken |
 | Programação publicada | `programas`, `playlists`, `musicas` | playlist, get_musica |
-| Publicar / disparar ATL | `atualizacao_pendente='S'` | ping → refetch playlist |
+| Publicar / disparar ATL | `atualizacao_pendente='S'` + `atualizacao_pendente_agenda='S'` | ping → refetch playlist/agendas |
+| Cronogramas (pastas) | tabela `agendas` | GET `/agendas/` |
+| Vinhetas VP/VA | playlists tipo VP/VA + `agendas` | `/vinhetas_programadas/`, `/vinhetas_agendadas/` |
 
 **Gatilhos de sync no portal:**
 
@@ -123,9 +125,9 @@ Cronogramas de pastas/vinhetas e avisos do player: **não conectados ainda** —
 
 ### P2 — Programação completa
 
-- [ ] Cronogramas (`Agendamento`) → `/agendas/`
-- [ ] Vinhetas VP/VA → playlists tipo VP/VA + endpoints vinhetas
-- [ ] `set_agenda_atualizada/`
+- [x] Cronogramas (`Agendamento` pasta) → `/agendas/` na publicação
+- [x] Vinhetas VP/VA → playlists + `/vinhetas_programadas/` + `/vinhetas_agendadas/`
+- [ ] `set_agenda_atualizada/` (endpoint dedicado — parcial via `agenda_atualizada=1` em `/agendas/`)
 - [ ] Avisos player (substituir admin Netlify player4)
 
 ### P3 — Auxiliares
