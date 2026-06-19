@@ -60,13 +60,9 @@ import {
   semPainelMotivo,
   semPainelMotivoLabel,
 } from "@/lib/cadastros/vinculosReconcile";
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
-import {
-  currentBrazilYearMonth,
-  formatYearMonthLabel,
-} from "@/lib/manualReminders/yearMonth";
+import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 
-type MonthMeta = { id: string; yearMonth: number };
+const PRODUCAO_LAYOUT_YM = 0;
 
 type RioSel =
   | { tipo: "marca"; grupoId: string; marcaNome: string; linhaIds: string[] }
@@ -202,12 +198,7 @@ function ClienteDropZone({
 }
 
 export function CadastrosGruposPanel() {
-  const todayYm = useMemo(() => currentBrazilYearMonth(), []);
-  const [months, setMonths] = useState<MonthMeta[]>([]);
-  const vigenteYm = useMemo(
-    () => pickVigenteRioYearMonth(months, todayYm),
-    [months, todayYm],
-  );
+  const [rioSourceYm, setRioSourceYm] = useState<number | null>(null);
   const [rioGrupos, setRioGrupos] = useState<ProducaoGrupoNode[]>([]);
   const [clientesBase, setClientesBase] = useState<ProducaoClienteBucket[]>([]);
   const [clienteNomes, setClienteNomes] = useState<Record<string, string>>({});
@@ -362,10 +353,10 @@ export function CadastrosGruposPanel() {
       setHiddenClienteKeys(next.hiddenClienteKeys);
       setCustomClientes(next.customClientes);
       setAcknowledgedPdvs(next.acknowledgedPdvs ?? []);
-      persistLayout(next, vigenteYm);
+      persistLayout(next, PRODUCAO_LAYOUT_YM);
       return next;
     },
-    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, persistLayout, vigenteYm],
+    [clienteNomes, placements, hiddenClienteKeys, customClientes, acknowledgedPdvs, persistLayout],
   );
 
   const loadAll = useCallback(async (ym: number) => {
@@ -379,7 +370,7 @@ export function CadastrosGruposPanel() {
       const [mRes, vRes, layoutRes] = await Promise.all([
         fetch(`/api/rio-planilha/clientes/month/${ym}`),
         fetch(`/api/cadastros/month/${ym}/vinculos`),
-        fetch(`/api/cadastros/month/${ym}/producao-layout`),
+        fetch(`/api/cadastros/month/${PRODUCAO_LAYOUT_YM}/producao-layout`),
       ]);
       const monthData = (await mRes.json()) as RioMonthBundle & { error?: string };
       const vincData = (await vRes.json()) as {
@@ -478,17 +469,18 @@ export function CadastrosGruposPanel() {
   }, []);
 
   useEffect(() => {
-    void fetch("/api/rio-planilha/clientes/months")
+    void fetch("/api/cadastros/producao-catalog")
       .then((r) => r.json())
-      .then((d: { months?: MonthMeta[] }) => {
-        setMonths(d.months ?? []);
+      .then((d: { ok?: boolean; rioSourceYearMonth?: number }) => {
+        if (d.ok && d.rioSourceYearMonth) setRioSourceYm(d.rioSourceYearMonth);
       })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    void loadAll(vigenteYm);
-  }, [vigenteYm, loadAll]);
+    if (rioSourceYm == null) return;
+    void loadAll(rioSourceYm);
+  }, [rioSourceYm, loadAll]);
 
   const filteredRio = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -680,18 +672,20 @@ export function CadastrosGruposPanel() {
             Rio (cobrança) × Produção
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-            <strong>Esquerda:</strong> espelho da Planilha Rio vigente.{" "}
-            <strong>Direita:</strong> produção organizada por você — mantida na virada de mês.
+            <strong>Esquerda:</strong> espelho da Planilha Rio (somente leitura, competência fixa).{" "}
+            <strong>Direita:</strong> produção organizada por você — catálogo único, independente da virada.
           </p>
         </header>
 
         <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 px-1">
-          <span
-            className="rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-sm font-semibold text-violet-900 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-100"
-            title="Rio × Produção usa sempre a competência vigente da Planilha Rio"
-          >
-            Vigente: {formatYearMonthLabel(vigenteYm)}
-          </span>
+          {rioSourceYm != null ?
+            <span
+              className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              title="Referência Rio pinada — não muda com a virada de competência"
+            >
+              Espelho Rio: {formatYearMonthLabel(rioSourceYm)}
+            </span>
+          : null}
           <input
             className="min-w-[180px] flex-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
             placeholder="Buscar…"

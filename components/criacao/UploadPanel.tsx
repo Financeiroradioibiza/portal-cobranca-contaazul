@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
+import { ExternoDownloadPanel } from "@/components/criacao/ExternoDownloadPanel";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
@@ -87,6 +88,18 @@ export function UploadPanel() {
     if (!list) return;
     const next: PickedFile[] = [];
     for (const f of Array.from(list)) {
+      if (!/\.mp3$/i.test(f.name) && !f.type.includes("audio")) continue;
+      next.push({ nome: f.name, sizeBytes: f.size, file: f });
+    }
+    setFiles((prev) => {
+      const seen = new Set(prev.map((p) => p.nome));
+      return [...prev, ...next.filter((n) => !seen.has(n.nome))];
+    });
+  }, []);
+
+  const addFileObjects = useCallback((incoming: File[]) => {
+    const next: PickedFile[] = [];
+    for (const f of incoming) {
       if (!/\.mp3$/i.test(f.name) && !f.type.includes("audio")) continue;
       next.push({ nome: f.name, sizeBytes: f.size, file: f });
     }
@@ -332,10 +345,7 @@ export function UploadPanel() {
           </div>
 
           {modo === "externo" ?
-            <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
-              Apps como ytdl não baixam direto do servidor — baixe no seu computador e arraste os
-              arquivos aqui em seguida.
-            </div>
+            <ExternoDownloadPanel onFilesReady={addFileObjects} />
           : null}
 
           <div

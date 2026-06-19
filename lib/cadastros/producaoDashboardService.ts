@@ -6,9 +6,10 @@ import {
   type ProducaoLayoutState,
   type RioLinhaForProducao,
 } from "@/lib/cadastros/producaoHierarchy";
-import { ensureProducaoLayoutCarriedFromDonor } from "@/lib/cadastros/producaoLayoutCarryService";
-import { getProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
-import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
+import {
+  getProducaoCatalogMeta,
+} from "@/lib/cadastros/producaoCatalogo";
+import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
 import {
   buildPlayerIdMapFromBuckets,
@@ -87,7 +88,8 @@ export type DashboardOverview = {
 };
 
 export type ProducaoDashboardPayload = {
-  yearMonth: number;
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
   overview: DashboardOverview;
   clientes: DashboardClienteRow[];
 };
@@ -112,9 +114,11 @@ function deriveOnlineStatus(
   return statusPlayer === "Ativo";
 }
 
-export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoDashboardPayload> {
+export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> {
+  const meta = await getProducaoCatalogMeta();
+  const rioSourceYearMonth = meta.rioSourceYearMonth;
   const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth },
+    where: { yearMonth: rioSourceYearMonth },
     include: {
       linhas: {
         orderBy: [{ sortOrder: "asc" }],
@@ -128,7 +132,7 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
 
   if (!month) {
     return {
-      yearMonth,
+      ...meta,
       overview: {
         totalPdvs: 0,
         onlinePdvs: 0,
@@ -146,16 +150,12 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
     };
   }
 
-  const [playerCtx, progMaps] = await Promise.all([
-    loadMergedProducaoPlayerContext(yearMonth),
+  const [playerCtx, progMaps, rawLayout] = await Promise.all([
+    loadMergedProducaoPlayerContext(),
     loadProgramacaoMusicalMaps(),
+    getProducaoCatalogLayout({ repairPlacements: true }),
   ]);
   const linkMap = buildPlayerIdMapFromBuckets(playerCtx.buckets, playerCtx.pdvPortalIds);
-  const donorYm = donorYearMonthFor(yearMonth);
-  if (donorYm !== yearMonth) {
-    await ensureProducaoLayoutCarriedFromDonor(yearMonth, donorYm);
-  }
-  const rawLayout = await getProducaoLayout(yearMonth, { repairPlacements: true });
 
   const linhasForProd: RioLinhaForProducao[] = month.linhas
     .filter((ln) => ln.movimento !== "saida")
@@ -307,7 +307,7 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
   });
 
   return {
-    yearMonth,
+    ...meta,
     overview: {
       totalPdvs,
       onlinePdvs,

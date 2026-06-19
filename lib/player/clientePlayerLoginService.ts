@@ -1,7 +1,6 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
-import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
+import { getProducaoCatalogMeta } from "@/lib/cadastros/producaoCatalogo";
 import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
 
 export const CLIENTE_PLAYER_EMAIL_DOMAIN = "radioibiza.com.br";
@@ -56,20 +55,6 @@ export type ClientePlayerLoginRow = {
   hasLogin: boolean;
 };
 
-async function resolveVigenteMonthId(yearMonth?: number): Promise<{ ym: number; monthId: string }> {
-  const months = await prisma.rioCompMonth.findMany({
-    orderBy: { yearMonth: "desc" },
-    select: { yearMonth: true },
-  });
-  const ym = yearMonth ?? pickVigenteRioYearMonth(months, currentBrazilYearMonth());
-  const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth: ym },
-    select: { id: true },
-  });
-  if (!month) throw new Error("rio_month_not_found");
-  return { ym, monthId: month.id };
-}
-
 async function loadTakenEmails(): Promise<Set<string>> {
   const rows = await prisma.clientePlayerLogin.findMany({ select: { email: true } });
   return new Set(rows.map((r) => r.email.toLowerCase()));
@@ -104,14 +89,15 @@ export async function createLoginForClienteIfMissing(
 }
 
 /** Gera logins **faltantes** (1ª vez em massa). Não altera logins já existentes. */
-export async function generateMissingClientePlayerLogins(yearMonth?: number): Promise<{
-  yearMonth: number;
+export async function generateMissingClientePlayerLogins(): Promise<{
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
   created: number;
   skipped: number;
   total: number;
 }> {
-  const { ym } = await resolveVigenteMonthId(yearMonth);
-  const ctx = await loadMergedProducaoPlayerContext(ym);
+  const meta = await getProducaoCatalogMeta();
+  const ctx = await loadMergedProducaoPlayerContext();
   const buckets = ctx.buckets.filter((b) => b.portalClienteId != null);
 
   let created = 0;
@@ -125,7 +111,7 @@ export async function generateMissingClientePlayerLogins(yearMonth?: number): Pr
     else skipped++;
   }
 
-  return { yearMonth: ym, created, skipped, total: buckets.length };
+  return { ...meta, created, skipped, total: buckets.length };
 }
 
 export async function updateClientePlayerLoginManual(
@@ -165,13 +151,14 @@ export async function updateClientePlayerLoginManual(
   });
 }
 
-export async function listClientePlayerLogins(yearMonth?: number): Promise<{
-  yearMonth: number;
+export async function listClientePlayerLogins(): Promise<{
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
   rows: ClientePlayerLoginRow[];
 }> {
-  const { ym } = await resolveVigenteMonthId(yearMonth);
+  const meta = await getProducaoCatalogMeta();
   const [ctx, logins] = await Promise.all([
-    loadMergedProducaoPlayerContext(ym),
+    loadMergedProducaoPlayerContext(),
     prisma.clientePlayerLogin.findMany({
       select: {
         portalClienteId: true,
@@ -208,11 +195,11 @@ export async function listClientePlayerLogins(yearMonth?: number): Promise<{
       };
     });
 
-  return { yearMonth: ym, rows };
+  return { ...meta, rows };
 }
 
 /** @deprecated use generateMissingClientePlayerLogins */
-export async function generateAllClientePlayerLogins(yearMonth?: number) {
-  const r = await generateMissingClientePlayerLogins(yearMonth);
+export async function generateAllClientePlayerLogins() {
+  const r = await generateMissingClientePlayerLogins();
   return { ...r, updated: 0 };
 }

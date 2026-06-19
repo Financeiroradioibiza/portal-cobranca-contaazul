@@ -1,24 +1,15 @@
 import { NextResponse } from "next/server";
-import { parseCadastrosYearMonth } from "@/lib/cadastros/painelPdvLinkService";
-import { ensureProducaoLayoutCarriedFromDonor } from "@/lib/cadastros/producaoLayoutCarryService";
-import { getProducaoLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
-import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
+import { PRODUCAO_CATALOGO_LAYOUT_YM } from "@/lib/cadastros/producaoCatalogo";
+import { getProducaoCatalogLayout, saveProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 
 export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ ym: string }> };
 
-export async function GET(_req: Request, context: Ctx) {
-  const { ym: ymRaw } = await context.params;
-  const ym = parseCadastrosYearMonth(ymRaw ?? "");
-  if (ym == null) return NextResponse.json({ error: "invalid_year_month" }, { status: 400 });
+export async function GET(_req: Request, _context: Ctx) {
   try {
-    const donorYm = donorYearMonthFor(ym);
-    if (donorYm !== ym) {
-      await ensureProducaoLayoutCarriedFromDonor(ym, donorYm);
-    }
-    const layout = await getProducaoLayout(ym, { repairPlacements: true });
-    return NextResponse.json({ ok: true, layout });
+    const layout = await getProducaoCatalogLayout({ repairPlacements: true });
+    return NextResponse.json({ ok: true, layout, layoutYearMonth: PRODUCAO_CATALOGO_LAYOUT_YM });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "erro" },
@@ -27,11 +18,7 @@ export async function GET(_req: Request, context: Ctx) {
   }
 }
 
-export async function PUT(req: Request, context: Ctx) {
-  const { ym: ymRaw } = await context.params;
-  const ym = parseCadastrosYearMonth(ymRaw ?? "");
-  if (ym == null) return NextResponse.json({ error: "invalid_year_month" }, { status: 400 });
-
+export async function PUT(req: Request, _context: Ctx) {
   let body: {
     clienteNomes?: unknown;
     pdvPlacements?: unknown;
@@ -46,7 +33,7 @@ export async function PUT(req: Request, context: Ctx) {
   }
 
   try {
-    const layout = await saveProducaoLayout(ym, {
+    const layout = await saveProducaoLayout(PRODUCAO_CATALOGO_LAYOUT_YM, {
       ...(body.clienteNomes !== undefined ?
         { clienteNomes: body.clienteNomes as Record<string, string> }
       : {}),
@@ -63,7 +50,7 @@ export async function PUT(req: Request, context: Ctx) {
         { acknowledgedPdvs: body.acknowledgedPdvs as string[] }
       : {}),
     });
-    return NextResponse.json({ ok: true, layout });
+    return NextResponse.json({ ok: true, layout, layoutYearMonth: PRODUCAO_CATALOGO_LAYOUT_YM });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "erro" },

@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
 import { getProducaoDashboard } from "@/lib/cadastros/producaoDashboardService";
-import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const ymRaw = url.searchParams.get("ym") ?? "";
-  const ym = parseYearMonthParam(ymRaw);
-  if (ym == null) {
-    return NextResponse.json({ error: "invalid_year_month" }, { status: 400 });
-  }
-
+export async function GET() {
   try {
-    const payload = await getProducaoDashboard(ym);
+    const payload = await getProducaoDashboard();
     return NextResponse.json({ ok: true, ...payload });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro";

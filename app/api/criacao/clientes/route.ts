@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { getProducaoDashboard } from "@/lib/cadastros/producaoDashboardService";
-import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
 
 export const runtime = "nodejs";
 
@@ -12,8 +11,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
 
-    const ym = currentBrazilYearMonth();
-    const dash = await getProducaoDashboard(ym);
+    const dash = await getProducaoDashboard();
 
     let clientes = dash.clientes.map((c) => ({
       ref: c.key,
@@ -26,7 +24,11 @@ export async function GET(request: Request) {
     }
     clientes.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
-    return NextResponse.json({ clientes: clientes.slice(0, 500), yearMonth: ym });
+    return NextResponse.json({
+      clientes: clientes.slice(0, 500),
+      layoutYearMonth: dash.layoutYearMonth,
+      rioSourceYearMonth: dash.rioSourceYearMonth,
+    });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/clientes GET]", e);

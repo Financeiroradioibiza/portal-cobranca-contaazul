@@ -13,10 +13,9 @@ export type PortalPlayerIdMaps = {
 
 /** Carrega IDs do Player conforme organização da produção musical. */
 export async function loadPortalPlayerIdMaps(
-  yearMonth: number,
   rioPdvKeys: string[],
 ): Promise<PortalPlayerIdMaps> {
-  const ctx = await loadMergedProducaoPlayerContext(yearMonth);
+  const ctx = await loadMergedProducaoPlayerContext();
   const byRioPdvKey = buildPlayerIdMapFromBuckets(ctx.buckets, ctx.pdvPortalIds);
 
   const clienteIdByBucketKey = new Map<string, number>();

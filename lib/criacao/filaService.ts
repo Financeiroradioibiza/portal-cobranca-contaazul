@@ -137,6 +137,7 @@ export async function getJobDetail(id: string) {
       id: i.id,
       arquivoNome: i.arquivoNome,
       status: i.status,
+      etapaAtual: i.etapaAtual,
       musicaId: i.musicaId,
       duplicataDeId: i.duplicataDeId,
       erroMsg: i.erroMsg,

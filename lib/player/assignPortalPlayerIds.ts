@@ -1,61 +1,145 @@
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
-import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
-import { prisma } from "@/lib/prisma";
+import { getProducaoCatalogMeta } from "@/lib/cadastros/producaoCatalogo";
 import {
-  assignMissingProducaoPlayerIds,
-  renumberProducaoPlayerIds,
+  applyProducaoPlayerMissingBatch,
+  applyProducaoPlayerRealignBatch,
+  finalizeProducaoPlayerMissing,
+  finalizeProducaoPlayerRealign,
+  PLAYER_ID_REALIGN_BATCH_SIZE,
 } from "@/lib/player/producaoPlayerBuckets";
 
 export type AssignPortalPlayerIdsResult = {
-  yearMonth: number;
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
   clientes: number;
   pdvs: number;
 };
 
-/**
- * Realinha **todos** os IDs à produção musical (100, 100.001… por bucket).
- * Substitui numeração herdada do painel legado / Planilha Rio.
- */
-export async function realignPortalPlayerIds(
-  yearMonth?: number,
-): Promise<AssignPortalPlayerIdsResult> {
-  const months = await prisma.rioCompMonth.findMany({
-    orderBy: { yearMonth: "desc" },
-    select: { yearMonth: true },
-  });
-  const ym = yearMonth ?? pickVigenteRioYearMonth(months, currentBrazilYearMonth());
+export type AssignPortalPlayerIdsBatchResult = AssignPortalPlayerIdsResult & {
+  applied: number;
+  nextOffset: number;
+  hasMore: boolean;
+  total: number;
+  phase: "reset" | "apply" | "done";
+};
 
-  const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth: ym },
-    select: { id: true },
-  });
-  if (!month) throw new Error("rio_month_not_found");
-
-  const { clientes, pdvs } = await renumberProducaoPlayerIds(ym);
-  return { yearMonth: ym, clientes, pdvs };
+async function resolveCatalogMeta(): Promise<{
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
+}> {
+  return getProducaoCatalogMeta();
 }
 
-/**
- * Atribui IDs **somente onde ainda faltam** — útil após incluir PDV novo na produção.
- */
-export async function assignMissingPortalPlayerIds(
-  yearMonth?: number,
-): Promise<AssignPortalPlayerIdsResult> {
-  const months = await prisma.rioCompMonth.findMany({
-    orderBy: { yearMonth: "desc" },
-    select: { yearMonth: true },
-  });
-  const ym = yearMonth ?? pickVigenteRioYearMonth(months, currentBrazilYearMonth());
+/** Realinha IDs em lotes (evita timeout Netlify/Neon). Só grava no catálogo operacional. */
+export async function realignPortalPlayerIdsBatch(opts: {
+  offset?: number;
+  limit?: number;
+  reset?: boolean;
+}): Promise<AssignPortalPlayerIdsBatchResult> {
+  const meta = await resolveCatalogMeta();
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+  const limit = opts.limit ?? PLAYER_ID_REALIGN_BATCH_SIZE;
 
-  const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth: ym },
-    select: { id: true },
+  const batch = await applyProducaoPlayerRealignBatch(offset, limit, {
+    reset: opts.reset === true || offset === 0,
   });
-  if (!month) throw new Error("rio_month_not_found");
+  if (!batch.hasMore) {
+    const fin = await finalizeProducaoPlayerRealign();
+    return {
+      ...meta,
+      clientes: fin.clientes,
+      pdvs: fin.pdvs,
+      applied: batch.applied,
+      nextOffset: batch.nextOffset,
+      hasMore: false,
+      total: batch.total,
+      phase: "done",
+    };
+  }
 
-  const { clientes, pdvs } = await assignMissingProducaoPlayerIds(ym);
-  return { yearMonth: ym, clientes, pdvs };
+  return {
+    ...meta,
+    clientes: batch.clientes,
+    pdvs: batch.pdvs,
+    applied: batch.applied,
+    nextOffset: batch.nextOffset,
+    hasMore: true,
+    total: batch.total,
+    phase: "apply",
+  };
 }
 
-/** @deprecated use realignPortalPlayerIds */
+/** Só faltantes — também em lotes. */
+export async function assignMissingPortalPlayerIdsBatch(opts: {
+  offset?: number;
+  limit?: number;
+}): Promise<AssignPortalPlayerIdsBatchResult & { layoutIds: Record<string, number> }> {
+  const meta = await resolveCatalogMeta();
+  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+  const limit = opts.limit ?? PLAYER_ID_REALIGN_BATCH_SIZE;
+  const batch = await applyProducaoPlayerMissingBatch(offset, limit);
+
+  if (!batch.hasMore) {
+    await finalizeProducaoPlayerMissing(batch.layoutIds, batch.pdvIds);
+    return {
+      ...meta,
+      clientes: batch.clientes,
+      pdvs: batch.pdvs,
+      applied: batch.applied,
+      nextOffset: batch.nextOffset,
+      hasMore: false,
+      total: batch.total,
+      phase: "done",
+      layoutIds: batch.layoutIds,
+    };
+  }
+
+  return {
+    ...meta,
+    clientes: batch.clientes,
+    pdvs: batch.pdvs,
+    applied: batch.applied,
+    nextOffset: batch.nextOffset,
+    hasMore: true,
+    total: batch.total,
+    phase: "apply",
+    layoutIds: batch.layoutIds,
+  };
+}
+
+/** Loop servidor — uso raro; preferir batch pela API/UI. */
+export async function realignPortalPlayerIds(): Promise<AssignPortalPlayerIdsResult> {
+  let offset = 0;
+  let result: AssignPortalPlayerIdsBatchResult | null = null;
+  do {
+    result = await realignPortalPlayerIdsBatch({
+      offset,
+      reset: offset === 0,
+    });
+    offset = result.nextOffset;
+  } while (result.hasMore);
+  return {
+    layoutYearMonth: result!.layoutYearMonth,
+    rioSourceYearMonth: result!.rioSourceYearMonth,
+    clientes: result!.clientes,
+    pdvs: result!.pdvs,
+  };
+}
+
+export async function assignMissingPortalPlayerIds(): Promise<AssignPortalPlayerIdsResult> {
+  let offset = 0;
+  let result: (AssignPortalPlayerIdsBatchResult & { layoutIds: Record<string, number> }) | null =
+    null;
+  do {
+    result = await assignMissingPortalPlayerIdsBatch({ offset });
+    offset = result.nextOffset;
+  } while (result.hasMore);
+  return {
+    layoutYearMonth: result!.layoutYearMonth,
+    rioSourceYearMonth: result!.rioSourceYearMonth,
+    clientes: result!.clientes,
+    pdvs: result!.pdvs,
+  };
+}
+
+/** @deprecated alias */
 export const assignPortalPlayerIds = realignPortalPlayerIds;

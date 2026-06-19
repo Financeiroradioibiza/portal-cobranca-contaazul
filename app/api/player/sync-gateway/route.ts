@@ -11,8 +11,7 @@ export async function POST(request: Request) {
     if (!cloud2Enabled()) {
       return NextResponse.json({ error: "cloud2_desabilitado" }, { status: 503 });
     }
-    const body = (await request.json().catch(() => ({}))) as { yearMonth?: number };
-    const result = await syncPlayerGatewayRegistry(body.yearMonth);
+    const result = await syncPlayerGatewayRegistry();
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     if (e instanceof Response) return e;

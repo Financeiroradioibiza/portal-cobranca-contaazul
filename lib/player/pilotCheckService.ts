@@ -1,5 +1,4 @@
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
-import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
+import { getProducaoCatalogMeta } from "@/lib/cadastros/producaoCatalogo";
 import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 import { listGatewayClientes } from "@/lib/criacao/publicarService";
 import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
@@ -15,6 +14,8 @@ export type PilotCheckStep = {
 export type PilotCheckResult = {
   cloud2: boolean;
   yearMonth: number | null;
+  layoutYearMonth?: number;
+  rioSourceYearMonth?: number;
   gatewayClientes: number;
   steps: PilotCheckStep[];
   ready: boolean;
@@ -32,17 +33,8 @@ export async function runPlayerPilotCheck(): Promise<PilotCheckResult> {
     detail: cloud2 ? "CLOUD2_BASE_URL + secret OK" : "Variáveis cloud2 ausentes",
   });
 
-  const months = await prisma.rioCompMonth.findMany({
-    orderBy: { yearMonth: "desc" },
-    select: { yearMonth: true },
-  });
-  const ym = pickVigenteRioYearMonth(months, currentBrazilYearMonth());
-  const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth: ym },
-    select: { id: true },
-  });
-
-  const playerCtx = month ? await loadMergedProducaoPlayerContext(ym) : null;
+  const meta = await getProducaoCatalogMeta();
+  const playerCtx = await loadMergedProducaoPlayerContext().catch(() => null);
   const bucketsComId = playerCtx?.buckets.filter((b) => b.portalClienteId != null) ?? [];
   const rioKeys = playerCtx?.buckets.flatMap((b) => b.pdvs.map((p) => p.rioPdvId)) ?? [];
   const pdvsComId =
@@ -135,7 +127,9 @@ export async function runPlayerPilotCheck(): Promise<PilotCheckResult> {
 
   return {
     cloud2,
-    yearMonth: month ? ym : null,
+    yearMonth: meta.rioSourceYearMonth,
+    layoutYearMonth: meta.layoutYearMonth,
+    rioSourceYearMonth: meta.rioSourceYearMonth,
     gatewayClientes,
     steps,
     ready: coreOk && programacoesPublicadas > 0,

@@ -1,5 +1,3 @@
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
-import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
 import { cloud2Fetch } from "@/lib/criacao/cloud2Client";
 import { mapPdvCadastroToGatewayFields } from "@/lib/player/pdvGatewayFields";
 import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
@@ -39,15 +37,9 @@ export type PlayerGatewaySyncPayload = {
   }>;
 };
 
-export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise<PlayerGatewaySyncPayload> {
-  const months = await prisma.rioCompMonth.findMany({
-    orderBy: { yearMonth: "desc" },
-    select: { yearMonth: true },
-  });
-  const ym = yearMonth ?? pickVigenteRioYearMonth(months, currentBrazilYearMonth());
-
+export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySyncPayload> {
   const [ctx, logins, logos, progMaps] = await Promise.all([
-    loadMergedProducaoPlayerContext(ym),
+    loadMergedProducaoPlayerContext(),
     prisma.clientePlayerLogin.findMany({
       where: { active: true },
       select: { portalClienteId: true, email: true, passwordHash: true },
@@ -142,11 +134,11 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
   return { clientes, pdvs };
 }
 
-export async function syncPlayerGatewayRegistry(yearMonth?: number): Promise<{
+export async function syncPlayerGatewayRegistry(): Promise<{
   clientes: number;
   pdvs: number;
 }> {
-  const payload = await buildPlayerGatewaySyncPayload(yearMonth);
+  const payload = await buildPlayerGatewaySyncPayload();
   const res = await cloud2Fetch("/player/sync-registry", {
     method: "POST",
     body: JSON.stringify(payload),

@@ -412,6 +412,8 @@ model CadastroProducaoLayout {
   movimentoOrganizedAt        DateTime? @map("movimento_organized_at")
   /// portalClienteId (100+) por bucket da produção (`custom:…` ou rioLinhaId).
   portalClienteIdsByBucketKey Json      @default("{}") @map("portal_cliente_ids_by_bucket_key")
+  /// portalPdvId (100.001…) por rioPdvKey — fonte única operacional (nunca em rio_comp_*).
+  portalPdvIdsByRioPdvKey     Json      @default("{}") @map("portal_pdv_ids_by_rio_pdv_key")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   @@map("cadastro_producao_layout")
@@ -1030,6 +1032,8 @@ model ProcessamentoItem {
   /// Storage do upload bruto (R2 temporário) antes de virar master.
   rawStorageKey String?    @map("raw_storage_key") @db.VarChar(300)
   status        ItemStatus @default(aguardando)
+  /// Etapa do pipeline desta faixa (upload … armazenamento) — alimenta o Kanban da fila.
+  etapaAtual    String     @default("upload") @map("etapa_atual") @db.VarChar(24)
   musicaId      String?    @map("musica_id")
   /// Quando duplicata: música existente que casou no fingerprint (decisão humana).
   duplicataDeId String?    @map("duplicata_de_id")

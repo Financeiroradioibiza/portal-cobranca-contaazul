@@ -10,11 +10,7 @@ import type {
   DashboardClienteRow,
   ProducaoDashboardPayload,
 } from "@/lib/cadastros/producaoDashboardService";
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
-import {
-  currentBrazilYearMonth,
-  formatYearMonthLabel,
-} from "@/lib/manualReminders/yearMonth";
+import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 
 /** Lotes ao expandir cliente (evita travar com 200+ lojas). */
 const DASHBOARD_PDV_BATCH_OPTIONS = [20, 50, 100] as const;
@@ -138,12 +134,6 @@ function OverviewCard({
 
 export function ProducaoDashboardPanel() {
   const openChamadosCount = useOpenChamadosCount();
-  const todayYm = useMemo(() => currentBrazilYearMonth(), []);
-  const [months, setMonths] = useState<MonthMeta[]>([]);
-  const vigenteYm = useMemo(
-    () => pickVigenteRioYearMonth(months, todayYm),
-    [months, todayYm],
-  );
   const [data, setData] = useState<ProducaoDashboardPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -152,11 +142,11 @@ export function ProducaoDashboardPanel() {
   const [pdvBatchSize, setPdvBatchSize] = useState<DashboardPdvBatchSize>(DEFAULT_DASHBOARD_PDV_BATCH);
   const [clienteDetail, setClienteDetail] = useState<DashboardClienteDetail | null>(null);
 
-  const load = useCallback(async (ym: number) => {
+  const load = useCallback(async () => {
     setBusy(true);
     setMsg("");
     try {
-      const res = await fetch(`/api/producao/dashboard?ym=${ym}`);
+      const res = await fetch("/api/producao/dashboard");
       const json = (await res.json()) as ProducaoDashboardPayload & { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
       setData(json);
@@ -170,17 +160,8 @@ export function ProducaoDashboardPanel() {
   }, []);
 
   useEffect(() => {
-    void fetch("/api/rio-planilha/clientes/months")
-      .then((r) => r.json())
-      .then((d: { months?: MonthMeta[] }) => {
-        setMonths(d.months ?? []);
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    void load(vigenteYm);
-  }, [vigenteYm, load]);
+    void load();
+  }, [load]);
 
   const filtered = useMemo(() => {
     const list = data?.clientes ?? [];
@@ -220,12 +201,14 @@ export function ProducaoDashboardPanel() {
             Visão geral do portal
           </h1>
         </div>
-        <span
-          className="rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-sm font-semibold text-violet-900 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-100"
-          title="Dashboard usa a competência vigente da Planilha Rio"
-        >
-          Vigente: {formatYearMonthLabel(vigenteYm)}
-        </span>
+        {data?.rioSourceYearMonth != null ?
+          <span
+            className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+            title="Nomes Rio vêm de competência fixa; produção não segue virada automática"
+          >
+            Espelho Rio: {formatYearMonthLabel(data.rioSourceYearMonth)}
+          </span>
+        : null}
       </header>
 
       {msg ?

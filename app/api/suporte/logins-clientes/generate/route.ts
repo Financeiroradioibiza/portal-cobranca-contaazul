@@ -9,12 +9,12 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     requirePortalSession(await getPortalSession());
-    const body = (await request.json().catch(() => ({}))) as { yearMonth?: number; sync?: boolean };
-    const result = await generateMissingClientePlayerLogins(body.yearMonth);
+    const body = (await request.json().catch(() => ({}))) as { sync?: boolean };
+    const result = await generateMissingClientePlayerLogins();
 
     let gateway: { clientes: number; pdvs: number } | null = null;
     if (body.sync !== false && cloud2Enabled() && result.created > 0) {
-      gateway = await syncPlayerGatewayRegistry(result.yearMonth);
+      gateway = await syncPlayerGatewayRegistry();
     }
 
     return NextResponse.json({ ok: true, ...result, gateway });

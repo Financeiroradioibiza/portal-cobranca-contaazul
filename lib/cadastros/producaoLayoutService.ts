@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import {
+  PRODUCAO_CATALOGO_LAYOUT_YM,
+  getProducaoRioSourceYm,
+  isProducaoCatalogLayoutYm,
+} from "@/lib/cadastros/producaoCatalogo";
 import type {
   PdvPlacementOverride,
   ProducaoCustomCliente,
@@ -21,6 +26,7 @@ export type ProducaoLayoutPayload = {
   movimentoBaselineSaidaIds: string[];
   movimentoOrganizedAt: string | null;
   portalClienteIdsByBucketKey: Record<string, number>;
+  portalPdvIdsByRioPdvKey: Record<string, number>;
 };
 
 function asBucketClienteIds(v: unknown): Record<string, number> {
@@ -31,6 +37,16 @@ function asBucketClienteIds(v: unknown): Record<string, number> {
     if (k.trim() && Number.isFinite(n) && n > 0) out[k] = Math.trunc(n);
   }
   return out;
+}
+
+function asPdvIdsByKey(v: unknown): Record<string, number> {
+  return asBucketClienteIds(v);
+}
+
+export async function getProducaoCatalogLayout(
+  opts?: { repairPlacements?: boolean },
+): Promise<ProducaoLayoutPayload> {
+  return getProducaoLayout(PRODUCAO_CATALOGO_LAYOUT_YM, opts);
 }
 
 function asRecord(v: unknown): Record<string, string> {
@@ -79,7 +95,10 @@ export async function getProducaoLayout(
   let pdvPlacements = asPlacements(row?.pdvPlacements);
 
   if (opts?.repairPlacements && pdvPlacements.length > 0) {
-    const linhas = await loadRioLinhasForProducao(yearMonth);
+    const rioYm = isProducaoCatalogLayoutYm(yearMonth) ?
+      await getProducaoRioSourceYm()
+    : yearMonth;
+    const linhas = await loadRioLinhasForProducao(rioYm);
     if (linhas.length > 0) {
       let withLinha = [...pdvPlacements];
       for (let i = 0; i < withLinha.length; i++) {
@@ -124,6 +143,7 @@ export async function getProducaoLayout(
     movimentoBaselineSaidaIds: baseline.movimentoBaselineSaidaIds,
     movimentoOrganizedAt: baseline.movimentoOrganizedAt,
     portalClienteIdsByBucketKey: asBucketClienteIds(row?.portalClienteIdsByBucketKey),
+    portalPdvIdsByRioPdvKey: asPdvIdsByKey(row?.portalPdvIdsByRioPdvKey),
   };
 }
 
@@ -166,5 +186,6 @@ export async function saveProducaoLayout(
     movimentoBaselineSaidaIds: baseline.movimentoBaselineSaidaIds,
     movimentoOrganizedAt: baseline.movimentoOrganizedAt,
     portalClienteIdsByBucketKey: current.portalClienteIdsByBucketKey,
+    portalPdvIdsByRioPdvKey: current.portalPdvIdsByRioPdvKey,
   };
 }

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth, formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 
 type Row = {
@@ -143,7 +142,7 @@ function ClienteLogotipoBlock({ busy, setBusy, setMsg }: {
 export function PortalPlayerIdsPanel() {
   const [rows, setRows] = useState<Row[]>([]);
   const [stats, setStats] = useState({ total: 0, linked: 0, unlinked: 0 });
-  const [vigenteYm, setVigenteYm] = useState<number | null>(null);
+  const [rioSourceYm, setRioSourceYm] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -153,11 +152,12 @@ export function PortalPlayerIdsPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const mRes = await fetch("/api/rio-planilha/clientes/months");
-      const mData = (await mRes.json()) as { months?: Array<{ yearMonth: number }> };
-      const ym = pickVigenteRioYearMonth(mData.months ?? [], currentBrazilYearMonth());
-      setVigenteYm(ym);
-      const vRes = await fetch(`/api/cadastros/month/${ym}/vinculos`);
+      const catRes = await fetch("/api/cadastros/producao-catalog");
+      const cat = (await catRes.json()) as { ok?: boolean; rioSourceYearMonth?: number };
+      if (cat.ok && cat.rioSourceYearMonth) setRioSourceYm(cat.rioSourceYearMonth);
+      const vRes = await fetch(
+        `/api/cadastros/month/${cat.rioSourceYearMonth ?? currentBrazilYearMonth()}/vinculos`,
+      );
       const vData = (await vRes.json()) as {
         ok?: boolean;
         rows?: Row[];
@@ -179,13 +179,77 @@ export function PortalPlayerIdsPanel() {
     void load();
   }, [load]);
 
+  async function runPlayerIdAssignBatches(
+    onlyMissing: boolean,
+    sync: boolean,
+    onProgress: (detail: string) => void,
+  ): Promise<{
+    clientes: number;
+    pdvs: number;
+    logins?: { created: number; skipped: number } | null;
+    gateway?: { clientes: number; pdvs: number } | null;
+  }> {
+    let offset = 0;
+    let hasMore = true;
+    let last: {
+      clientes?: number;
+      pdvs?: number;
+      logins?: { created: number; skipped: number } | null;
+      gateway?: { clientes: number; pdvs: number } | null;
+      nextOffset?: number;
+      total?: number;
+    } = {};
+
+    while (hasMore) {
+      const res = await fetch("/api/player/portal-ids/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sync: hasMore ? false : sync,
+          onlyMissing,
+          offset,
+          reset: !onlyMissing && offset === 0,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        clientes?: number;
+        pdvs?: number;
+        hasMore?: boolean;
+        nextOffset?: number;
+        total?: number;
+        applied?: number;
+        logins?: { created: number; skipped: number } | null;
+        gateway?: { clientes: number; pdvs: number } | null;
+      };
+      if (!res.ok) throw new Error(data.error ?? "falhou");
+
+      last = data;
+      hasMore = Boolean(data.hasMore);
+      offset = data.nextOffset ?? offset;
+      const total = data.total ?? 0;
+      onProgress(
+        onlyMissing ?
+          `Atribuindo IDs… ${Math.min(offset, total)}/${total || "…"}`
+        : `Realinhando IDs… ${Math.min(offset, total)}/${total || "…"}`,
+      );
+    }
+
+    return {
+      clientes: last.clientes ?? 0,
+      pdvs: last.pdvs ?? 0,
+      logins: last.logins,
+      gateway: last.gateway,
+    };
+  }
+
   async function realinharIds(sync = true) {
     if (busy) return;
     if (
       !window.confirm(
-        "Substitui todos os IDs pela organização da produção musical (100, 100.001…). " +
+        "Substitui todos os IDs pela organização da produção musical (100, 100.001…), em lotes de 10. " +
           "Numeração antiga do painel legado / Rio será descartada. Logins e logotipos órfãos são removidos; " +
-          "novos logins são gerados automaticamente. Continuar?",
+          "novos logins são gerados ao final. Continuar?",
       )
     ) {
       return;
@@ -193,21 +257,9 @@ export function PortalPlayerIdsPanel() {
     setBusy(true);
     setMsg("");
     try {
-      const res = await fetch("/api/player/portal-ids/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync }),
-      });
-      const data = (await res.json()) as {
-        error?: string;
-        clientes?: number;
-        pdvs?: number;
-        logins?: { created: number; skipped: number } | null;
-        gateway?: { clientes: number; pdvs: number } | null;
-      };
-      if (!res.ok) throw new Error(data.error ?? "falhou");
+      const data = await runPlayerIdAssignBatches(false, sync, setMsg);
       setMsg(
-        `IDs realinhados: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.` +
+        `IDs realinhados: ${data.clientes} clientes, ${data.pdvs} PDVs.` +
           (data.logins ?
             ` Logins: ${data.logins.created} criado(s), ${data.logins.skipped} já existiam.`
           : "") +
@@ -228,23 +280,12 @@ export function PortalPlayerIdsPanel() {
     setBusy(true);
     setMsg("");
     try {
-      const res = await fetch("/api/player/portal-ids/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync, onlyMissing: true }),
-      });
-      const data = (await res.json()) as {
-        error?: string;
-        clientes?: number;
-        pdvs?: number;
-        gateway?: { clientes: number; pdvs: number } | null;
-      };
-      if (!res.ok) throw new Error(data.error ?? "falhou");
-      if ((data.clientes ?? 0) === 0 && (data.pdvs ?? 0) === 0) {
+      const data = await runPlayerIdAssignBatches(true, sync, setMsg);
+      if (data.clientes === 0 && data.pdvs === 0) {
         setMsg("Todos os clientes e PDVs já tinham ID — nada alterado.");
       } else {
         setMsg(
-          `IDs atribuídos (somente faltantes): ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.` +
+          `IDs atribuídos (somente faltantes): ${data.clientes} clientes, ${data.pdvs} PDVs.` +
             (data.gateway ?
               ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
             : ""),
@@ -315,8 +356,9 @@ export function PortalPlayerIdsPanel() {
             Numeração conforme a <strong>produção musical</strong> (pastas/grupos), não a Planilha Rio.
             Ex.: Hering = cliente <strong>100</strong>; lojas dentro = PDVs <strong>100.001</strong>…
             Use <strong>Realinhar IDs</strong> para substituir numeração migrada do painel legado.
-            {vigenteYm != null ?
-              <> Competência vigente: {formatYearMonthLabel(vigenteYm)}.</>
+            IDs gravados no catálogo operacional — a Planilha Rio nunca é alterada por estas ações.
+            {rioSourceYm != null ?
+              <> Espelho Rio (leitura): {formatYearMonthLabel(rioSourceYm)}.</>
             : null}
           </p>
         </div>

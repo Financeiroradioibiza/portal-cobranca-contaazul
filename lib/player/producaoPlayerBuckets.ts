@@ -1,15 +1,16 @@
 import {
+  PRODUCAO_CATALOGO_LAYOUT_YM,
+  getProducaoRioSourceYm,
+} from "@/lib/cadastros/producaoCatalogo";
+import {
   buildCaByLinhaId,
   buildProducaoClientes,
   filterProducaoClientesVisiveis,
-  isLinhaAsPdvKey,
-  linhaAsPdvKey,
   mergeProducaoLayout,
   type ProducaoClienteBucket,
   type ProducaoLayoutState,
-  type RioLinhaForProducao,
 } from "@/lib/cadastros/producaoHierarchy";
-import { getProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
+import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { loadRioLinhasForProducao } from "@/lib/cadastros/producaoMovimento";
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
@@ -24,6 +25,7 @@ import {
 
 export type ProducaoLayoutWithPlayerIds = ProducaoLayoutState & {
   portalClienteIdsByBucketKey: Record<string, number>;
+  portalPdvIdsByRioPdvKey: Record<string, number>;
 };
 
 export type ProducaoPlayerBucket = ProducaoClienteBucket & {
@@ -31,12 +33,12 @@ export type ProducaoPlayerBucket = ProducaoClienteBucket & {
 };
 
 export type MergedProducaoPlayerContext = {
-  yearMonth: number;
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
   buckets: ProducaoPlayerBucket[];
   layout: ProducaoLayoutWithPlayerIds;
-  /** rioPdvKey → portalPdvId (PDVs reais; proxy usa proxyPortalPdvId). */
+  /** rioPdvKey → portalPdvId (catálogo operacional; proxy usa proxyPortalPdvId). */
   pdvPortalIds: Map<string, number>;
-  linhaPortalClienteIds: Map<string, number>;
 };
 
 function asBucketClienteIds(v: unknown): Record<string, number> {
@@ -49,6 +51,10 @@ function asBucketClienteIds(v: unknown): Record<string, number> {
   return out;
 }
 
+function asPdvIdsByKey(v: unknown): Record<string, number> {
+  return asBucketClienteIds(v);
+}
+
 function sortBucketsForAssign(buckets: ProducaoPlayerBucket[]): ProducaoPlayerBucket[] {
   return [...buckets].sort((a, b) =>
     a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }),
@@ -57,45 +63,24 @@ function sortBucketsForAssign(buckets: ProducaoPlayerBucket[]): ProducaoPlayerBu
 
 export async function getMaxPortalClienteId(
   layoutIds: Record<string, number>,
+  pdvIdsByKey: Record<string, number>,
 ): Promise<number> {
-  const [maxLinha, maxPdv] = await Promise.all([
-    prisma.rioCompClienteLinha.aggregate({ _max: { portalClienteId: true } }),
-    prisma.rioCompPdv.aggregate({ _max: { portalPdvId: true } }),
-  ]);
+  const maxLogin = await prisma.clientePlayerLogin.aggregate({
+    _max: { portalClienteId: true },
+  });
   let max = PORTAL_CLIENTE_ID_START - 1;
-  max = Math.max(max, maxLinha._max.portalClienteId ?? 0);
-  if (maxPdv._max.portalPdvId != null) {
-    max = Math.max(max, portalClienteIdFromPdvId(maxPdv._max.portalPdvId));
-  }
+  max = Math.max(max, maxLogin._max.portalClienteId ?? 0);
   for (const id of Object.values(layoutIds)) max = Math.max(max, id);
+  for (const id of Object.values(pdvIdsByKey)) {
+    max = Math.max(max, portalClienteIdFromPdvId(id));
+  }
   return max;
 }
 
-async function loadPdvPortalIdsForKeys(rioPdvKeys: string[]): Promise<Map<string, number>> {
-  const realIds = rioPdvKeys.filter((k) => !isLinhaAsPdvKey(k));
+function pdvPortalIdsFromLayout(layoutIds: Record<string, number>): Map<string, number> {
   const map = new Map<string, number>();
-  if (realIds.length === 0) return map;
-  const pdvs = await prisma.rioCompPdv.findMany({
-    where: { id: { in: realIds } },
-    select: { id: true, portalPdvId: true },
-  });
-  for (const p of pdvs) {
-    if (p.portalPdvId != null) map.set(p.id, p.portalPdvId);
-  }
-  return map;
-}
-
-async function loadLinhaPortalClienteIds(
-  linhaIds: string[],
-): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
-  if (linhaIds.length === 0) return map;
-  const linhas = await prisma.rioCompClienteLinha.findMany({
-    where: { id: { in: linhaIds } },
-    select: { id: true, portalClienteId: true },
-  });
-  for (const ln of linhas) {
-    if (ln.portalClienteId != null) map.set(ln.id, ln.portalClienteId);
+  for (const [key, id] of Object.entries(layoutIds)) {
+    if (key.trim() && Number.isFinite(id)) map.set(key, Math.trunc(id));
   }
   return map;
 }
@@ -103,24 +88,18 @@ async function loadLinhaPortalClienteIds(
 function resolveBucketPortalClienteId(
   bucket: ProducaoClienteBucket,
   layoutIds: Record<string, number>,
-  linhaPortalClienteIds: Map<string, number>,
 ): number | null {
   const fromLayout = layoutIds[bucket.key];
-  if (fromLayout != null) return fromLayout;
-  if (bucket.rioLinhaId && !bucket.isCustom) {
-    return linhaPortalClienteIds.get(bucket.rioLinhaId) ?? null;
-  }
-  return null;
+  return fromLayout != null ? fromLayout : null;
 }
 
 export function enrichBucketsWithPortalClienteIds(
   buckets: ProducaoClienteBucket[],
   layoutIds: Record<string, number>,
-  linhaPortalClienteIds: Map<string, number>,
 ): ProducaoPlayerBucket[] {
   return buckets.map((b) => ({
     ...b,
-    portalClienteId: resolveBucketPortalClienteId(b, layoutIds, linhaPortalClienteIds),
+    portalClienteId: resolveBucketPortalClienteId(b, layoutIds),
   }));
 }
 
@@ -153,12 +132,12 @@ export function buildPlayerIdMapFromBuckets(
 
 /** Buckets da produção musical com PDV (organização editorial), prontos para IDs Player. */
 export async function loadMergedProducaoPlayerContext(
-  yearMonth: number,
   opts?: { includeEmptyCustom?: boolean },
 ): Promise<MergedProducaoPlayerContext> {
+  const rioSourceYearMonth = await getProducaoRioSourceYm();
   const [linhasForProd, rawLayout] = await Promise.all([
-    loadRioLinhasForProducao(yearMonth),
-    getProducaoLayout(yearMonth, { repairPlacements: true }),
+    loadRioLinhasForProducao(rioSourceYearMonth),
+    getProducaoCatalogLayout({ repairPlacements: true }),
   ]);
 
   const layout: ProducaoLayoutWithPlayerIds = {
@@ -170,6 +149,7 @@ export async function loadMergedProducaoPlayerContext(
     movimentoBaselineEntradaIds: rawLayout.movimentoBaselineEntradaIds,
     movimentoBaselineSaidaIds: rawLayout.movimentoBaselineSaidaIds,
     portalClienteIdsByBucketKey: asBucketClienteIds(rawLayout.portalClienteIdsByBucketKey),
+    portalPdvIdsByRioPdvKey: asPdvIdsByKey(rawLayout.portalPdvIdsByRioPdvKey),
   };
 
   const caByLinhaId = buildCaByLinhaId(linhasForProd);
@@ -179,35 +159,40 @@ export async function loadMergedProducaoPlayerContext(
     keepEmptyCustom: opts?.includeEmptyCustom,
   }).filter((c) => c.pdvCount > 0 || (opts?.includeEmptyCustom && c.isCustom));
 
-  const linhaIds = [...new Set(visible.map((b) => b.rioLinhaId).filter(Boolean))];
-  const linhaPortalClienteIds = await loadLinhaPortalClienteIds(linhaIds);
   const buckets = enrichBucketsWithPortalClienteIds(
     visible.filter((c) => c.pdvCount > 0),
     layout.portalClienteIdsByBucketKey,
-    linhaPortalClienteIds,
   );
 
-  const pdvKeys = buckets.flatMap((b) => b.pdvs.map((p) => p.rioPdvId));
-  const pdvPortalIds = await loadPdvPortalIdsForKeys(pdvKeys);
+  const pdvPortalIds = pdvPortalIdsFromLayout(layout.portalPdvIdsByRioPdvKey);
 
   return {
-    yearMonth,
+    layoutYearMonth: PRODUCAO_CATALOGO_LAYOUT_YM,
+    rioSourceYearMonth,
     buckets,
     layout,
     pdvPortalIds,
-    linhaPortalClienteIds,
   };
 }
 
+async function savePlayerIdsOnCatalogLayout(patch: {
+  portalClienteIdsByBucketKey?: Record<string, number>;
+  portalPdvIdsByRioPdvKey?: Record<string, number>;
+}): Promise<void> {
+  await prisma.cadastroProducaoLayout.upsert({
+    where: { yearMonth: PRODUCAO_CATALOGO_LAYOUT_YM },
+    create: {
+      yearMonth: PRODUCAO_CATALOGO_LAYOUT_YM,
+      ...patch,
+    },
+    update: patch,
+  });
+}
+
 export async function savePortalClienteIdsByBucketKey(
-  yearMonth: number,
   portalClienteIdsByBucketKey: Record<string, number>,
 ): Promise<void> {
-  await prisma.cadastroProducaoLayout.upsert({
-    where: { yearMonth },
-    create: { yearMonth, portalClienteIdsByBucketKey },
-    update: { portalClienteIdsByBucketKey },
-  });
+  await savePlayerIdsOnCatalogLayout({ portalClienteIdsByBucketKey });
 }
 
 function maxSeqForBucket(
@@ -227,30 +212,170 @@ function maxSeqForBucket(
   return max;
 }
 
-/** Atribui portalClienteId por bucket da produção e portalPdvId por PDV (somente faltantes). */
-export async function assignMissingProducaoPlayerIds(
-  yearMonth: number,
-): Promise<{ clientes: number; pdvs: number; portalClienteIdsByBucketKey: Record<string, number> }> {
-  const ctx = await loadMergedProducaoPlayerContext(yearMonth);
-  const layoutIds = { ...ctx.layout.portalClienteIdsByBucketKey };
-  let nextClienteId = await getMaxPortalClienteId(layoutIds);
+export const PLAYER_ID_REALIGN_BATCH_SIZE = 10;
+
+export type PlayerIdRealignWorkItem =
+  | { kind: "bucket"; bucketKey: string; portalClienteId: number }
+  | { kind: "pdv"; rioPdvKey: string; portalPdvId: number };
+
+export type PlayerIdRealignPlan = {
+  layoutIds: Record<string, number>;
+  pdvIds: Record<string, number>;
+  work: PlayerIdRealignWorkItem[];
+  clientes: number;
+  pdvs: number;
+};
+
+function buildProducaoPlayerRealignPlanFromBuckets(
+  buckets: ProducaoPlayerBucket[],
+): PlayerIdRealignPlan {
+  const layoutIds: Record<string, number> = {};
+  const pdvIds: Record<string, number> = {};
+  const work: PlayerIdRealignWorkItem[] = [];
+  let nextClienteId = PORTAL_CLIENTE_ID_START - 1;
   let clientes = 0;
   let pdvs = 0;
 
-  const pdvPortalIds = new Map(ctx.pdvPortalIds);
+  for (const bucket of sortBucketsForAssign(buckets)) {
+    const portalClienteId = ++nextClienteId;
+    layoutIds[bucket.key] = portalClienteId;
+    work.push({ kind: "bucket", bucketKey: bucket.key, portalClienteId });
+    clientes++;
+
+    let seq = 0;
+    const sortedPdvs = sortRioPdvsByNome(
+      bucket.pdvs
+        .filter((p) => !p.isLinhaProxy)
+        .map((p) => ({ id: p.rioPdvId, nome: p.nome })),
+    );
+    for (const p of sortedPdvs) {
+      seq += 1;
+      const portalPdvId = buildPortalPdvId(portalClienteId, seq);
+      pdvIds[p.id] = portalPdvId;
+      work.push({ kind: "pdv", rioPdvKey: p.id, portalPdvId });
+      pdvs++;
+    }
+  }
+
+  return { layoutIds, pdvIds, work, clientes, pdvs };
+}
+
+export async function buildProducaoPlayerRealignPlan(): Promise<PlayerIdRealignPlan> {
+  const ctx = await loadMergedProducaoPlayerContext();
+  return buildProducaoPlayerRealignPlanFromBuckets(ctx.buckets);
+}
+
+/** Zera IDs Player no catálogo operacional — não altera a Planilha Rio. */
+export async function resetProducaoPlayerIdsOnCatalog(): Promise<void> {
+  await savePlayerIdsOnCatalogLayout({
+    portalClienteIdsByBucketKey: {},
+    portalPdvIdsByRioPdvKey: {},
+  });
+}
+
+async function applyPlayerIdWorkItems(
+  items: PlayerIdRealignWorkItem[],
+  baseLayoutIds: Record<string, number>,
+  basePdvIds: Record<string, number>,
+): Promise<number> {
+  const layoutIds = { ...baseLayoutIds };
+  const pdvIds = { ...basePdvIds };
+  let applied = 0;
+  for (const item of items) {
+    if (item.kind === "bucket") {
+      layoutIds[item.bucketKey] = item.portalClienteId;
+    } else {
+      pdvIds[item.rioPdvKey] = item.portalPdvId;
+    }
+    applied++;
+  }
+  if (applied > 0) {
+    await savePlayerIdsOnCatalogLayout({
+      portalClienteIdsByBucketKey: layoutIds,
+      portalPdvIdsByRioPdvKey: pdvIds,
+    });
+  }
+  return applied;
+}
+
+export async function applyProducaoPlayerRealignBatch(
+  offset: number,
+  limit = PLAYER_ID_REALIGN_BATCH_SIZE,
+  opts?: { reset?: boolean },
+): Promise<{
+  applied: number;
+  nextOffset: number;
+  hasMore: boolean;
+  total: number;
+  clientes: number;
+  pdvs: number;
+}> {
+  if (opts?.reset) {
+    await resetProducaoPlayerIdsOnCatalog();
+  }
+
+  const plan = await buildProducaoPlayerRealignPlan();
+  const ctx = await loadMergedProducaoPlayerContext();
+  const off = Math.max(0, Math.floor(offset));
+  const lim = Math.min(25, Math.max(1, Math.floor(limit) || PLAYER_ID_REALIGN_BATCH_SIZE));
+  const slice = plan.work.slice(off, off + lim);
+  const applied = await applyPlayerIdWorkItems(
+    slice,
+    ctx.layout.portalClienteIdsByBucketKey,
+    ctx.layout.portalPdvIdsByRioPdvKey,
+  );
+  const nextOffset = off + applied;
+  return {
+    applied,
+    nextOffset,
+    hasMore: nextOffset < plan.work.length,
+    total: plan.work.length,
+    clientes: plan.clientes,
+    pdvs: plan.pdvs,
+  };
+}
+
+export async function finalizeProducaoPlayerRealign(): Promise<{
+  clientes: number;
+  pdvs: number;
+  layoutIds: Record<string, number>;
+}> {
+  const plan = await buildProducaoPlayerRealignPlan();
+  await savePortalClienteIdsByBucketKey(plan.layoutIds);
+  await savePlayerIdsOnCatalogLayout({ portalPdvIdsByRioPdvKey: plan.pdvIds });
+
+  const validIds = Object.values(plan.layoutIds);
+  if (validIds.length > 0) {
+    await prisma.clientePlayerLogin.deleteMany({
+      where: { portalClienteId: { notIn: validIds } },
+    });
+    await prisma.playerClienteLogotipo.deleteMany({
+      where: { portalClienteId: { notIn: validIds } },
+    });
+  }
+
+  return { clientes: plan.clientes, pdvs: plan.pdvs, layoutIds: plan.layoutIds };
+}
+
+export type PlayerIdMissingWorkItem = PlayerIdRealignWorkItem;
+
+export async function buildProducaoPlayerMissingPlan(): Promise<PlayerIdRealignPlan> {
+  const ctx = await loadMergedProducaoPlayerContext();
+  const layoutIds = { ...ctx.layout.portalClienteIdsByBucketKey };
+  const pdvIds = { ...ctx.layout.portalPdvIdsByRioPdvKey };
+  let nextClienteId = await getMaxPortalClienteId(layoutIds, pdvIds);
+  const work: PlayerIdMissingWorkItem[] = [];
+  let clientes = 0;
+  let pdvs = 0;
+  const pdvPortalIds = pdvPortalIdsFromLayout(pdvIds);
 
   for (const bucket of sortBucketsForAssign(ctx.buckets)) {
     let portalClienteId = bucket.portalClienteId;
     if (portalClienteId == null) {
       portalClienteId = ++nextClienteId;
       layoutIds[bucket.key] = portalClienteId;
+      work.push({ kind: "bucket", bucketKey: bucket.key, portalClienteId });
       clientes++;
-      if (bucket.rioLinhaId && !bucket.isCustom) {
-        await prisma.rioCompClienteLinha.updateMany({
-          where: { id: bucket.rioLinhaId, portalClienteId: null },
-          data: { portalClienteId },
-        });
-      }
     }
 
     let seq = maxSeqForBucket({ ...bucket, portalClienteId }, portalClienteId, pdvPortalIds);
@@ -264,90 +389,64 @@ export async function assignMissingProducaoPlayerIds(
       if (pdvPortalIds.has(p.id)) continue;
       seq += 1;
       const portalPdvId = buildPortalPdvId(portalClienteId, seq);
-      await prisma.rioCompPdv.update({
-        where: { id: p.id },
-        data: { portalPdvId },
-      });
+      work.push({ kind: "pdv", rioPdvKey: p.id, portalPdvId });
+      pdvIds[p.id] = portalPdvId;
       pdvPortalIds.set(p.id, portalPdvId);
       pdvs++;
     }
   }
 
-  if (clientes > 0 || Object.keys(layoutIds).length > 0) {
-    await savePortalClienteIdsByBucketKey(yearMonth, layoutIds);
-  }
-
-  return { clientes, pdvs, portalClienteIdsByBucketKey: layoutIds };
+  return { layoutIds, pdvIds, work, clientes, pdvs };
 }
 
-/** Renumera todos os IDs conforme buckets da produção (destrutivo — migração inicial). */
-export async function renumberProducaoPlayerIds(
-  yearMonth: number,
-): Promise<{ clientes: number; pdvs: number }> {
-  const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth },
-    select: { id: true },
-  });
-  if (!month) throw new Error("rio_month_not_found");
+export async function applyProducaoPlayerMissingBatch(
+  offset: number,
+  limit = PLAYER_ID_REALIGN_BATCH_SIZE,
+): Promise<{
+  applied: number;
+  nextOffset: number;
+  hasMore: boolean;
+  total: number;
+  clientes: number;
+  pdvs: number;
+  layoutIds: Record<string, number>;
+  pdvIds: Record<string, number>;
+}> {
+  const plan = await buildProducaoPlayerMissingPlan();
+  const off = Math.max(0, Math.floor(offset));
+  const lim = Math.min(25, Math.max(1, Math.floor(limit) || PLAYER_ID_REALIGN_BATCH_SIZE));
+  const slice = plan.work.slice(off, off + lim);
+  const ctx = await loadMergedProducaoPlayerContext();
+  const applied = await applyPlayerIdWorkItems(
+    slice,
+    ctx.layout.portalClienteIdsByBucketKey,
+    ctx.layout.portalPdvIdsByRioPdvKey,
+  );
+  const nextOffset = off + applied;
 
-  const ctx = await loadMergedProducaoPlayerContext(yearMonth);
-  const layoutIds: Record<string, number> = {};
-  let nextClienteId = PORTAL_CLIENTE_ID_START - 1;
-  let clientes = 0;
-  let pdvs = 0;
+  return {
+    applied,
+    nextOffset,
+    hasMore: nextOffset < plan.work.length,
+    total: plan.work.length,
+    clientes: plan.clientes,
+    pdvs: plan.pdvs,
+    layoutIds: plan.layoutIds,
+    pdvIds: plan.pdvIds,
+  };
+}
 
-  await prisma.$transaction(async (tx) => {
-    await tx.rioCompPdv.updateMany({
-      where: { cliente: { monthId: month.id } },
-      data: { portalPdvId: null },
-    });
-    await tx.rioCompClienteLinha.updateMany({
-      where: { monthId: month.id },
-      data: { portalClienteId: null },
-    });
-
-    for (const bucket of sortBucketsForAssign(ctx.buckets)) {
-      const portalClienteId = ++nextClienteId;
-      layoutIds[bucket.key] = portalClienteId;
-      clientes++;
-
-      if (bucket.rioLinhaId && !bucket.isCustom) {
-        await tx.rioCompClienteLinha.update({
-          where: { id: bucket.rioLinhaId },
-          data: { portalClienteId },
-        });
-      }
-
-      let seq = 0;
-      const sortedPdvs = sortRioPdvsByNome(
-        bucket.pdvs
-          .filter((p) => !p.isLinhaProxy)
-          .map((p) => ({ id: p.rioPdvId, nome: p.nome })),
-      );
-      for (const p of sortedPdvs) {
-        seq += 1;
-        await tx.rioCompPdv.update({
-          where: { id: p.id },
-          data: { portalPdvId: buildPortalPdvId(portalClienteId, seq) },
-        });
-        pdvs++;
-      }
-    }
-  });
-
-  await savePortalClienteIdsByBucketKey(yearMonth, layoutIds);
-
-  const validIds = Object.values(layoutIds);
-  if (validIds.length > 0) {
-    await prisma.clientePlayerLogin.deleteMany({
-      where: { portalClienteId: { notIn: validIds } },
-    });
-    await prisma.playerClienteLogotipo.deleteMany({
-      where: { portalClienteId: { notIn: validIds } },
-    });
-  }
-
-  return { clientes, pdvs };
+export async function finalizeProducaoPlayerMissing(
+  layoutIds: Record<string, number>,
+  pdvIds: Record<string, number>,
+): Promise<void> {
+  const patch: {
+    portalClienteIdsByBucketKey?: Record<string, number>;
+    portalPdvIdsByRioPdvKey?: Record<string, number>;
+  } = {};
+  if (Object.keys(layoutIds).length > 0) patch.portalClienteIdsByBucketKey = layoutIds;
+  if (Object.keys(pdvIds).length > 0) patch.portalPdvIdsByRioPdvKey = pdvIds;
+  if (Object.keys(patch).length > 0) await savePlayerIdsOnCatalogLayout(patch);
 }
 
 /** Programação publicada em Criação → nome do programa no gateway (por bucket ou cliente gateway). */
@@ -388,4 +487,9 @@ export function resolveProgramacaoMusicalForBucket(
     if (byLinha) return byLinha;
   }
   return "Padrão";
+}
+
+/** @deprecated use resetProducaoPlayerIdsOnCatalog */
+export async function resetProducaoPlayerIdsForMonth(_yearMonth: number): Promise<void> {
+  await resetProducaoPlayerIdsOnCatalog();
 }

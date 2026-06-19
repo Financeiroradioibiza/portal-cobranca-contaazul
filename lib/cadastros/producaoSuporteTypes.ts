@@ -33,7 +33,8 @@ export type SuporteOverview = {
 };
 
 export type ProducaoSuportePayload = {
-  yearMonth: number;
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
   overview: SuporteOverview;
   pdvs: SuportePdvRow[];
 };

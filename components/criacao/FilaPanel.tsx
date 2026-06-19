@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { FilaJobKanban } from "@/components/criacao/FilaJobKanban";
+import { ETAPA_LABEL } from "@/lib/criacao/filaKanban";
 
 type JobRow = {
   id: string;
@@ -22,19 +24,13 @@ type JobItem = {
   id: string;
   arquivoNome: string;
   status: string;
+  etapaAtual?: string;
   musicaId: string | null;
   duplicataDeId: string | null;
   erroMsg: string;
 };
 
-const ETAPA_LABEL: Record<string, string> = {
-  upload: "Upload",
-  deduplicacao: "Deduplicação",
-  ponto_mix: "Ponto de mix",
-  normalizacao: "Normalização LUFS",
-  tags: "Tags",
-  armazenamento: "Armazenamento",
-};
+const ETAPA_LABEL_UI: Record<string, string> = ETAPA_LABEL;
 
 const STATUS_TONE: Record<string, string> = {
   aguardando: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200",
@@ -74,6 +70,7 @@ export function FilaPanel() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, JobItem[]>>({});
+  const [itemView, setItemView] = useState<"kanban" | "lista">("kanban");
 
   const load = useCallback(async () => {
     setError(null);
@@ -248,26 +245,61 @@ export function FilaPanel() {
 
                 {open ?
                   <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
-                    <div className="mb-3 flex flex-wrap gap-1.5">
-                      {Object.entries(ETAPA_LABEL).map(([key, label]) => (
-                        <span
-                          key={key}
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(ETAPA_LABEL_UI).map(([key, label]) => (
+                          <span
+                            key={key}
+                            className={
+                              "rounded px-2 py-0.5 text-[10px] font-semibold " +
+                              (key === j.etapaAtual
+                                ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                                : "bg-slate-200 text-slate-500 dark:bg-slate-800")
+                            }
+                          >
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex rounded-lg border border-slate-200 p-0.5 text-[10px] font-semibold dark:border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => setItemView("kanban")}
                           className={
-                            "rounded px-2 py-0.5 text-[10px] font-semibold " +
-                            (key === j.etapaAtual
+                            "rounded-md px-2 py-1 " +
+                            (itemView === "kanban"
                               ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                              : "bg-slate-200 text-slate-500 dark:bg-slate-800")
+                              : "text-slate-500")
                           }
                         >
-                          {label}
-                        </span>
-                      ))}
+                          Kanban
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setItemView("lista")}
+                          className={
+                            "rounded-md px-2 py-1 " +
+                            (itemView === "lista"
+                              ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                              : "text-slate-500")
+                          }
+                        >
+                          Lista
+                        </button>
+                      </div>
                     </div>
 
                     {!items[j.id] ?
                       <div className="text-xs text-slate-400">Carregando itens…</div>
                     : items[j.id]!.length === 0 ?
                       <div className="text-xs text-slate-400">Sem itens.</div>
+                    : itemView === "kanban" ?
+                      <FilaJobKanban
+                        jobId={j.id}
+                        jobEtapaAtual={j.etapaAtual}
+                        items={items[j.id]!}
+                        onResolveDuplicata={(itemId, decision) => void resolve(j.id, itemId, decision)}
+                      />
                     : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                         {items[j.id]!.map((it) => (
                           <li key={it.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">

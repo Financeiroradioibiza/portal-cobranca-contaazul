@@ -10,6 +10,10 @@ import {
   type RioLinhaForProducao,
 } from "@/lib/cadastros/producaoHierarchy";
 import { prisma } from "@/lib/prisma";
+import {
+  getProducaoRioSourceYm,
+  isProducaoCatalogLayoutYm,
+} from "@/lib/cadastros/producaoCatalogo";
 import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
 import { effectiveRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
@@ -142,7 +146,8 @@ export async function ensureProducaoMovimentoBaseline(yearMonth: number): Promis
     };
   }
 
-  const linhas = await loadRioLinhasForMovimentoBaseline(yearMonth);
+  const rioYm = isProducaoCatalogLayoutYm(yearMonth) ? await getProducaoRioSourceYm() : yearMonth;
+  const linhas = await loadRioLinhasForMovimentoBaseline(rioYm);
   const { entradaIds, saidaIds } = collectMovimentoBaselineIds(linhas);
   const now = new Date();
 

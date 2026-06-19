@@ -24,13 +24,14 @@ function isSemPing5Dias(
   return age > FIVE_DAYS_MS;
 }
 
-export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSuportePayload> {
-  const dash = await getProducaoDashboard(yearMonth);
+export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
+  const dash = await getProducaoDashboard();
   const pdvKeys = dash.clientes.flatMap((c) => c.pdvs.map((p) => p.rioPdvKey));
 
   if (pdvKeys.length === 0) {
     return {
-      yearMonth,
+      layoutYearMonth: dash.layoutYearMonth,
+      rioSourceYearMonth: dash.rioSourceYearMonth,
       overview: { totalPdvs: 0, semPing5Dias: 0, chamadosAbertos: null },
       pdvs: [],
     };
@@ -53,7 +54,7 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
       where: { id: { in: pdvKeys.filter((k) => !k.startsWith("linha:")) } },
       select: { id: true, createdAt: true },
     }),
-    loadPortalPlayerIdMaps(yearMonth, pdvKeys),
+    loadPortalPlayerIdMaps(pdvKeys),
   ]);
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
@@ -110,7 +111,8 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
   const semPing5Dias = rows.filter((r) => r.semPing5Dias).length;
 
   return {
-    yearMonth,
+    layoutYearMonth: dash.layoutYearMonth,
+    rioSourceYearMonth: dash.rioSourceYearMonth,
     overview: {
       totalPdvs: rows.length,
       semPing5Dias,

@@ -12,19 +12,14 @@ import type {
   ProducaoSuportePayload,
   SuportePdvRow,
 } from "@/lib/cadastros/producaoSuporteTypes";
-import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { displayBrazilianTaxId } from "@/lib/format";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
-import {
-  currentBrazilYearMonth,
-  formatYearMonthLabel,
-} from "@/lib/manualReminders/yearMonth";
+import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 
 const BATCH_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_BATCH = BATCH_OPTIONS[0];
 type BatchSize = (typeof BATCH_OPTIONS)[number];
 
-type MonthMeta = { id: string; yearMonth: number };
 type ListFilter = "todos" | "sem_ping";
 type ViewMode = "pdv" | "cliente";
 
@@ -617,12 +612,6 @@ function PdvRow({
 }
 
 export function ProducaoSuportePanel() {
-  const todayYm = useMemo(() => currentBrazilYearMonth(), []);
-  const [months, setMonths] = useState<MonthMeta[]>([]);
-  const vigenteYm = useMemo(
-    () => pickVigenteRioYearMonth(months, todayYm),
-    [months, todayYm],
-  );
   const [data, setData] = useState<ProducaoSuportePayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -651,11 +640,11 @@ export function ProducaoSuportePanel() {
     [clienteOptions, selectedClienteKey],
   );
 
-  const load = useCallback(async (ym: number) => {
+  const load = useCallback(async () => {
     setBusy(true);
     setMsg("");
     try {
-      const res = await fetch(`/api/producao/suporte?ym=${ym}`);
+      const res = await fetch("/api/producao/suporte");
       const json = (await res.json()) as ProducaoSuportePayload & { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
       setData(json);
@@ -669,17 +658,8 @@ export function ProducaoSuportePanel() {
   }, []);
 
   useEffect(() => {
-    void fetch("/api/rio-planilha/clientes/months")
-      .then((r) => r.json())
-      .then((d: { months?: MonthMeta[] }) => {
-        setMonths(d.months ?? []);
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    void load(vigenteYm);
-  }, [vigenteYm, load]);
+    void load();
+  }, [load]);
 
   useEffect(() => {
     setVisibleCount((prev) => Math.max(batchSize, prev));
@@ -735,12 +715,14 @@ export function ProducaoSuportePanel() {
             Visão rápida de PDVs sem conexão e contatos da loja
           </p>
         </div>
-        <span
-          className="rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-sm font-semibold text-violet-900 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-100"
-          title="Usa a competência vigente da Planilha Rio"
-        >
-          Vigente: {formatYearMonthLabel(vigenteYm)}
-        </span>
+        {data?.rioSourceYearMonth != null ?
+          <span
+            className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+            title="Nomes Rio vêm de competência fixa; produção não segue virada automática"
+          >
+            Espelho Rio: {formatYearMonthLabel(data.rioSourceYearMonth)}
+          </span>
+        : null}
       </header>
 
       {msg ?

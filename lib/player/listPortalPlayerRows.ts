@@ -21,12 +21,13 @@ export type PortalPlayerRow = {
   portalPlayerId: PortalPlayerIdBrief | null;
 };
 
-export async function listPortalPlayerRowsForMonth(ym: number): Promise<{
-  yearMonth: number;
+export async function listPortalPlayerRows(): Promise<{
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
   rows: PortalPlayerRow[];
   stats: { total: number; linked: number; unlinked: number };
 }> {
-  const ctx = await loadMergedProducaoPlayerContext(ym);
+  const ctx = await loadMergedProducaoPlayerContext();
   const linkMap = buildPlayerIdMapFromBuckets(ctx.buckets, ctx.pdvPortalIds);
 
   const linhaIds = [
@@ -87,17 +88,23 @@ export async function listPortalPlayerRowsForMonth(ym: number): Promise<{
 
   const linked = rows.filter((r) => r.portalPlayerId).length;
   return {
-    yearMonth: ym,
+    layoutYearMonth: ctx.layoutYearMonth,
+    rioSourceYearMonth: ctx.rioSourceYearMonth,
     rows,
     stats: { total: rows.length, linked, unlinked: rows.length - linked },
   };
 }
 
+/** @deprecated alias */
+export async function listPortalPlayerRowsForMonth(_ym?: number) {
+  return listPortalPlayerRows();
+}
+
 /** Compatível com UI que ainda consome `/vinculos` (sem painel legado). */
-export async function listVinculosForMonth(ym: number) {
-  const payload = await listPortalPlayerRowsForMonth(ym);
+export async function listVinculosForMonth(_ym?: number) {
+  const payload = await listPortalPlayerRows();
   return {
-    yearMonth: payload.yearMonth,
+    yearMonth: payload.rioSourceYearMonth,
     stats: payload.stats,
     rows: payload.rows.map((r) => ({
       rioPdvId: r.rioPdvId,
