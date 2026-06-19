@@ -1,13 +1,21 @@
 import { prisma } from "@/lib/prisma";
-import { linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
-import { proxyPortalPdvId, type PortalPlayerIdBrief } from "@/lib/player/portalPlayerIds";
+import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import {
+  buildPlayerIdMapFromBuckets,
+  loadMergedProducaoPlayerContext,
+} from "@/lib/player/producaoPlayerBuckets";
+import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
+import type { PortalPlayerIdBrief } from "@/lib/player/portalPlayerIds";
 
 export type PortalPlayerRow = {
   rioPdvId: string;
   rioPdvNome: string;
   rioDocumento: string | null;
-  clienteLinhaId: string;
+  clienteBucketKey: string;
   clienteNome: string;
+  /** Linha Rio de origem do PDV (cobrança). */
+  clienteLinhaId: string;
+  rioLinhaNome: string;
   marcaNome: string | null;
   isLinhaProxy?: boolean;
   portalPlayerId: PortalPlayerIdBrief | null;
@@ -18,64 +26,64 @@ export async function listPortalPlayerRowsForMonth(ym: number): Promise<{
   rows: PortalPlayerRow[];
   stats: { total: number; linked: number; unlinked: number };
 }> {
-  const month = await prisma.rioCompMonth.findUnique({
-    where: { yearMonth: ym },
-    include: {
-      linhas: {
-        orderBy: [{ sortOrder: "asc" }],
-        include: {
-          rioGrupo: { select: { nome: true } },
-          pdvs: { orderBy: [{ sortOrder: "asc" }] },
-        },
-      },
-    },
-  });
+  const ctx = await loadMergedProducaoPlayerContext(ym);
+  const linkMap = buildPlayerIdMapFromBuckets(ctx.buckets, ctx.pdvPortalIds);
 
-  if (!month) {
-    return { yearMonth: ym, rows: [], stats: { total: 0, linked: 0, unlinked: 0 } };
+  const linhaIds = [
+    ...new Set(ctx.buckets.flatMap((b) => b.pdvs.map((p) => p.rioLinhaId)).filter(Boolean)),
+  ];
+  const linhaMeta = new Map<
+    string,
+    { marcaNome: string | null; documento: string | null; nome: string }
+  >();
+  if (linhaIds.length > 0) {
+    const linhas = await prisma.rioCompClienteLinha.findMany({
+      where: { id: { in: linhaIds } },
+      select: {
+        id: true,
+        nomeFantasia: true,
+        razaoSocial: true,
+        documento: true,
+        rioGrupo: { select: { nome: true } },
+      },
+    });
+    for (const ln of linhas) {
+      linhaMeta.set(ln.id, {
+        marcaNome: ln.rioGrupo?.nome ?? null,
+        documento: ln.documento,
+        nome: ln.nomeFantasia || ln.razaoSocial || "Cliente",
+      });
+    }
   }
 
   const rows: PortalPlayerRow[] = [];
-  for (const linha of month.linhas) {
-    if (linha.movimento === "saida") continue;
-    const clienteNome = linha.nomeFantasia || linha.razaoSocial;
-    const activePdvs = linha.pdvs.filter((p) => p.movimento !== "saida");
 
-    if (activePdvs.length === 0) {
-      rows.push({
-        rioPdvId: linhaAsPdvKey(linha.id),
-        rioPdvNome: clienteNome,
-        rioDocumento: linha.documento,
-        clienteLinhaId: linha.id,
-        clienteNome,
-        marcaNome: linha.rioGrupo?.nome ?? null,
-        isLinhaProxy: true,
-        portalPlayerId:
-          linha.portalClienteId != null ?
-            {
-              portalClienteId: linha.portalClienteId,
-              portalPdvId: proxyPortalPdvId(linha.portalClienteId),
-            }
-          : null,
-      });
-      continue;
-    }
+  for (const bucket of ctx.buckets) {
+    const sorted = sortRioPdvsByNome(bucket.pdvs.map((p) => ({ id: p.rioPdvId, nome: p.nome })));
+    const pdvList = sorted.map((s) => bucket.pdvs.find((p) => p.rioPdvId === s.id)!);
 
-    for (const pdv of activePdvs) {
+    for (const p of pdvList) {
+      const meta = linhaMeta.get(p.rioLinhaId);
       rows.push({
-        rioPdvId: pdv.id,
-        rioPdvNome: pdv.nome,
-        rioDocumento: pdv.documento,
-        clienteLinhaId: linha.id,
-        clienteNome,
-        marcaNome: linha.rioGrupo?.nome ?? null,
-        portalPlayerId:
-          linha.portalClienteId != null && pdv.portalPdvId != null ?
-            { portalClienteId: linha.portalClienteId, portalPdvId: pdv.portalPdvId }
-          : null,
+        rioPdvId: p.rioPdvId,
+        rioPdvNome: p.nome,
+        rioDocumento: p.documento ?? meta?.documento ?? null,
+        clienteBucketKey: bucket.key,
+        clienteNome: bucket.nome,
+        clienteLinhaId: p.rioLinhaId,
+        rioLinhaNome: p.rioLinhaNome || meta?.nome || bucket.nome,
+        marcaNome: meta?.marcaNome ?? null,
+        isLinhaProxy: p.isLinhaProxy,
+        portalPlayerId: linkMap.get(p.rioPdvId) ?? null,
       });
     }
   }
+
+  rows.sort((a, b) => {
+    const c = a.clienteNome.localeCompare(b.clienteNome, "pt-BR", { sensitivity: "base" });
+    if (c !== 0) return c;
+    return a.rioPdvNome.localeCompare(b.rioPdvNome, "pt-BR", { sensitivity: "base" });
+  });
 
   const linked = rows.filter((r) => r.portalPlayerId).length;
   return {
@@ -98,6 +106,8 @@ export async function listVinculosForMonth(ym: number) {
       rioPdvMovimento: "estavel",
       clienteLinhaId: r.clienteLinhaId,
       clienteNome: r.clienteNome,
+      clienteBucketKey: r.clienteBucketKey,
+      rioLinhaNome: r.rioLinhaNome,
       marcaNome: r.marcaNome,
       isLinhaProxy: r.isLinhaProxy,
       link: r.portalPlayerId,
@@ -110,3 +120,5 @@ export function parseCadastrosYearMonth(raw: string): number | null {
   if (!Number.isFinite(n) || n < 200001 || n > 210012) return null;
   return Math.trunc(n);
 }
+
+export { formatPortalPdvIdDisplay, proxyPortalPdvId };

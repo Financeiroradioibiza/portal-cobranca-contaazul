@@ -410,6 +410,8 @@ model CadastroProducaoLayout {
   movimentoBaselineSaidaIds   Json      @default("[]") @map("movimento_baseline_saida_ids")
   /// Quando a produção foi considerada organizada (baseline aplicada).
   movimentoOrganizedAt        DateTime? @map("movimento_organized_at")
+  /// portalClienteId (100+) por bucket da produção (`custom:…` ou rioLinhaId).
+  portalClienteIdsByBucketKey Json      @default("{}") @map("portal_cliente_ids_by_bucket_key")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   @@map("cadastro_producao_layout")

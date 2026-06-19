@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
   assignMissingPortalPlayerIds,
-  assignPortalPlayerIds,
+  realignPortalPlayerIds,
 } from "@/lib/player/assignPortalPlayerIds";
+import { generateMissingClientePlayerLogins } from "@/lib/player/clientePlayerLoginService";
 import { syncPlayerGatewayRegistry } from "@/lib/player/playerGatewaySync";
 import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 
@@ -15,20 +16,30 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as {
       yearMonth?: number;
       sync?: boolean;
-      /** true = renumeração alfabética destrutiva (migração inicial) */
+      /** true = só preenche faltantes (PDV novo); default = realinha tudo à produção */
+      onlyMissing?: boolean;
+      /** @deprecated use onlyMissing:false (default) */
       renumber?: boolean;
     };
+
+    const onlyMissing = body.onlyMissing === true && body.renumber !== true;
     const result =
-      body.renumber ?
-        await assignPortalPlayerIds(body.yearMonth)
-      : await assignMissingPortalPlayerIds(body.yearMonth);
+      onlyMissing ?
+        await assignMissingPortalPlayerIds(body.yearMonth)
+      : await realignPortalPlayerIds(body.yearMonth);
+
+    let logins: { created: number; skipped: number } | null = null;
+    if (!onlyMissing) {
+      const lg = await generateMissingClientePlayerLogins(result.yearMonth);
+      logins = { created: lg.created, skipped: lg.skipped };
+    }
 
     let sync: { clientes: number; pdvs: number } | null = null;
     if (body.sync !== false && cloud2Enabled()) {
       sync = await syncPlayerGatewayRegistry(result.yearMonth);
     }
 
-    return NextResponse.json({ ok: true, ...result, gateway: sync });
+    return NextResponse.json({ ok: true, ...result, realigned: !onlyMissing, logins, gateway: sync });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";

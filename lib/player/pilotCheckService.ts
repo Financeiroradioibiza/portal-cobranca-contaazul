@@ -1,9 +1,9 @@
-import { prisma } from "@/lib/prisma";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
 import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
-import { linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
 import { listGatewayClientes } from "@/lib/criacao/publicarService";
+import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
+import { prisma } from "@/lib/prisma";
 
 export type PilotCheckStep = {
   id: string;
@@ -20,22 +20,6 @@ export type PilotCheckResult = {
   ready: boolean;
   testCliente: { portalClienteId: number; nome: string; email: string | null } | null;
 };
-
-async function collectRioPdvKeys(monthId: string): Promise<string[]> {
-  const linhas = await prisma.rioCompClienteLinha.findMany({
-    where: { monthId, movimento: { not: "saida" }, portalClienteId: { not: null } },
-    select: {
-      id: true,
-      pdvs: { where: { movimento: { not: "saida" } }, select: { id: true } },
-    },
-  });
-  const keys: string[] = [];
-  for (const ln of linhas) {
-    if (ln.pdvs.length === 0) keys.push(linhaAsPdvKey(ln.id));
-    else keys.push(...ln.pdvs.map((p) => p.id));
-  }
-  return keys;
-}
 
 export async function runPlayerPilotCheck(): Promise<PilotCheckResult> {
   const steps: PilotCheckStep[] = [];
@@ -58,26 +42,20 @@ export async function runPlayerPilotCheck(): Promise<PilotCheckResult> {
     select: { id: true },
   });
 
-  const [linhasComId, logins, programacoesPublicadas, pdvsComId] = await Promise.all([
-    month
-      ? prisma.rioCompClienteLinha.count({
-          where: { monthId: month.id, movimento: { not: "saida" }, portalClienteId: { not: null } },
-        })
-      : Promise.resolve(0),
+  const playerCtx = month ? await loadMergedProducaoPlayerContext(ym) : null;
+  const bucketsComId = playerCtx?.buckets.filter((b) => b.portalClienteId != null) ?? [];
+  const rioKeys = playerCtx?.buckets.flatMap((b) => b.pdvs.map((p) => p.rioPdvId)) ?? [];
+  const pdvsComId =
+    playerCtx ?
+      rioKeys.filter((k) => !k.startsWith("linha:")).filter((k) => playerCtx.pdvPortalIds.has(k)).length +
+      rioKeys.filter((k) => k.startsWith("linha:")).length
+    : 0;
+
+  const [logins, programacoesPublicadas] = await Promise.all([
     prisma.clientePlayerLogin.count({ where: { active: true } }),
     prisma.programacao.count({ where: { publicada: true } }),
-    month
-      ? prisma.rioCompPdv.count({
-          where: {
-            movimento: { not: "saida" },
-            portalPdvId: { not: null },
-            cliente: { monthId: month.id, movimento: { not: "saida" } },
-          },
-        })
-      : Promise.resolve(0),
   ]);
 
-  const rioKeys = month ? await collectRioPdvKeys(month.id) : [];
   const tokensOk =
     rioKeys.length === 0
       ? 0
@@ -87,9 +65,9 @@ export async function runPlayerPilotCheck(): Promise<PilotCheckResult> {
 
   steps.push({
     id: "ids",
-    label: "IDs Player (clientes + PDVs)",
-    ok: linhasComId > 0 && rioKeys.length > 0,
-    detail: `${linhasComId} clientes · ${rioKeys.length} ponto(s) de instalação`,
+    label: "IDs Player (produção musical)",
+    ok: bucketsComId.length > 0 && rioKeys.length > 0,
+    detail: `${bucketsComId.length} cliente(s) · ${pdvsComId}/${rioKeys.length} PDV(s) com ID`,
   });
 
   steps.push({

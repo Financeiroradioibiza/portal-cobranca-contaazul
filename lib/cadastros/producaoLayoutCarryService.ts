@@ -212,6 +212,17 @@ export async function carryProducaoLayoutFromDonor(
     acknowledgedPdvs,
   });
 
+  const remappedBucketIds: Record<string, number> = {};
+  for (const [key, id] of Object.entries(donorLayout.portalClienteIdsByBucketKey ?? {})) {
+    remappedBucketIds[remapClienteKey(key, maps)] = id;
+  }
+  if (Object.keys(remappedBucketIds).length > 0) {
+    await prisma.cadastroProducaoLayout.update({
+      where: { yearMonth: targetYm },
+      data: { portalClienteIdsByBucketKey: remappedBucketIds },
+    });
+  }
+
   // Mês novo: não congela entradas/saídas da virada — só alterações futuras na Rio entram em pendências.
   await prisma.cadastroProducaoLayout.update({
     where: { yearMonth: targetYm },

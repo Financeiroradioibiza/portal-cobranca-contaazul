@@ -1,55 +1,37 @@
-import { prisma } from "@/lib/prisma";
-import { linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
+import {
+  buildPlayerIdMapFromBuckets,
+  loadMergedProducaoPlayerContext,
+} from "@/lib/player/producaoPlayerBuckets";
 import {
   type PortalPlayerIdBrief,
-  proxyPortalPdvId,
 } from "@/lib/player/portalPlayerIds";
 
 export type PortalPlayerIdMaps = {
   byRioPdvKey: Map<string, PortalPlayerIdBrief>;
-  clienteIdByLinhaId: Map<string, number>;
+  clienteIdByBucketKey: Map<string, number>;
 };
 
-/** Carrega IDs do Player a partir da Planilha Rio (sem painel legado). */
-export async function loadPortalPlayerIdMaps(rioPdvKeys: string[]): Promise<PortalPlayerIdMaps> {
-  const byRioPdvKey = new Map<string, PortalPlayerIdBrief>();
-  const clienteIdByLinhaId = new Map<string, number>();
+/** Carrega IDs do Player conforme organização da produção musical. */
+export async function loadPortalPlayerIdMaps(
+  yearMonth: number,
+  rioPdvKeys: string[],
+): Promise<PortalPlayerIdMaps> {
+  const ctx = await loadMergedProducaoPlayerContext(yearMonth);
+  const byRioPdvKey = buildPlayerIdMapFromBuckets(ctx.buckets, ctx.pdvPortalIds);
 
-  const realPdvIds = rioPdvKeys.filter((k) => !k.startsWith("linha:"));
-  const linhaProxyKeys = rioPdvKeys.filter((k) => k.startsWith("linha:"));
-
-  if (realPdvIds.length > 0) {
-    const pdvs = await prisma.rioCompPdv.findMany({
-      where: { id: { in: realPdvIds } },
-      select: {
-        id: true,
-        portalPdvId: true,
-        cliente: { select: { id: true, portalClienteId: true } },
-      },
-    });
-    for (const p of pdvs) {
-      const portalClienteId = p.cliente.portalClienteId;
-      if (portalClienteId == null || p.portalPdvId == null) continue;
-      clienteIdByLinhaId.set(p.cliente.id, portalClienteId);
-      byRioPdvKey.set(p.id, { portalClienteId, portalPdvId: p.portalPdvId });
-    }
+  const clienteIdByBucketKey = new Map<string, number>();
+  for (const b of ctx.buckets) {
+    if (b.portalClienteId != null) clienteIdByBucketKey.set(b.key, b.portalClienteId);
   }
 
-  if (linhaProxyKeys.length > 0) {
-    const linhaIds = linhaProxyKeys.map((k) => k.slice("linha:".length)).filter(Boolean);
-    const linhas = await prisma.rioCompClienteLinha.findMany({
-      where: { id: { in: linhaIds } },
-      select: { id: true, portalClienteId: true },
-    });
-    for (const ln of linhas) {
-      if (ln.portalClienteId == null) continue;
-      clienteIdByLinhaId.set(ln.id, ln.portalClienteId);
-      byRioPdvKey.set(linhaAsPdvKey(ln.id), {
-        portalClienteId: ln.portalClienteId,
-        portalPdvId: proxyPortalPdvId(ln.portalClienteId),
-      });
-    }
+  if (rioPdvKeys.length === 0) {
+    return { byRioPdvKey, clienteIdByBucketKey };
   }
 
-  return { byRioPdvKey, clienteIdByLinhaId };
+  const wanted = new Set(rioPdvKeys);
+  const filtered = new Map<string, PortalPlayerIdBrief>();
+  for (const [k, v] of byRioPdvKey) {
+    if (wanted.has(k)) filtered.set(k, v);
+  }
+  return { byRioPdvKey: filtered, clienteIdByBucketKey };
 }

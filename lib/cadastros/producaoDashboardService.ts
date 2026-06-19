@@ -10,9 +10,12 @@ import { ensureProducaoLayoutCarriedFromDonor } from "@/lib/cadastros/producaoLa
 import { getProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
 import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
-import type { PortalPlayerIdBrief } from "@/lib/player/portalPlayerIds";
-import { linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
-import { proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
+import {
+  buildPlayerIdMapFromBuckets,
+  loadMergedProducaoPlayerContext,
+  loadProgramacaoMusicalMaps,
+  resolveProgramacaoMusicalForBucket,
+} from "@/lib/player/producaoPlayerBuckets";
 import { effectiveRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 export type DashboardPdvTelemetry = {
@@ -109,33 +112,6 @@ function deriveOnlineStatus(
   return statusPlayer === "Ativo";
 }
 
-function buildPortalPlayerIdMapFromMonth(
-  linhas: Array<{
-    id: string;
-    portalClienteId: number | null;
-    movimento: string;
-    pdvs: Array<{ id: string; portalPdvId: number | null; movimento: string }>;
-  }>,
-): Map<string, PortalPlayerIdBrief> {
-  const map = new Map<string, PortalPlayerIdBrief>();
-  for (const ln of linhas) {
-    if (ln.movimento === "saida" || ln.portalClienteId == null) continue;
-    const activePdvs = ln.pdvs.filter((p) => p.movimento !== "saida");
-    if (activePdvs.length === 0) {
-      map.set(linhaAsPdvKey(ln.id), {
-        portalClienteId: ln.portalClienteId,
-        portalPdvId: proxyPortalPdvId(ln.portalClienteId),
-      });
-      continue;
-    }
-    for (const p of activePdvs) {
-      if (p.portalPdvId == null) continue;
-      map.set(p.id, { portalClienteId: ln.portalClienteId, portalPdvId: p.portalPdvId });
-    }
-  }
-  return map;
-}
-
 export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoDashboardPayload> {
   const month = await prisma.rioCompMonth.findUnique({
     where: { yearMonth },
@@ -170,7 +146,11 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
     };
   }
 
-  const linkMap = buildPortalPlayerIdMapFromMonth(month.linhas);
+  const [playerCtx, progMaps] = await Promise.all([
+    loadMergedProducaoPlayerContext(yearMonth),
+    loadProgramacaoMusicalMaps(),
+  ]);
+  const linkMap = buildPlayerIdMapFromBuckets(playerCtx.buckets, playerCtx.pdvPortalIds);
   const donorYm = donorYearMonthFor(yearMonth);
   if (donorYm !== yearMonth) {
     await ensureProducaoLayoutCarriedFromDonor(yearMonth, donorYm);
@@ -243,6 +223,11 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
 
   const clientes: DashboardClienteRow[] = merged.map((c) => {
     const meta = c.rioLinhaId ? linhaMeta.get(c.rioLinhaId) : undefined;
+    const bucketPlayer = playerCtx.buckets.find((b) => b.key === c.key);
+    const progBucket =
+      bucketPlayer ?
+        resolveProgramacaoMusicalForBucket(bucketPlayer, progMaps)
+      : "Padrão";
     let cOnline = 0;
     let cOffline = 0;
 
@@ -266,7 +251,7 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
       }
 
       const { programacaoMusical, playerVersion } = resolveProgramacaoAndPlayerVersion({
-        programacaoMusical: cad?.programacaoMusical,
+        programacaoMusical: progBucket,
         versaoPlayer: cad?.versaoPlayer,
       });
 

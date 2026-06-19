@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
-import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
+import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
 
 export const CLIENTE_PLAYER_EMAIL_DOMAIN = "radioibiza.com.br";
 
@@ -110,26 +110,22 @@ export async function generateMissingClientePlayerLogins(yearMonth?: number): Pr
   skipped: number;
   total: number;
 }> {
-  const { ym, monthId } = await resolveVigenteMonthId(yearMonth);
-
-  const linhas = await prisma.rioCompClienteLinha.findMany({
-    where: { monthId, movimento: { not: "saida" }, portalClienteId: { not: null } },
-    select: { portalClienteId: true, nomeFantasia: true, razaoSocial: true },
-  });
-  linhas.sort(compareRioLinhasByNomeFantasia);
+  const { ym } = await resolveVigenteMonthId(yearMonth);
+  const ctx = await loadMergedProducaoPlayerContext(ym);
+  const buckets = ctx.buckets.filter((b) => b.portalClienteId != null);
 
   let created = 0;
   let skipped = 0;
 
-  for (const ln of linhas) {
-    const portalClienteId = ln.portalClienteId!;
-    const clienteNome = (ln.nomeFantasia || ln.razaoSocial || "Cliente").trim();
+  for (const bucket of buckets) {
+    const portalClienteId = bucket.portalClienteId!;
+    const clienteNome = bucket.nome.trim() || "Cliente";
     const result = await createLoginForClienteIfMissing(portalClienteId, clienteNome);
     if (result === "created") created++;
     else skipped++;
   }
 
-  return { yearMonth: ym, created, skipped, total: linhas.length };
+  return { yearMonth: ym, created, skipped, total: buckets.length };
 }
 
 export async function updateClientePlayerLoginManual(
@@ -173,18 +169,9 @@ export async function listClientePlayerLogins(yearMonth?: number): Promise<{
   yearMonth: number;
   rows: ClientePlayerLoginRow[];
 }> {
-  const { ym, monthId } = await resolveVigenteMonthId(yearMonth);
-
-  const [linhas, logins] = await Promise.all([
-    prisma.rioCompClienteLinha.findMany({
-      where: { monthId, movimento: { not: "saida" }, portalClienteId: { not: null } },
-      select: {
-        portalClienteId: true,
-        nomeFantasia: true,
-        razaoSocial: true,
-        pdvs: { where: { movimento: { not: "saida" } }, select: { id: true } },
-      },
-    }),
+  const { ym } = await resolveVigenteMonthId(yearMonth);
+  const [ctx, logins] = await Promise.all([
+    loadMergedProducaoPlayerContext(ym),
     prisma.clientePlayerLogin.findMany({
       select: {
         portalClienteId: true,
@@ -196,26 +183,30 @@ export async function listClientePlayerLogins(yearMonth?: number): Promise<{
     }),
   ]);
 
-  linhas.sort(compareRioLinhasByNomeFantasia);
   const loginById = new Map(logins.map((l) => [l.portalClienteId, l]));
+  const takenEmails = new Set(logins.map((l) => l.email.toLowerCase()));
 
-  const rows: ClientePlayerLoginRow[] = linhas.map((ln) => {
-    const portalClienteId = ln.portalClienteId!;
-    const login = loginById.get(portalClienteId);
-    const clienteNome = (ln.nomeFantasia || ln.razaoSocial || "Cliente").trim();
-    const suggestedPassword = clientePlayerPasswordForCliente(clienteNome, portalClienteId);
-    const pdvCount = ln.pdvs.length > 0 ? ln.pdvs.length : 1;
-    const hasLogin = Boolean(login?.active);
-    return {
-      portalClienteId,
-      clienteNome: login?.clienteNome || clienteNome,
-      email: login?.email ?? buildClientePlayerEmail(clienteNome, portalClienteId, new Set()),
-      password: hasLogin ? login!.passwordPlain || suggestedPassword : null,
-      suggestedPassword,
-      pdvCount,
-      hasLogin,
-    };
-  });
+  const rows: ClientePlayerLoginRow[] = ctx.buckets
+    .filter((b) => b.portalClienteId != null)
+    .map((bucket) => {
+      const portalClienteId = bucket.portalClienteId!;
+      const login = loginById.get(portalClienteId);
+      const clienteNome = bucket.nome.trim() || "Cliente";
+      const suggestedPassword = clientePlayerPasswordForCliente(clienteNome, portalClienteId);
+      const pdvCount = bucket.pdvs.length;
+      const hasLogin = Boolean(login?.active);
+      return {
+        portalClienteId,
+        clienteNome: login?.clienteNome || clienteNome,
+        email:
+          login?.email ??
+          buildClientePlayerEmail(clienteNome, portalClienteId, new Set(takenEmails)),
+        password: hasLogin ? login!.passwordPlain || suggestedPassword : null,
+        suggestedPassword,
+        pdvCount,
+        hasLogin,
+      };
+    });
 
   return { yearMonth: ym, rows };
 }

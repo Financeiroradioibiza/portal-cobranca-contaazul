@@ -53,7 +53,7 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
       where: { id: { in: pdvKeys.filter((k) => !k.startsWith("linha:")) } },
       select: { id: true, createdAt: true },
     }),
-    loadPortalPlayerIdMaps(pdvKeys),
+    loadPortalPlayerIdMaps(yearMonth, pdvKeys),
   ]);
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));

@@ -18,6 +18,7 @@ import {
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
 import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
+import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { RIO_CLONE_DONOR_BATCH_SIZE } from "@/lib/rio/cloneRioCompMonthBatched";
 import { RIO_VIRADA_LINHAS_BATCH } from "@/lib/rio/rioViradaBatched";
 import { sortRioPdvsByNome, type ParsedPdvRow } from "@/lib/rio/pdvNames";
@@ -37,7 +38,7 @@ import {
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import { arrayMove } from "@dnd-kit/sortable";
 
-type MonthMeta = { id: string; yearMonth: number };
+type MonthMeta = { id: string; yearMonth: number; closedAt?: string | null };
 
 type RioGrupo = RioGrupoCb;
 type RioLinha = RioLinhaCb;
@@ -191,6 +192,11 @@ export function RioClientesCompPanel() {
   useEffect(() => {
     void loadMonths();
   }, [loadMonths]);
+
+  useEffect(() => {
+    if (months.length === 0) return;
+    setActiveYm(pickVigenteRioYearMonth(months, todayYm));
+  }, [months, todayYm]);
 
   useEffect(() => {
     void loadMonth(activeYm);

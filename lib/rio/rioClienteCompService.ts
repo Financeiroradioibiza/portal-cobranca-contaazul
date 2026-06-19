@@ -266,9 +266,11 @@ export async function getRioCompMonthWithLinhas(yearMonth: number): Promise<{
   return hydrateMonthBundle(yearMonth);
 }
 
-export async function listRioCompMonths(): Promise<Array<{ id: string; yearMonth: number }>> {
+export async function listRioCompMonths(): Promise<
+  Array<{ id: string; yearMonth: number; closedAt: Date | null }>
+> {
   return prisma.rioCompMonth.findMany({
-    select: { id: true, yearMonth: true },
+    select: { id: true, yearMonth: true, closedAt: true },
     orderBy: { yearMonth: "desc" },
   });
 }

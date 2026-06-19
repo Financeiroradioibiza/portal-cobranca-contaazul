@@ -179,8 +179,17 @@ export function PortalPlayerIdsPanel() {
     void load();
   }, [load]);
 
-  async function atribuirFaltantes(sync = true) {
+  async function realinharIds(sync = true) {
     if (busy) return;
+    if (
+      !window.confirm(
+        "Substitui todos os IDs pela organização da produção musical (100, 100.001…). " +
+          "Numeração antiga do painel legado / Rio será descartada. Logins e logotipos órfãos são removidos; " +
+          "novos logins são gerados automaticamente. Continuar?",
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setMsg("");
     try {
@@ -193,44 +202,36 @@ export function PortalPlayerIdsPanel() {
         error?: string;
         clientes?: number;
         pdvs?: number;
+        logins?: { created: number; skipped: number } | null;
         gateway?: { clientes: number; pdvs: number } | null;
       };
       if (!res.ok) throw new Error(data.error ?? "falhou");
-      if ((data.clientes ?? 0) === 0 && (data.pdvs ?? 0) === 0) {
-        setMsg("Todos os clientes e PDVs já tinham ID — nada alterado.");
-      } else {
-        setMsg(
-          `IDs atribuídos: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs (somente faltantes).` +
-            (data.gateway ?
-              ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
-            : ""),
-        );
-      }
+      setMsg(
+        `IDs realinhados: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.` +
+          (data.logins ?
+            ` Logins: ${data.logins.created} criado(s), ${data.logins.skipped} já existiam.`
+          : "") +
+          (data.gateway ?
+            ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
+          : ""),
+      );
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Falha ao atribuir IDs.");
+      setMsg(e instanceof Error ? e.message : "Falha ao realinhar IDs.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function renumerar(sync = true) {
+  async function atribuirSomenteFaltantes(sync = true) {
     if (busy) return;
-    if (
-      !window.confirm(
-        "ATENÇÃO: renumera TODOS os IDs (clientes 100+, PDVs 100.001…) em ordem alfabética. " +
-          "Isso quebra referências estáveis no Player. Use só na migração inicial. Continuar?",
-      )
-    ) {
-      return;
-    }
     setBusy(true);
     setMsg("");
     try {
       const res = await fetch("/api/player/portal-ids/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync, renumber: true }),
+        body: JSON.stringify({ sync, onlyMissing: true }),
       });
       const data = (await res.json()) as {
         error?: string;
@@ -239,15 +240,19 @@ export function PortalPlayerIdsPanel() {
         gateway?: { clientes: number; pdvs: number } | null;
       };
       if (!res.ok) throw new Error(data.error ?? "falhou");
-      setMsg(
-        `IDs atribuídos: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.` +
-          (data.gateway ?
-            ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
-          : ""),
-      );
+      if ((data.clientes ?? 0) === 0 && (data.pdvs ?? 0) === 0) {
+        setMsg("Todos os clientes e PDVs já tinham ID — nada alterado.");
+      } else {
+        setMsg(
+          `IDs atribuídos (somente faltantes): ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.` +
+            (data.gateway ?
+              ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
+            : ""),
+        );
+      }
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Falha ao renumerar.");
+      setMsg(e instanceof Error ? e.message : "Falha ao atribuir IDs.");
     } finally {
       setBusy(false);
     }
@@ -307,11 +312,11 @@ export function PortalPlayerIdsPanel() {
         <div>
           <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">IDs Player</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Numeração própria do portal. Clientes a partir de <strong>100</strong>; PDVs{" "}
-            <strong>100.001</strong>. IDs existentes <strong>não mudam</strong> — novos recebem o próximo
-            número.
+            Numeração conforme a <strong>produção musical</strong> (pastas/grupos), não a Planilha Rio.
+            Ex.: Hering = cliente <strong>100</strong>; lojas dentro = PDVs <strong>100.001</strong>…
+            Use <strong>Realinhar IDs</strong> para substituir numeração migrada do painel legado.
             {vigenteYm != null ?
-              <> Planilha vigente: {formatYearMonthLabel(vigenteYm)}.</>
+              <> Competência vigente: {formatYearMonthLabel(vigenteYm)}.</>
             : null}
           </p>
         </div>
@@ -319,18 +324,18 @@ export function PortalPlayerIdsPanel() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => void atribuirFaltantes(true)}
+            onClick={() => void realinharIds(true)}
             className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
           >
-            Atribuir IDs faltantes
+            Realinhar IDs à produção
           </button>
           <button
             type="button"
             disabled={busy}
-            onClick={() => void renumerar(true)}
-            className="rounded-lg border border-amber-400 px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-200"
+            onClick={() => void atribuirSomenteFaltantes(true)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200"
           >
-            Renumeração alfabética…
+            Só faltantes…
           </button>
           <button
             type="button"
@@ -382,7 +387,7 @@ export function PortalPlayerIdsPanel() {
       {loading ?
         <p className="text-sm text-slate-400">Carregando…</p>
       : rows.length === 0 ?
-        <p className="text-sm text-slate-400">Nenhum PDV na planilha vigente.</p>
+        <p className="text-sm text-slate-400">Nenhum PDV na produção musical vigente.</p>
       : <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-900">

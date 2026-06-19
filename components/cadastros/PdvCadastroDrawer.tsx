@@ -80,7 +80,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
     setBusy(true);
     setMsg("");
     try {
-      const { rioPdvKey: _k, cobrancaFromCa: _c, ...patch } = form;
+      const { rioPdvKey: _k, cobrancaFromCa: _c, programacaoMusical: _p, ...patch } = form;
       const res = await fetch(
         `/api/cadastros/producao/pdv/${encodeURIComponent(rioPdvKey)}/cadastro`,
         {
@@ -171,14 +171,10 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
                 onChange={(e) => setForm({ ...form, nome: e.target.value })}
               />
             </Field>
-            <Field label="Programação musical">
-              <input
-                className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
-                value={form.programacaoMusical}
-                disabled={disabled}
-                onChange={(e) => setForm({ ...form, programacaoMusical: e.target.value })}
-              />
-            </Field>
+            <p className="rounded border border-violet-200 bg-violet-50 px-2 py-1.5 text-[11px] text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
+              A programação musical é definida em <strong>Criação → Programações</strong> e publicada no
+              Player 5 — não neste cadastro.
+            </p>
 
             <p className="text-[10px] font-bold uppercase text-slate-400">Endereço</p>
             <div className="grid grid-cols-2 gap-2">

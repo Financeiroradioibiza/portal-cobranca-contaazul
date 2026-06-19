@@ -20,7 +20,18 @@ export type ProducaoLayoutPayload = {
   movimentoBaselineEntradaIds: string[];
   movimentoBaselineSaidaIds: string[];
   movimentoOrganizedAt: string | null;
+  portalClienteIdsByBucketKey: Record<string, number>;
 };
+
+function asBucketClienteIds(v: unknown): Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, val] of Object.entries(v)) {
+    const n = typeof val === "number" ? val : Number(val);
+    if (k.trim() && Number.isFinite(n) && n > 0) out[k] = Math.trunc(n);
+  }
+  return out;
+}
 
 function asRecord(v: unknown): Record<string, string> {
   if (!v || typeof v !== "object" || Array.isArray(v)) return {};
@@ -112,6 +123,7 @@ export async function getProducaoLayout(
     movimentoBaselineEntradaIds: baseline.movimentoBaselineEntradaIds,
     movimentoBaselineSaidaIds: baseline.movimentoBaselineSaidaIds,
     movimentoOrganizedAt: baseline.movimentoOrganizedAt,
+    portalClienteIdsByBucketKey: asBucketClienteIds(row?.portalClienteIdsByBucketKey),
   };
 }
 
@@ -153,5 +165,6 @@ export async function saveProducaoLayout(
     movimentoBaselineEntradaIds: baseline.movimentoBaselineEntradaIds,
     movimentoBaselineSaidaIds: baseline.movimentoBaselineSaidaIds,
     movimentoOrganizedAt: baseline.movimentoOrganizedAt,
+    portalClienteIdsByBucketKey: current.portalClienteIdsByBucketKey,
   };
 }
