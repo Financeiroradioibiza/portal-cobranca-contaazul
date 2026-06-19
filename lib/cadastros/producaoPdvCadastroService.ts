@@ -9,6 +9,10 @@ import { isLinhaAsPdvKey, linhaAsPdvKey } from "@/lib/cadastros/producaoHierarch
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import type { ProducaoPlayerStatus } from "@prisma/client";
 import { newPlayerInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
+import {
+  normalizePlayerContatoExtraCodigo,
+  type PlayerContatoExtraCodigo,
+} from "@/lib/player/playerContatoExtraCodigo";
 
 export type ProducaoPdvCadastroDto = {
   rioPdvKey: string;
@@ -28,6 +32,7 @@ export type ProducaoPdvCadastroDto = {
   controlarPlayer: boolean;
   controlarPlaylist: boolean;
   statusPlayer: "Ativo" | "Inativo";
+  playerContatoExtraCodigo: PlayerContatoExtraCodigo;
   contatoLojaNome: string;
   contatoLojaEmail: string;
   contatoLojaTelefone: string;
@@ -124,6 +129,7 @@ function rowToDto(
     controlarPlayer: row.controlarPlayer,
     controlarPlaylist: row.controlarPlaylist,
     statusPlayer: row.statusPlayer,
+    playerContatoExtraCodigo: normalizePlayerContatoExtraCodigo(row.playerContatoExtraCodigo),
     contatoLojaNome: row.contatoLojaNome,
     contatoLojaEmail: row.contatoLojaEmail,
     contatoLojaTelefone: row.contatoLojaTelefone,
@@ -262,6 +268,9 @@ export async function updatePdvCadastro(
         { controlarPlaylist: patch.controlarPlaylist }
       : {}),
       ...(statusPlayer !== undefined ? { statusPlayer } : {}),
+      ...(patch.playerContatoExtraCodigo !== undefined ?
+        { playerContatoExtraCodigo: normalizePlayerContatoExtraCodigo(patch.playerContatoExtraCodigo) }
+      : {}),
       ...(patch.contatoLojaNome !== undefined ? { contatoLojaNome: patch.contatoLojaNome } : {}),
       ...(patch.contatoLojaEmail !== undefined ? { contatoLojaEmail: patch.contatoLojaEmail } : {}),
       ...(patch.contatoLojaTelefone !== undefined ?

@@ -1,5 +1,5 @@
 import { getPool } from '../../db/pool.js';
-import { apiPublicBaseUrl, intervalToLegacyHms } from './helpers.js';
+import { apiPublicBaseUrl, intervalToLegacyHms, resolveProgramaIdForSession } from './helpers.js';
 import { loadSessionByToken } from './loginByToken.js';
 
 /** GET /api/vinhetas_agendadas/ — vinhetas VA (data/hora específica). */
@@ -12,15 +12,12 @@ export async function registerVinhetasAgendadasRoutes(app, prefix) {
     if (!session) return reply.send({ mensagem: 'token_invalido' });
 
     const pool = getPool();
-    const prog = await pool.query(
-      `SELECT id FROM programas WHERE cliente_id = $1 ORDER BY id LIMIT 1`,
-      [session.cliente_id],
-    );
-    if (prog.rowCount === 0) return reply.send([]);
+    const programaId = await resolveProgramaIdForSession(pool, session);
+    if (!programaId) return reply.send([]);
 
     const pls = await pool.query(
       `SELECT id FROM playlists WHERE programa_id = $1 AND tipo = 'VA' ORDER BY id`,
-      [prog.rows[0].id],
+      [programaId],
     );
 
     const baseUrl = apiPublicBaseUrl();

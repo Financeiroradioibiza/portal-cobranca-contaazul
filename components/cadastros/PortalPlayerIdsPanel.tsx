@@ -14,6 +14,132 @@ type Row = {
 
 type PilotStep = { id: string; label: string; ok: boolean; detail: string };
 
+function ClienteLogotipoBlock({ busy, setBusy, setMsg }: {
+  busy: boolean;
+  setBusy: (v: boolean) => void;
+  setMsg: (v: string) => void;
+}) {
+  const [clienteId, setClienteId] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+
+  async function loadPreview(id: number) {
+    const res = await fetch(`/api/player/cliente/${id}/logotipo`);
+    const data = (await res.json()) as { ok?: boolean; jpegBase64?: string | null };
+    if (data.ok && data.jpegBase64) {
+      setPreview(`data:image/jpeg;base64,${data.jpegBase64}`);
+    } else {
+      setPreview(null);
+    }
+  }
+
+  async function onUpload(file: File | null) {
+    const cid = Number(clienteId.trim());
+    if (!Number.isFinite(cid) || cid <= 0) {
+      setMsg("Informe ID cliente Player válido (ex.: 100).");
+      return;
+    }
+    if (!file) return;
+    if (file.type !== "image/jpeg" && !file.name.toLowerCase().endsWith(".jpg")) {
+      setMsg("Use arquivo JPEG (.jpg).");
+      return;
+    }
+    if (file.size > 400_000) {
+      setMsg("Arquivo grande demais (máx. ~400 KB).");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result ?? ""));
+        r.onerror = () => reject(new Error("leitura_falhou"));
+        r.readAsDataURL(file);
+      });
+      const res = await fetch(`/api/player/cliente/${cid}/logotipo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataUrl }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "upload_falhou");
+      setPreview(dataUrl);
+      setMsg(`Logotipo salvo para cliente ${cid}. Rode «Sincronizar Player 5».`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha no upload.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove() {
+    const cid = Number(clienteId.trim());
+    if (!Number.isFinite(cid) || cid <= 0) {
+      setMsg("Informe ID cliente Player válido.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/player/cliente/${cid}/logotipo`, { method: "DELETE" });
+      const data = (await res.json()) as { ok?: boolean };
+      if (!res.ok || !data.ok) throw new Error("remove_falhou");
+      setPreview(null);
+      setMsg(`Logotipo removido do cliente ${cid}.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao remover.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+      <p className="text-xs font-bold uppercase text-slate-500">Logotipo do cliente (Player 5)</p>
+      <p className="mt-1 text-xs text-slate-500">
+        JPEG até 400 KB. Sincronize o gateway após enviar. O player carrega via{" "}
+        <code className="text-[10px]">/api/logotipo_cliente/</code>.
+      </p>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="block text-xs">
+          <span className="mb-0.5 block font-semibold text-slate-600 dark:text-slate-400">ID cliente</span>
+          <input
+            inputMode="numeric"
+            value={clienteId}
+            onChange={(e) => setClienteId(e.target.value)}
+            onBlur={() => {
+              const cid = Number(clienteId.trim());
+              if (Number.isFinite(cid) && cid > 0) void loadPreview(cid);
+            }}
+            placeholder="100"
+            className="w-24 rounded border border-slate-300 px-2 py-1 font-mono text-sm dark:border-slate-600 dark:bg-slate-900"
+          />
+        </label>
+        <label className="block text-xs">
+          <span className="mb-0.5 block font-semibold text-slate-600 dark:text-slate-400">Arquivo JPEG</span>
+          <input
+            type="file"
+            accept="image/jpeg,.jpg"
+            disabled={busy}
+            onChange={(e) => void onUpload(e.target.files?.[0] ?? null)}
+            className="text-xs"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy || !clienteId.trim()}
+          onClick={() => void onRemove()}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600"
+        >
+          Remover
+        </button>
+      </div>
+      {preview ?
+        <img src={preview} alt="Preview logotipo" className="mt-3 max-h-16 rounded border border-slate-200 dark:border-slate-700" />
+      : null}
+    </div>
+  );
+}
+
 export function PortalPlayerIdsPanel() {
   const [rows, setRows] = useState<Row[]>([]);
   const [stats, setStats] = useState({ total: 0, linked: 0, unlinked: 0 });
@@ -284,6 +410,8 @@ export function PortalPlayerIdsPanel() {
           </table>
         </div>
       }
+
+      <ClienteLogotipoBlock busy={busy} setBusy={setBusy} setMsg={setMsg} />
     </div>
   );
 }

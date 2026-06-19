@@ -15,6 +15,7 @@ export type PlayerGatewaySyncPayload = {
     email: string | null;
     senhaHash: string | null;
     origemRioLinhaId: string;
+    logotipoBase64?: string | null;
   }>;
   pdvs: Array<{
     id: number;
@@ -24,12 +25,14 @@ export type PlayerGatewaySyncPayload = {
     origemRioPdvId: string | null;
     origemRioLinhaId: string;
     instalacaoToken: string | null;
+    programacaoMusical: string;
     status: "A" | "I";
     ctrlPlayer: "S" | "N";
     ctrlPlacaCarro: "S" | "N";
     ctrlPlaylists: "S" | "N";
     cidade: string;
     uf: string;
+    nomeCompletoContatoExtra: string;
   }>;
 };
 
@@ -46,7 +49,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
   });
   if (!month) throw new Error("rio_month_not_found");
 
-  const [linhas, logins] = await Promise.all([
+  const [linhas, logins, logos] = await Promise.all([
     prisma.rioCompClienteLinha.findMany({
       where: { monthId: month.id, movimento: { not: "saida" }, portalClienteId: { not: null } },
       select: {
@@ -64,10 +67,14 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
       where: { active: true },
       select: { portalClienteId: true, email: true, passwordHash: true },
     }),
+    prisma.playerClienteLogotipo.findMany({
+      select: { portalClienteId: true, jpegBase64: true },
+    }),
   ]);
 
   linhas.sort(compareRioLinhasByNomeFantasia);
   const loginByClienteId = new Map(logins.map((l) => [l.portalClienteId, l]));
+  const logoByClienteId = new Map(logos.map((l) => [l.portalClienteId, l.jpegBase64]));
 
   const rioKeys: string[] = [];
   for (const ln of linhas) {
@@ -78,6 +85,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
     where: { rioPdvKey: { in: rioKeys } },
     select: {
       rioPdvKey: true,
+      programacaoMusical: true,
       playerInstalacaoToken: true,
       controlarPlayer: true,
       placaCarro: true,
@@ -85,6 +93,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
       statusPlayer: true,
       cidade: true,
       estado: true,
+      playerContatoExtraCodigo: true,
     },
   });
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
@@ -102,6 +111,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
       email: login?.email ?? null,
       senhaHash: login?.passwordHash ?? null,
       origemRioLinhaId: ln.id,
+      logotipoBase64: logoByClienteId.get(portalClienteId) ?? "",
     });
 
     const pdvList = sortRioPdvsByNome(ln.pdvs);
@@ -110,6 +120,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
       const rioKey = linhaAsPdvKey(ln.id);
       const cad = cadastroByKey.get(rioKey);
       const gw = mapPdvCadastroToGatewayFields(cad);
+      const progMusical = (cad?.programacaoMusical ?? "Padrão").trim() || "Padrão";
       pdvs.push({
         id: virtualId,
         clienteId: portalClienteId,
@@ -118,6 +129,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
         origemRioPdvId: null,
         origemRioLinhaId: ln.id,
         instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
+        programacaoMusical: progMusical,
         ...gw,
       });
     } else {
@@ -125,6 +137,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
         if (p.portalPdvId == null) continue;
         const cad = cadastroByKey.get(p.id);
         const gw = mapPdvCadastroToGatewayFields(cad);
+        const progMusical = (cad?.programacaoMusical ?? "Padrão").trim() || "Padrão";
         pdvs.push({
           id: p.portalPdvId,
           clienteId: portalClienteId,
@@ -133,6 +146,7 @@ export async function buildPlayerGatewaySyncPayload(yearMonth?: number): Promise
           origemRioPdvId: p.id,
           origemRioLinhaId: ln.id,
           instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
+          programacaoMusical: progMusical,
           ...gw,
         });
       }

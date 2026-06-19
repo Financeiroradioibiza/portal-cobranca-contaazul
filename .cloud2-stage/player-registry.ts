@@ -22,6 +22,7 @@ type SyncBody = {
     email?: string | null;
     senhaHash?: string | null;
     origemRioLinhaId?: string;
+    logotipoBase64?: string | null;
   }>;
   pdvs?: Array<{
     id: number;
@@ -37,6 +38,8 @@ type SyncBody = {
     ctrlPlaylists?: "S" | "N";
     cidade?: string;
     uf?: string;
+    nomeCompletoContatoExtra?: string;
+    programacaoMusical?: string;
   }>;
 };
 
@@ -113,18 +116,36 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
       await conn.query(
         `ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS atualizacao_pendente_agenda CHAR(1) NOT NULL DEFAULT 'N'`,
       );
+      await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS status CHAR(1) NOT NULL DEFAULT 'A'`);
+      await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logotipo TEXT NOT NULL DEFAULT ''`);
+      await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logotipo_jpeg BYTEA`);
+      await conn.query(
+        `ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS nome_completo_contato_extra TEXT NOT NULL DEFAULT ''`,
+      );
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS programa_id INT REFERENCES programas(id) ON DELETE SET NULL`);
 
       for (const c of clientes) {
         if (!Number.isFinite(c.id) || c.id <= 0) continue;
+        let logotipoJpeg: Buffer | null = null;
+        const b64 = String(c.logotipoBase64 ?? "").trim();
+        if (b64) {
+          try {
+            const buf = Buffer.from(b64, "base64");
+            if (buf.length > 0 && buf.length <= 512_000) logotipoJpeg = buf;
+          } catch {
+            /* ignora logo inválido */
+          }
+        }
         await conn.query(
-          `INSERT INTO clientes (id, nome, email, senha_hash, origem_rio_linha_id)
-             VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO clientes (id, nome, email, senha_hash, origem_rio_linha_id, logotipo_jpeg)
+             VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (id) DO UPDATE SET
              nome = EXCLUDED.nome,
              email = EXCLUDED.email,
              senha_hash = COALESCE(EXCLUDED.senha_hash, clientes.senha_hash),
-             origem_rio_linha_id = EXCLUDED.origem_rio_linha_id`,
-          [c.id, c.nome ?? "", c.email ?? null, c.senhaHash ?? null, c.origemRioLinhaId ?? null],
+             origem_rio_linha_id = EXCLUDED.origem_rio_linha_id,
+             logotipo_jpeg = EXCLUDED.logotipo_jpeg`,
+          [c.id, c.nome ?? "", c.email ?? null, c.senhaHash ?? null, c.origemRioLinhaId ?? null, logotipoJpeg],
         );
 
         // Player 5 chama POST /api/login/ → tabela usuarios (contrato legado CakePHP).
@@ -158,9 +179,9 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
           `INSERT INTO pdvs (
              id, cliente_id, nome, codigo_display, origem_rio_pdv_id, origem_rio_linha_id,
              serial_instalacao, instalado, status, cidade, uf,
-             ctrl_player, ctrl_placa_carro, ctrl_playlists
+             ctrl_player, ctrl_placa_carro, ctrl_playlists, nome_completo_contato_extra
            )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'N', $8, $9, $10, $11, $12, $13)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'N', $8, $9, $10, $11, $12, $13, $14)
            ON CONFLICT (id) DO UPDATE SET
              cliente_id = EXCLUDED.cliente_id,
              nome = EXCLUDED.nome,
@@ -174,6 +195,7 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
              ctrl_player = EXCLUDED.ctrl_player,
              ctrl_placa_carro = EXCLUDED.ctrl_placa_carro,
              ctrl_playlists = EXCLUDED.ctrl_playlists,
+             nome_completo_contato_extra = EXCLUDED.nome_completo_contato_extra,
              instalado = CASE
                WHEN EXCLUDED.serial_instalacao IS NOT NULL
                  AND pdvs.serial_instalacao IS DISTINCT FROM EXCLUDED.serial_instalacao
@@ -194,6 +216,7 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
             p.ctrlPlayer ?? "N",
             p.ctrlPlacaCarro ?? "N",
             p.ctrlPlaylists ?? "N",
+            String(p.nomeCompletoContatoExtra ?? "").trim().slice(0, 32),
           ],
         );
 
@@ -211,6 +234,16 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
             await conn.query(`UPDATE pdvs SET instalado = 'N' WHERE id = $1`, [p.id]);
           }
         }
+
+        const progNome = String(p.programacaoMusical ?? "Padrão").trim() || "Padrão";
+        const progMatch = await conn.query<{ id: number }>(
+          `SELECT id FROM programas
+            WHERE cliente_id = $1 AND lower(trim(nome)) = lower(trim($2))
+            ORDER BY id LIMIT 1`,
+          [p.clienteId, progNome],
+        );
+        const programaId = progMatch.rows[0]?.id ?? null;
+        await conn.query(`UPDATE pdvs SET programa_id = $1 WHERE id = $2`, [programaId, p.id]);
       }
 
       await conn.query("COMMIT");

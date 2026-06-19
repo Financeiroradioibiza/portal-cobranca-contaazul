@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import type { PlayerAvisosRow } from "@/lib/suporte/playerAvisosAdmin";
+import { useCallback, useEffect, useState } from "react";
+import type { PlayerAvisoRow } from "@/lib/suporte/playerAvisoService";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
 
@@ -15,23 +15,19 @@ function parseIdField(raw: string): number | null {
 function mapApiError(data: unknown): string {
   if (!data || typeof data !== "object") return "Resposta inválida.";
   const err = (data as { error?: unknown }).error;
-  if (err === "credenciais") return "E-mail ou senha incorretos.";
-  if (err === "admin_not_configured") {
-    return "Servidor do player sem credenciais configuradas (IBIZA_AVISOS_* no Netlify).";
-  }
-  if (err === "storage_falhou") {
-    return "Armazenamento indisponível. Verifique Blobs no site do player.";
-  }
+  if (err === "unauthorized") return "Sessão expirada. Entre novamente no portal.";
+  if (err === "mensagem_vazia") return "Escreva a mensagem antes de ativar.";
+  if (err === "cliente_pdv_invalido") return "Informe IDs cliente e PDV válidos.";
   if (typeof err === "string" && err.trim()) return err;
   return "Operação falhou.";
 }
 
-function parseRows(data: unknown): PlayerAvisosRow[] {
+function parseRows(data: unknown): PlayerAvisoRow[] {
   if (!data || typeof data !== "object" || !("rows" in data)) return [];
   const rows = (data as { rows?: unknown }).rows;
   if (!Array.isArray(rows)) return [];
 
-  const out: PlayerAvisosRow[] = [];
+  const out: PlayerAvisoRow[] = [];
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
@@ -66,38 +62,38 @@ const inputClass =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-fuchsia-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500/40";
 
 export function PlayerAvisosPanel() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loggedIn, setLoggedIn] = useState(false);
   const [clienteId, setClienteId] = useState("");
   const [pdvId, setPdvId] = useState("");
   const [mensagem, setMensagem] = useState("");
-  const [rows, setRows] = useState<PlayerAvisosRow[]>([]);
+  const [rows, setRows] = useState<PlayerAvisoRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>(null);
 
   const applyListResponse = useCallback((data: unknown) => {
     setRows(parseRows(data));
   }, []);
 
-  async function onLogin(e: React.FormEvent) {
-    e.preventDefault();
+  const refreshList = useCallback(async () => {
     setBusy(true);
     setStatus(null);
     try {
-      const { res, data } = await postAvisos({ email, password, action: "listar" });
+      const { res, data } = await postAvisos({ action: "listar" });
       if (!res.ok || !data || typeof data !== "object" || !(data as { ok?: boolean }).ok) {
         setStatus({ kind: "err", text: mapApiError(data) });
-        setLoggedIn(false);
+        setLoaded(false);
         return;
       }
       applyListResponse(data);
-      setLoggedIn(true);
-      setStatus({ kind: "ok", text: "Sessão iniciada." });
+      setLoaded(true);
     } finally {
       setBusy(false);
     }
-  }
+  }, [applyListResponse]);
+
+  useEffect(() => {
+    void refreshList();
+  }, [refreshList]);
 
   async function onAtivar(e: React.FormEvent) {
     e.preventDefault();
@@ -105,15 +101,11 @@ export function PlayerAvisosPanel() {
     const pid = parseIdField(pdvId);
     const msg = mensagem.trim();
     if (cid == null || pid == null) {
-      setStatus({ kind: "err", text: "Informe ID cliente e ID PDV válidos." });
+      setStatus({ kind: "err", text: "Informe ID cliente e ID PDV válidos (IDs Player do portal)." });
       return;
     }
     if (!msg) {
       setStatus({ kind: "err", text: "Escreva a mensagem antes de ativar." });
-      return;
-    }
-    if (!loggedIn) {
-      setStatus({ kind: "err", text: "Entre acima para publicar ou apagar." });
       return;
     }
 
@@ -121,8 +113,6 @@ export function PlayerAvisosPanel() {
     setStatus(null);
     try {
       const { res, data } = await postAvisos({
-        email,
-        password,
         action: "ativar",
         cliente_id: cid,
         pdv_id: pid,
@@ -147,17 +137,11 @@ export function PlayerAvisosPanel() {
       setStatus({ kind: "err", text: "Informe ID cliente e ID PDV para apagar." });
       return;
     }
-    if (!loggedIn) {
-      setStatus({ kind: "err", text: "Entre acima para publicar ou apagar." });
-      return;
-    }
 
     setBusy(true);
     setStatus(null);
     try {
       const { res, data } = await postAvisos({
-        email,
-        password,
         action: "apagar",
         cliente_id: cid,
         pdv_id: pid,
@@ -179,8 +163,8 @@ export function PlayerAvisosPanel() {
         <div>
           <h2 className="text-lg font-semibold text-white">Central de avisos — player</h2>
           <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            Publica mensagens vermelhas no player (após o ping ao servidor). Use os IDs numéricos
-            de cliente e PDV iguais aos do painel.
+            Publica mensagens vermelhas no Player 5 (após o ping ao gateway). Use os IDs Player
+            do portal (ex.: 100, 100.001) — os mesmos de Logins e IDs Player.
           </p>
         </div>
 
@@ -198,53 +182,34 @@ export function PlayerAvisosPanel() {
           </div>
         : null}
 
-        <form onSubmit={onLogin} className="mt-6 space-y-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Acesso</p>
-          <input
-            type="email"
-            autoComplete="username"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            placeholder="E-mail"
-            className={inputClass}
-          />
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            placeholder="Senha"
-            className={inputClass}
-          />
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-lg bg-[#c4146a] px-4 py-2 text-sm font-semibold text-white hover:bg-[#a30f58] disabled:opacity-50"
-          >
-            {busy ? "…" : "Entrar e listar"}
-          </button>
-        </form>
-
         <form
           onSubmit={onAtivar}
-          className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-4"
+          className="mt-6 space-y-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-4"
         >
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Nova mensagem</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Nova mensagem</p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void refreshList()}
+              className="text-[11px] font-medium text-fuchsia-400 hover:text-fuchsia-300 disabled:opacity-40"
+            >
+              Atualizar lista
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <input
               inputMode="numeric"
               value={clienteId}
               onChange={(e) => setClienteId(e.target.value)}
-              placeholder="ID cliente"
+              placeholder="ID cliente (100…)"
               className={inputClass}
             />
             <input
               inputMode="numeric"
               value={pdvId}
               onChange={(e) => setPdvId(e.target.value)}
-              placeholder="ID PDV"
+              placeholder="ID PDV (100.001…)"
               className={inputClass}
             />
           </div>
@@ -259,26 +224,23 @@ export function PlayerAvisosPanel() {
           <div className="flex flex-wrap gap-2">
             <button
               type="submit"
-              disabled={busy || !loggedIn}
+              disabled={busy || !loaded}
               className="rounded-lg bg-red-900/80 px-4 py-2 text-sm font-semibold text-red-50 hover:bg-red-800 disabled:opacity-40"
             >
               Ativar
             </button>
             <button
               type="button"
-              disabled={busy || !loggedIn}
+              disabled={busy || !loaded}
               onClick={() => void onApagar()}
               className="rounded-lg border border-zinc-600 bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
             >
               Apagar mensagens deste par
             </button>
           </div>
-          {!loggedIn ?
-            <p className="text-[11px] text-amber-400/90">Entre acima para publicar ou apagar.</p>
-          : null}
         </form>
 
-        {loggedIn && rows.length > 0 ?
+        {loaded && rows.length > 0 ?
           <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-900/50 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
               Ativas ({rows.length})
@@ -297,6 +259,8 @@ export function PlayerAvisosPanel() {
               ))}
             </ul>
           </div>
+        : loaded ?
+          <p className="mt-4 text-sm text-zinc-500">Nenhum aviso ativo no momento.</p>
         : null}
       </div>
     </div>

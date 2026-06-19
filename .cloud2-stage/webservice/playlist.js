@@ -1,5 +1,5 @@
 import { getPool } from '../../db/pool.js';
-import { apiPublicBaseUrl, intervalToLegacyHms } from './helpers.js';
+import { apiPublicBaseUrl, intervalToLegacyHms, resolveProgramaIdForSession } from './helpers.js';
 import { loadSessionByToken } from './loginByToken.js';
 
 /** GET /api/playlist/ — programação musical (pastas + faixas + url_musica). */
@@ -16,21 +16,25 @@ export async function registerPlaylistRoutes(app, prefix) {
     }
 
     const pool = getPool();
-    const programa = await pool.query(
-      `SELECT id, nome FROM programas WHERE cliente_id = $1 ORDER BY id LIMIT 1`,
-      [session.cliente_id],
-    );
-    if (programa.rowCount === 0) {
+    const programaId = await resolveProgramaIdForSession(pool, session);
+    if (!programaId) {
       return reply.send({ mensagem: 'programa_nao_encontrado' });
     }
 
-    const prog = programa.rows[0];
+    const prog = await pool.query(
+      `SELECT id, nome FROM programas WHERE id = $1 LIMIT 1`,
+      [programaId],
+    );
+    if (prog.rowCount === 0) {
+      return reply.send({ mensagem: 'programa_nao_encontrado' });
+    }
+
     const playlists = await pool.query(
       `SELECT id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar
          FROM playlists
         WHERE pdv_id = $1 OR (pdv_id IS NULL AND programa_id = $2)
         ORDER BY id`,
-      [session.pdv_id, prog.id],
+      [session.pdv_id, programaId],
     );
 
     const musicasByPlaylist = await pool.query(
@@ -45,7 +49,7 @@ export async function registerPlaylistRoutes(app, prefix) {
        LEFT JOIN artistas a ON a.id = pm.artista_id
        WHERE pl.pdv_id = $1 OR (pl.pdv_id IS NULL AND pl.programa_id = $2)
        ORDER BY pl.id, pm.ordem, pm.id`,
-      [session.pdv_id, prog.id],
+      [session.pdv_id, programaId],
     );
 
     const musicasMap = new Map();
@@ -58,7 +62,7 @@ export async function registerPlaylistRoutes(app, prefix) {
     const baseUrl = apiPublicBaseUrl();
 
     return reply.send({
-      programa: { id: prog.id, nome: prog.nome, cliente_id: session.cliente_id },
+      programa: { id: prog.rows[0].id, nome: prog.rows[0].nome, cliente_id: session.cliente_id },
       playlists: playlists.rows.map((pl) => ({
         id: pl.id,
         nome: pl.nome,

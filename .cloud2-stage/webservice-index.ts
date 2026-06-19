@@ -9,6 +9,10 @@ import { registerAgendasRoutes } from './webservice/agendas.js';
 import { registerVinhetasProgramadasRoutes } from './webservice/vinhetasProgramadas.js';
 import { registerVinhetasAgendadasRoutes } from './webservice/vinhetasAgendadas.js';
 import { registerUpdatePdvInstaladoRoutes, registerStubRoutes } from './webservice/stubs.js';
+import { registerSaveAtualizadasRoutes } from './webservice/saveAtualizadas.js';
+import { registerPlayerAvisosRoutes } from './webservice/playerAvisos.js';
+import { registerLogotipoClienteRoutes } from './webservice/logotipoCliente.js';
+import { registerSetAgendaAtualizadaRoutes } from './webservice/setAgendaAtualizada.js';
 
 const WS_PREFIX = '/api';
 
@@ -25,6 +29,10 @@ export async function registerWebserviceRoutes(app: FastifyInstance): Promise<vo
   await registerGetMusicaRoutes(app, WS_PREFIX);
   await registerUpdatePdvInstaladoRoutes(app, WS_PREFIX);
   await registerStubRoutes(app, WS_PREFIX);
+  await registerSaveAtualizadasRoutes(app, WS_PREFIX);
+  await registerPlayerAvisosRoutes(app, WS_PREFIX);
+  await registerLogotipoClienteRoutes(app, WS_PREFIX);
+  await registerSetAgendaAtualizadaRoutes(app, WS_PREFIX);
 }
 
 export async function registerHealthRoutes(app: FastifyInstance): Promise<void> {

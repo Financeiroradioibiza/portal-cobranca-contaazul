@@ -278,6 +278,27 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
               </Field>
             </div>
 
+            <Field label="Aviso codificado (Player)">
+              <select
+                className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+                value={form.playerContatoExtraCodigo}
+                disabled={disabled}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    playerContatoExtraCodigo: e.target.value as ProducaoPdvCadastroDto["playerContatoExtraCodigo"],
+                  })
+                }
+              >
+                <option value="">Nenhum</option>
+                <option value="ALERTACORTE">ALERTACORTE — cobrança em aberto</option>
+                <option value="CADASTRO">CADASTRO — cadastro desatualizado</option>
+              </select>
+              <p className="mt-1 text-[10px] text-slate-500">
+                Só aparece no player quando Controlar player e Controlar playlist estão «Sim».
+              </p>
+            </Field>
+
             <p className="text-[10px] font-bold uppercase text-slate-400">Player — instalação</p>
             <Field label="Chave serial (token de instalação)">
               <div className="flex items-center gap-1">

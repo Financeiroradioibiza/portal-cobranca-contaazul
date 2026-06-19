@@ -202,6 +202,7 @@ Cliente operacional
 | Pendente | SSH Envyron → primeiro deploy staging |
 | 2026-06-15 | Doc usuários/papéis — `docs/PORTAL-USUARIOS-PERMISSOES.md` (mind map Portal Ibiza 2026) |
 | 2026-06-19 | Doc pipeline criação musical — `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` (filas, workers, escala) |
+| 2026-06-18 | **Integração Player 5 (código portal + `.cloud2-stage/`)** — IDs, logins, serial, sync gateway, publicar, cronogramas/vinhetas, avisos, save_atualizadas, logotipo, programa/PDV, piloto. Falta: `migrate deploy` Neon + deploy cloud2 + build Player 5 (`VITE_*`). |
 
 ---
 
@@ -220,4 +221,4 @@ Cliente operacional
 
 ---
 
-*Última atualização: 19/06/2026. Mantenha este arquivo como referência entre conversas.*
+*Última atualização: 18/06/2026. Mantenha este arquivo como referência entre conversas.*

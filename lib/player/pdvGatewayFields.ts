@@ -6,6 +6,7 @@ export type PdvGatewayFields = {
   ctrlPlaylists: "S" | "N";
   cidade: string;
   uf: string;
+  nomeCompletoContatoExtra: string;
 };
 
 const DEFAULT: PdvGatewayFields = {
@@ -15,6 +16,7 @@ const DEFAULT: PdvGatewayFields = {
   ctrlPlaylists: "N",
   cidade: "",
   uf: "",
+  nomeCompletoContatoExtra: "",
 };
 
 /** Mapeia cadastro produção (portal) → flags que o Player 5 lê em loginByToken/ping. */
@@ -25,8 +27,12 @@ export function mapPdvCadastroToGatewayFields(cad?: {
   statusPlayer?: "Ativo" | "Inativo";
   cidade?: string;
   estado?: string;
+  playerContatoExtraCodigo?: string;
 } | null): PdvGatewayFields {
   if (!cad) return DEFAULT;
+  const codigo = (cad.playerContatoExtraCodigo ?? "").trim().toUpperCase();
+  const nomeCompletoContatoExtra =
+    codigo === "ALERTACORTE" || codigo === "CADASTRO" ? codigo : "";
   return {
     status: cad.statusPlayer === "Inativo" ? "I" : "A",
     ctrlPlayer: cad.controlarPlayer ? "S" : "N",
@@ -34,5 +40,6 @@ export function mapPdvCadastroToGatewayFields(cad?: {
     ctrlPlaylists: cad.controlarPlaylist ? "S" : "N",
     cidade: (cad.cidade ?? "").trim(),
     uf: (cad.estado ?? "").trim().slice(0, 2).toUpperCase(),
+    nomeCompletoContatoExtra,
   };
 }

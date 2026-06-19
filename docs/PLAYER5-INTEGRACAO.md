@@ -36,7 +36,9 @@ Publicar / ATL    ──►  atualizacao_pendente='S'       (ping refaz playlist
 6. Loop: `GET /api/ping/?token=…` (60 min) — lê `atualizacao_pendente`, `ctrl_*`
 7. `GET /api/save_executadas/?token=…` — relatório do que tocou
 
-Agendas e vinhetas: `GET /api/agendas/`, `/vinhetas_programadas/`, `/vinhetas_agendadas/` — **próxima fase** (stubs vazios hoje).
+Agendas e vinhetas: `GET /api/agendas/`, `/vinhetas_programadas/`, `/vinhetas_agendadas/`.
+
+Avisos operador (vermelho): Player 5 chama `POST /api/player-avisos` (configurar `VITE_PLAYER_AVISOS_URL` no build do player apontando para o cloud2, ex.: `https://cloud.radioibiza.com.br/services/webservice/../player-avisos` conforme deploy).
 
 ---
 
@@ -54,6 +56,10 @@ Agendas e vinhetas: `GET /api/agendas/`, `/vinhetas_programadas/`, `/vinhetas_ag
 | Publicar / disparar ATL | `atualizacao_pendente='S'` + `atualizacao_pendente_agenda='S'` | ping → refetch playlist/agendas |
 | Cronogramas (pastas) | tabela `agendas` | GET `/agendas/` |
 | Vinhetas VP/VA | playlists tipo VP/VA + `agendas` | `/vinhetas_programadas/`, `/vinhetas_agendadas/` |
+| Avisos operador (Suporte) | Neon `player_aviso_operador` (lido via cloud2) | POST `/api/player-avisos` |
+| Download reportado | tabela `atualizadas` | GET/POST `/save_atualizadas/` |
+| Código contato extra (ALERTACORTE/CADASTRO) | `pdvs.nome_completo_contato_extra` | loginByToken, ping |
+| Logotipo cliente (JPEG) | `clientes.logotipo_jpeg` | GET `/logotipo_cliente/` + URL em loginByToken |
 
 **Gatilhos de sync no portal:**
 
@@ -94,6 +100,46 @@ Mapeamento: `lib/player/pdvGatewayFields.ts`
 
 ---
 
+## Avisos operador (Suporte → Player)
+
+- **Portal:** Suporte → Avisos player — grava em Neon (`player_aviso_operador`), autenticado pela sessão do portal (sem login Netlify separado).
+- **Player lê:** `POST /api/player-avisos` no cloud2 (valida token via `loadSessionByToken`, consulta Neon).
+- **IDs:** usar `portalClienteId` / `portalPdvId` (100, 100.001…), não IDs do painel legado.
+- **Deploy player:** definir `VITE_PLAYER_AVISOS_URL` para o endpoint do cloud2 (substitui Netlify `player4`).
+
+Código: `lib/suporte/playerAvisoService.ts`, `.cloud2-stage/webservice/playerAvisos.js`
+
+---
+
+## Código contato extra (ALERTACORTE / CADASTRO)
+
+Campo opcional no cadastro PDV: `producao_pdv_cadastro.player_contato_extra_codigo` — valores `ALERTACORTE` ou `CADASTRO` (vazio = nenhum).
+
+- Sincroniza para `pdvs.nome_completo_contato_extra` no gateway.
+- Player 5 exibe aviso vermelho **somente quando** `ctrl_player=S` e `ctrl_playlists=S` (não conflita com avisos automáticos das flags `N`).
+
+Mapeamento: `lib/player/pdvGatewayFields.ts` → sync em `playerGatewaySync.ts`
+
+---
+
+## Logotipo do cliente
+
+- Gateway: `clientes.logotipo_jpeg` (BYTEA) — opcional no sync (`logotipoBase64` por cliente).
+- `loginByToken` devolve URL `…/api/logotipo_cliente/?token=…` quando há JPEG.
+- Endpoint: `GET /api/logotipo_cliente/?token=` → `image/jpeg` ou 404.
+
+Upload de logo no portal: **Cadastros → IDs Player** (JPEG + sync). Coluna `player_cliente_logotipo` no Neon.
+
+---
+
+## Programação por PDV
+
+- Cadastro PDV: campo **Programação musical** (`producao_pdv_cadastro.programacao_musical`).
+- Deve coincidir com `programas.nome` no gateway após publicar em Criação.
+- Sync: resolve `pdvs.programa_id` → `/playlist/`, `/agendas/`, vinhetas usam esse programa.
+
+---
+
 ## Criação musical → Player
 
 1. Upload/processamento MP3 → Neon + disco cloud2
@@ -101,7 +147,7 @@ Mapeamento: `lib/player/pdvGatewayFields.ts`
 3. **Publicar no Player 5** ou **Disparar atualização** → `publicar.ts` + `atualizacao_pendente`
 4. Player baixa playlist no próximo ciclo (ping ou reload)
 
-Cronogramas de pastas/vinhetas e avisos do player: **não conectados ainda** — ver checklist abaixo.
+Cronogramas de pastas/vinhetas: publicados via `publishCronogramas.ts`. Avisos operador: Neon + `/api/player-avisos` no cloud2.
 
 ---
 
@@ -109,11 +155,11 @@ Cronogramas de pastas/vinhetas e avisos do player: **não conectados ainda** —
 
 ### P0 — Tocar música (piloto)
 
-- [ ] IDs Player atribuídos + sync gateway
-- [ ] Logins gerados + sync (`usuarios` populado)
-- [ ] Chave serial por PDV + sync
-- [ ] Programação publicada com MP3 no cloud2
-- [ ] Smoke: login → getPdvs → loginByToken → playlist → get_musica → play
+- [x] IDs Player atribuídos + sync gateway (código)
+- [x] Logins gerados + sync (`usuarios` populado)
+- [x] Chave serial por PDV + sync
+- [x] Programação publicada com MP3 no cloud2 (publicar.ts)
+- [ ] Smoke real: login → getPdvs → loginByToken → playlist → get_musica → play (**deploy cloud2 + migrate Neon**)
 
 ### P1 — Paridade operacional (feito / em curso)
 
@@ -121,20 +167,21 @@ Cronogramas de pastas/vinhetas e avisos do player: **não conectados ainda** —
 - [x] Flags ctrl_* do cadastro PDV no sync
 - [x] `atualizacao_pendente` após publicar / signal-atualizacao
 - [x] Auto-sync ao salvar cadastro PDV
-- [ ] Deploy `.cloud2-stage` no cloud2 + migrations Neon
+- [ ] Deploy `.cloud2-stage` no cloud2 + migrations Neon + build Player 5 (`VITE_*`)
 
 ### P2 — Programação completa
 
 - [x] Cronogramas (`Agendamento` pasta) → `/agendas/` na publicação
 - [x] Vinhetas VP/VA → playlists + `/vinhetas_programadas/` + `/vinhetas_agendadas/`
-- [ ] `set_agenda_atualizada/` (endpoint dedicado — parcial via `agenda_atualizada=1` em `/agendas/`)
-- [ ] Avisos player (substituir admin Netlify player4)
+- [x] `set_agenda_atualizada/` (+ parcial via `agenda_atualizada=1` em `/agendas/`)
+- [x] Avisos player (Neon + `/api/player-avisos` no cloud2; Suporte usa sessão do portal)
 
 ### P3 — Auxiliares
 
-- [ ] `save_atualizadas/` (barra de download)
-- [ ] `logotipo_cliente/`
-- [ ] Programa por PDV (se cliente precisar)
+- [x] `save_atualizadas/` (tabela `atualizadas` no gateway)
+- [x] `logotipo_cliente/` (endpoint + URL no loginByToken quando há JPEG)
+- [x] `nome_completo_contato_extra` (campo cadastro `player_contato_extra_codigo`)
+- [x] Programa por PDV (`programacaoMusical` no cadastro → `pdvs.programa_id` no gateway)
 
 ---
 

@@ -22,7 +22,7 @@ export async function registerUpdatePdvInstaladoRoutes(app, prefix) {
   });
 }
 
-/** save_executadas / save_atualizadas — parcialmente migrados. */
+/** save_executadas — parcialmente migrado; save_atualizadas em saveAtualizadas.js */
 export async function registerStubRoutes(app, prefix) {
   app.get(`${prefix}/save_executadas/`, async (req, reply) => {
     const token = String(req.query?.token ?? '').trim();
@@ -44,6 +44,4 @@ export async function registerStubRoutes(app, prefix) {
     }
     return reply.send({ mensagem: 'ok' });
   });
-
-  app.get(`${prefix}/save_atualizadas/`, async (_req, reply) => reply.send({ mensagem: 'ok' }));
 }

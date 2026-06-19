@@ -41,6 +41,14 @@ export async function registerPingRoutes(app, prefix) {
         ctrl_player: row.ctrl_player ?? 'N',
         ctrl_placa_carro: row.ctrl_placa_carro ?? 'N',
         ctrl_playlists: row.ctrl_playlists ?? 'N',
+        ...(String(row.nome_completo_contato_extra ?? '').trim() ?
+          { nome_completo_contato_extra: String(row.nome_completo_contato_extra).trim() }
+        : {}),
+      },
+      cliente: {
+        id: row.cliente_id,
+        nome: row.cliente_nome,
+        status: row.cliente_status ?? 'A',
       },
       mensagem: 'ping_salvo',
     });

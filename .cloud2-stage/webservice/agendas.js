@@ -1,6 +1,6 @@
 import { getPool } from '../../db/pool.js';
+import { intervalToLegacyHms, resolveProgramaIdForSession } from './helpers.js';
 import { loadSessionByToken } from './loginByToken.js';
-import { intervalToLegacyHms } from './helpers.js';
 
 /** GET /api/agendas/ — formato CakePHP (array de { Playlist: { Agendas: [...] } }). */
 export async function registerAgendasRoutes(app, prefix) {
@@ -21,13 +21,9 @@ export async function registerAgendasRoutes(app, prefix) {
         .catch(() => null);
     }
 
-    const prog = await pool.query(
-      `SELECT id FROM programas WHERE cliente_id = $1 ORDER BY id LIMIT 1`,
-      [session.cliente_id],
-    );
-    if (prog.rowCount === 0) return reply.send([]);
+    const programaId = await resolveProgramaIdForSession(pool, session);
+    if (!programaId) return reply.send([]);
 
-    const programaId = prog.rows[0].id;
     const pls = await pool.query(
       `SELECT id, nome, tipo, programa_id, COALESCE(tocar_sempre, 'S') AS tocar_sempre,
               COALESCE(publicado, 'S') AS publicado, COALESCE(tipo_agendamento, '') AS tipo_agendamento

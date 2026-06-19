@@ -116,6 +116,14 @@ export async function runPlayerPilotCheck(): Promise<PilotCheckResult> {
         : "Publique em Criação → Programações",
   });
 
+  const avisosCount = await prisma.playerAvisoOperador.count();
+  steps.push({
+    id: "avisos_neon",
+    label: "Avisos operador (Neon)",
+    ok: true,
+    detail: `${avisosCount} aviso(s) — endpoint /api/player-avisos no cloud2`,
+  });
+
   let gatewayClientes = 0;
   if (cloud2) {
     try {

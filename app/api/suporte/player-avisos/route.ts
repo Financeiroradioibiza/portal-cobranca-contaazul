@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { requirePortalSession, getPortalSession } from "@/lib/auth/portalAccess";
 import {
-  callPlayerAvisosAdmin,
-  parsePainelNumericId,
+  activatePlayerAviso,
+  deletePlayerAvisosForPair,
+  listPlayerAvisoRows,
+  parsePortalPlayerNumericId,
   type PlayerAvisosAction,
-} from "@/lib/suporte/playerAvisosAdmin";
+} from "@/lib/suporte/playerAvisoService";
 
 export const runtime = "nodejs";
 
@@ -29,42 +31,36 @@ export async function POST(request: Request) {
   }
 
   const action = parseAction(body.action);
-  const email = typeof body.email === "string" ? body.email.trim() : "";
-  const password = typeof body.password === "string" ? body.password : "";
-
-  if (!action || !email || !password) {
-    return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
-  }
-
-  const payload: Parameters<typeof callPlayerAvisosAdmin>[0] = {
-    email,
-    password,
-    action,
-  };
-
-  if (action === "ativar" || action === "apagar") {
-    const cliente_id = parsePainelNumericId(body.cliente_id);
-    const pdv_id = parsePainelNumericId(body.pdv_id);
-    if (cliente_id == null || pdv_id == null) {
-      return NextResponse.json({ ok: false, error: "invalid_ids" }, { status: 400 });
-    }
-    payload.cliente_id = cliente_id;
-    payload.pdv_id = pdv_id;
-    if (action === "ativar") {
-      const mensagem = typeof body.mensagem === "string" ? body.mensagem.trim() : "";
-      if (!mensagem) {
-        return NextResponse.json({ ok: false, error: "missing_message" }, { status: 400 });
-      }
-      payload.mensagem = mensagem.slice(0, 2000);
-    }
+  if (!action) {
+    return NextResponse.json({ ok: false, error: "acao_desconhecida" }, { status: 400 });
   }
 
   try {
-    const result = await callPlayerAvisosAdmin(payload);
-    return NextResponse.json(result.data ?? { ok: false }, { status: result.status });
+    if (action === "listar") {
+      const rows = await listPlayerAvisoRows();
+      return NextResponse.json({ ok: true, rows });
+    }
+
+    const cliente_id = parsePortalPlayerNumericId(body.cliente_id);
+    const pdv_id = parsePortalPlayerNumericId(body.pdv_id);
+    if (cliente_id == null || pdv_id == null) {
+      return NextResponse.json({ ok: false, error: "cliente_pdv_invalido" }, { status: 400 });
+    }
+
+    if (action === "ativar") {
+      const mensagem = typeof body.mensagem === "string" ? body.mensagem.trim() : "";
+      if (!mensagem) {
+        return NextResponse.json({ ok: false, error: "mensagem_vazia" }, { status: 400 });
+      }
+      const rows = await activatePlayerAviso(cliente_id, pdv_id, mensagem);
+      return NextResponse.json({ ok: true, rows });
+    }
+
+    const rows = await deletePlayerAvisosForPair(cliente_id, pdv_id);
+    return NextResponse.json({ ok: true, rows });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "upstream_error";
+    const msg = e instanceof Error ? e.message : "storage_falhou";
     console.error("[suporte/player-avisos]", msg);
-    return NextResponse.json({ ok: false, error: "upstream_unreachable" }, { status: 502 });
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
