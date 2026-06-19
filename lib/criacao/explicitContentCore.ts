@@ -28,10 +28,11 @@ export function isGeminiExplicitTagged(tags: ExternalAutoTag[]): boolean {
 }
 
 export function hasApiExplicitCheck(tags: ExternalAutoTag[]): boolean {
-  return (
-    extractExplicitApiStatus(tags, "deezer") !== null &&
-    extractExplicitApiStatus(tags, "musicbrainz") !== null
-  );
+  const ok = (fonte: "deezer" | "musicbrainz") => {
+    const s = extractExplicitApiStatus(tags, fonte);
+    return s === "sim" || s === "nao";
+  };
+  return ok("deezer") && ok("musicbrainz");
 }
 
 export function hasGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {

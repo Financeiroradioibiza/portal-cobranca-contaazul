@@ -57,6 +57,63 @@ async function dzFetch(path: string): Promise<unknown | null> {
   }
 }
 
+/** Limpa sufixos comuns de upload (feat, vídeo, mix) para busca externa. */
+export function normalizeSearchTitle(titulo: string): string {
+  return titulo
+    .replace(/\s*\((?:part\.|part|feat\.|feat|ft\.|ft|featuring)[^)]*\)/gi, "")
+    .replace(/\s*\([^)]*(?:official|video|audio|lyric|visualizer|mv|hd|4k|live)[^)]*\)/gi, "")
+    .replace(/\s*\([^)]*(?:mix|remaster|remix|edit|version|ver\.|radio)[^)]*\)/gi, "")
+    .replace(/\s*[-–—]\s*(?:official\s+)?(?:music\s+)?video.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeSearchArtist(artista: string): string {
+  const trimmed = artista.trim();
+  const alt = trimmed.replace(/^the\s+/i, "").trim();
+  return alt || trimmed;
+}
+
+type DeezerTrackHit = {
+  id?: number;
+  album?: { id?: number };
+  title?: string;
+  artist?: { name?: string };
+  explicit_lyrics?: boolean;
+};
+
+async function searchDeezerTracks(input: { titulo: string; artista: string }): Promise<DeezerTrackHit[]> {
+  const titulo = normalizeSearchTitle(input.titulo);
+  const artista = input.artista.trim();
+  const artistaAlt = normalizeSearchArtist(artista);
+  const queries = [
+    `artist:"${artista}" track:"${titulo}"`,
+    titulo !== input.titulo.trim() ? `artist:"${artista}" track:"${input.titulo.trim()}"` : null,
+    `${artista} ${titulo}`,
+    artistaAlt !== artista ? `${artistaAlt} ${titulo}` : null,
+    titulo,
+  ].filter((q): q is string => Boolean(q));
+
+  const seen = new Set<number>();
+  const hits: DeezerTrackHit[] = [];
+
+  for (const q of queries) {
+    const structured = q.includes('"') || q.includes("track:") || q.includes("artist:");
+    const path = structured
+      ? `/search?q=${encodeURIComponent(q)}&limit=5`
+      : `/search/track?q=${encodeURIComponent(q)}&limit=5`;
+    const search = (await dzFetch(path)) as { data?: DeezerTrackHit[] } | null;
+    for (const t of search?.data ?? []) {
+      if (t.id && !seen.has(t.id)) {
+        seen.add(t.id);
+        hits.push(t);
+      }
+    }
+    if (hits.length > 0) break;
+  }
+  return hits;
+}
+
 function pickMbLabel(release: unknown): string | null {
   if (!release || typeof release !== "object") return null;
   const infos = (release as { "label-info"?: unknown[] })["label-info"];
@@ -85,23 +142,40 @@ async function resolveMusicBrainzRecordingId(input: {
 
   if (!input.titulo.trim() || !input.artista.trim()) return null;
 
-  const q = `recording:"${input.titulo.trim()}" AND artist:"${input.artista.trim()}"`;
-  const search = (await mbFetch(
-    `/recording?query=${encodeURIComponent(q)}&fmt=json&limit=3`,
-  )) as { recordings?: { id?: string }[] } | null;
-  return search?.recordings?.[0]?.id ?? null;
+  const titulo = normalizeSearchTitle(input.titulo);
+  const artista = input.artista.trim();
+  const queries = [
+    `recording:"${titulo}" AND artist:"${artista}"`,
+    titulo !== input.titulo.trim() ? `recording:"${input.titulo.trim()}" AND artist:"${artista}"` : null,
+    `recording:"${titulo}" AND artist:"${normalizeSearchArtist(artista)}"`,
+  ].filter((q): q is string => Boolean(q));
+
+  for (const q of queries) {
+    const search = (await mbFetch(
+      `/recording?query=${encodeURIComponent(q)}&fmt=json&limit=3`,
+    )) as { recordings?: { id?: string }[] } | null;
+    const id = search?.recordings?.[0]?.id;
+    if (id) return id;
+  }
+  return null;
 }
 
-function pickDeezerTrackHit(
-  input: { titulo: string; artista: string },
-  search: { data?: { id?: number; album?: { id?: number }; title?: string; artist?: { name?: string }; explicit_lyrics?: boolean }[] } | null,
-) {
+function pickDeezerTrackHit(input: { titulo: string; artista: string }, hits: DeezerTrackHit[]) {
+  const titulo = normalizeSearchTitle(input.titulo).toLowerCase();
+  const artista = input.artista.trim().toLowerCase();
+  const artistaAlt = normalizeSearchArtist(input.artista).toLowerCase();
+  const needle = titulo.slice(0, 8);
+  const artistNeedle = artista.slice(0, 6);
   return (
-    search?.data?.find(
+    hits.find(
       (t) =>
-        t.title?.toLowerCase().includes(input.titulo.trim().toLowerCase().slice(0, 8)) ||
-        t.artist?.name?.toLowerCase().includes(input.artista.trim().toLowerCase().slice(0, 6)),
-    ) ?? search?.data?.[0]
+        (t.title?.toLowerCase().includes(needle) ||
+          titulo.includes(t.title?.toLowerCase().slice(0, 8) ?? "")) &&
+        (t.artist?.name?.toLowerCase().includes(artistNeedle) ||
+          t.artist?.name?.toLowerCase().includes(artistaAlt.slice(0, 6))),
+    ) ??
+    hits.find((t) => t.title?.toLowerCase().includes(needle)) ??
+    hits[0]
   );
 }
 
@@ -144,11 +218,8 @@ async function fetchMusicBrainzLabel(input: {
 
 async function fetchDeezerLabel(input: { titulo: string; artista: string }): Promise<string | null> {
   if (!input.titulo.trim() || !input.artista.trim()) return null;
-  const q = `artist:"${input.artista.trim()}" track:"${input.titulo.trim()}"`;
-  const search = (await dzFetch(`/search?q=${encodeURIComponent(q)}&limit=3`)) as {
-    data?: { album?: { id?: number }; title?: string; artist?: { name?: string } }[];
-  } | null;
-  const hit = pickDeezerTrackHit(input, search);
+  const hits = await searchDeezerTracks(input);
+  const hit = pickDeezerTrackHit(input, hits);
   const albumId = hit?.album?.id;
   if (!albumId) return null;
   const album = (await dzFetch(`/album/${albumId}`)) as { label?: string } | null;
@@ -162,11 +233,8 @@ export async function fetchDeezerExplicit(input: {
   artista: string;
 }): Promise<boolean | null> {
   if (!input.titulo.trim() || !input.artista.trim()) return null;
-  const q = `artist:"${input.artista.trim()}" track:"${input.titulo.trim()}"`;
-  const search = (await dzFetch(`/search?q=${encodeURIComponent(q)}&limit=3`)) as {
-    data?: { id?: number; explicit_lyrics?: boolean; title?: string; artist?: { name?: string } }[];
-  } | null;
-  const hit = pickDeezerTrackHit(input, search);
+  const hits = await searchDeezerTracks(input);
+  const hit = pickDeezerTrackHit(input, hits);
   if (!hit?.id) return null;
   if (typeof hit.explicit_lyrics === "boolean") return hit.explicit_lyrics;
   const track = (await dzFetch(`/track/${hit.id}`)) as { explicit_lyrics?: boolean } | null;
