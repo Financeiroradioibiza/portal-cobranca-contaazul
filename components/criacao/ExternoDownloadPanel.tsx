@@ -87,7 +87,9 @@ export function ExternoDownloadPanel({ onFilesReady }: Props) {
   async function startDownload() {
     if (tracks.length === 0) return;
     if (!localOk) {
-      setMsg("Inicie o app local: cd tools/local-downloader && ./start.sh");
+      setMsg(
+        "Inicie o downloader: duplo clique em tools/local-downloader/Iniciar-Downloader.bat (Windows) ou Iniciar-Downloader.command (Mac).",
+      );
       return;
     }
     setDownloadBusy(true);
@@ -164,6 +166,22 @@ export function ExternoDownloadPanel({ onFilesReady }: Props) {
           App local: {localOk === null ? "…" : localOk ? "conectado" : "offline"}
         </span>
       </div>
+
+      {localOk === false ?
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          1) Duplo clique em <strong>Iniciar-Downloader</strong> e deixe a janela aberta.{" "}
+          2) Na <strong>primeira vez</strong>, abra{" "}
+          <a
+            href="https://127.0.0.1:8765/health"
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold underline"
+          >
+            https://127.0.0.1:8765/health
+          </a>{" "}
+          e aceite o certificado. 3) Recarregue esta página.
+        </p>
+      : null}
 
       {mode === "spotify" ?
         <input
@@ -243,10 +261,10 @@ export function ExternoDownloadPanel({ onFilesReady }: Props) {
           </p>
           {!localOk ?
             <p className="mt-1 text-amber-700">
-              Rode:{" "}
-              <code className="rounded bg-slate-100 px-1">
-                cd tools/local-downloader && ./start.sh
-              </code>
+              Duplo clique em{" "}
+              <code className="rounded bg-slate-100 px-1">Iniciar-Downloader.bat</code> (Windows) ou{" "}
+              <code className="rounded bg-slate-100 px-1">Iniciar-Downloader.command</code> (Mac) na pasta{" "}
+              <code className="rounded bg-slate-100 px-1">tools/local-downloader</code>
             </p>
           : null}
         </div>

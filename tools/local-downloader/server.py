@@ -5,10 +5,10 @@ Radio Ibiza — Downloader local (yt-dlp no SEU computador)
 O portal não baixa áudio no servidor (IP da empresa bloqueia).
 Este app roda na sua máquina e o navegador fala com http://127.0.0.1:8765
 
-Uso (macOS):
-  python3 -m pip install --user -r requirements.txt
-  python3 server.py
-  # ou: ./start.sh
+Uso rápido:
+  Windows: duplo clique Iniciar-Downloader.bat
+  Mac: duplo clique Iniciar-Downloader.command
+  Terminal: ./start.sh ou python3 server.py
 
 Spotify: o portal resolve a playlist (só metadados) e manda a lista de faixas aqui.
 Este app busca no YouTube via yt-dlp e converte para MP3 192k.
@@ -19,6 +19,8 @@ from __future__ import annotations
 import base64
 import json
 import re
+import ssl
+import subprocess
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +30,9 @@ from typing import Any
 import yt_dlp
 
 PORT = 8765
+CERT_DIR = Path(__file__).resolve().parent / "certs"
+CERT_FILE = CERT_DIR / "localhost.pem"
+KEY_FILE = CERT_DIR / "localhost-key.pem"
 OUT_DIR = Path.home() / "Downloads" / "RadioIbiza-downloads"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -104,6 +109,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # Site HTTPS (Netlify) → localhost: Chrome exige isso (Private Network Access).
+        self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def _json(self, code: int, payload: dict) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -231,6 +238,22 @@ def public_job(job: dict) -> dict:
 
 
 if __name__ == "__main__":
-    print(f"Radio Ibiza local downloader em http://127.0.0.1:{PORT}")
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+
+    scheme = "http"
+    if CERT_FILE.exists() and KEY_FILE.exists():
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=str(CERT_FILE), keyfile=str(KEY_FILE))
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+        scheme = "https"
+
+    print(f"Radio Ibiza local downloader em {scheme}://127.0.0.1:{PORT}")
     print(f"Arquivos em {OUT_DIR}")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    if scheme == "https":
+        print("")
+        print("  IMPORTANTE (1ª vez): abra no navegador:")
+        print(f"  {scheme}://127.0.0.1:{PORT}/health")
+        print("  Aceite o certificado local → depois o portal mostra 'conectado'.")
+        print("")
+    httpd.serve_forever()

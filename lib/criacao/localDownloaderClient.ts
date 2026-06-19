@@ -1,7 +1,7 @@
 /** Cliente do app local de download (yt-dlp no computador do usuário). */
 
 export const LOCAL_DOWNLOADER_BASE =
-  process.env.NEXT_PUBLIC_LOCAL_DOWNLOADER_URL ?? "http://127.0.0.1:8765";
+  process.env.NEXT_PUBLIC_LOCAL_DOWNLOADER_URL ?? "https://127.0.0.1:8765";
 
 export type LocalDownloadTrack = {
   id: string;

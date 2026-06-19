@@ -12,27 +12,30 @@ O servidor da empresa bloqueia download de áudio. O yt-dlp precisa rodar com **
 - ffmpeg no PATH (`brew install ffmpeg`)
 - yt-dlp: `pip install -r requirements.txt`
 
-## Uso (macOS)
+## Uso rápido (duplo clique)
 
-No Mac, use **`python3`** e **`pip3`** (não existe `python`/`pip` por padrão):
+**Windows:** dê duplo clique em `Iniciar-Downloader.bat`  
+**Mac:** dê duplo clique em `Iniciar-Downloader.command`  
+(na primeira vez no Mac: botão direito → Abrir, se o sistema bloquear)
+
+Deixe a janela aberta. No portal: **Criação → Upload → Música baixada**.
+
+**Primeira vez:** abra [https://127.0.0.1:8765/health](https://127.0.0.1:8765/health) no navegador, aceite o certificado local e recarregue o portal. (O site em HTTPS não consegue falar com `http://` local — por isso usamos HTTPS aqui.)
+
+### Requisitos (uma vez por PC)
+
+| | Windows | Mac |
+|---|---------|-----|
+| Python 3 | [python.org](https://www.python.org/downloads/) — marque **Add to PATH** | `xcode-select --install` ou `brew install python` |
+| ffmpeg | `winget install Gyan.FFmpeg` | `brew install ffmpeg` |
+
+## Uso pelo terminal (opcional)
 
 ```bash
 cd tools/local-downloader
-python3 -m pip install --user -r requirements.txt
-python3 server.py
+./start.sh          # Mac/Linux
+# ou Iniciar-Downloader.bat no Windows
 ```
-
-Ou, em um comando só:
-
-```bash
-cd tools/local-downloader
-chmod +x start.sh
-./start.sh
-```
-
-Deixe o terminal aberto enquanto baixa. No portal: **Criação → Upload → Música baixada**.
-
-Se `python3` não existir: `xcode-select --install` (ferramentas de linha de comando da Apple).
 
 ## Spotify no portal
 

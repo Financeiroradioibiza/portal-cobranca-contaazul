@@ -64,6 +64,8 @@ export function isIgnoredUrl(url: string): boolean {
     url.includes("/api/internal/error-log") ||
     url.includes("/api/internal/audit-log") ||
     url.includes("/api/auth/me") ||
-    url.includes("_rsc=")
+    url.includes("_rsc=") ||
+    url.includes("127.0.0.1:8765") ||
+    url.includes("localhost:8765")
   );
 }
