@@ -281,3 +281,53 @@ export async function deleteMusicaBiblioteca(musicaId: string): Promise<void> {
 
   await prisma.musicaBiblioteca.delete({ where: { id: musicaId } });
 }
+
+export async function refreshMusicaInternetTags(
+  musicaId: string,
+): Promise<{ updated: boolean; gravadora: string }> {
+  const m = await prisma.musicaBiblioteca.findUnique({
+    where: { id: musicaId },
+    select: { id: true, titulo: true, artista: true, isrc: true, tagsAuto: true },
+  });
+  if (!m) throw new Error("not_found");
+
+  const {
+    extractGravadoraFromTags,
+    fetchDeezerExplicit,
+    fetchLabelTags,
+    fetchMusicBrainzExplicit,
+    mergeExternalTags,
+    parseTagsFromJson,
+  } = await import("@/lib/criacao/tagEnrichmentCore");
+  const { mergeApiExplicitCheck } = await import("@/lib/criacao/explicitContentCore");
+
+  const beforeSig = JSON.stringify(parseTagsFromJson(m.tagsAuto));
+  let merged = parseTagsFromJson(m.tagsAuto);
+
+  const labels = await fetchLabelTags({
+    titulo: m.titulo,
+    artista: m.artista,
+    isrc: m.isrc,
+  });
+  if (labels.length > 0) merged = mergeExternalTags(merged, labels);
+
+  const deezer = await fetchDeezerExplicit({ titulo: m.titulo, artista: m.artista });
+  const musicbrainz = await fetchMusicBrainzExplicit({
+    titulo: m.titulo,
+    artista: m.artista,
+    isrc: m.isrc,
+  });
+  merged = mergeApiExplicitCheck(merged, { deezer, musicbrainz });
+
+  const afterSig = JSON.stringify(merged);
+  if (beforeSig === afterSig) {
+    return { updated: false, gravadora: extractGravadoraFromTags(merged) };
+  }
+
+  await prisma.musicaBiblioteca.update({
+    where: { id: m.id },
+    data: { tagsAuto: merged as import("@prisma/client").Prisma.InputJsonValue },
+  });
+
+  return { updated: true, gravadora: extractGravadoraFromTags(merged) };
+}

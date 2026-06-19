@@ -81,6 +81,7 @@ export function BibliotecaMusicalPanel() {
   const [checkingGemini, setCheckingGemini] = useState(false);
   const [explicitMsg, setExplicitMsg] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [refreshingTagId, setRefreshingTagId] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
 
   const loadTags = useCallback(async () => {
@@ -239,6 +240,24 @@ export function BibliotecaMusicalPanel() {
       }
     },
     [load, playingId],
+  );
+
+  const refreshTags = useCallback(
+    async (m: Musica) => {
+      setRefreshingTagId(m.id);
+      setError(null);
+      try {
+        const res = await fetch(`/api/criacao/biblioteca/${m.id}/refresh-tags`, { method: "POST" });
+        const data = (await res.json().catch(() => null)) as { error?: string; updated?: boolean } | null;
+        if (!res.ok) throw new Error(data?.error ?? "refresh_failed");
+        await load();
+      } catch {
+        setError("Falha ao buscar tags na internet para esta faixa.");
+      } finally {
+        setRefreshingTagId(null);
+      }
+    },
+    [load],
   );
 
   const checkExplicitGemini = useCallback(async () => {
@@ -504,6 +523,15 @@ export function BibliotecaMusicalPanel() {
                     className="inline-flex h-5 items-center rounded border border-dashed border-slate-300 px-1.5 text-[10px] font-bold text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600"
                   >
                     + tag
+                  </button>
+                  <button
+                    type="button"
+                    disabled={refreshingTagId === m.id}
+                    onClick={() => void refreshTags(m)}
+                    title="Buscar tags na internet (gravadora + DZ/MB) — só esta faixa"
+                    className="inline-flex h-5 items-center rounded border border-dashed border-indigo-200 px-1.5 text-[10px] font-bold text-indigo-400 hover:border-indigo-400 hover:text-indigo-700 disabled:opacity-50 dark:border-indigo-900"
+                  >
+                    {refreshingTagId === m.id ? "…" : "↻"}
                   </button>
                   <button
                     type="button"
