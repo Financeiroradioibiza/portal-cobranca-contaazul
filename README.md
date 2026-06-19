@@ -8,6 +8,7 @@ Next.js + Prisma (Postgres) + OAuth2 Conta Azul. Lista **clientes com parcelas d
 - **[Backup e restauração](docs/BACKUP-E-RESTAURACAO.md)** — como proteger código, Neon e configs  
 - **[Usuários e permissões](docs/PORTAL-USUARIOS-PERMISSOES.md)** — papéis por setor, equipe, auditoria (mind map Portal Ibiza 2026)  
 - **[Fase 2 — Produção musical](docs/FASE-2-PRODUCAO-MUSICAL.md)** — visão do webservice e migração gradual  
+- **[Criação — processamento musical](docs/CRIACAO-PROCESSAMENTO-MUSICAL.md)** — pipeline de upload, filas, workers e escala (cloud2 + Neon)
 
 ## Variáveis de ambiente
 

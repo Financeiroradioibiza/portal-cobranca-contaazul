@@ -172,6 +172,8 @@ Cliente operacional
       └── PDVs agrupados por programação
 ```
 
+**Processamento de faixas (upload → biblioteca):** ver [`docs/CRIACAO-PROCESSAMENTO-MUSICAL.md`](CRIACAO-PROCESSAMENTO-MUSICAL.md) — arquitetura cloud2, 4 filas lógicas, workers paralelos e roadmap teste → produção.
+
 **Cadastros** = cruzamento: mesmo PDV físico, duas organizações diferentes.
 
 ---
@@ -199,6 +201,7 @@ Cliente operacional
 | 2026-05 (sexta) | Separar ambientes — não misturar player4, Neon e API nova |
 | Pendente | SSH Envyron → primeiro deploy staging |
 | 2026-06-15 | Doc usuários/papéis — `docs/PORTAL-USUARIOS-PERMISSOES.md` (mind map Portal Ibiza 2026) |
+| 2026-06-19 | Doc pipeline criação musical — `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` (filas, workers, escala) |
 
 ---
 
@@ -207,10 +210,12 @@ Cliente operacional
 | Arquivo | Conteúdo |
 |---------|----------|
 | `docs/FASE-2-PRODUCAO-MUSICAL.md` | Visão arquitetura produção + webservice |
+| `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload, filas, workers cloud2, escala |
 | `docs/BACKUP-E-RESTAURACAO.md` | Backup código, banco e configs |
+| `docs/PORTAL-USUARIOS-PERMISSOES.md` | Papéis, equipe, auditoria |
 | `README.md` | Variáveis de ambiente e fluxos técnicos |
 | `playeribiza2015-2026/.../PROTOCOLO_WEBSERVICE.md` | Contrato HTTP player ↔ painel |
 
 ---
 
-*Última atualização: 28/05/2026. Mantenha este arquivo como referência entre conversas.*
+*Última atualização: 19/06/2026. Mantenha este arquivo como referência entre conversas.*
