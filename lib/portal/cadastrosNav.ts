@@ -1,7 +1,7 @@
 /** Sidebar do módulo Cadastros. */
 export const CADASTROS_SIDEBAR = [
   { href: "/cadastros/grupos", label: "Rio × Produção", icon: "👥" },
-  { href: "/cadastros/vinculos", label: "Lista vínculos", icon: "🔗" },
+  { href: "/cadastros/vinculos", label: "IDs Player", icon: "🔢" },
   { href: "/cadastros/prospects", label: "Prospects", icon: "🆕" },
   { href: "/cadastros/solicitar-pdv", label: "Solicitar PDV", icon: "📻" },
 ] as const;

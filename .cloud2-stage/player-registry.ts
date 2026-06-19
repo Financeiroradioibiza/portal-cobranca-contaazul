@@ -1,0 +1,295 @@
+import type { FastifyInstance } from "fastify";
+import crypto from "node:crypto";
+import { getPool } from "../../db/pool.js";
+import { criacaoConfig } from "../../criacao/config.js";
+
+function authorized(req: { headers: Record<string, unknown> }): boolean {
+  const secret = criacaoConfig.ingestSecret;
+  if (!secret) return false;
+  const got = String(req.headers["x-criacao-secret"] ?? "");
+  if (got.length !== secret.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(secret));
+  } catch {
+    return false;
+  }
+}
+
+type SyncBody = {
+  clientes?: Array<{
+    id: number;
+    nome: string;
+    email?: string | null;
+    senhaHash?: string | null;
+    origemRioLinhaId?: string;
+  }>;
+  pdvs?: Array<{
+    id: number;
+    clienteId: number;
+    nome: string;
+    codigoDisplay?: string;
+    origemRioPdvId?: string | null;
+    origemRioLinhaId?: string;
+    instalacaoToken?: string | null;
+    status?: "A" | "I";
+    ctrlPlayer?: "S" | "N";
+    ctrlPlacaCarro?: "S" | "N";
+    ctrlPlaylists?: "S" | "N";
+    cidade?: string;
+    uf?: string;
+  }>;
+};
+
+/** Sincroniza clientes/PDVs do portal Neon → gateway MySQL (IDs 100+, 100.001). */
+export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix = "/criacao"): Promise<void> {
+  const PLAYER_PREFIX = `${prefix}/player`;
+  app.post<{ Body: SyncBody }>(`${PLAYER_PREFIX}/sync-registry`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+
+    const clientes = Array.isArray(req.body?.clientes) ? req.body.clientes : [];
+    const pdvs = Array.isArray(req.body?.pdvs) ? req.body.pdvs : [];
+    const pool = getPool();
+    const conn = await pool.connect();
+
+    try {
+      await conn.query("BEGIN");
+
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS clientes (
+          id INT PRIMARY KEY,
+          nome TEXT NOT NULL DEFAULT '',
+          email VARCHAR(200),
+          senha_hash TEXT,
+          origem_rio_linha_id VARCHAR(64)
+        )
+      `);
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS pdvs (
+          id INT PRIMARY KEY,
+          cliente_id INT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+          nome TEXT NOT NULL DEFAULT '',
+          codigo_display VARCHAR(32),
+          origem_rio_pdv_id VARCHAR(64),
+          origem_rio_linha_id VARCHAR(64),
+          serial_instalacao VARCHAR(64),
+          instalado CHAR(1) NOT NULL DEFAULT 'N',
+          status CHAR(1) NOT NULL DEFAULT 'A',
+          cidade TEXT NOT NULL DEFAULT '',
+          uf CHAR(2) NOT NULL DEFAULT '',
+          ctrl_player CHAR(1) NOT NULL DEFAULT 'N',
+          ctrl_placa_carro CHAR(1) NOT NULL DEFAULT 'N',
+          ctrl_playlists CHAR(1) NOT NULL DEFAULT 'N',
+          atualizacao_pendente CHAR(1) NOT NULL DEFAULT 'N',
+          atualizacao_pendente_agenda CHAR(1) NOT NULL DEFAULT 'N'
+        )
+      `);
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS usuarios (
+          id SERIAL PRIMARY KEY,
+          cliente_id INT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+          email TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          status CHAR(1) NOT NULL DEFAULT 'A'
+        )
+      `);
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS tokens (
+          pdv_id INT PRIMARY KEY REFERENCES pdvs(id) ON DELETE CASCADE,
+          token CHAR(32) NOT NULL UNIQUE,
+          data_inicio TIMESTAMPTZ NOT NULL DEFAULT now(),
+          data_fim TIMESTAMPTZ,
+          status TEXT NOT NULL DEFAULT 'ok'
+        )
+      `);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS serial_instalacao VARCHAR(64)`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS instalado CHAR(1) NOT NULL DEFAULT 'N'`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS status CHAR(1) NOT NULL DEFAULT 'A'`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS cidade TEXT NOT NULL DEFAULT ''`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS uf CHAR(2) NOT NULL DEFAULT ''`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS ctrl_player CHAR(1) NOT NULL DEFAULT 'N'`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS ctrl_placa_carro CHAR(1) NOT NULL DEFAULT 'N'`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS ctrl_playlists CHAR(1) NOT NULL DEFAULT 'N'`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS atualizacao_pendente CHAR(1) NOT NULL DEFAULT 'N'`);
+      await conn.query(
+        `ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS atualizacao_pendente_agenda CHAR(1) NOT NULL DEFAULT 'N'`,
+      );
+
+      for (const c of clientes) {
+        if (!Number.isFinite(c.id) || c.id <= 0) continue;
+        await conn.query(
+          `INSERT INTO clientes (id, nome, email, senha_hash, origem_rio_linha_id)
+             VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (id) DO UPDATE SET
+             nome = EXCLUDED.nome,
+             email = EXCLUDED.email,
+             senha_hash = COALESCE(EXCLUDED.senha_hash, clientes.senha_hash),
+             origem_rio_linha_id = EXCLUDED.origem_rio_linha_id`,
+          [c.id, c.nome ?? "", c.email ?? null, c.senhaHash ?? null, c.origemRioLinhaId ?? null],
+        );
+
+        // Player 5 chama POST /api/login/ → tabela usuarios (contrato legado CakePHP).
+        if (c.email && c.senhaHash) {
+          await conn.query(
+            `INSERT INTO usuarios (cliente_id, email, password_hash, status)
+               VALUES ($1, lower(trim($2)), $3, 'A')
+             ON CONFLICT (email) DO UPDATE SET
+               cliente_id = EXCLUDED.cliente_id,
+               password_hash = EXCLUDED.password_hash,
+               status = 'A'`,
+            [c.id, c.email, c.senhaHash],
+          );
+        }
+      }
+
+      const clienteIds = new Set(clientes.map((c) => c.id));
+      for (const p of pdvs) {
+        if (!Number.isFinite(p.id) || !Number.isFinite(p.clienteId) || !clienteIds.has(p.clienteId)) continue;
+        const instalToken = String(p.instalacaoToken ?? "").trim().slice(0, 32);
+        const prev = await conn.query<{ serial_instalacao: string | null }>(
+          `SELECT serial_instalacao FROM pdvs WHERE id = $1`,
+          [p.id],
+        );
+        const tokenChanged =
+          instalToken.length > 0 &&
+          prev.rows[0]?.serial_instalacao != null &&
+          prev.rows[0].serial_instalacao !== instalToken;
+
+        await conn.query(
+          `INSERT INTO pdvs (
+             id, cliente_id, nome, codigo_display, origem_rio_pdv_id, origem_rio_linha_id,
+             serial_instalacao, instalado, status, cidade, uf,
+             ctrl_player, ctrl_placa_carro, ctrl_playlists
+           )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'N', $8, $9, $10, $11, $12, $13)
+           ON CONFLICT (id) DO UPDATE SET
+             cliente_id = EXCLUDED.cliente_id,
+             nome = EXCLUDED.nome,
+             codigo_display = EXCLUDED.codigo_display,
+             origem_rio_pdv_id = EXCLUDED.origem_rio_pdv_id,
+             origem_rio_linha_id = EXCLUDED.origem_rio_linha_id,
+             serial_instalacao = COALESCE(EXCLUDED.serial_instalacao, pdvs.serial_instalacao),
+             status = EXCLUDED.status,
+             cidade = EXCLUDED.cidade,
+             uf = EXCLUDED.uf,
+             ctrl_player = EXCLUDED.ctrl_player,
+             ctrl_placa_carro = EXCLUDED.ctrl_placa_carro,
+             ctrl_playlists = EXCLUDED.ctrl_playlists,
+             instalado = CASE
+               WHEN EXCLUDED.serial_instalacao IS NOT NULL
+                 AND pdvs.serial_instalacao IS DISTINCT FROM EXCLUDED.serial_instalacao
+               THEN 'N'
+               ELSE pdvs.instalado
+             END`,
+          [
+            p.id,
+            p.clienteId,
+            p.nome ?? "",
+            p.codigoDisplay ?? null,
+            p.origemRioPdvId ?? null,
+            p.origemRioLinhaId ?? null,
+            instalToken || null,
+            p.status ?? "A",
+            p.cidade ?? "",
+            (p.uf ?? "").slice(0, 2).toUpperCase(),
+            p.ctrlPlayer ?? "N",
+            p.ctrlPlacaCarro ?? "N",
+            p.ctrlPlaylists ?? "N",
+          ],
+        );
+
+        if (instalToken) {
+          await conn.query(
+            `INSERT INTO tokens (pdv_id, token, data_inicio, status)
+               VALUES ($1, $2, now(), 'ok')
+             ON CONFLICT (pdv_id) DO UPDATE SET
+               token = EXCLUDED.token,
+               data_inicio = now(),
+               status = 'ok'`,
+            [p.id, instalToken],
+          );
+          if (tokenChanged) {
+            await conn.query(`UPDATE pdvs SET instalado = 'N' WHERE id = $1`, [p.id]);
+          }
+        }
+      }
+
+      await conn.query("COMMIT");
+      return reply.send({ ok: true, clientes: clientes.length, pdvs: pdvs.length });
+    } catch (e) {
+      await conn.query("ROLLBACK").catch(() => {});
+      app.log.error({ err: e }, "[player/sync-registry] falhou");
+      return reply.code(500).send({ ok: false, error: "sync_falhou" });
+    } finally {
+      conn.release();
+    }
+  });
+
+  /** Após publicar programação — Player 5 lê atualizacao_pendente no ping e refaz /playlist/. */
+  app.post<{ Body: { clienteId?: number } }>(`${PLAYER_PREFIX}/signal-atualizacao`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+    const clienteId = Number(req.body?.clienteId);
+    if (!Number.isFinite(clienteId) || clienteId <= 0) {
+      return reply.code(400).send({ ok: false, error: "parametros_invalidos" });
+    }
+    const pool = getPool();
+    const r = await pool.query(
+      `UPDATE pdvs SET atualizacao_pendente = 'S' WHERE cliente_id = $1`,
+      [clienteId],
+    );
+    return reply.send({ ok: true, pdvs: r.rowCount ?? 0 });
+  });
+
+  /** Login cliente Player 5 — email + senha → cliente id + lista PDVs. */
+  app.post<{ Body: { email?: string; password?: string } }>(
+    `${PLAYER_PREFIX}/login`,
+    async (req, reply) => {
+      const email = String(req.body?.email ?? "").trim().toLowerCase();
+      const password = String(req.body?.password ?? "");
+      if (!email || !password) return reply.code(400).send({ ok: false, error: "parametros_invalidos" });
+
+      const pool = getPool();
+      const r = await pool.query<{ id: number; nome: string; senha_hash: string | null }>(
+        `SELECT id, nome, senha_hash FROM clientes WHERE lower(trim(email)) = $1 LIMIT 1`,
+        [email],
+      );
+      if (r.rowCount === 0 || !r.rows[0]?.senha_hash) {
+        return reply.code(401).send({ ok: false, error: "credenciais_invalidas" });
+      }
+
+      const bcrypt = await import("bcryptjs").catch(() => null);
+      if (!bcrypt) return reply.code(503).send({ ok: false, error: "bcrypt_indisponivel" });
+      const ok = await bcrypt.compare(password, r.rows[0].senha_hash);
+      if (!ok) return reply.code(401).send({ ok: false, error: "credenciais_invalidas" });
+
+      const cliente = r.rows[0];
+      const pdvs = await pool.query<{ id: number; nome: string; codigo_display: string | null }>(
+        `SELECT id, nome, codigo_display FROM pdvs WHERE cliente_id = $1 ORDER BY id`,
+        [cliente.id],
+      );
+
+      return reply.send({
+        ok: true,
+        cliente: { id: cliente.id, nome: cliente.nome },
+        pdvs: pdvs.rows.map((p) => ({
+          id: p.id,
+          nome: p.nome,
+          codigo: p.codigo_display ?? String(p.id),
+        })),
+      });
+    },
+  );
+
+  /** Lista PDVs de um cliente (após login). */
+  app.get<{ Querystring: { clienteId?: string } }>(`${PLAYER_PREFIX}/pdvs`, async (req, reply) => {
+    const clienteId = Number(req.query?.clienteId);
+    if (!Number.isFinite(clienteId) || clienteId <= 0) {
+      return reply.code(400).send({ ok: false, error: "parametros_invalidos" });
+    }
+    const pool = getPool();
+    const pdvs = await pool.query<{ id: number; nome: string; codigo_display: string | null }>(
+      `SELECT id, nome, codigo_display FROM pdvs WHERE cliente_id = $1 ORDER BY id`,
+      [clienteId],
+    );
+    return reply.send({ ok: true, pdvs: pdvs.rows });
+  });
+}

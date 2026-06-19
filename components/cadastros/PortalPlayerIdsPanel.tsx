@@ -1,0 +1,289 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
+import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
+import { currentBrazilYearMonth, formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
+
+type Row = {
+  rioPdvId: string;
+  rioPdvNome: string;
+  clienteNome: string;
+  link: { portalClienteId: number; portalPdvId: number } | null;
+};
+
+type PilotStep = { id: string; label: string; ok: boolean; detail: string };
+
+export function PortalPlayerIdsPanel() {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [stats, setStats] = useState({ total: 0, linked: 0, unlinked: 0 });
+  const [vigenteYm, setVigenteYm] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [pilotSteps, setPilotSteps] = useState<PilotStep[] | null>(null);
+  const [pilotReady, setPilotReady] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const mRes = await fetch("/api/rio-planilha/clientes/months");
+      const mData = (await mRes.json()) as { months?: Array<{ yearMonth: number }> };
+      const ym = pickVigenteRioYearMonth(mData.months ?? [], currentBrazilYearMonth());
+      setVigenteYm(ym);
+      const vRes = await fetch(`/api/cadastros/month/${ym}/vinculos`);
+      const vData = (await vRes.json()) as {
+        ok?: boolean;
+        rows?: Row[];
+        stats?: { total: number; linked: number; unlinked: number };
+        error?: string;
+      };
+      if (!vRes.ok || !vData.ok) throw new Error(vData.error ?? "erro");
+      setRows(vData.rows ?? []);
+      setStats(vData.stats ?? { total: 0, linked: 0, unlinked: 0 });
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao carregar.");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function atribuirFaltantes(sync = true) {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/player/portal-ids/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sync }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        clientes?: number;
+        pdvs?: number;
+        gateway?: { clientes: number; pdvs: number } | null;
+      };
+      if (!res.ok) throw new Error(data.error ?? "falhou");
+      if ((data.clientes ?? 0) === 0 && (data.pdvs ?? 0) === 0) {
+        setMsg("Todos os clientes e PDVs já tinham ID — nada alterado.");
+      } else {
+        setMsg(
+          `IDs atribuídos: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs (somente faltantes).` +
+            (data.gateway ?
+              ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
+            : ""),
+        );
+      }
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao atribuir IDs.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renumerar(sync = true) {
+    if (busy) return;
+    if (
+      !window.confirm(
+        "ATENÇÃO: renumera TODOS os IDs (clientes 100+, PDVs 100.001…) em ordem alfabética. " +
+          "Isso quebra referências estáveis no Player. Use só na migração inicial. Continuar?",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/player/portal-ids/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sync, renumber: true }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        clientes?: number;
+        pdvs?: number;
+        gateway?: { clientes: number; pdvs: number } | null;
+      };
+      if (!res.ok) throw new Error(data.error ?? "falhou");
+      setMsg(
+        `IDs atribuídos: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.` +
+          (data.gateway ?
+            ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
+          : ""),
+      );
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao renumerar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncGateway() {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/player/sync-gateway", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = (await res.json()) as { error?: string; clientes?: number; pdvs?: number };
+      if (!res.ok) throw new Error(data.error ?? "falhou");
+      setMsg(`Player 5 sincronizado: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao sincronizar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verificarPiloto() {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    setPilotSteps(null);
+    try {
+      const res = await fetch("/api/player/pilot");
+      const data = (await res.json()) as {
+        error?: string;
+        steps?: PilotStep[];
+        ready?: boolean;
+        testCliente?: { portalClienteId: number; nome: string; email: string | null };
+      };
+      if (!res.ok) throw new Error(data.error ?? "falhou");
+      setPilotSteps(data.steps ?? []);
+      setPilotReady(Boolean(data.ready));
+      if (data.ready) {
+        setMsg("Piloto pronto — pode testar no Player 5. Veja docs/PLAYER5-PILOTO.md");
+      } else if (data.testCliente) {
+        setMsg(
+          `Pendências no checklist. Cliente teste sugerido: ${data.testCliente.nome} (ID ${data.testCliente.portalClienteId}, ${data.testCliente.email ?? "sem e-mail"}).`,
+        );
+      } else {
+        setMsg("Checklist abaixo — complete os passos antes de abrir o Player 5.");
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao verificar piloto.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl p-4 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">IDs Player</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Numeração própria do portal. Clientes a partir de <strong>100</strong>; PDVs{" "}
+            <strong>100.001</strong>. IDs existentes <strong>não mudam</strong> — novos recebem o próximo
+            número.
+            {vigenteYm != null ?
+              <> Planilha vigente: {formatYearMonthLabel(vigenteYm)}.</>
+            : null}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void atribuirFaltantes(true)}
+            className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            Atribuir IDs faltantes
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void renumerar(true)}
+            className="rounded-lg border border-amber-400 px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-200"
+          >
+            Renumeração alfabética…
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void syncGateway()}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200"
+          >
+            Sincronizar Player 5
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void verificarPiloto()}
+            className="rounded-lg border border-sky-400 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-200"
+          >
+            Verificar piloto
+          </button>
+        </div>
+      </div>
+
+      {pilotSteps ?
+        <div className="mb-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <p className="mb-2 text-xs font-bold uppercase text-slate-500">
+            Checklist Player 5 {pilotReady ? "· pronto" : "· pendências"}
+          </p>
+          <ul className="space-y-1 text-sm">
+            {pilotSteps.map((s) => (
+              <li key={s.id} className="flex gap-2">
+                <span className={s.ok ? "text-emerald-600" : "text-amber-600"}>{s.ok ? "✓" : "○"}</span>
+                <span>
+                  <strong>{s.label}</strong> — {s.detail}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      : null}
+
+      {msg ?
+        <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+          {msg}
+        </div>
+      : null}
+
+      <div className="mb-3 text-xs text-slate-500">
+        {stats.linked}/{stats.total} com ID · {stats.unlinked} sem ID
+      </div>
+
+      {loading ?
+        <p className="text-sm text-slate-400">Carregando…</p>
+      : rows.length === 0 ?
+        <p className="text-sm text-slate-400">Nenhum PDV na planilha vigente.</p>
+      : <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-900">
+              <tr>
+                <th className="px-3 py-2">Cliente</th>
+                <th className="px-3 py-2">PDV</th>
+                <th className="px-3 py-2 text-center">ID cliente</th>
+                <th className="px-3 py-2 text-center">ID PDV</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.rioPdvId} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="px-3 py-2">{r.clienteNome}</td>
+                  <td className="px-3 py-2">{r.rioPdvNome}</td>
+                  <td className="px-3 py-2 text-center font-mono text-sky-700 dark:text-sky-400">
+                    {r.link?.portalClienteId ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-center font-mono text-emerald-700 dark:text-emerald-400">
+                    {r.link ? formatPortalPdvIdDisplay(r.link.portalPdvId) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  );
+}

@@ -8,9 +8,10 @@ export type SuportePdvRow = {
   clienteNome: string;
   clienteTagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
   clienteKey: string;
-  /** ID no painel legado (vínculo cadastro), se existir. */
-  painelPdvId: number | null;
-  painelClienteId: number | null;
+  /** ID do PDV no Player (ex. 100001 → 100.001). */
+  portalPdvId: number | null;
+  /** ID do cliente no Player (100, 101, …). */
+  portalClienteId: number | null;
   programacaoMusical: string;
   playerVersion: string | null;
   contatoLojaNome: string;

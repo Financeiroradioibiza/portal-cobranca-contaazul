@@ -1,0 +1,252 @@
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { publicarProgramacao, sugerirGatewayCliente, listGatewayClientes } from "@/lib/criacao/publicarService";
+
+export type FaixaLogItem = {
+  musicaId: string;
+  titulo: string;
+  artista: string;
+  pastaNome: string;
+};
+
+export type AtualizacaoDiff = {
+  entraram: FaixaLogItem[];
+  sairam: FaixaLogItem[];
+};
+
+export type ProgramacaoSnapshot = {
+  faixas: Record<string, FaixaLogItem>;
+};
+
+export type AtualizacaoLogRow = {
+  id: string;
+  codigo: string;
+  revision: number;
+  disparadaEm: string;
+  disparadaPor: string;
+  diff: AtualizacaoDiff;
+  musicasPublicadas: number;
+  playlistsPublicadas: number;
+};
+
+const MESES_PT = [
+  "Janeiro",
+  "Fevereiro",
+  "Marco",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+] as const;
+
+function slugCliente(nome: string): string {
+  const s = nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 32);
+  return s || "Cliente";
+}
+
+function brazilMonthYear(d: Date): { mes: string; yy: string } {
+  const br = new Date(d.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const mes = MESES_PT[br.getMonth()] ?? "Mes";
+  const yy = String(br.getFullYear()).slice(-2);
+  return { mes, yy };
+}
+
+/** Gera código tipo Radiolbiza-ATL-Junho-26.01 (sequência por cliente+mês). */
+export async function gerarCodigoAtualizacao(
+  programacaoId: string,
+  clienteNome: string,
+  when = new Date(),
+): Promise<string> {
+  const { mes, yy } = brazilMonthYear(when);
+  const prefix = `${slugCliente(clienteNome)}-ATL-${mes}-${yy}.`;
+  const existentes = await prisma.programacaoAtualizacao.findMany({
+    where: { programacaoId, codigo: { startsWith: prefix } },
+    select: { codigo: true },
+  });
+  const seq = existentes.length + 1;
+  return `${prefix}${String(seq).padStart(2, "0")}`;
+}
+
+export async function buildProgramacaoSnapshot(programacaoId: string): Promise<ProgramacaoSnapshot> {
+  const pastas = await prisma.pasta.findMany({
+    where: { programacaoId },
+    select: {
+      nome: true,
+      musicas: {
+        select: {
+          musica: { select: { id: true, titulo: true, artista: true } },
+        },
+      },
+    },
+  });
+
+  const faixas: Record<string, FaixaLogItem> = {};
+  for (const pasta of pastas) {
+    for (const pm of pasta.musicas) {
+      faixas[pm.musica.id] = {
+        musicaId: pm.musica.id,
+        titulo: pm.musica.titulo,
+        artista: pm.musica.artista,
+        pastaNome: pasta.nome,
+      };
+    }
+  }
+  return { faixas };
+}
+
+function parseSnapshot(raw: Prisma.JsonValue | null): ProgramacaoSnapshot {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { faixas: {} };
+  const faixasRaw = (raw as { faixas?: unknown }).faixas;
+  if (!faixasRaw || typeof faixasRaw !== "object" || Array.isArray(faixasRaw)) return { faixas: {} };
+  const faixas: Record<string, FaixaLogItem> = {};
+  for (const [id, v] of Object.entries(faixasRaw as Record<string, unknown>)) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    const o = v as Record<string, unknown>;
+    faixas[id] = {
+      musicaId: id,
+      titulo: String(o.titulo ?? ""),
+      artista: String(o.artista ?? ""),
+      pastaNome: String(o.pastaNome ?? ""),
+    };
+  }
+  return { faixas };
+}
+
+export function computeAtualizacaoDiff(
+  anterior: ProgramacaoSnapshot | null,
+  atual: ProgramacaoSnapshot,
+): AtualizacaoDiff {
+  const prev = anterior?.faixas ?? {};
+  const curr = atual.faixas;
+  const entraram: FaixaLogItem[] = [];
+  const sairam: FaixaLogItem[] = [];
+
+  for (const [id, f] of Object.entries(curr)) {
+    if (!prev[id]) entraram.push(f);
+  }
+  for (const [id, f] of Object.entries(prev)) {
+    if (!curr[id]) sairam.push(f);
+  }
+
+  entraram.sort((a, b) => a.pastaNome.localeCompare(b.pastaNome) || a.titulo.localeCompare(b.titulo));
+  sairam.sort((a, b) => a.pastaNome.localeCompare(b.pastaNome) || a.titulo.localeCompare(b.titulo));
+  return { entraram, sairam };
+}
+
+export async function listAtualizacoesLog(programacaoId: string): Promise<AtualizacaoLogRow[]> {
+  const rows = await prisma.programacaoAtualizacao.findMany({
+    where: { programacaoId },
+    orderBy: { disparadaEm: "desc" },
+    take: 100,
+  });
+
+  return rows.map((r) => {
+    const diff = r.diffJson as AtualizacaoDiff;
+    return {
+      id: r.id,
+      codigo: r.codigo,
+      revision: r.revision,
+      disparadaEm: r.disparadaEm.toISOString(),
+      disparadaPor: r.disparadaPor,
+      diff: {
+        entraram: Array.isArray(diff?.entraram) ? diff.entraram : [],
+        sairam: Array.isArray(diff?.sairam) ? diff.sairam : [],
+      },
+      musicasPublicadas: r.musicasPublicadas,
+      playlistsPublicadas: r.playlistsPublicadas,
+    };
+  });
+}
+
+export type DispararAtualizacaoResult = {
+  ok: true;
+  codigo: string;
+  revision: number;
+  diff: AtualizacaoDiff;
+  playlists: number;
+  musicas: number;
+  semArquivo: number;
+  clienteGatewayNome: string;
+};
+
+export async function dispararAtualizacao(
+  programacaoId: string,
+  disparadaPor: string,
+  clienteIdGateway?: number,
+): Promise<DispararAtualizacaoResult> {
+  const prog = await prisma.programacao.findUnique({
+    where: { id: programacaoId },
+    select: {
+      id: true,
+      clienteNome: true,
+      revisionAtual: true,
+      clienteGatewayId: true,
+      snapshotAtual: true,
+    },
+  });
+  if (!prog) throw new Error("programacao_nao_encontrada");
+
+  let gatewayId = clienteIdGateway ?? prog.clienteGatewayId ?? null;
+  if (!gatewayId || gatewayId <= 0) {
+    const clientes = await listGatewayClientes().catch(() => []);
+    const sug = sugerirGatewayCliente(prog.clienteNome, clientes);
+    if (!sug) throw new Error("cliente_gateway_obrigatorio");
+    gatewayId = sug.id;
+  }
+
+  const snapshotAtual = await buildProgramacaoSnapshot(programacaoId);
+  const snapshotAnterior = parseSnapshot(prog.snapshotAtual);
+  const diff = computeAtualizacaoDiff(
+    prog.revisionAtual > 0 ? snapshotAnterior : null,
+    snapshotAtual,
+  );
+
+  const codigo = await gerarCodigoAtualizacao(programacaoId, prog.clienteNome);
+  const pub = await publicarProgramacao(programacaoId, gatewayId);
+  const revision = prog.revisionAtual + 1;
+
+  await prisma.$transaction([
+    prisma.programacaoAtualizacao.create({
+      data: {
+        programacaoId,
+        codigo,
+        revision,
+        disparadaPor: disparadaPor.slice(0, 200),
+        diffJson: diff as unknown as Prisma.InputJsonValue,
+        snapshotJson: snapshotAtual as unknown as Prisma.InputJsonValue,
+        musicasPublicadas: pub.musicas,
+        playlistsPublicadas: pub.playlists,
+      },
+    }),
+    prisma.programacao.update({
+      where: { id: programacaoId },
+      data: {
+        revisionAtual: revision,
+        clienteGatewayId: gatewayId,
+        snapshotAtual: snapshotAtual as unknown as Prisma.InputJsonValue,
+        publicada: true,
+        publishedAt: new Date(),
+      },
+    }),
+  ]);
+
+  return {
+    ok: true,
+    codigo,
+    revision,
+    diff,
+    playlists: pub.playlists,
+    musicas: pub.musicas,
+    semArquivo: pub.semArquivo,
+    clienteGatewayNome: pub.clienteGatewayNome,
+  };
+}

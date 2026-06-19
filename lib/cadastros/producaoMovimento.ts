@@ -26,7 +26,7 @@ export type ProducaoMovimentoItem = {
   rioLinhaId: string;
   rioLinhaNome: string;
   movimento: "entrada" | "saida";
-  painelLink: PainelLinkBrief | null;
+  portalPlayerId: PainelLinkBrief | null;
   isLinhaProxy?: boolean;
   tagCobranca?: RioTagCobranca;
 };
@@ -444,7 +444,7 @@ export function extractRioMovimentos(
         rioLinhaId: ln.id,
         rioLinhaNome: nc,
         movimento: "saida",
-        painelLink: linkMap.get(linhaAsPdvKey(ln.id)) ?? null,
+        portalPlayerId: linkMap.get(linhaAsPdvKey(ln.id)) ?? null,
         isLinhaProxy: true,
         tagCobranca: linhaTag,
       });
@@ -462,7 +462,7 @@ export function extractRioMovimentos(
           rioLinhaId: ln.id,
           rioLinhaNome: nc,
           movimento: "saida",
-          painelLink: linkMap.get(p.id) ?? null,
+          portalPlayerId: linkMap.get(p.id) ?? null,
           tagCobranca: pdvTag,
         });
       } else if (
@@ -478,7 +478,7 @@ export function extractRioMovimentos(
           rioLinhaId: ln.id,
           rioLinhaNome: nc,
           movimento: "entrada",
-          painelLink: linkMap.get(p.id) ?? null,
+          portalPlayerId: linkMap.get(p.id) ?? null,
           tagCobranca: pdvTag,
         });
       }
@@ -495,7 +495,7 @@ export function extractRioMovimentos(
           rioLinhaId: ln.id,
           rioLinhaNome: nc,
           movimento: "entrada",
-          painelLink: linkMap.get(proxyId) ?? null,
+          portalPlayerId: linkMap.get(proxyId) ?? null,
           isLinhaProxy: true,
           tagCobranca: linhaTag,
         });
@@ -532,7 +532,7 @@ export function movimentoItemToPdvRef(item: ProducaoMovimentoItem): ProducaoPdvR
     documento: item.documento,
     rioLinhaId: item.rioLinhaId,
     rioLinhaNome: item.rioLinhaNome,
-    painelLink: item.painelLink,
+    portalPlayerId: item.portalPlayerId,
     isLinhaProxy: item.isLinhaProxy,
     movimento: item.movimento,
     tagCobranca: item.tagCobranca,

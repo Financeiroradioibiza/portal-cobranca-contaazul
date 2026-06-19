@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   listVinculosForMonth,
   parseCadastrosYearMonth,
-} from "@/lib/cadastros/painelPdvLinkService";
+} from "@/lib/player/listPortalPlayerRows";
 
 export const runtime = "nodejs";
 

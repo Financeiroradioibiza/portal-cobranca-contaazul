@@ -8,6 +8,7 @@ import {
 import { isLinhaAsPdvKey, linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import type { ProducaoPlayerStatus } from "@prisma/client";
+import { newPlayerInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
 
 export type ProducaoPdvCadastroDto = {
   rioPdvKey: string;
@@ -33,6 +34,8 @@ export type ProducaoPdvCadastroDto = {
   contatoCobrancaNome: string;
   contatoCobrancaEmail: string;
   contatoCobrancaTelefone: string;
+  playerInstalacaoToken: string;
+  playerInstaladoEm: string | null;
   cobrancaFromCa: boolean;
 };
 
@@ -127,6 +130,8 @@ function rowToDto(
     contatoCobrancaNome: row.contatoCobrancaNome,
     contatoCobrancaEmail: row.contatoCobrancaEmail,
     contatoCobrancaTelefone: row.contatoCobrancaTelefone,
+    playerInstalacaoToken: row.playerInstalacaoToken,
+    playerInstaladoEm: row.playerInstaladoEm?.toISOString() ?? null,
     cobrancaFromCa,
   };
 }
@@ -196,6 +201,7 @@ export async function getOrCreatePdvCadastro(
         nome: seed.nome,
         razaoSocial: seed.razaoSocial,
         cnpj: seed.documento ?? "",
+        playerInstalacaoToken: newPlayerInstalacaoToken(),
         contatoCobrancaNome: seed.cobranca?.nome ?? "",
         contatoCobrancaEmail: seed.cobranca?.email ?? "",
         contatoCobrancaTelefone: seed.cobranca?.telefone ?? "",

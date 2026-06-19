@@ -56,6 +56,9 @@ export async function publicarProgramacao(
     data: { publicada: true, publishedAt: new Date() },
   });
 
+  const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
+  await signalPlayerProgramacaoUpdate(clienteIdGateway);
+
   const gw = await listGatewayClientes().catch(() => [] as GatewayCliente[]);
   const cli = gw.find((c) => c.id === clienteIdGateway);
 

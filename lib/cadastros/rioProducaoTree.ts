@@ -1,13 +1,10 @@
 import { compareRioLinhasByNomeFantasia, sortRioCompGruposForDisplay } from "@/lib/rio/sortRioCompLinhas";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { effectiveRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import type { PortalPlayerIdBrief } from "@/lib/player/portalPlayerIds";
 
-export type PainelLinkBrief = {
-  painelPdvId: number;
-  painelClienteId: number;
-  painelPdvNome: string | null;
-  matchMethod: string;
-};
+/** @deprecated use PortalPlayerIdBrief */
+export type PainelLinkBrief = PortalPlayerIdBrief;
 
 export type ProducaoPdvNode = {
   id: string;
@@ -15,7 +12,7 @@ export type ProducaoPdvNode = {
   documento: string | null;
   movimento: string;
   tagCobranca: RioTagCobranca;
-  painelLink: PainelLinkBrief | null;
+  portalPlayerId: PortalPlayerIdBrief | null;
 };
 
 export type ProducaoClienteNode = {
@@ -119,12 +116,12 @@ export function buildProducaoTree(
       documento: p.documento,
       movimento: p.movimento,
       tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
-      painelLink: linkByRioPdvId.get(p.id) ?? null,
+      portalPlayerId: linkByRioPdvId.get(p.id) ?? null,
     }));
 
     let linked = 0;
     for (const p of pdvNodes) {
-      if (p.painelLink) linked += 1;
+      if (p.portalPlayerId) linked += 1;
     }
 
     grupo.clientes.push({
@@ -160,7 +157,7 @@ export type RioMovimentoRow = {
   nome: string;
   clienteNome: string;
   movimento: "entrada" | "saida";
-  painelLink: PainelLinkBrief | null;
+  portalPlayerId: PortalPlayerIdBrief | null;
 };
 
 /** Listas de entrada/saída da Planilha Rio para o topo da coluna esquerda. */
@@ -182,7 +179,7 @@ export function extractRioTreeMovimentos(
         nome: clienteNome,
         clienteNome,
         movimento: "saida",
-        painelLink: null,
+        portalPlayerId: null,
       });
     }
 
@@ -194,7 +191,7 @@ export function extractRioTreeMovimentos(
           nome: p.nome,
           clienteNome,
           movimento: "saida",
-          painelLink: linkByRioPdvId.get(p.id) ?? null,
+          portalPlayerId: linkByRioPdvId.get(p.id) ?? null,
         });
       } else if (p.movimento === "entrada") {
         novos.push({
@@ -203,7 +200,7 @@ export function extractRioTreeMovimentos(
           nome: p.nome,
           clienteNome,
           movimento: "entrada",
-          painelLink: linkByRioPdvId.get(p.id) ?? null,
+          portalPlayerId: linkByRioPdvId.get(p.id) ?? null,
         });
       }
     }
@@ -215,7 +212,7 @@ export function extractRioTreeMovimentos(
         nome: clienteNome,
         clienteNome,
         movimento: "entrada",
-        painelLink: null,
+        portalPlayerId: null,
       });
     }
   }

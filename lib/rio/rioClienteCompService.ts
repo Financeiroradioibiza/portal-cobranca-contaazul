@@ -1218,6 +1218,19 @@ export async function createRioCompClienteLinha(
   const full = await getRioCompMonthWithLinhas(month.yearMonth);
   const out = full?.linhas.find((l) => l.id === created.id);
   if (!out) throw new Error("hydrate_failed");
+
+  const { ensurePortalClienteIdForLinha } = await import("@/lib/player/ensurePortalIds");
+  const { createLoginForClienteIfMissing } = await import("@/lib/player/clientePlayerLoginService");
+  const portalClienteId = await ensurePortalClienteIdForLinha(created.id);
+  await createLoginForClienteIfMissing(
+    portalClienteId,
+    (input?.nomeFantasia?.trim() || "Novo cliente").slice(0, 8000),
+  );
+
+  const { ensurePdvInstalacaoToken } = await import("@/lib/player/pdvInstalacaoToken");
+  const { linhaAsPdvKey } = await import("@/lib/cadastros/producaoHierarchy");
+  await ensurePdvInstalacaoToken(linhaAsPdvKey(created.id));
+
   return out;
 }
 
@@ -1240,6 +1253,12 @@ export async function createRioCompPdv(linhaId: string, nome: string) {
     },
   });
   const numeroPdvSite = await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
+
+  const { ensurePortalPdvIdForPdv } = await import("@/lib/player/ensurePortalIds");
+  const { ensurePdvInstalacaoToken } = await import("@/lib/player/pdvInstalacaoToken");
+  await ensurePortalPdvIdForPdv(pdv.id);
+  await ensurePdvInstalacaoToken(pdv.id);
+
   return { pdv, numeroPdvSite };
 }
 

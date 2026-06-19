@@ -14,6 +14,7 @@ import type {
 } from "@/lib/cadastros/producaoSuporteTypes";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { displayBrazilianTaxId } from "@/lib/format";
+import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
@@ -31,7 +32,7 @@ type SuporteClienteOption = {
   key: string;
   nome: string;
   tagCobranca: SuportePdvRow["tagCobranca"];
-  painelClienteId: number | null;
+  portalClienteId: number | null;
   pdvCount: number;
   semPingCount: number;
 };
@@ -54,7 +55,7 @@ function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
         key: row.clienteKey,
         nome: row.clienteNome,
         tagCobranca: row.clienteTagCobranca,
-        painelClienteId: row.painelClienteId,
+        portalClienteId: row.portalClienteId,
         pdvCount: 0,
         semPingCount: 0,
       };
@@ -62,8 +63,8 @@ function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
     }
     opt.pdvCount += 1;
     if (row.semPing5Dias) opt.semPingCount += 1;
-    if (row.painelClienteId != null && opt.painelClienteId == null) {
-      opt.painelClienteId = row.painelClienteId;
+    if (row.portalClienteId != null && opt.portalClienteId == null) {
+      opt.portalClienteId = row.portalClienteId;
     }
   }
   return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
@@ -138,7 +139,7 @@ function SuporteClientePickerDialog({
     const digits = q.replace(/\D/g, "");
     return clients.filter((c) => {
       if (c.nome.toLowerCase().includes(q)) return true;
-      if (digits && c.painelClienteId != null && String(c.painelClienteId).includes(digits)) {
+      if (digits && c.portalClienteId != null && String(c.portalClienteId).includes(digits)) {
         return true;
       }
       return false;
@@ -154,7 +155,7 @@ function SuporteClientePickerDialog({
       <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
         <h2 className="text-sm font-bold text-slate-900 dark:text-white">Escolher cliente</h2>
         <p className="mt-0.5 text-[11px] text-slate-500">
-          Busque pelo nome ou ID do painel. A lista mostra só PDVs da competência vigente.
+          Busque pelo nome ou ID do Player. A lista mostra só PDVs da competência vigente.
         </p>
         <input
           type="search"
@@ -176,7 +177,7 @@ function SuporteClientePickerDialog({
                 onClick={() => onSelect(c.key)}
               >
                 <span className="font-mono text-[11px] font-bold tabular-nums text-sky-700 dark:text-sky-400">
-                  {c.painelClienteId ?? "—"}
+                  {c.portalClienteId ?? "—"}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -226,8 +227,8 @@ function ClienteFocusHeader({
       }
     >
       <IdCell
-        id={cliente.painelClienteId}
-        label="Copiar ID do cliente no painel"
+        id={cliente.portalClienteId}
+        label="Copiar ID do cliente no Player"
         variant="cliente"
       />
       <div className="min-w-0 flex-1">
@@ -477,7 +478,12 @@ function IdCell({
   label: string;
   variant: "pdv" | "cliente";
 }) {
-  const trimmed = id != null ? String(id) : "";
+  const trimmed =
+    id != null ?
+      variant === "pdv" ?
+        formatPortalPdvIdDisplay(id)
+      : String(id)
+    : "";
   const display = trimmed || "—";
   const colorClass =
     variant === "pdv" ?
@@ -526,7 +532,7 @@ function PdvRow({
       }
     >
       <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
-        <IdCell id={row.painelPdvId} label="Copiar ID do PDV no painel" variant="pdv" />
+        <IdCell id={row.portalPdvId} label="Copiar ID do PDV no Player" variant="pdv" />
       </td>
       <td className="min-w-[9rem] max-w-[14rem] px-2 py-2 align-top">
         <div className="font-semibold">
@@ -549,8 +555,8 @@ function PdvRow({
         <>
           <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
             <IdCell
-              id={row.painelClienteId}
-              label="Copiar ID do cliente no painel"
+              id={row.portalClienteId}
+              label="Copiar ID do cliente no Player"
               variant="cliente"
             />
           </td>
@@ -920,14 +926,14 @@ export function ProducaoSuportePanel() {
                 : null}
               </tr>
               <tr>
-                <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID PDV no painel legado">
+                <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID PDV no Player">
                   ID PDV
                 </th>
                 <th className="min-w-[9rem] px-2 py-2">PDV</th>
                 <th className="whitespace-nowrap px-2 py-2">CNPJ PDV</th>
                 {!clienteMode ?
                   <>
-                    <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID cliente no painel legado">
+                    <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID cliente no Player">
                       ID cli.
                     </th>
                     <th className="min-w-[8rem] px-2 py-2">Cliente</th>
@@ -1020,7 +1026,7 @@ export function ProducaoSuportePanel() {
 
         <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
           Ordem: últimos cadastros/instalações primeiro. Busca aceita CNPJ com ou sem máscara, nome
-          do PDV ou do cliente, ou ID numérico do painel. Google Maps usa nome + endereço + bairro
+          do PDV ou do cliente, ou ID do Player (ex. 100.001). Google Maps usa nome + endereço + bairro
           (igual Consulta Painel).
         </p>
       </section>

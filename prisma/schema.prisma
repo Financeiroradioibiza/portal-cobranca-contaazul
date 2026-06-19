@@ -297,6 +297,9 @@ model RioCompClienteLinha {
   observacoesLinha String @default("") @map("observacoes_linha") @db.Text
   sortOrder        Int    @default(0) @map("sort_order")
 
+  /// ID numérico do cliente no Player (100, 101, … — ordem alfabética).
+  portalClienteId Int? @unique @map("portal_cliente_id")
+
   pdvs RioCompPdv[]
 
   @@unique([monthId, caPersonId])
@@ -317,12 +320,31 @@ model RioCompPdv {
   movimento   RioPdvMovimento @default(estavel)
   tagCobranca RioTagCobranca  @default(cobrando) @map("tag_cobranca")
 
+  /// ID numérico do PDV no Player (ex. 100001 → exibido 100.001).
+  portalPdvId Int? @unique @map("portal_pdv_id")
+
   createdAt DateTime @default(now()) @map("created_at")
 
   painelLink PainelPdvLink?
 
   @@index([clienteId, sortOrder])
   @@map("rio_comp_pdv")
+}
+
+/// Login de cliente no Player (email + senha → lista de PDVs).
+model ClientePlayerLogin {
+  id              String   @id @default(cuid())
+  portalClienteId Int      @unique @map("portal_cliente_id")
+  email           String   @unique @db.VarChar(200)
+  passwordHash    String   @map("password_hash") @db.Text
+  /// Senha em texto para consulta do suporte (estável até edição manual).
+  passwordPlain   String   @default("") @map("password_plain") @db.VarChar(64)
+  clienteNome     String   @default("") @map("cliente_nome") @db.Text
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("cliente_player_login")
 }
 
 /// Vínculo PDV Planilha Rio ↔ painel legado (produção).
@@ -405,6 +427,10 @@ model ProducaoPdvCadastro {
   contatoCobrancaNome     String @default("") @map("contato_cobranca_nome") @db.Text
   contatoCobrancaEmail    String @default("") @map("contato_cobranca_email") @db.Text
   contatoCobrancaTelefone String @default("") @map("contato_cobranca_telefone") @db.VarChar(64)
+
+  /// Chave serial do Player (1ª instalação amarra o aparelho).
+  playerInstalacaoToken String    @default("") @map("player_instalacao_token") @db.VarChar(64)
+  playerInstaladoEm     DateTime? @map("player_instalado_em")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -786,6 +812,12 @@ model Programacao {
   formatoPadrao  FormatoEntrega @default(mp3_128_mono) @map("formato_padrao")
   publicada      Boolean        @default(false)
   publishedAt    DateTime?      @map("published_at")
+  /// Revisão no ar (incrementa a cada disparo de atualização).
+  revisionAtual  Int            @default(0) @map("revision_atual")
+  /// Cliente do gateway Player 5 usado na publicação/disparo.
+  clienteGatewayId Int?         @map("cliente_gateway_id")
+  /// Snapshot das faixas por pasta após o último disparo (para diff do log).
+  snapshotAtual  Json?          @map("snapshot_atual")
   criativoUserId String?        @map("criativo_user_id")
   criativoNome   String         @default("") @map("criativo_nome") @db.VarChar(120)
   createdAt      DateTime       @default(now()) @map("created_at")
@@ -794,9 +826,31 @@ model Programacao {
   pastas       Pasta[]
   vinhetas     Vinheta[]
   agendamentos Agendamento[]
+  atualizacoes ProgramacaoAtualizacao[]
 
   @@index([clienteRef])
   @@map("programacao")
+}
+
+/// Registro de cada disparo de atualização (log + diff entraram/saíram).
+model ProgramacaoAtualizacao {
+  id                  String   @id @default(cuid())
+  programacaoId       String   @map("programacao_id")
+  /// Ex.: Radiolbiza-ATL-Junho-26.01
+  codigo              String   @db.VarChar(80)
+  revision            Int
+  disparadaEm         DateTime @default(now()) @map("disparada_em")
+  disparadaPor        String   @default("") @map("disparada_por") @db.VarChar(200)
+  /// { entraram: FaixaLog[], sairam: FaixaLog[] }
+  diffJson            Json     @map("diff_json")
+  snapshotJson        Json     @map("snapshot_json")
+  musicasPublicadas   Int      @default(0) @map("musicas_publicadas")
+  playlistsPublicadas Int      @default(0) @map("playlists_publicadas")
+
+  programacao Programacao @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
+
+  @@index([programacaoId, disparadaEm])
+  @@map("programacao_atualizacao")
 }
 
 enum AgendamentoAlvo {
@@ -818,8 +872,10 @@ model Agendamento {
   /// Intervalo de datas (opcional): ex.: tocar de 07 a 10 de junho.
   dataInicio    DateTime?       @map("data_inicio") @db.Date
   dataFim       DateTime?       @map("data_fim") @db.Date
-  /// Para vinhetas: tocar a cada N minutos dentro da janela (null = uma vez/contínuo).
+  /// Para vinhetas: tocar a cada N minutos dentro da janela (null = não usar intervalo por tempo).
   frequenciaMin Int?            @map("frequencia_min")
+  /// Para vinhetas: tocar a cada N músicas da programação (null = não usar intervalo por faixa).
+  frequenciaMusicas Int?        @map("frequencia_musicas")
   prioridade    Int             @default(0)
   ativo         Boolean         @default(true)
   createdAt     DateTime        @default(now()) @map("created_at")

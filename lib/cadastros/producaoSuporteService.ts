@@ -4,6 +4,7 @@ import {
   getProducaoDashboard,
   type DashboardPdvTelemetry,
 } from "@/lib/cadastros/producaoDashboardService";
+import { loadPortalPlayerIdMaps } from "@/lib/player/loadPortalPlayerIdMaps";
 import type {
   ProducaoSuportePayload,
   SuportePdvRow,
@@ -35,7 +36,7 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
     };
   }
 
-  const [cadastros, rioPdvs, painelLinks] = await Promise.all([
+  const [cadastros, rioPdvs, portalMaps] = await Promise.all([
     prisma.producaoPdvCadastro.findMany({
       where: { rioPdvKey: { in: pdvKeys } },
       select: {
@@ -49,18 +50,15 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
       },
     }),
     prisma.rioCompPdv.findMany({
-      where: { id: { in: pdvKeys } },
+      where: { id: { in: pdvKeys.filter((k) => !k.startsWith("linha:")) } },
       select: { id: true, createdAt: true },
     }),
-    prisma.painelPdvLink.findMany({
-      where: { rioCompPdvId: { in: pdvKeys } },
-      select: { rioCompPdvId: true, painelPdvId: true, painelClienteId: true },
-    }),
+    loadPortalPlayerIdMaps(pdvKeys),
   ]);
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
   const rioCreatedByKey = new Map(rioPdvs.map((p) => [p.id, p.createdAt]));
-  const linkByKey = new Map(painelLinks.map((l) => [l.rioCompPdvId, l]));
+  const linkByKey = portalMaps.byRioPdvKey;
 
   const rows: SuportePdvRow[] = [];
 
@@ -89,8 +87,8 @@ export async function getProducaoSuporte(yearMonth: number): Promise<ProducaoSup
         clienteNome: cliente.nome,
         clienteTagCobranca: cliente.tagCobranca,
         clienteKey: cliente.key,
-        painelPdvId: link?.painelPdvId ?? null,
-        painelClienteId: link?.painelClienteId ?? null,
+        portalPdvId: link?.portalPdvId ?? null,
+        portalClienteId: link?.portalClienteId ?? null,
         programacaoMusical: pdv.programacaoMusical,
         playerVersion: pdv.telemetry.playerVersion,
         contatoLojaNome: cad?.contatoLojaNome?.trim() ?? "",

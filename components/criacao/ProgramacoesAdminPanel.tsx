@@ -29,6 +29,8 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
   const [loadingArvore, setLoadingArvore] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showNovaProg, setShowNovaProg] = useState(false);
+  const [dispararProg, setDispararProg] = useState<{ id: string; nome: string } | null>(null);
+  const [logAberto, setLogAberto] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/criacao/clientes")
@@ -242,6 +244,13 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                             >
                               Editor completo
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => setDispararProg({ id: prog.id, nome: prog.nome })}
+                              className="rounded border border-emerald-600 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                            >
+                              Disparar atualização
+                            </button>
                             <NovaPastaInline programacaoId={prog.id} onDone={() => loadArvore(clienteSel.ref)} />
                             <NovaVinhetaInline programacaoId={prog.id} onDone={() => loadArvore(clienteSel.ref)} />
                             <button
@@ -295,6 +304,25 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                           {prog.pastas.length === 0 && prog.vinhetas.length === 0 ?
                             <li className="px-2 py-2 text-xs text-slate-400">Sem pastas nem vinhetas — crie acima.</li>
                           : null}
+                          <li className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setLogAberto((prev) => {
+                                  const n = new Set(prev);
+                                  if (n.has(prog.id)) n.delete(prog.id);
+                                  else n.add(prog.id);
+                                  return n;
+                                })
+                              }
+                              className="rounded border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300"
+                            >
+                              {logAberto.has(prog.id) ? "▾ Log de atualizações" : "▸ Log de atualizações"}
+                            </button>
+                            {logAberto.has(prog.id) ?
+                              <AtualizacaoLogPanel programacaoId={prog.id} />
+                            : null}
+                          </li>
                         </ul>
                       : null}
                     </li>
@@ -305,6 +333,20 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
           }
         </div>
       </div>
+
+      {dispararProg && clienteSel ?
+        <DispararAtualizacaoModal
+          programacaoId={dispararProg.id}
+          programacaoNome={dispararProg.nome}
+          clienteNome={clienteSel.nome}
+          onClose={() => setDispararProg(null)}
+          onDone={async () => {
+            setDispararProg(null);
+            await loadArvore(clienteSel.ref);
+            setLogAberto((prev) => new Set(prev).add(dispararProg.id));
+          }}
+        />
+      : null}
     </div>
   );
 }
@@ -501,5 +543,284 @@ function NovaVinhetaInline({ programacaoId, onDone }: { programacaoId: string; o
         ✕
       </button>
     </span>
+  );
+}
+
+type GatewayCliente = { id: number; nome: string; pdvs: number };
+
+type AtualizacaoLogItem = {
+  id: string;
+  codigo: string;
+  revision: number;
+  disparadaEm: string;
+  disparadaPor: string;
+  diff: { entraram: FaixaDiff[]; sairam: FaixaDiff[] };
+  musicasPublicadas: number;
+  playlistsPublicadas: number;
+};
+
+type FaixaDiff = { musicaId: string; titulo: string; artista: string; pastaNome: string };
+
+function DispararAtualizacaoModal({
+  programacaoId,
+  programacaoNome,
+  clienteNome,
+  onClose,
+  onDone,
+}: {
+  programacaoId: string;
+  programacaoNome: string;
+  clienteNome: string;
+  onClose: () => void;
+  onDone: () => void | Promise<void>;
+}) {
+  const [clientes, setClientes] = useState<GatewayCliente[]>([]);
+  const [selId, setSelId] = useState<number | "">("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/criacao/gateway-clientes")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d?.clientes) return;
+        const list = d.clientes as GatewayCliente[];
+        setClientes(list);
+        const alvo = clienteNome.trim().toLowerCase();
+        const sug =
+          list.find((c) => c.nome.trim().toLowerCase() === alvo) ??
+          list.find((c) => c.nome.toLowerCase().includes(alvo) || alvo.includes(c.nome.toLowerCase()));
+        if (sug) setSelId(sug.id);
+        else if (list.length === 1) setSelId(list[0].id);
+      })
+      .catch(() => setError("Não foi possível carregar clientes do Player."))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clienteNome]);
+
+  async function disparar() {
+    if (selId === "" || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/disparar-atualizacao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clienteIdGateway: selId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        codigo?: string;
+        revision?: number;
+        diff?: { entraram?: FaixaDiff[]; sairam?: FaixaDiff[] };
+        musicas?: number;
+        playlists?: number;
+        semArquivo?: number;
+        clienteGatewayNome?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "disparo_falhou");
+      const ent = data.diff?.entraram?.length ?? 0;
+      const sai = data.diff?.sairam?.length ?? 0;
+      setResultado(
+        `${data.codigo ?? "Atualização"} — rev. ${data.revision ?? "?"} enviada para ${data.clienteGatewayNome ?? "Player"}: ` +
+          `${data.playlists ?? 0} pasta(s), ${data.musicas ?? 0} faixa(s). ` +
+          `Entraram ${ent}, saíram ${sai}.` +
+          (data.semArquivo ? ` (${data.semArquivo} sem áudio)` : ""),
+      );
+      await onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao disparar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <h2 className="text-sm font-bold">Disparar atualização</h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            ✕
+          </button>
+        </div>
+        <div className="p-4">
+          <p className="mb-1 text-xs font-semibold text-slate-700 dark:text-slate-200">{programacaoNome}</p>
+          <p className="mb-3 text-xs text-slate-500">
+            Publica imediatamente no Player 5 o estado atual da programação e registra no log (entraram / saíram).
+            A edição continua livre — você pode disparar de novo quando quiser.
+          </p>
+          {loading ?
+            <div className="py-6 text-center text-sm text-slate-400">Carregando clientes do gateway…</div>
+          : clientes.length === 0 ?
+            <div className="py-6 text-center text-sm text-red-600">
+              Nenhum cliente no gateway. Cadastre um cliente de teste no Player 5 primeiro.
+            </div>
+          : <>
+              <label className="mb-3 block text-sm">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente no Player (gateway)</span>
+                <select
+                  value={selId}
+                  onChange={(e) => setSelId(e.target.value ? Number(e.target.value) : "")}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                >
+                  <option value="">Selecione…</option>
+                  {clientes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} ({c.pdvs} PDV{c.pdvs === 1 ? "" : "s"})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {error ?
+                <div className="mb-2 text-sm text-red-600">{error}</div>
+              : null}
+              {resultado ?
+                <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+                  {resultado}
+                </div>
+              : null}
+              <button
+                type="button"
+                onClick={() => void disparar()}
+                disabled={busy || selId === "" || !!resultado}
+                className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {busy ? "Disparando…" : "Disparar agora"}
+              </button>
+            </>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
+  const [rows, setRows] = useState<AtualizacaoLogItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/atualizacoes`);
+      if (!res.ok) throw new Error();
+      const data = (await res.json()) as { atualizacoes?: AtualizacaoLogItem[] };
+      setRows(data.atualizacoes ?? []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [programacaoId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function fmtData(iso: string) {
+    try {
+      return new Date(iso).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    } catch {
+      return iso;
+    }
+  }
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  if (loading) {
+    return <p className="mt-2 text-[10px] text-slate-400">Carregando log…</p>;
+  }
+
+  if (rows.length === 0) {
+    return <p className="mt-2 text-[10px] text-slate-400">Nenhuma atualização disparada ainda.</p>;
+  }
+
+  return (
+    <ul className="mt-2 space-y-1 rounded border border-slate-100 bg-slate-50/80 p-2 dark:border-slate-800 dark:bg-slate-950/50">
+      {rows.map((r) => {
+        const aberto = expanded.has(r.id);
+        const ent = r.diff?.entraram ?? [];
+        const sai = r.diff?.sairam ?? [];
+        return (
+          <li key={r.id} className="text-[10px]">
+            <button
+              type="button"
+              onClick={() => toggle(r.id)}
+              className="flex w-full items-center gap-2 text-left font-semibold text-slate-700 hover:text-slate-900 dark:text-slate-300"
+            >
+              <span>{aberto ? "▾" : "▸"}</span>
+              <span className="font-mono text-emerald-700 dark:text-emerald-400">{r.codigo}</span>
+              <span className="font-normal text-slate-400">· rev. {r.revision}</span>
+              <span className="ml-auto font-normal text-slate-400">{fmtData(r.disparadaEm)}</span>
+            </button>
+            <p className="ml-4 text-slate-500">
+              {r.disparadaPor} · +{ent.length} / −{sai.length} · {r.playlistsPublicadas} pasta(s), {r.musicasPublicadas}{" "}
+              faixa(s)
+            </p>
+            {aberto ?
+              <div className="ml-4 mt-1 grid gap-2 sm:grid-cols-2">
+                <DiffList titulo="Entraram" faixas={ent} cor="emerald" />
+                <DiffList titulo="Saíram" faixas={sai} cor="red" />
+              </div>
+            : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function DiffList({
+  titulo,
+  faixas,
+  cor,
+}: {
+  titulo: string;
+  faixas: FaixaDiff[];
+  cor: "emerald" | "red";
+}) {
+  const border = cor === "emerald" ? "border-emerald-200 dark:border-emerald-900" : "border-red-200 dark:border-red-900";
+  const head = cor === "emerald" ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400";
+  if (faixas.length === 0) {
+    return (
+      <div className={`rounded border ${border} p-2`}>
+        <p className={`font-semibold ${head}`}>{titulo}</p>
+        <p className="text-slate-400">—</p>
+      </div>
+    );
+  }
+  return (
+    <div className={`rounded border ${border} p-2`}>
+      <p className={`mb-1 font-semibold ${head}`}>
+        {titulo} ({faixas.length})
+      </p>
+      <ul className="max-h-32 space-y-0.5 overflow-y-auto text-slate-600 dark:text-slate-400">
+        {faixas.map((f) => (
+          <li key={f.musicaId}>
+            <span className="text-slate-400">[{f.pastaNome}]</span> {f.titulo}
+            {f.artista ? ` — ${f.artista}` : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

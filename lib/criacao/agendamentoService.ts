@@ -14,6 +14,7 @@ export type AgendamentoRow = {
   dataInicio: string | null;
   dataFim: string | null;
   frequenciaMin: number | null;
+  frequenciaMusicas: number | null;
   prioridade: number;
   ativo: boolean;
 };
@@ -41,6 +42,12 @@ function parseDate(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function normalizeFreqInt(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  if (!Number.isFinite(Number(v))) return null;
+  return Math.max(1, Math.round(Number(v)));
+}
+
 export async function listAgendamentos(programacaoId: string): Promise<AgendamentoRow[]> {
   const [ags, pastas, vinhetas] = await Promise.all([
     prisma.agendamento.findMany({
@@ -65,6 +72,7 @@ export async function listAgendamentos(programacaoId: string): Promise<Agendamen
     dataInicio: a.dataInicio ? a.dataInicio.toISOString().slice(0, 10) : null,
     dataFim: a.dataFim ? a.dataFim.toISOString().slice(0, 10) : null,
     frequenciaMin: a.frequenciaMin,
+    frequenciaMusicas: a.frequenciaMusicas,
     prioridade: a.prioridade,
     ativo: a.ativo,
   }));
@@ -81,6 +89,7 @@ export async function createAgendamento(
     dataInicio?: string;
     dataFim?: string;
     frequenciaMin?: number | null;
+    frequenciaMusicas?: number | null;
     prioridade?: number;
   },
 ) {
@@ -88,10 +97,8 @@ export async function createAgendamento(
   const alvoId = (input.alvoId || "").trim();
   if (!alvoId) throw new Error("alvo_obrigatorio");
 
-  const freq =
-    input.frequenciaMin != null && Number.isFinite(Number(input.frequenciaMin))
-      ? Math.max(1, Math.round(Number(input.frequenciaMin)))
-      : null;
+  const freqMin = normalizeFreqInt(input.frequenciaMin);
+  const freqMusicas = normalizeFreqInt(input.frequenciaMusicas);
 
   return prisma.agendamento.create({
     data: {
@@ -103,7 +110,8 @@ export async function createAgendamento(
       horaFim: normalizeHora(input.horaFim, "23:59"),
       dataInicio: parseDate(input.dataInicio),
       dataFim: parseDate(input.dataFim),
-      frequenciaMin: alvoTipo === "vinheta" ? freq : null,
+      frequenciaMin: alvoTipo === "vinheta" ? freqMin : null,
+      frequenciaMusicas: alvoTipo === "vinheta" ? freqMusicas : null,
       prioridade: Number.isFinite(Number(input.prioridade)) ? Math.round(Number(input.prioridade)) : 0,
     },
     select: { id: true },
@@ -119,6 +127,7 @@ export async function updateAgendamento(
     dataInicio?: string | null;
     dataFim?: string | null;
     frequenciaMin?: number | null;
+    frequenciaMusicas?: number | null;
     prioridade?: number;
     ativo?: boolean;
   },
@@ -130,10 +139,10 @@ export async function updateAgendamento(
   if ("dataInicio" in patch) data.dataInicio = parseDate(patch.dataInicio);
   if ("dataFim" in patch) data.dataFim = parseDate(patch.dataFim);
   if ("frequenciaMin" in patch) {
-    data.frequenciaMin =
-      patch.frequenciaMin != null && Number.isFinite(Number(patch.frequenciaMin))
-        ? Math.max(1, Math.round(Number(patch.frequenciaMin)))
-        : null;
+    data.frequenciaMin = normalizeFreqInt(patch.frequenciaMin);
+  }
+  if ("frequenciaMusicas" in patch) {
+    data.frequenciaMusicas = normalizeFreqInt(patch.frequenciaMusicas);
   }
   if (typeof patch.prioridade === "number") data.prioridade = Math.round(patch.prioridade);
   if (typeof patch.ativo === "boolean") data.ativo = patch.ativo;

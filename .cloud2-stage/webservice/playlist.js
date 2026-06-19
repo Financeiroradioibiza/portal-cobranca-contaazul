@@ -1,0 +1,91 @@
+import { getPool } from '../../db/pool.js';
+import { apiPublicBaseUrl, intervalToLegacyHms } from './helpers.js';
+import { loadSessionByToken } from './loginByToken.js';
+
+/** GET /api/playlist/ — programação musical (pastas + faixas + url_musica). */
+export async function registerPlaylistRoutes(app, prefix) {
+  app.get(`${prefix}/playlist/`, async (req, reply) => {
+    const token = String(req.query.token ?? '').trim();
+    if (!token) {
+      return reply.send({ mensagem: 'token_invalido' });
+    }
+
+    const session = await loadSessionByToken(token);
+    if (!session) {
+      return reply.send({ mensagem: 'token_invalido' });
+    }
+
+    const pool = getPool();
+    const programa = await pool.query(
+      `SELECT id, nome FROM programas WHERE cliente_id = $1 ORDER BY id LIMIT 1`,
+      [session.cliente_id],
+    );
+    if (programa.rowCount === 0) {
+      return reply.send({ mensagem: 'programa_nao_encontrado' });
+    }
+
+    const prog = programa.rows[0];
+    const playlists = await pool.query(
+      `SELECT id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar
+         FROM playlists
+        WHERE pdv_id = $1 OR (pdv_id IS NULL AND programa_id = $2)
+        ORDER BY id`,
+      [session.pdv_id, prog.id],
+    );
+
+    const musicasByPlaylist = await pool.query(
+      `SELECT
+         pl.id AS playlist_id, pm.id AS pm_id,
+         m.titulo, m.nome_arquivo, m.tamanho_bytes::text, m.duracao, m.corte_seg,
+         COALESCE(pm.downloaded, 'N') AS downloaded,
+         a.id AS artista_id, a.nome AS artista_nome, m.id AS musica_id
+       FROM playlists pl
+       JOIN playlist_musicas pm ON pm.playlist_id = pl.id
+       JOIN musicas m ON m.id = pm.musica_id
+       LEFT JOIN artistas a ON a.id = pm.artista_id
+       WHERE pl.pdv_id = $1 OR (pl.pdv_id IS NULL AND pl.programa_id = $2)
+       ORDER BY pl.id, pm.ordem, pm.id`,
+      [session.pdv_id, prog.id],
+    );
+
+    const musicasMap = new Map();
+    for (const m of musicasByPlaylist.rows) {
+      const list = musicasMap.get(m.playlist_id) ?? [];
+      list.push(m);
+      musicasMap.set(m.playlist_id, list);
+    }
+
+    const baseUrl = apiPublicBaseUrl();
+
+    return reply.send({
+      programa: { id: prog.id, nome: prog.nome, cliente_id: session.cliente_id },
+      playlists: playlists.rows.map((pl) => ({
+        id: pl.id,
+        nome: pl.nome,
+        tipo: pl.tipo,
+        tocar_sempre: pl.tocar_sempre,
+        tempo_total: intervalToLegacyHms(pl.tempo_total),
+        tocar_cada: pl.tocar_cada,
+        tipo_tocar: pl.tipo_tocar,
+        musicas: (musicasMap.get(pl.id) ?? []).map((m) => ({
+          musica: {
+            id: m.musica_id,
+            playlist_musica_id: String(m.pm_id),
+            titulo: m.titulo,
+            nome_arquivo: m.nome_arquivo,
+            tamanho_arquivo: m.tamanho_bytes,
+            duracao: intervalToLegacyHms(m.duracao),
+            corte: String(m.corte_seg),
+            downloaded: m.downloaded,
+          },
+          artista: {
+            id: m.artista_id ?? 0,
+            nome: m.artista_nome ?? '',
+            foto: '',
+          },
+          url_musica: `${baseUrl}/api/get_musica/?token=${encodeURIComponent(token)}&id_musica=${m.musica_id}&playlist_id=${pl.id}`,
+        })),
+      })),
+    });
+  });
+}

@@ -15,6 +15,7 @@ import {
 import { CadastrosMovimentoBanner } from "@/components/cadastros/CadastrosMovimentoBanner";
 import { PdvCadastroDrawer } from "@/components/cadastros/PdvCadastroDrawer";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
+import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
 import { rioTagCobrancaRowBgClass } from "@/lib/rio/rioTagCobranca";
 import {
   buildProducaoTree,
@@ -94,7 +95,7 @@ function DraggableProdPdv({
     data: { pdv },
     disabled: !editMode,
   });
-  const linked = Boolean(pdv.painelLink);
+  const linked = Boolean(pdv.portalPlayerId);
   const motivo = linked ? null : semPainelMotivo(pdv);
   const tagBg =
     !selected && !multiSelected ?
@@ -150,8 +151,8 @@ function DraggableProdPdv({
         : null}
         <span className="ml-1 text-[10px] text-slate-400">
           {linked ?
-            `· painel #${pdv.painelLink!.painelPdvId}`
-          : "· sem painel"}
+            `· Player ${formatPortalPdvIdDisplay(pdv.portalPlayerId!.portalPdvId)}`
+          : "· sem ID Player"}
         </span>
         {motivo ?
           <span
@@ -302,8 +303,8 @@ export function CadastrosGruposPanel() {
     return base
       .map((c) => ({
         ...c,
-        pdvs: c.pdvs.filter((p) => !p.painelLink),
-        pdvCount: c.pdvs.filter((p) => !p.painelLink).length,
+        pdvs: c.pdvs.filter((p) => !p.portalPlayerId),
+        pdvCount: c.pdvs.filter((p) => !p.portalPlayerId).length,
       }))
       .filter((c) => c.pdvCount > 0);
   }, [clientesVisiveis, rioSel, onlySemPainel]);
@@ -387,10 +388,8 @@ export function CadastrosGruposPanel() {
         rows?: Array<{
           rioPdvId: string;
           link: {
-            painelPdvId: number;
-            painelClienteId: number;
-            painelPdvNome: string | null;
-            matchMethod: string;
+            portalPdvId: number;
+            portalClienteId: number;
           } | null;
         }>;
         error?: string;
@@ -407,10 +406,8 @@ export function CadastrosGruposPanel() {
       for (const row of vincData.rows ?? []) {
         if (!row.link) continue;
         links.set(row.rioPdvId, {
-          painelPdvId: row.link.painelPdvId,
-          painelClienteId: row.link.painelClienteId,
-          painelPdvNome: row.link.painelPdvNome,
-          matchMethod: row.link.matchMethod,
+          portalPdvId: row.link.portalPdvId,
+          portalClienteId: row.link.portalClienteId,
         });
       }
       setLinkMap(links);
@@ -783,7 +780,7 @@ export function CadastrosGruposPanel() {
                       key: r.id,
                       label: r.kind === "cliente" ? r.nome : r.nome,
                       sublabel: r.kind === "pdv" ? r.clienteNome : "cliente encerrado",
-                      linked: r.painelLink != null,
+                      linked: r.portalPlayerId != null,
                     }))}
                   />
                   <CadastrosMovimentoBanner
@@ -794,7 +791,7 @@ export function CadastrosGruposPanel() {
                       key: r.id,
                       label: r.nome,
                       sublabel: r.kind === "pdv" ? r.clienteNome : "cliente novo",
-                      linked: r.painelLink != null,
+                      linked: r.portalPlayerId != null,
                     }))}
                   />
                 </>
@@ -1111,7 +1108,7 @@ export function CadastrosGruposPanel() {
                             r.kind === "cliente" ? "cliente encerrado" : (
                               r.rioLinhaNome
                             ),
-                          linked: r.painelLink != null,
+                          linked: r.portalPlayerId != null,
                         }))}
                         selectedKey={selProdPdvId}
                         onSelect={(key) => setSelProdPdvId(key)}

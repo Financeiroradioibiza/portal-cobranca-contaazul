@@ -210,6 +210,8 @@ Cliente operacional
 | Arquivo | Conteúdo |
 |---------|----------|
 | `docs/FASE-2-PRODUCAO-MUSICAL.md` | Visão arquitetura produção + webservice |
+| `docs/PLAYER5-INTEGRACAO.md` | **Hub Player 5** — sync, tokens, flags, publicar, checklist |
+| `docs/PLAYER5-PILOTO.md` | Passo a passo piloto end-to-end |
 | `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload, filas, workers cloud2, escala |
 | `docs/BACKUP-E-RESTAURACAO.md` | Backup código, banco e configs |
 | `docs/PORTAL-USUARIOS-PERMISSOES.md` | Papéis, equipe, auditoria |

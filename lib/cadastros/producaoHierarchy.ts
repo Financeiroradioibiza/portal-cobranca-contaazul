@@ -2,7 +2,10 @@ import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { effectiveRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
-import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
+import type { PortalPlayerIdBrief } from "@/lib/player/portalPlayerIds";
+
+/** @deprecated */
+export type PainelLinkBrief = PortalPlayerIdBrief;
 
 export const LINHA_AS_PDV_PREFIX = "linha:";
 
@@ -26,7 +29,7 @@ export type ProducaoPdvRef = {
   documento: string | null;
   rioLinhaId: string;
   rioLinhaNome: string;
-  painelLink: PainelLinkBrief | null;
+  portalPlayerId: PortalPlayerIdBrief | null;
   /** Cliente Rio sem PDVs filhos — o próprio cliente vira um PDV na produção. */
   isLinhaProxy?: boolean;
   movimento?: string;
@@ -165,7 +168,7 @@ export function buildProducaoClientes(
         documento: ln.documento ?? null,
         rioLinhaId: ln.id,
         rioLinhaNome: nomeCliente,
-        painelLink: linkByRioPdvId.get(proxyId) ?? null,
+        portalPlayerId: linkByRioPdvId.get(proxyId) ?? null,
         isLinhaProxy: true,
         movimento: ln.movimento ?? "estavel",
         tagCobranca: linhaTag,
@@ -178,7 +181,7 @@ export function buildProducaoClientes(
           documento: p.documento,
           rioLinhaId: ln.id,
           rioLinhaNome: nomeCliente,
-          painelLink: linkByRioPdvId.get(p.id) ?? null,
+          portalPlayerId: linkByRioPdvId.get(p.id) ?? null,
           movimento: p.movimento,
           tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
         });

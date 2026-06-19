@@ -26,7 +26,7 @@ export type VinculosReconcileReport = {
 };
 
 export function semPainelMotivo(pdv: ProducaoPdvRef): SemPainelMotivo | null {
-  if (pdv.painelLink) return null;
+  if (pdv.portalPlayerId) return null;
   return pdv.isLinhaProxy ? "linha_proxy" : "lista_vinculos";
 }
 
@@ -81,7 +81,7 @@ export function buildVinculosReconcileReport(input: {
     }
   }
 
-  const semPainel = producaoPdvs.filter((p) => !p.painelLink);
+  const semPainel = producaoPdvs.filter((p) => !p.portalPlayerId);
   const semPainelLinhaProxy = semPainel.filter((p) => p.isLinhaProxy).length;
   const semPainelListaVinculos = semPainel.length - semPainelLinhaProxy;
 

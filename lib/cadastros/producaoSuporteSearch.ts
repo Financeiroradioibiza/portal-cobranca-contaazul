@@ -1,5 +1,6 @@
 import type { SuportePdvRow } from "@/lib/cadastros/producaoSuporteTypes";
 import { onlyDigits } from "@/lib/format";
+import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
 
 export function matchesSuporteSearch(row: SuportePdvRow, needle: string): boolean {
   const q = needle.trim().toLowerCase();
@@ -12,8 +13,12 @@ export function matchesSuporteSearch(row: SuportePdvRow, needle: string): boolea
   }
 
   if (/^\d+$/.test(q)) {
-    if (row.painelPdvId != null && String(row.painelPdvId).includes(q)) return true;
-    if (row.painelClienteId != null && String(row.painelClienteId).includes(q)) return true;
+    if (row.portalPdvId != null && String(row.portalPdvId).includes(q)) return true;
+    if (row.portalClienteId != null && String(row.portalClienteId).includes(q)) return true;
+  }
+
+  if (q.includes(".")) {
+    if (row.portalPdvId != null && formatPortalPdvIdDisplay(row.portalPdvId).includes(q)) return true;
   }
 
   return row.nome.toLowerCase().includes(q) || row.clienteNome.toLowerCase().includes(q);

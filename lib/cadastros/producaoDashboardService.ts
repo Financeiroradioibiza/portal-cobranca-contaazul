@@ -10,7 +10,9 @@ import { ensureProducaoLayoutCarriedFromDonor } from "@/lib/cadastros/producaoLa
 import { getProducaoLayout } from "@/lib/cadastros/producaoLayoutService";
 import { donorYearMonthFor } from "@/lib/rio/rioTurnover";
 import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
-import type { PainelLinkBrief } from "@/lib/cadastros/rioProducaoTree";
+import type { PortalPlayerIdBrief } from "@/lib/player/portalPlayerIds";
+import { linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
+import { proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import { effectiveRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 export type DashboardPdvTelemetry = {
@@ -107,24 +109,29 @@ function deriveOnlineStatus(
   return statusPlayer === "Ativo";
 }
 
-async function loadPainelLinkMap(): Promise<Map<string, PainelLinkBrief>> {
-  const links = await prisma.painelPdvLink.findMany({
-    select: {
-      rioCompPdvId: true,
-      painelPdvId: true,
-      painelClienteId: true,
-      painelPdvNome: true,
-      matchMethod: true,
-    },
-  });
-  const map = new Map<string, PainelLinkBrief>();
-  for (const row of links) {
-    map.set(row.rioCompPdvId, {
-      painelPdvId: row.painelPdvId,
-      painelClienteId: row.painelClienteId,
-      painelPdvNome: row.painelPdvNome,
-      matchMethod: row.matchMethod,
-    });
+function buildPortalPlayerIdMapFromMonth(
+  linhas: Array<{
+    id: string;
+    portalClienteId: number | null;
+    movimento: string;
+    pdvs: Array<{ id: string; portalPdvId: number | null; movimento: string }>;
+  }>,
+): Map<string, PortalPlayerIdBrief> {
+  const map = new Map<string, PortalPlayerIdBrief>();
+  for (const ln of linhas) {
+    if (ln.movimento === "saida" || ln.portalClienteId == null) continue;
+    const activePdvs = ln.pdvs.filter((p) => p.movimento !== "saida");
+    if (activePdvs.length === 0) {
+      map.set(linhaAsPdvKey(ln.id), {
+        portalClienteId: ln.portalClienteId,
+        portalPdvId: proxyPortalPdvId(ln.portalClienteId),
+      });
+      continue;
+    }
+    for (const p of activePdvs) {
+      if (p.portalPdvId == null) continue;
+      map.set(p.id, { portalClienteId: ln.portalClienteId, portalPdvId: p.portalPdvId });
+    }
   }
   return map;
 }
@@ -163,7 +170,7 @@ export async function getProducaoDashboard(yearMonth: number): Promise<ProducaoD
     };
   }
 
-  const linkMap = await loadPainelLinkMap();
+  const linkMap = buildPortalPlayerIdMapFromMonth(month.linhas);
   const donorYm = donorYearMonthFor(yearMonth);
   if (donorYm !== yearMonth) {
     await ensureProducaoLayoutCarriedFromDonor(yearMonth, donorYm);

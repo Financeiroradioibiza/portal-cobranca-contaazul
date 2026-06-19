@@ -597,6 +597,7 @@ type Agendamento = {
   dataInicio: string | null;
   dataFim: string | null;
   frequenciaMin: number | null;
+  frequenciaMusicas: number | null;
   prioridade: number;
   ativo: boolean;
 };
@@ -626,6 +627,7 @@ function CronogramaSection({
   const [dIni, setDIni] = useState("");
   const [dFim, setDFim] = useState("");
   const [freq, setFreq] = useState("");
+  const [freqMusicas, setFreqMusicas] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -664,12 +666,14 @@ function CronogramaSection({
           dataInicio: dIni || undefined,
           dataFim: dFim || undefined,
           frequenciaMin: alvoTipo === "vinheta" && freq ? Number(freq) : undefined,
+          frequenciaMusicas: alvoTipo === "vinheta" && freqMusicas ? Number(freqMusicas) : undefined,
         }),
       });
       setDias(new Set());
       setDIni("");
       setDFim("");
       setFreq("");
+      setFreqMusicas("");
       setOpen(false);
       await load();
     } finally {
@@ -779,17 +783,30 @@ function CronogramaSection({
               </div>
             </label>
             {alvoIsVinheta ?
-              <label className="text-sm">
-                <span className="mb-1 block text-xs font-semibold text-slate-500">Repetir a cada (min)</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={freq}
-                  onChange={(e) => setFreq(e.target.value)}
-                  placeholder="ex.: 30"
-                  className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-                />
-              </label>
+              <>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs font-semibold text-slate-500">Repetir a cada (min)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={freq}
+                    onChange={(e) => setFreq(e.target.value)}
+                    placeholder="ex.: 30"
+                    className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs font-semibold text-slate-500">Repetir a cada (músicas)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={freqMusicas}
+                    onChange={(e) => setFreqMusicas(e.target.value)}
+                    placeholder="ex.: 5"
+                    className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  />
+                </label>
+              </>
             : null}
           </div>
           <div className="mt-3">
@@ -826,7 +843,12 @@ function CronogramaSection({
                 : null}
                 {a.frequenciaMin ?
                   <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] text-sky-800 dark:bg-sky-950 dark:text-sky-200">
-                    a cada {a.frequenciaMin}min
+                    a cada {a.frequenciaMin} min
+                  </span>
+                : null}
+                {a.frequenciaMusicas ?
+                  <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+                    a cada {a.frequenciaMusicas} música{a.frequenciaMusicas === 1 ? "" : "s"}
                   </span>
                 : null}
                 <div className="ml-auto flex items-center gap-2">

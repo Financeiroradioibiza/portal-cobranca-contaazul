@@ -41,6 +41,11 @@ export async function PATCH(req: Request, context: Ctx) {
 
   try {
     const cadastro = await updatePdvCadastro(rioPdvKey, body as never);
+    const { cloud2Enabled } = await import("@/lib/criacao/cloud2Client");
+    if (cloud2Enabled()) {
+      const { syncPlayerGatewayRegistry } = await import("@/lib/player/playerGatewaySync");
+      await syncPlayerGatewayRegistry().catch(() => null);
+    }
     return NextResponse.json({ ok: true, cadastro });
   } catch (e) {
     return NextResponse.json(

@@ -187,6 +187,13 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         gw.release();
       }
 
+      try {
+        const pool = getPool();
+        await pool.query(`UPDATE pdvs SET atualizacao_pendente = 'S' WHERE cliente_id = $1`, [clienteId]);
+      } catch {
+        /* schema legado pode não ter a coluna ainda */
+      }
+
       return reply.send({ ok: true, playlists: totalPlaylists, musicas: totalMusicas, semArquivo });
     },
   );
