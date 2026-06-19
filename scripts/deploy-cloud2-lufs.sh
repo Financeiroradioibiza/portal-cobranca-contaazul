@@ -46,13 +46,21 @@ if [[ "$MODE" == "full" ]]; then
     --exclude .env \
     "$LOCAL/" "$REMOTE:$REMOTE_DIR/"
 elif [[ "$MODE" == "patch" ]]; then
-  echo "== 2/3 rsync PATCH → rotas player-registry + index"
+  echo "== 2/3 rsync PATCH → player-registry, index, tagEnrichmentCore, tags"
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/player-registry.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/player-registry.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/deploy/routes-criacao-index.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/index.ts"
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/tagEnrichmentCore.ts" \
+    "$REMOTE:$REMOTE_DIR/src/routes/criacao/tagEnrichmentCore.ts"
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/workers/criacao/tags.ts" \
+    "$REMOTE:$REMOTE_DIR/src/workers/criacao/tags.ts"
+  # Remover pipeline.ts errado em src/criacao/ (worker real usa workers/criacao/pipeline.ts)
+  "${SSH[@]}" "$REMOTE" "rm -f '$REMOTE_DIR/src/criacao/pipeline.ts'"
 else
   echo "DEPLOY_MODE inválido: $MODE" >&2
   exit 1

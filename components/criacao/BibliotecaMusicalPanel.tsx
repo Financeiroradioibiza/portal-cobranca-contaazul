@@ -78,7 +78,6 @@ export function BibliotecaMusicalPanel() {
   const [tagFor, setTagFor] = useState<Musica | null>(null);
   const [enriching, setEnriching] = useState(false);
   const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
-  const [checkingApis, setCheckingApis] = useState(false);
   const [checkingGemini, setCheckingGemini] = useState(false);
   const [explicitMsg, setExplicitMsg] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
@@ -194,47 +193,6 @@ export function BibliotecaMusicalPanel() {
     }
   }, [load]);
 
-  const checkExplicitApis = useCallback(async () => {
-    setCheckingApis(true);
-    setExplicitMsg(null);
-    let totalProcessed = 0;
-    let totalExplicit = 0;
-    try {
-      for (let round = 0; round < 200; round += 1) {
-        setExplicitMsg(
-          round === 0
-            ? "Consultando Deezer + MusicBrainz (lotes de 10)…"
-            : `${totalProcessed} faixas · ${totalExplicit} explícitas nas APIs…`,
-        );
-        const res = await fetch("/api/criacao/biblioteca/check-explicit/apis", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: 10, onlyMissing: true }),
-        });
-        const data = (await res.json().catch(() => null)) as {
-          processed?: number;
-          explicit?: number;
-          hasMore?: boolean;
-          error?: string;
-        } | null;
-        if (!res.ok) throw new Error(data?.error ?? "check_failed");
-        totalProcessed += data?.processed ?? 0;
-        totalExplicit += data?.explicit ?? 0;
-        if (!data?.hasMore || (data?.processed ?? 0) === 0) break;
-      }
-      setExplicitMsg(
-        totalProcessed > 0
-          ? `${totalProcessed} faixa(s) com tags DZ/MB (${totalExplicit} explícitas nas APIs). Agora use «Check letras (IA)» para EXP vermelho.`
-          : "Todas as faixas já têm Deezer + MusicBrainz.",
-      );
-      await load();
-    } catch {
-      setExplicitMsg("Falha ao consultar Deezer/MusicBrainz. Tente novamente.");
-    } finally {
-      setCheckingApis(false);
-    }
-  }, [load]);
-
   const checkExplicitGemini = useCallback(async () => {
     setCheckingGemini(true);
     setExplicitMsg(null);
@@ -309,7 +267,7 @@ export function BibliotecaMusicalPanel() {
           <h1 className="text-2xl font-bold tracking-tight">Biblioteca musical</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Acervo canônico — uma faixa por gravação. Tags criativas, análise local, metadados externos e
-            moderação em 3 camadas independentes (DZ + MB + IA) — nenhuma apaga a outra.
+            moderação: Deezer/MB no upload · IA manual (EXP vermelho).
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -320,15 +278,6 @@ export function BibliotecaMusicalPanel() {
             className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
           >
             {enriching ? "Buscando gravadoras…" : "Atualizar gravadoras"}
-          </button>
-          <button
-            type="button"
-            disabled={checkingApis}
-            onClick={() => void checkExplicitApis()}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
-            title="Camadas 1 e 2: Deezer explicit_lyrics + MusicBrainz"
-          >
-            {checkingApis ? "DZ + MB…" : "Check Deezer/MB"}
           </button>
           <button
             type="button"

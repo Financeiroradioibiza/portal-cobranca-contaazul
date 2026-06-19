@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { criacaoConfig } from '../../criacao/config.js';
 import { extractGravadoraFromTags, parseTagsFromJson } from './tagEnrichmentCore.js';
-import { enrichMusicaLabelsById } from './workers/criacao/tags.js';
+import { enrichMusicaLabelsById } from '../../workers/criacao/tags.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;

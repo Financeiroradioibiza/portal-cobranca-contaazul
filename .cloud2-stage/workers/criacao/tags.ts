@@ -1,17 +1,21 @@
 import { portalQuery } from '../../criacao/portalDb.js';
 import {
   extractGravadoraFromTags,
+  fetchDeezerExplicit,
   fetchLabelTags,
+  fetchMusicBrainzExplicit,
+  hasApiExplicitCheck,
+  mergeApiExplicitTags,
   mergeExternalTags,
   parseTagsFromJson,
   type ExternalAutoTag,
-} from '../../tagEnrichmentCore.js';
+} from '../../routes/criacao/tagEnrichmentCore.js';
 
 /**
- * Enriquece tags_auto com gravadora (MusicBrainz → Deezer).
- * Chamar ao final do pipeline de ingestão, após gravar titulo/artista/isrc.
+ * Metadados pós-upload: gravadora + explicit Deezer/MB em tags_auto.
+ * Chamado ao final do pipeline e pelo poll do worker.
  */
-export async function enrichLabelsForMusica(musicaId: string): Promise<ExternalAutoTag[]> {
+export async function enrichUploadTagsForMusica(musicaId: string): Promise<void> {
   const row = await portalQuery<{
     titulo: string;
     artista: string;
@@ -22,24 +26,54 @@ export async function enrichLabelsForMusica(musicaId: string): Promise<ExternalA
     [musicaId],
   );
   const m = row.rows[0];
-  if (!m) return [];
+  if (!m) return;
 
-  const existing = parseTagsFromJson(m.tags_auto);
-  if (extractGravadoraFromTags(existing)) return [];
+  let merged = parseTagsFromJson(m.tags_auto);
+  let changed = false;
 
-  const additions = await fetchLabelTags({
-    titulo: m.titulo,
-    artista: m.artista,
-    isrc: m.isrc,
-  });
-  if (additions.length === 0) return [];
+  if (!extractGravadoraFromTags(merged)) {
+    const labels = await fetchLabelTags({
+      titulo: m.titulo,
+      artista: m.artista,
+      isrc: m.isrc,
+    });
+    if (labels.length > 0) {
+      merged = mergeExternalTags(merged, labels);
+      changed = true;
+    }
+  }
 
-  const merged = mergeExternalTags(existing, additions);
+  if (!hasApiExplicitCheck(merged)) {
+    const deezer = await fetchDeezerExplicit({ titulo: m.titulo, artista: m.artista });
+    const musicbrainz = await fetchMusicBrainzExplicit({
+      titulo: m.titulo,
+      artista: m.artista,
+      isrc: m.isrc,
+    });
+    merged = mergeApiExplicitTags(merged, { deezer, musicbrainz });
+    changed = true;
+  }
+
+  if (!changed) return;
+
   await portalQuery(
     `UPDATE musica_biblioteca SET tags_auto = $2::jsonb, updated_at = now() WHERE id = $1`,
     [musicaId, JSON.stringify(merged)],
   );
-  return additions;
+}
+
+/** Chamado pelo pipeline pós-upload (workers/criacao/pipeline.ts). */
+export async function enrichTags(
+  musicaId: string,
+  _meta?: { artista?: string; titulo?: string; isrc?: string | null },
+): Promise<void> {
+  await enrichUploadTagsForMusica(musicaId);
+}
+
+/** @deprecated alias */
+export async function enrichLabelsForMusica(musicaId: string): Promise<ExternalAutoTag[]> {
+  await enrichUploadTagsForMusica(musicaId);
+  return [];
 }
 
 export async function enrichMusicaLabelsById(
@@ -59,26 +93,12 @@ export async function enrichMusicaLabelsById(
   const m = row.rows[0];
   if (!m) throw new Error('not_found');
 
-  const existing = parseTagsFromJson(m.tags_auto);
-  const before = extractGravadoraFromTags(existing);
-  const additions = await fetchLabelTags({
-    titulo: m.titulo,
-    artista: m.artista,
-    isrc: m.isrc,
-  });
-  if (additions.length === 0) {
-    return { updated: false, gravadora: before };
-  }
-
-  const merged = mergeExternalTags(existing, additions);
-  const after = extractGravadoraFromTags(merged);
-  if (after === before && before !== '') {
-    return { updated: false, gravadora: after };
-  }
-
-  await portalQuery(
-    `UPDATE musica_biblioteca SET tags_auto = $2::jsonb, updated_at = now() WHERE id = $1`,
-    [m.id, JSON.stringify(merged)],
+  const before = extractGravadoraFromTags(parseTagsFromJson(m.tags_auto));
+  await enrichUploadTagsForMusica(musicaId);
+  const afterRow = await portalQuery<{ tags_auto: unknown }>(
+    `SELECT tags_auto FROM musica_biblioteca WHERE id = $1 LIMIT 1`,
+    [musicaId],
   );
-  return { updated: true, gravadora: after };
+  const after = extractGravadoraFromTags(parseTagsFromJson(afterRow.rows[0]?.tags_auto));
+  return { updated: after !== before, gravadora: after };
 }
