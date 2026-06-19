@@ -54,6 +54,12 @@ elif [[ "$MODE" == "patch" ]]; then
     "$ROOT/.cloud2-stage/deploy/routes-criacao-index.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/index.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/apagar-musica.ts" \
+    "$REMOTE:$REMOTE_DIR/src/routes/criacao/apagar-musica.ts"
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/enriquecer-tags.ts" \
+    "$REMOTE:$REMOTE_DIR/src/routes/criacao/enriquecer-tags.ts"
+  rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/tagEnrichmentCore.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/tagEnrichmentCore.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \

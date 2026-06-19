@@ -232,3 +232,52 @@ export async function listMusicasBiblioteca(opts: {
 
   return { rows, total };
 }
+
+export type MusicaDeleteInfo = {
+  id: string;
+  titulo: string;
+  artista: string;
+  pastasCount: number;
+  programacoesCount: number;
+};
+
+export async function getMusicaDeleteInfo(musicaId: string): Promise<MusicaDeleteInfo> {
+  const musica = await prisma.musicaBiblioteca.findUnique({
+    where: { id: musicaId },
+    select: { id: true, titulo: true, artista: true },
+  });
+  if (!musica) throw new Error("not_found");
+
+  const pastas = await prisma.pastaMusica.findMany({
+    where: { musicaId },
+    select: { pasta: { select: { programacaoId: true } } },
+  });
+  const programacoesCount = new Set(pastas.map((p) => p.pasta.programacaoId)).size;
+
+  return {
+    id: musica.id,
+    titulo: musica.titulo,
+    artista: musica.artista,
+    pastasCount: pastas.length,
+    programacoesCount,
+  };
+}
+
+export async function deleteMusicaBiblioteca(musicaId: string): Promise<void> {
+  const exists = await prisma.musicaBiblioteca.findUnique({
+    where: { id: musicaId },
+    select: { id: true },
+  });
+  if (!exists) throw new Error("not_found");
+
+  const { cloud2Enabled, cloud2FetchWithTimeout } = await import("@/lib/criacao/cloud2Client");
+  if (cloud2Enabled()) {
+    const res = await cloud2FetchWithTimeout(`/biblioteca/${musicaId}`, { method: "DELETE" }, 15000);
+    if (res && !res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      console.warn("[deleteMusicaBiblioteca] cloud2:", data?.error ?? res.status);
+    }
+  }
+
+  await prisma.musicaBiblioteca.delete({ where: { id: musicaId } });
+}

@@ -80,6 +80,7 @@ export function BibliotecaMusicalPanel() {
   const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
   const [checkingGemini, setCheckingGemini] = useState(false);
   const [explicitMsg, setExplicitMsg] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
 
   const loadTags = useCallback(async () => {
@@ -192,6 +193,53 @@ export function BibliotecaMusicalPanel() {
       setEnriching(false);
     }
   }, [load]);
+
+  const apagarMusica = useCallback(
+    async (m: Musica) => {
+      let pastasCount = 0;
+      let programacoesCount = 0;
+      try {
+        const res = await fetch(`/api/criacao/biblioteca/${m.id}`);
+        if (res.ok) {
+          const info = (await res.json()) as { pastasCount?: number; programacoesCount?: number };
+          pastasCount = info.pastasCount ?? 0;
+          programacoesCount = info.programacoesCount ?? 0;
+        }
+      } catch {
+        /* preview opcional */
+      }
+
+      const avisoPastas =
+        pastasCount > 0 ?
+          `\n\nEstá em ${pastasCount} pasta(s) de ${programacoesCount} programação(ões) — será removida delas também.`
+        : "";
+
+      if (
+        !window.confirm(
+          `Apagar «${m.titulo || "sem título"}» — ${m.artista || "—"}?${avisoPastas}\n\nRemove metadados e arquivos no servidor. Não dá para desfazer.`,
+        )
+      ) {
+        return;
+      }
+
+      setDeletingId(m.id);
+      setError(null);
+      try {
+        const res = await fetch(`/api/criacao/biblioteca/${m.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("delete_failed");
+        if (playingId === m.id) {
+          audioRef.current?.pause();
+          setPlayingId(null);
+        }
+        await load();
+      } catch {
+        setError("Não foi possível apagar a música.");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [load, playingId],
+  );
 
   const checkExplicitGemini = useCallback(async () => {
     setCheckingGemini(true);
@@ -464,6 +512,15 @@ export function BibliotecaMusicalPanel() {
                     className="inline-flex h-5 items-center rounded border border-dashed border-red-200 px-1.5 text-[10px] font-bold text-red-400 hover:border-red-400 hover:text-red-600 dark:border-red-900"
                   >
                     🚫
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletingId === m.id}
+                    onClick={() => void apagarMusica(m)}
+                    title="Apagar da biblioteca e do servidor"
+                    className="inline-flex h-5 items-center rounded border border-dashed border-slate-300 px-1.5 text-[10px] font-bold text-slate-400 hover:border-red-400 hover:text-red-600 disabled:opacity-50 dark:border-slate-600"
+                  >
+                    {deletingId === m.id ? "…" : "🗑"}
                   </button>
                 </div>
                 <div className="truncate text-xs text-slate-500">{m.gravadora || "—"}</div>
