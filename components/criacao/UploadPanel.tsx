@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
-import { ExternoDownloadPanel } from "@/components/criacao/ExternoDownloadPanel";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
@@ -11,7 +10,7 @@ type ArvoreProg = { id: string; nome: string; pastas: ArvorePasta[] };
 type PickedFile = { nome: string; sizeBytes: number; file: File };
 type Ticket = { itemId: string; arquivoNome: string; token: string; exp: number };
 
-type Modo = "mp3" | "externo" | "biblioteca";
+type Modo = "mp3" | "biblioteca";
 
 function formatBytes(b: number): string {
   if (!b) return "—";
@@ -88,18 +87,6 @@ export function UploadPanel() {
     if (!list) return;
     const next: PickedFile[] = [];
     for (const f of Array.from(list)) {
-      if (!/\.mp3$/i.test(f.name) && !f.type.includes("audio")) continue;
-      next.push({ nome: f.name, sizeBytes: f.size, file: f });
-    }
-    setFiles((prev) => {
-      const seen = new Set(prev.map((p) => p.nome));
-      return [...prev, ...next.filter((n) => !seen.has(n.nome))];
-    });
-  }, []);
-
-  const addFileObjects = useCallback((incoming: File[]) => {
-    const next: PickedFile[] = [];
-    for (const f of incoming) {
       if (!/\.mp3$/i.test(f.name) && !f.type.includes("audio")) continue;
       next.push({ nome: f.name, sizeBytes: f.size, file: f });
     }
@@ -197,20 +184,13 @@ export function UploadPanel() {
         </p>
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ModoCard
           ativo={modo === "mp3"}
           onClick={() => setModo("mp3")}
           icon="🎧"
           titulo="Arrastar MP3 192k"
           desc="Solte arquivos MP3 192 kbps direto aqui."
-        />
-        <ModoCard
-          ativo={modo === "externo"}
-          onClick={() => setModo("externo")}
-          icon="⬇️"
-          titulo="Música baixada"
-          desc="Baixe pelo seu computador (ytdl etc.) e suba os arquivos."
         />
         <ModoCard
           ativo={modo === "biblioteca"}
@@ -343,10 +323,6 @@ export function UploadPanel() {
               </label>
             : null}
           </div>
-
-          {modo === "externo" ?
-            <ExternoDownloadPanel onFilesReady={addFileObjects} />
-          : null}
 
           <div
             onDragOver={(e) => {

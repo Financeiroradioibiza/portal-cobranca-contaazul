@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import ssl
 import subprocess
@@ -26,6 +27,9 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+# Duplo-clique no Mac/Windows costuma vir sem Homebrew no PATH → ffmpeg some.
+os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
 import yt_dlp
 
@@ -38,6 +42,36 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 jobs: dict[str, dict[str, Any]] = {}
 jobs_lock = threading.Lock()
+
+
+def ensure_certs() -> bool:
+    if CERT_FILE.exists() and KEY_FILE.exists():
+        return True
+    CERT_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            [
+                "openssl",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                str(KEY_FILE),
+                "-out",
+                str(CERT_FILE),
+                "-days",
+                "8250",
+                "-nodes",
+                "-subj",
+                "/CN=127.0.0.1",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return CERT_FILE.exists() and KEY_FILE.exists()
+    except (OSError, subprocess.CalledProcessError):
+        return False
 
 
 def safe_name(name: str) -> str:
@@ -54,6 +88,8 @@ def download_track(title: str, artist: str, suggested: str, out_dir: Path) -> Pa
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        # YouTube passou a bloquear o client padrão (HTTP 403) — android+web funciona.
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
@@ -99,6 +135,7 @@ def run_job(job_id: str) -> None:
             item["status"] = "failed"
             item["error"] = str(e)[:400]
             job["failed"] += 1
+            print(f"[download] FALHA {item['title']} — {item['artist']}: {e}", flush=True)
 
     with jobs_lock:
         job["status"] = "cancelled" if job.get("cancel") else ("failed" if job["failed"] == job["total"] else "done")
@@ -238,11 +275,45 @@ def public_job(job: dict) -> dict:
 
 
 if __name__ == "__main__":
+    import sys
+    import urllib.error
+    import urllib.request
+
+    def server_already_running() -> bool:
+        for scheme in ("https", "http"):
+            try:
+                url = f"{scheme}://127.0.0.1:{PORT}/health"
+                ctx = None
+                if scheme == "https":
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                with urllib.request.urlopen(url, timeout=2, context=ctx) as res:
+                    data = json.loads(res.read().decode("utf-8"))
+                    if data.get("ok"):
+                        return True
+            except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError):
+                continue
+        return False
+
+    if server_already_running():
+        print(f"Downloader já está rodando em https://127.0.0.1:{PORT}")
+        print("Use o portal normalmente — não precisa abrir outra janela.")
+        sys.exit(0)
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    try:
+        httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+        httpd.allow_reuse_address = True
+    except OSError as e:
+        if e.errno in (48, 98):  # macOS / Linux: address already in use
+            print(f"Porta {PORT} ocupada — provavelmente o downloader já está aberto.")
+            print("Feche a janela antiga ou use o portal; não abra duas vezes.")
+            sys.exit(0)
+        raise
 
     scheme = "http"
-    if CERT_FILE.exists() and KEY_FILE.exists():
+    if ensure_certs():
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=str(CERT_FILE), keyfile=str(KEY_FILE))
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
@@ -252,8 +323,8 @@ if __name__ == "__main__":
     print(f"Arquivos em {OUT_DIR}")
     if scheme == "https":
         print("")
-        print("  IMPORTANTE (1ª vez): abra no navegador:")
+        print("  1ª vez: abra no navegador e aceite o certificado:")
         print(f"  {scheme}://127.0.0.1:{PORT}/health")
-        print("  Aceite o certificado local → depois o portal mostra 'conectado'.")
+        print("  Depois use o portal — cole o link e clique Baixar.")
         print("")
     httpd.serve_forever()

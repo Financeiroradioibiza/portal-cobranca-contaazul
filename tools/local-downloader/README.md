@@ -1,5 +1,8 @@
 # Downloader local (yt-dlp)
 
+> **Pausado no portal** — a opção “Música baixada” foi retirada da tela de Upload por enquanto.
+> O código permanece aqui para uso futuro (SpotiFLAC / yt-dlp local).
+
 Baixa músicas **no seu computador** — o portal só resolve metadados (Spotify/lista TXT).
 
 ## Por quê?
