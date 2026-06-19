@@ -1,0 +1,182 @@
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import {
+  explicitTagsChanged,
+  hasApiExplicitCheck,
+  hasGeminiExplicitCheck,
+  mergeApiExplicitCheck,
+  mergeGeminiExplicitCheck,
+} from "@/lib/criacao/explicitContentCore";
+import {
+  classifyExplicitLyricsWithGemini,
+  type GeminiExplicitResult,
+} from "@/lib/criacao/explicitGeminiService";
+import { geminiEnabled } from "@/lib/criacao/geminiClient";
+import type { ExternalAutoTag } from "@/lib/criacao/tagEnrichmentCore";
+import { fetchDeezerExplicit, fetchMusicBrainzExplicit } from "@/lib/criacao/tagEnrichmentCore";
+import { parseTagsFromJson } from "@/lib/criacao/tagEnrichmentService";
+
+export type ExplicitCheckResult = {
+  musicaId: string;
+  explicit: boolean;
+  updated: boolean;
+};
+
+function tagsToJson(tags: ExternalAutoTag[]): Prisma.InputJsonValue {
+  return tags as Prisma.InputJsonValue;
+}
+
+type MusicaRow = {
+  id: string;
+  titulo: string;
+  artista: string;
+  isrc: string | null;
+  tagsAuto: Prisma.JsonValue;
+};
+
+/** Camadas 1+2: consulta Deezer + MusicBrainz e grava tags visíveis. */
+export async function checkMusicasExplicitApisBatch(opts: {
+  limit?: number;
+  musicaIds?: string[];
+  onlyMissing?: boolean;
+}): Promise<{ processed: number; explicit: number; updated: number; results: ExplicitCheckResult[] }> {
+  const limit = Math.min(10, Math.max(1, opts.limit ?? 10));
+  const ids = opts.musicaIds?.filter(Boolean) ?? [];
+  const onlyMissing = opts.onlyMissing !== false;
+
+  let rows: MusicaRow[];
+
+  if (ids.length > 0) {
+    rows = await prisma.musicaBiblioteca.findMany({
+      where: { id: { in: ids.slice(0, limit) } },
+      select: { id: true, titulo: true, artista: true, isrc: true, tagsAuto: true },
+    });
+  } else {
+    const pool = await prisma.musicaBiblioteca.findMany({
+      where: { status: "pronta" },
+      orderBy: { updatedAt: "asc" },
+      take: limit * 8,
+      select: { id: true, titulo: true, artista: true, isrc: true, tagsAuto: true },
+    });
+    rows =
+      onlyMissing ?
+        pool.filter((m) => !hasApiExplicitCheck(parseTagsFromJson(m.tagsAuto))).slice(0, limit)
+      : pool.slice(0, limit);
+  }
+
+  const deezerResults = await Promise.all(
+    rows.map((r) => fetchDeezerExplicit({ titulo: r.titulo, artista: r.artista })),
+  );
+
+  const results: ExplicitCheckResult[] = [];
+  let explicit = 0;
+  let updated = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const m = rows[i]!;
+    const existing = parseTagsFromJson(m.tagsAuto);
+    const deezer = deezerResults[i] ?? null;
+    const musicbrainz = await fetchMusicBrainzExplicit({
+      titulo: m.titulo,
+      artista: m.artista,
+      isrc: m.isrc,
+    });
+    const merged = mergeApiExplicitCheck(existing, { deezer, musicbrainz });
+    const dzExp = deezer === true;
+    const mbExp = musicbrainz === true;
+
+    if (!explicitTagsChanged(existing, merged)) {
+      results.push({ musicaId: m.id, explicit: dzExp || mbExp, updated: false });
+      if (dzExp || mbExp) explicit += 1;
+      continue;
+    }
+
+    await prisma.musicaBiblioteca.update({
+      where: { id: m.id },
+      data: { tagsAuto: tagsToJson(merged) },
+    });
+    results.push({ musicaId: m.id, explicit: dzExp || mbExp, updated: true });
+    updated += 1;
+    if (dzExp || mbExp) explicit += 1;
+  }
+
+  return { processed: results.length, explicit, updated, results };
+}
+
+/** Camada 3: Gemini (letras) → tag EXP vermelho se explícito. */
+export async function checkMusicasExplicitGeminiBatch(opts: {
+  limit?: number;
+  musicaIds?: string[];
+  onlyMissing?: boolean;
+}): Promise<{
+  processed: number;
+  explicit: number;
+  updated: number;
+  geminiEnabled: boolean;
+  results: ExplicitCheckResult[];
+}> {
+  if (!geminiEnabled()) {
+    return { processed: 0, explicit: 0, updated: 0, geminiEnabled: false, results: [] };
+  }
+
+  const limit = Math.min(30, Math.max(1, opts.limit ?? 30));
+  const ids = opts.musicaIds?.filter(Boolean) ?? [];
+  const onlyMissing = opts.onlyMissing !== false;
+
+  let rows: MusicaRow[];
+
+  if (ids.length > 0) {
+    rows = await prisma.musicaBiblioteca.findMany({
+      where: { id: { in: ids.slice(0, limit) } },
+      select: { id: true, titulo: true, artista: true, isrc: true, tagsAuto: true },
+    });
+  } else {
+    const pool = await prisma.musicaBiblioteca.findMany({
+      where: { status: "pronta" },
+      orderBy: { updatedAt: "asc" },
+      take: limit * 8,
+      select: { id: true, titulo: true, artista: true, isrc: true, tagsAuto: true },
+    });
+    rows =
+      onlyMissing ?
+        pool.filter((m) => !hasGeminiExplicitCheck(parseTagsFromJson(m.tagsAuto))).slice(0, limit)
+      : pool.slice(0, limit);
+  }
+
+  const geminiMap = await classifyExplicitLyricsWithGemini(
+    rows.map((r) => ({ id: r.id, titulo: r.titulo, artista: r.artista })),
+  );
+
+  const results: ExplicitCheckResult[] = [];
+  let explicit = 0;
+  let updated = 0;
+
+  for (const m of rows) {
+    const existing = parseTagsFromJson(m.tagsAuto);
+    const geminiTag: GeminiExplicitResult = geminiMap.get(m.id) ?? "desconhecida";
+    const merged = mergeGeminiExplicitCheck(existing, geminiTag);
+    const isExp = geminiTag === "sim";
+
+    if (!explicitTagsChanged(existing, merged)) {
+      results.push({ musicaId: m.id, explicit: isExp, updated: false });
+      if (isExp) explicit += 1;
+      continue;
+    }
+
+    await prisma.musicaBiblioteca.update({
+      where: { id: m.id },
+      data: { tagsAuto: tagsToJson(merged) },
+    });
+    results.push({ musicaId: m.id, explicit: isExp, updated: true });
+    updated += 1;
+    if (isExp) explicit += 1;
+  }
+
+  return {
+    processed: results.length,
+    explicit,
+    updated,
+    geminiEnabled: true,
+    results,
+  };
+}

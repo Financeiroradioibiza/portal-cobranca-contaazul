@@ -4,8 +4,26 @@ import { getProducaoCatalogMeta } from "@/lib/cadastros/producaoCatalogo";
 import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
 
 export const CLIENTE_PLAYER_EMAIL_DOMAIN = "radioibiza.com.br";
+export const CLIENTE_PLAYER_EMAIL_LOCAL_MAX = 65;
 
 const PASSWORD_NAME_MAX_LEN = Number(process.env.CLIENTE_PLAYER_PASSWORD_NAME_LEN) || 6;
+const EMAIL_BRAND_CHARS = 3;
+const EMAIL_VARIANT_CHARS = 3;
+
+const EMAIL_STOP_WORDS = new Set([
+  "grupo",
+  "de",
+  "da",
+  "do",
+  "dos",
+  "das",
+  "e",
+  "co",
+  "ltda",
+  "sa",
+  "me",
+  "epp",
+]);
 
 export function slugClientePlayerPasswordPart(nome: string, maxLen = PASSWORD_NAME_MAX_LEN): string {
   const firstWord = nome.trim().split(/\s+/)[0] ?? nome;
@@ -27,21 +45,67 @@ export function slugClientePlayerEmailLocal(nome: string, maxLen = 36): string {
   return s || "cliente";
 }
 
+function normalizeClienteNomeWords(text: string): string[] {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 0 && !EMAIL_STOP_WORDS.has(w));
+}
+
+/** Local-part curto: marca + variante (ex. Arezzo Franquias → arefra). Máx. 65 chars. */
+export function buildShortClientePlayerEmailLocal(
+  nome: string,
+  maxLen = CLIENTE_PLAYER_EMAIL_LOCAL_MAX,
+): string {
+  let s = nome.trim().replace(/^\.+/, "").trim();
+  if (!s) return "cliente";
+
+  const mainPart = s.split(/\s*\(/)[0]?.trim() ?? s;
+  const segments = mainPart.split(/\s*[-–—]\s*/).map((x) => x.trim()).filter(Boolean);
+  const chunks: string[] = [];
+
+  if (segments.length >= 2) {
+    const brandWords = normalizeClienteNomeWords(segments[0]!);
+    const variantWords = normalizeClienteNomeWords(segments[1]!);
+    chunks.push((brandWords[0] ?? "cli").slice(0, EMAIL_BRAND_CHARS));
+    chunks.push((variantWords[0] ?? slugClientePlayerEmailLocal(segments[1]!, EMAIL_VARIANT_CHARS)).slice(
+      0,
+      EMAIL_VARIANT_CHARS,
+    ));
+  } else {
+    const words = normalizeClienteNomeWords(mainPart);
+    if (words.length >= 2) {
+      chunks.push(words[0]!.slice(0, EMAIL_BRAND_CHARS), words[1]!.slice(0, EMAIL_VARIANT_CHARS));
+    } else if (words.length === 1) {
+      chunks.push(words[0]!.slice(0, Math.min(8, maxLen)));
+    }
+  }
+
+  const local = chunks.join("").slice(0, maxLen);
+  return local || "cliente";
+}
+
 export function buildClientePlayerEmail(
   nomeFantasia: string,
   portalClienteId: number,
   taken: Set<string>,
 ): string {
-  let local = slugClientePlayerEmailLocal(nomeFantasia);
+  const has = (email: string) => taken.has(email.toLowerCase());
+
+  let local = buildShortClientePlayerEmailLocal(nomeFantasia);
   let email = `${local}@${CLIENTE_PLAYER_EMAIL_DOMAIN}`;
-  if (taken.has(email)) {
-    local = `${slugClientePlayerEmailLocal(nomeFantasia, 28)}${portalClienteId}`;
+  if (has(email)) {
+    const idStr = String(portalClienteId);
+    local = `${buildShortClientePlayerEmailLocal(nomeFantasia, CLIENTE_PLAYER_EMAIL_LOCAL_MAX - idStr.length)}${idStr}`;
     email = `${local}@${CLIENTE_PLAYER_EMAIL_DOMAIN}`;
   }
-  if (taken.has(email)) {
+  if (has(email)) {
     email = `cliente${portalClienteId}@${CLIENTE_PLAYER_EMAIL_DOMAIN}`;
   }
-  taken.add(email);
+  taken.add(email.toLowerCase());
   return email;
 }
 
@@ -112,6 +176,59 @@ export async function generateMissingClientePlayerLogins(): Promise<{
   }
 
   return { ...meta, created, skipped, total: buckets.length };
+}
+
+/** Regera e-mails curtos de todos os logins ativos (senhas inalteradas). Operação em massa — uso pontual. */
+export async function regenerateAllClientePlayerEmails(): Promise<{
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
+  updated: number;
+  unchanged: number;
+  total: number;
+}> {
+  const meta = await getProducaoCatalogMeta();
+  const [ctx, logins] = await Promise.all([
+    loadMergedProducaoPlayerContext(),
+    prisma.clientePlayerLogin.findMany({
+      where: { active: true },
+      select: { portalClienteId: true, email: true, clienteNome: true },
+      orderBy: { portalClienteId: "asc" },
+    }),
+  ]);
+
+  const nomeById = new Map(
+    ctx.buckets
+      .filter((b) => b.portalClienteId != null)
+      .map((b) => [b.portalClienteId!, b.nome.trim() || "Cliente"]),
+  );
+
+  const taken = new Set<string>();
+  const updates: Array<{ portalClienteId: number; email: string }> = [];
+  let unchanged = 0;
+
+  for (const login of logins) {
+    const clienteNome = nomeById.get(login.portalClienteId) ?? login.clienteNome ?? "Cliente";
+    const email = buildClientePlayerEmail(clienteNome, login.portalClienteId, taken);
+    if (email.toLowerCase() === login.email.toLowerCase()) {
+      unchanged++;
+      continue;
+    }
+    updates.push({ portalClienteId: login.portalClienteId, email });
+  }
+
+  for (const row of updates) {
+    await prisma.clientePlayerLogin.update({
+      where: { portalClienteId: row.portalClienteId },
+      data: { email: row.email },
+    });
+  }
+
+  return {
+    ...meta,
+    updated: updates.length,
+    unchanged,
+    total: logins.length,
+  };
 }
 
 export async function updateClientePlayerLoginManual(

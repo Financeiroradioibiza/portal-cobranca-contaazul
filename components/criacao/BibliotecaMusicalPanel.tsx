@@ -26,6 +26,10 @@ type Musica = {
   mixSegundosFinais: number | null;
   tagsManuais: ManualTag[];
   tagsAuto: AutoTag[];
+  explicit: boolean;
+  explicitDeezer: "sim" | "nao" | "desconhecida" | null;
+  explicitMusicbrainz: "sim" | "nao" | "desconhecida" | null;
+  explicitGemini: "sim" | "nao" | "desconhecida" | null;
   previewUrl: string | null;
   rejeicoesCount: number;
 };
@@ -74,6 +78,9 @@ export function BibliotecaMusicalPanel() {
   const [tagFor, setTagFor] = useState<Musica | null>(null);
   const [enriching, setEnriching] = useState(false);
   const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
+  const [checkingApis, setCheckingApis] = useState(false);
+  const [checkingGemini, setCheckingGemini] = useState(false);
+  const [explicitMsg, setExplicitMsg] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
 
   const loadTags = useCallback(async () => {
@@ -187,6 +194,95 @@ export function BibliotecaMusicalPanel() {
     }
   }, [load]);
 
+  const checkExplicitApis = useCallback(async () => {
+    setCheckingApis(true);
+    setExplicitMsg(null);
+    let totalProcessed = 0;
+    let totalExplicit = 0;
+    try {
+      for (let round = 0; round < 200; round += 1) {
+        setExplicitMsg(
+          round === 0
+            ? "Consultando Deezer + MusicBrainz (lotes de 10)…"
+            : `${totalProcessed} faixas · ${totalExplicit} explícitas nas APIs…`,
+        );
+        const res = await fetch("/api/criacao/biblioteca/check-explicit/apis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: 10, onlyMissing: true }),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          processed?: number;
+          explicit?: number;
+          hasMore?: boolean;
+          error?: string;
+        } | null;
+        if (!res.ok) throw new Error(data?.error ?? "check_failed");
+        totalProcessed += data?.processed ?? 0;
+        totalExplicit += data?.explicit ?? 0;
+        if (!data?.hasMore || (data?.processed ?? 0) === 0) break;
+      }
+      setExplicitMsg(
+        totalProcessed > 0
+          ? `${totalProcessed} faixa(s) com tags DZ/MB (${totalExplicit} explícitas nas APIs). Agora use «Check letras (IA)» para EXP vermelho.`
+          : "Todas as faixas já têm Deezer + MusicBrainz.",
+      );
+      await load();
+    } catch {
+      setExplicitMsg("Falha ao consultar Deezer/MusicBrainz. Tente novamente.");
+    } finally {
+      setCheckingApis(false);
+    }
+  }, [load]);
+
+  const checkExplicitGemini = useCallback(async () => {
+    setCheckingGemini(true);
+    setExplicitMsg(null);
+    let totalProcessed = 0;
+    let totalExplicit = 0;
+    try {
+      for (let round = 0; round < 200; round += 1) {
+        setExplicitMsg(
+          round === 0
+            ? "Gemini analisando letras (lotes de 30)…"
+            : `${totalExplicit} EXP · ${totalProcessed} faixas…`,
+        );
+        const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: 30, onlyMissing: true }),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          processed?: number;
+          explicit?: number;
+          hasMore?: boolean;
+          error?: string;
+        } | null;
+        if (!res.ok) {
+          if (data?.error === "gemini_desabilitado") {
+            throw new Error("Configure GEMINI_API_KEY no Netlify.");
+          }
+          throw new Error(data?.error ?? "check_failed");
+        }
+        totalProcessed += data?.processed ?? 0;
+        totalExplicit += data?.explicit ?? 0;
+        if (!data?.hasMore || (data?.processed ?? 0) === 0) break;
+      }
+      setExplicitMsg(
+        totalExplicit > 0
+          ? `${totalExplicit} faixa(s) marcadas com EXP vermelho (${totalProcessed} analisadas pela IA).`
+          : totalProcessed > 0
+            ? `${totalProcessed} faixa(s) OK — IA não marcou EXP.`
+            : "Todas as faixas já foram analisadas pela IA.",
+      );
+      await load();
+    } catch (e) {
+      setExplicitMsg(e instanceof Error ? e.message : "Falha no check IA.");
+    } finally {
+      setCheckingGemini(false);
+    }
+  }, [load]);
+
   return (
     <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
       <audio
@@ -212,8 +308,8 @@ export function BibliotecaMusicalPanel() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Biblioteca musical</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Acervo canônico — uma faixa por gravação. Cada música mostra suas tags: criativas (cor por
-            criativo), análise local (BPM/mood) e metadados externos.
+            Acervo canônico — uma faixa por gravação. Tags criativas, análise local, metadados externos e
+            moderação em 3 camadas independentes (DZ + MB + IA) — nenhuma apaga a outra.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -224,6 +320,24 @@ export function BibliotecaMusicalPanel() {
             className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
           >
             {enriching ? "Buscando gravadoras…" : "Atualizar gravadoras"}
+          </button>
+          <button
+            type="button"
+            disabled={checkingApis}
+            onClick={() => void checkExplicitApis()}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+            title="Camadas 1 e 2: Deezer explicit_lyrics + MusicBrainz"
+          >
+            {checkingApis ? "DZ + MB…" : "Check Deezer/MB"}
+          </button>
+          <button
+            type="button"
+            disabled={checkingGemini}
+            onClick={() => void checkExplicitGemini()}
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900 dark:bg-red-950 dark:text-red-200 dark:hover:bg-red-900"
+            title="Camada 3: Gemini — marca EXP vermelho"
+          >
+            {checkingGemini ? "IA letras…" : "Check letras (IA)"}
           </button>
           <button
             type="button"
@@ -241,6 +355,12 @@ export function BibliotecaMusicalPanel() {
       {enrichMsg ?
         <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200">
           {enrichMsg}
+        </div>
+      : null}
+
+      {explicitMsg ?
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          {explicitMsg}
         </div>
       : null}
 
@@ -352,6 +472,9 @@ export function BibliotecaMusicalPanel() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <ExplicitApiChip fonte="DZ" status={m.explicitDeezer} />
+                  <ExplicitApiChip fonte="MB" status={m.explicitMusicbrainz} />
+                  <ExplicitApiChip fonte="IA" status={m.explicitGemini} />
                   {m.tagsManuais.map((t) => (
                     <span
                       key={t.id}
@@ -369,7 +492,12 @@ export function BibliotecaMusicalPanel() {
                   {m.tagsAuto.map((t, i) => (
                     <AutoChip key={`${t.fonte}-${i}`} fonte={t.fonte} valor={t.valor} />
                   ))}
-                  {m.tagsManuais.length === 0 && m.tagsAuto.length === 0 && m.energia == null ?
+                  {m.tagsManuais.length === 0 &&
+                  m.tagsAuto.length === 0 &&
+                  m.energia == null &&
+                  !m.explicitDeezer &&
+                  !m.explicitMusicbrainz &&
+                  !m.explicitGemini ?
                     <span className="text-[11px] text-slate-400">sem tags</span>
                   : null}
                   <button
@@ -785,6 +913,62 @@ function RejeicaoModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function ExplicitApiChip({
+  fonte,
+  status,
+}: {
+  fonte: "DZ" | "MB" | "IA";
+  status: "sim" | "nao" | "desconhecida" | null;
+}) {
+  if (status == null) return null;
+
+  if (fonte === "IA" && status === "sim") {
+    return (
+      <span
+        className="inline-flex rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white"
+        title="IA (Gemini): letra explícita — EXP"
+      >
+        EXP
+      </span>
+    );
+  }
+
+  const label =
+    fonte === "IA" ?
+      status === "nao" ? "IA ok"
+      : "IA ?"
+    : status === "sim" ? `${fonte} explicit`
+    : status === "nao" ? `${fonte} ok`
+    : `${fonte} ?`;
+
+  const cls =
+    fonte === "IA" && status === "nao" ?
+      "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+    : status === "sim" ?
+      "border-orange-400 bg-orange-100 text-orange-900 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-200"
+    : status === "nao" ?
+      "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+    : "border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-900";
+
+  const title =
+    fonte === "DZ" ?
+      status === "sim" ? "Deezer: explicit_lyrics"
+      : status === "nao" ? "Deezer: não explícita"
+      : "Deezer: faixa não encontrada"
+    : fonte === "MB" ?
+      status === "sim" ? "MusicBrainz: tag explicit"
+      : status === "nao" ? "MusicBrainz: sem tag explicit"
+      : "MusicBrainz: gravação não encontrada"
+    : status === "nao" ? "IA (Gemini): letra OK"
+    : "IA (Gemini): faixa desconhecida";
+
+  return (
+    <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-bold ${cls}`} title={title}>
+      {label}
+    </span>
   );
 }
 

@@ -62,6 +62,7 @@ export function LoginsClientesPanel() {
   }, [rows, busca]);
 
   const faltantes = useMemo(() => rows.filter((r) => !r.hasLogin).length, [rows]);
+  const comLogin = useMemo(() => rows.filter((r) => r.hasLogin).length, [rows]);
 
   async function gerarFaltantes() {
     if (busy) return;
@@ -96,6 +97,46 @@ export function LoginsClientesPanel() {
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao gerar logins.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function regerarEmailsCurto() {
+    if (busy || comLogin === 0) return;
+    const ok = window.confirm(
+      `Regerar e-mails curtos de ${comLogin} login(s)?\n\n` +
+        "As SENHAS permanecem iguais. Só o e-mail (login) muda.\n" +
+        "Ex.: arefra@radioibiza.com.br\n\n" +
+        "Depois sincroniza no Player 5. Continuar?",
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/suporte/logins-clientes/regenerate-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, sync: true }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        updated?: number;
+        unchanged?: number;
+        total?: number;
+        gateway?: { clientes: number; pdvs: number } | null;
+      };
+      if (!res.ok) throw new Error(data.error ?? "falhou");
+      setMsg(
+        `${data.updated ?? 0} e-mail(s) atualizado(s). ${data.unchanged ?? 0} já estavam no formato curto.` +
+          (data.gateway ?
+            ` Player sincronizado: ${data.gateway.clientes} clientes.`
+          : ""),
+      );
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao regerar e-mails.");
     } finally {
       setBusy(false);
     }
@@ -154,9 +195,12 @@ export function LoginsClientesPanel() {
       </p>
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-        E-mail sugerido: parte do nome + <code className="rounded bg-white/60 px-1">@radioibiza.com.br</code>.
-        Senha sugerida: pedaço do nome + ID (ex. <strong className="font-mono">radiol100</strong>). Depois de
-        criadas, as credenciais <strong>não são alteradas automaticamente</strong>.
+        E-mail curto: marca + variante (ex.{" "}
+        <strong className="font-mono">arefra@radioibiza.com.br</strong>,{" "}
+        <strong className="font-mono">arepro@radioibiza.com.br</strong>) — máx. 65 caracteres antes do{" "}
+        <code className="rounded bg-white/60 px-1">@</code>. Senha: pedaço do nome + ID (ex.{" "}
+        <strong className="font-mono">are100</strong>). Depois de criadas, senhas{" "}
+        <strong>não mudam automaticamente</strong>.
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -175,6 +219,15 @@ export function LoginsClientesPanel() {
           {faltantes > 0 ?
             `Gerar logins faltantes (${faltantes})`
           : "Todos com login"}
+        </button>
+        <button
+          type="button"
+          disabled={busy || comLogin === 0}
+          onClick={() => void regerarEmailsCurto()}
+          className="rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
+          title="Operação em massa — regera só o e-mail, mantém a senha"
+        >
+          Regerar e-mails curtos ({comLogin})
         </button>
       </div>
 

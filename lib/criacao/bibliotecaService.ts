@@ -4,6 +4,11 @@ import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
 import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import {
+  extractExplicitApiStatus,
+  isGeminiExplicitTagged,
+  type ExplicitApiStatus,
+} from "@/lib/criacao/explicitContentCore";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -12,6 +17,7 @@ export const TAG_SOURCE_LABEL: Record<string, string> = {
   musicbrainz: "MB",
   discogs: "DG",
   local: "AI",
+  moderacao: "EXP",
 };
 
 export type AutoTag = { fonte: string; chave?: string; valor: string };
@@ -39,6 +45,11 @@ export type MusicaBibliotecaRow = {
   mixSegundosFinais: number | null;
   tagsManuais: MusicaTagManualView[];
   tagsAuto: AutoTag[];
+  /** EXP vermelho — só Gemini (3ª camada). */
+  explicit: boolean;
+  explicitDeezer: ExplicitApiStatus;
+  explicitMusicbrainz: ExplicitApiStatus;
+  explicitGemini: ExplicitApiStatus;
   /** URL assinada para tocar a versão de uso direto do cloud2 (null se indisponível). */
   previewUrl: string | null;
   /** Quantos clientes marcaram esta faixa como rejeitada (Wizard IA evita). */
@@ -66,6 +77,15 @@ export function parseAutoTagsFromJson(raw: Prisma.JsonValue | null): AutoTag[] {
 
 export function filterAutoTags(auto: AutoTag[]): AutoTag[] {
   return auto.filter((t) => {
+    if (t.fonte === "moderacao" && (t.chave === "explicit" || t.chave === "explicit_texto")) {
+      return false;
+    }
+    if (
+      (t.fonte === "deezer" || t.fonte === "musicbrainz" || t.fonte === "gemini") &&
+      t.chave === "explicit"
+    ) {
+      return false;
+    }
     if (t.fonte === "deezer") {
       if (t.chave === "album") return false;
       // Oculta títulos de álbum longos (mantém ano, BPM numérico, ISRC curto)
@@ -201,6 +221,10 @@ export async function listMusicasBiblioteca(opts: {
         };
       }),
       tagsAuto,
+      explicit: isGeminiExplicitTagged(tagsAutoRaw),
+      explicitDeezer: extractExplicitApiStatus(tagsAutoRaw, "deezer"),
+      explicitMusicbrainz: extractExplicitApiStatus(tagsAutoRaw, "musicbrainz"),
+      explicitGemini: extractExplicitApiStatus(tagsAutoRaw, "gemini"),
       previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
       rejeicoesCount: rejMap.get(m.id) ?? 0,
     };

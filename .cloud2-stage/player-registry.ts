@@ -119,9 +119,15 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
       await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS status CHAR(1) NOT NULL DEFAULT 'A'`);
       await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logotipo TEXT NOT NULL DEFAULT ''`);
       await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logotipo_jpeg BYTEA`);
+      await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS email VARCHAR(200)`);
+      await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS senha_hash TEXT`);
+      await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS origem_rio_linha_id VARCHAR(64)`);
       await conn.query(
         `ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS nome_completo_contato_extra TEXT NOT NULL DEFAULT ''`,
       );
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS codigo_display VARCHAR(32)`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS origem_rio_pdv_id VARCHAR(64)`);
+      await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS origem_rio_linha_id VARCHAR(64)`);
       await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS programa_id INT REFERENCES programas(id) ON DELETE SET NULL`);
 
       for (const c of clientes) {

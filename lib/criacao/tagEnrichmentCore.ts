@@ -70,6 +70,41 @@ function pickMbLabel(release: unknown): string | null {
   return null;
 }
 
+async function resolveMusicBrainzRecordingId(input: {
+  titulo: string;
+  artista: string;
+  isrc: string | null;
+}): Promise<string | null> {
+  if (input.isrc?.trim()) {
+    const isrcData = (await mbFetch(
+      `/isrc/${encodeURIComponent(input.isrc.trim())}?fmt=json&inc=recordings`,
+    )) as { recordings?: { id?: string }[] } | null;
+    const id = isrcData?.recordings?.[0]?.id;
+    if (id) return id;
+  }
+
+  if (!input.titulo.trim() || !input.artista.trim()) return null;
+
+  const q = `recording:"${input.titulo.trim()}" AND artist:"${input.artista.trim()}"`;
+  const search = (await mbFetch(
+    `/recording?query=${encodeURIComponent(q)}&fmt=json&limit=3`,
+  )) as { recordings?: { id?: string }[] } | null;
+  return search?.recordings?.[0]?.id ?? null;
+}
+
+function pickDeezerTrackHit(
+  input: { titulo: string; artista: string },
+  search: { data?: { id?: number; album?: { id?: number }; title?: string; artist?: { name?: string }; explicit_lyrics?: boolean }[] } | null,
+) {
+  return (
+    search?.data?.find(
+      (t) =>
+        t.title?.toLowerCase().includes(input.titulo.trim().toLowerCase().slice(0, 8)) ||
+        t.artist?.name?.toLowerCase().includes(input.artista.trim().toLowerCase().slice(0, 6)),
+    ) ?? search?.data?.[0]
+  );
+}
+
 async function fetchMusicBrainzLabel(input: {
   titulo: string;
   artista: string;
@@ -91,17 +126,13 @@ async function fetchMusicBrainzLabel(input: {
     }
   }
 
-  if (!releaseId && input.titulo.trim() && input.artista.trim()) {
-    const q = `recording:"${input.titulo.trim()}" AND artist:"${input.artista.trim()}"`;
-    const search = (await mbFetch(
-      `/recording?query=${encodeURIComponent(q)}&fmt=json&limit=3`,
-    )) as { recordings?: { releases?: { id?: string }[] }[] } | null;
-    for (const rec of search?.recordings ?? []) {
-      const rel = rec.releases?.[0]?.id;
-      if (rel) {
-        releaseId = rel;
-        break;
-      }
+  if (!releaseId) {
+    const recordingId = await resolveMusicBrainzRecordingId(input);
+    if (recordingId) {
+      const rec = (await mbFetch(
+        `/recording/${recordingId}?fmt=json&inc=releases`,
+      )) as { releases?: { id?: string }[] } | null;
+      releaseId = rec?.releases?.[0]?.id ?? null;
     }
   }
 
@@ -117,17 +148,63 @@ async function fetchDeezerLabel(input: { titulo: string; artista: string }): Pro
   const search = (await dzFetch(`/search?q=${encodeURIComponent(q)}&limit=3`)) as {
     data?: { album?: { id?: number }; title?: string; artist?: { name?: string } }[];
   } | null;
-  const hit =
-    search?.data?.find(
-      (t) =>
-        t.title?.toLowerCase().includes(input.titulo.trim().toLowerCase().slice(0, 8)) ||
-        t.artist?.name?.toLowerCase().includes(input.artista.trim().toLowerCase().slice(0, 6)),
-    ) ?? search?.data?.[0];
+  const hit = pickDeezerTrackHit(input, search);
   const albumId = hit?.album?.id;
   if (!albumId) return null;
   const album = (await dzFetch(`/album/${albumId}`)) as { label?: string } | null;
   const label = album?.label?.trim();
   return label ? label.slice(0, 120) : null;
+}
+
+/** Deezer: campo `explicit_lyrics` na faixa encontrada. null = não achou match. */
+export async function fetchDeezerExplicit(input: {
+  titulo: string;
+  artista: string;
+}): Promise<boolean | null> {
+  if (!input.titulo.trim() || !input.artista.trim()) return null;
+  const q = `artist:"${input.artista.trim()}" track:"${input.titulo.trim()}"`;
+  const search = (await dzFetch(`/search?q=${encodeURIComponent(q)}&limit=3`)) as {
+    data?: { id?: number; explicit_lyrics?: boolean; title?: string; artist?: { name?: string } }[];
+  } | null;
+  const hit = pickDeezerTrackHit(input, search);
+  if (!hit?.id) return null;
+  if (typeof hit.explicit_lyrics === "boolean") return hit.explicit_lyrics;
+  const track = (await dzFetch(`/track/${hit.id}`)) as { explicit_lyrics?: boolean } | null;
+  if (track && typeof track.explicit_lyrics === "boolean") return track.explicit_lyrics;
+  return null;
+}
+
+/** MusicBrainz: tag comunitária `explicit` na gravação. null = gravação não encontrada. */
+export async function fetchMusicBrainzExplicit(input: {
+  titulo: string;
+  artista: string;
+  isrc: string | null;
+}): Promise<boolean | null> {
+  const recordingId = await resolveMusicBrainzRecordingId(input);
+  if (!recordingId) return null;
+  const rec = (await mbFetch(`/recording/${recordingId}?fmt=json&inc=tags`)) as {
+    tags?: { name?: string; count?: number }[];
+  } | null;
+  const tags = rec?.tags ?? [];
+  const hit = tags.find((t) => t.name?.trim().toLowerCase() === "explicit");
+  if (!hit) return false;
+  return (hit.count ?? 0) > 0;
+}
+
+export type ExplicitApiResult = {
+  deezer: boolean | null;
+  musicbrainz: boolean | null;
+};
+
+/** Consulta Deezer + MusicBrainz (mesmas APIs das gravadoras). */
+export async function fetchExplicitFromApis(input: {
+  titulo: string;
+  artista: string;
+  isrc: string | null;
+}): Promise<ExplicitApiResult> {
+  const deezer = await fetchDeezerExplicit(input);
+  const musicbrainz = await fetchMusicBrainzExplicit(input);
+  return { deezer, musicbrainz };
 }
 
 export function mergeExternalTags(
