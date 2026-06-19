@@ -11,6 +11,16 @@ export type WaveformOverlay = {
   label?: string;
 };
 
+export type WaveformTrimEdit = {
+  durationSec: number;
+  trimStartSec: number;
+  trimEndSec: number;
+  mixSec: number;
+  onTrimStart: (sec: number) => void;
+  onTrimEnd: (sec: number) => void;
+  onMix?: (sec: number) => void;
+};
+
 type WaveformBarsProps = {
   previewUrl: string | null;
   barCount?: number;
@@ -19,12 +29,21 @@ type WaveformBarsProps = {
   /** Clique na waveform — retorna posição 0–1 */
   interactive?: boolean;
   onSeek?: (ratio: number) => void;
+  /** Arrastar handles de trim / mix na waveform */
+  trimEdit?: WaveformTrimEdit;
   /** Posição do playhead 0–100 */
   playheadPct?: number;
   overlays?: WaveformOverlay[];
   barColor?: string;
   dimColor?: string;
 };
+
+type DragMode = "trim-start" | "trim-end" | "mix" | null;
+
+function pctFromSec(sec: number, durationSec: number): number {
+  if (durationSec <= 0) return 0;
+  return Math.min(100, Math.max(0, (sec / durationSec) * 100));
+}
 
 export function WaveformBars({
   previewUrl,
@@ -33,6 +52,7 @@ export function WaveformBars({
   className = "",
   interactive = false,
   onSeek,
+  trimEdit,
   playheadPct,
   overlays = [],
   barColor = "rgba(255,255,255,0.85)",
@@ -43,6 +63,7 @@ export function WaveformBars({
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(false);
+  const dragRef = useRef<DragMode>(null);
 
   useEffect(() => {
     if (!previewUrl) {
@@ -82,7 +103,7 @@ export function WaveformBars({
     canvas.style.height = `${h}px`;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
     const mid = h / 2;
@@ -116,30 +137,121 @@ export function WaveformBars({
     return () => ro.disconnect();
   }, [draw]);
 
-  function handlePointer(e: React.MouseEvent | React.TouchEvent) {
-    if (!interactive || !onSeek || !wrapRef.current) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    const clientX = "touches" in e ? e.touches[0]?.clientX : e.clientX;
-    if (clientX == null) return;
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    onSeek(ratio);
+  const ratioFromClientX = useCallback((clientX: number) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return 0;
+    const rect = wrap.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  }, []);
+
+  const hitTrimHandle = useCallback(
+    (clientX: number): DragMode => {
+      if (!trimEdit || trimEdit.durationSec <= 0) return null;
+      const wrap = wrapRef.current;
+      if (!wrap) return null;
+      const rect = wrap.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const hit = Math.max(14, rect.width * 0.015);
+
+      const startX = (trimEdit.trimStartSec / trimEdit.durationSec) * rect.width;
+      const endX = ((trimEdit.durationSec - trimEdit.trimEndSec) / trimEdit.durationSec) * rect.width;
+
+      if (Math.abs(x - startX) <= hit) return "trim-start";
+      if (Math.abs(x - endX) <= hit) return "trim-end";
+
+      if (trimEdit.mixSec > 0 && trimEdit.onMix) {
+        const mixStartSec = Math.max(
+          trimEdit.trimStartSec,
+          trimEdit.durationSec - trimEdit.trimEndSec - trimEdit.mixSec,
+        );
+        const mixX = (mixStartSec / trimEdit.durationSec) * rect.width;
+        if (Math.abs(x - mixX) <= hit) return "mix";
+      }
+      return null;
+    },
+    [trimEdit],
+  );
+
+  const applyDrag = useCallback(
+    (mode: DragMode, ratio: number) => {
+      if (!trimEdit || !mode) return;
+      const d = trimEdit.durationSec;
+      const t = ratio * d;
+      const endSec = d - trimEdit.trimEndSec;
+
+      if (mode === "trim-start") {
+        const next = Math.min(Math.max(0, t), endSec - 0.1);
+        trimEdit.onTrimStart(next);
+      } else if (mode === "trim-end") {
+        const cutFromEnd = Math.max(0, d - t);
+        const next = Math.min(Math.max(0, cutFromEnd), d - trimEdit.trimStartSec - 0.1);
+        trimEdit.onTrimEnd(next);
+      } else if (mode === "mix" && trimEdit.onMix) {
+        const useful = endSec - trimEdit.trimStartSec;
+        const mixStart = Math.max(trimEdit.trimStartSec, Math.min(t, endSec - 0.1));
+        const mix = Math.max(0, Math.min(30, endSec - mixStart));
+        trimEdit.onMix(Math.round(mix));
+      }
+    },
+    [trimEdit],
+  );
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragRef.current) return;
+      applyDrag(dragRef.current, ratioFromClientX(e.clientX));
+    };
+    const onUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [applyDrag, ratioFromClientX]);
+
+  function handlePointerDown(e: React.PointerEvent) {
+    if (!interactive || !wrapRef.current) return;
+    const mode = hitTrimHandle(e.clientX);
+    if (mode) {
+      e.preventDefault();
+      dragRef.current = mode;
+      return;
+    }
+    if (onSeek) {
+      onSeek(ratioFromClientX(e.clientX));
+    }
   }
+
+  const trimStartPct = trimEdit ? pctFromSec(trimEdit.trimStartSec, trimEdit.durationSec) : null;
+  const trimEndPct =
+    trimEdit ? 100 - pctFromSec(trimEdit.trimEndSec, trimEdit.durationSec) : null;
+  const mixStartPct =
+    trimEdit && trimEdit.mixSec > 0 ?
+      pctFromSec(
+        Math.max(trimEdit.trimStartSec, trimEdit.durationSec - trimEdit.trimEndSec - trimEdit.mixSec),
+        trimEdit.durationSec,
+      )
+    : null;
 
   return (
     <div
       ref={wrapRef}
       className={
-        "relative overflow-hidden rounded-md bg-slate-950 " +
-        (interactive ? "cursor-crosshair " : "") +
+        "relative w-full min-w-0 overflow-hidden rounded-md bg-slate-950 " +
+        (interactive ? "cursor-crosshair touch-none " : "") +
         className
       }
       style={{ height }}
-      onClick={interactive ? handlePointer : undefined}
-      onTouchStart={interactive ? handlePointer : undefined}
-      role={interactive ? "slider" : undefined}
-      aria-label={interactive ? "Posição de reprodução" : "Forma de onda"}
+      onPointerDown={interactive ? handlePointerDown : undefined}
+      role={interactive ? "group" : undefined}
+      aria-label={interactive ? "Forma de onda — arraste as bordas cinza para trim" : "Forma de onda"}
     >
-      <canvas ref={canvasRef} className="block w-full" />
+      <canvas ref={canvasRef} className="block h-full w-full" />
       {loading ?
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/60 text-[9px] text-slate-400">
           …
@@ -158,9 +270,30 @@ export function WaveformBars({
           title={o.label}
         />
       ))}
+      {trimStartPct != null ?
+        <div
+          className="pointer-events-none absolute inset-y-0 z-10 w-1 -translate-x-1/2 bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]"
+          style={{ left: `${trimStartPct}%` }}
+          title="Arraste para cortar início"
+        />
+      : null}
+      {trimEndPct != null ?
+        <div
+          className="pointer-events-none absolute inset-y-0 z-10 w-1 -translate-x-1/2 bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]"
+          style={{ left: `${trimEndPct}%` }}
+          title="Arraste para cortar fim"
+        />
+      : null}
+      {mixStartPct != null ?
+        <div
+          className="pointer-events-none absolute inset-y-0 z-10 w-0.5 -translate-x-1/2 border-l-2 border-dashed border-emerald-400"
+          style={{ left: `${mixStartPct}%` }}
+          title="Início do ponto de mix"
+        />
+      : null}
       {playheadPct != null ?
         <div
-          className="pointer-events-none absolute inset-y-0 w-0.5 bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]"
+          className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.9)]"
           style={{ left: `${playheadPct}%` }}
         />
       : null}
@@ -190,10 +323,10 @@ export function LazyWaveformBars(props: WaveformBarsProps) {
   }, []);
 
   return (
-    <div ref={ref} className="min-w-0 flex-1">
+    <div ref={ref} className="min-w-0 w-full">
       {visible ?
         <WaveformBars {...props} />
-      : <div className="rounded-md bg-slate-900" style={{ height: props.height ?? 40 }} />}
+      : <div className="w-full rounded-md bg-slate-900" style={{ height: props.height ?? 40 }} />}
     </div>
   );
 }

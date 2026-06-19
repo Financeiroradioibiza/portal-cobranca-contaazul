@@ -90,6 +90,11 @@ export function EdicaoPanel() {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
   const [sel, setSel] = useState<Faixa | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (sel) editorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [sel?.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,9 +157,8 @@ export function EdicaoPanel() {
         </div>
       : <>
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-sm dark:border-slate-800">
-            <div className="hidden border-b border-slate-800 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 md:grid md:grid-cols-[minmax(180px,1fr)_minmax(0,2fr)_minmax(220px,1.2fr)] md:gap-4">
+            <div className="hidden border-b border-slate-800 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 md:grid md:grid-cols-[minmax(0,1fr)_minmax(220px,340px)] md:gap-4">
               <span>Forma de onda</span>
-              <span />
               <span>Faixa · tags</span>
             </div>
             <ul className="divide-y divide-slate-800">
@@ -163,16 +167,22 @@ export function EdicaoPanel() {
                 const hasTrim = f.trimInicioMs > 0 || f.trimFimMs > 0;
                 return (
                   <li key={f.id}>
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSel(f)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSel(f);
+                        }
+                      }}
                       className={
-                        "grid w-full grid-cols-1 gap-3 px-3 py-3 text-left transition md:grid-cols-[minmax(180px,1fr)_minmax(0,2fr)_minmax(220px,1.2fr)] md:items-center md:gap-4 md:px-4 " +
+                        "grid w-full cursor-pointer grid-cols-1 gap-3 px-3 py-3 text-left transition md:grid-cols-[minmax(0,1fr)_minmax(220px,340px)] md:items-center md:gap-4 md:px-4 " +
                         (active ? "bg-slate-800/80 ring-1 ring-inset ring-amber-500/40" : "hover:bg-slate-900/60")
                       }
                     >
-                      <LazyWaveformBars previewUrl={f.previewUrl} height={44} barCount={90} barColor="rgba(255,255,255,0.7)" />
-                      <div className="hidden md:block" />
+                      <LazyWaveformBars previewUrl={f.previewUrl} height={44} barCount={120} barColor="rgba(255,255,255,0.7)" />
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-100">{f.titulo || "(sem título)"}</div>
                         <div className="truncate text-xs text-slate-400">
@@ -183,7 +193,7 @@ export function EdicaoPanel() {
                         </div>
                         <TagChips faixa={f} max={5} />
                       </div>
-                    </button>
+                    </div>
                   </li>
                 );
               })}
@@ -191,7 +201,7 @@ export function EdicaoPanel() {
           </div>
 
           {sel ?
-            <div className="mt-4">
+            <div ref={editorRef} className="mt-4">
               <FaixaEditor
                 key={sel.id}
                 faixa={sel}
@@ -352,17 +362,26 @@ function FaixaEditor({
       />
 
       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        Clique na waveform para posicionar o play · cinza = será cortado · verde = cauda do mix
+        Clique para posicionar o play · arraste as linhas âmbar para trim · verde = mix · cinza = será cortado
       </div>
       <WaveformBars
         previewUrl={faixa.previewUrl}
-        height={72}
-        barCount={140}
+        height={88}
+        barCount={180}
         interactive
         playheadPct={pct(cur)}
         overlays={overlays}
+        trimEdit={{
+          durationSec: durSec,
+          trimStartSec: trimIni,
+          trimEndSec: trimFim,
+          mixSec: mix,
+          onTrimStart: (s) => setTrimIni(Math.max(0, s)),
+          onTrimEnd: (s) => setTrimFim(Math.max(0, s)),
+          onMix: (s) => setMix(s),
+        }}
         onSeek={(ratio) => seekTo(ratio, true)}
-        className="mb-2"
+        className="mb-2 w-full"
       />
       <div className="mb-4 flex items-center justify-between text-[10px] text-slate-400">
         <span>{fmt(cur)}</span>
@@ -381,7 +400,7 @@ function FaixaEditor({
         </button>
         <span className="text-xs text-slate-500">
           {faixa.previewUrl ?
-            `Toca a partir de ${fmt(seekSec)} — clique na waveform para mudar`
+            `Toca a partir de ${fmt(seekSec)} — clique na waveform ou use os campos abaixo para trim`
           : "Sem versão de uso para tocar"}
         </span>
       </div>
