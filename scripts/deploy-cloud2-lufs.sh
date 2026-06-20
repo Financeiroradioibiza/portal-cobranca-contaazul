@@ -50,7 +50,7 @@ elif [[ "$MODE" == "patch" ]]; then
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/criacao/" \
     "$REMOTE:$REMOTE_DIR/src/criacao/"
-  rsync -avz -e "ssh -o BatchMode=yes" \
+  rsync -avz --delete -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/workers/criacao/" \
     "$REMOTE:$REMOTE_DIR/src/workers/criacao/"
   for f in ingest.ts audio.ts vinheta.ts publicar.ts enriquecer-tags.ts apagar-musica.ts refresh-tags.ts player-registry.ts publishCronogramas.ts tagEnrichmentCore.ts; do
@@ -62,15 +62,9 @@ elif [[ "$MODE" == "patch" ]]; then
     "$ROOT/.cloud2-stage/criacao-index.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/index.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/routes/loginByToken.js" \
-    "$REMOTE:$REMOTE_DIR/src/routes/loginByToken.js"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice-index.ts" \
-    "$REMOTE:$REMOTE_DIR/src/routes/index.ts"
-  "${SSH[@]}" "$REMOTE" "rm -f '$REMOTE_DIR/src/criacao/pipeline.ts'"
+    "$ROOT/.cloud2-stage/webservice/getMusica.ts" \
+    "$REMOTE:$REMOTE_DIR/src/routes/webservice/getMusica.ts"
+  "${SSH[@]}" "$REMOTE" "rm -f '$REMOTE_DIR/src/workers/criacao/pipeline.ts'"
 else
   echo "DEPLOY_MODE inválido: $MODE" >&2
   exit 1

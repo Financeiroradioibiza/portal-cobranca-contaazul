@@ -1,10 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
-import path from 'node:path';
 import { criacaoConfig } from '../../criacao/config.js';
 import { portalQuery } from '../../criacao/portalDb.js';
-import { usoPath } from '../../criacao/storage.js';
+import { masterLocalPath, usoPath } from '../../criacao/storage.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;
@@ -60,8 +59,9 @@ async function deleteMasterStorageKey(masterKey: string | null): Promise<string[
   }
 
   if (masterKey.startsWith('local:')) {
-    const rel = masterKey.slice(6);
-    const full = path.join(criacaoConfig.masterDir, rel);
+    const base = masterKey.slice(6);
+    const musicaId = base.replace(/\.mp3$/i, '');
+    const full = masterLocalPath(musicaId);
     await fsp.rm(full, { force: true }).catch(() => {});
     removed.push(masterKey);
   }

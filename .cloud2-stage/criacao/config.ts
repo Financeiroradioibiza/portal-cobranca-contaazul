@@ -10,6 +10,7 @@ export const criacaoConfig = {
   /** Ponto de mix padrão (segundos finais) — crossfade no player. */
   defaultMixSegundos: Number(process.env.CRIACAO_DEFAULT_MIX_SEG ?? '1'),
   workerPollMs: Number(process.env.CRIACAO_WORKER_POLL_MS ?? '2000'),
+  maxUploadBytes: Number(process.env.CRIACAO_MAX_UPLOAD_BYTES ?? String(100 * 1024 * 1024)),
   /** AES-256-GCM para .rib (mín. 16 chars). Vazio = grava MP3 plano em uso/. */
   ribSecret: process.env.CRIACAO_RIB_SECRET ?? process.env.CRIACAO_INGEST_SECRET ?? '',
   b2: {
