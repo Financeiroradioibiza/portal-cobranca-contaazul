@@ -18,7 +18,7 @@ export async function getBibliotecaFacets(): Promise<{ topTags: BibliotecaFacetT
   >`
     SELECT t.id, t.nome, t.cor, t.criativo_nome, COUNT(DISTINCT p.programacao_id)::int AS uso_count
       FROM tag_criativo t
-      JOIN musica_tag mt ON mt.tag_id = t.id
+      JOIN musica_tag_manual mt ON mt.tag_id = t.id
       JOIN pasta_musica pm ON pm.musica_id = mt.musica_id
       JOIN pasta p ON p.id = pm.pasta_id
      GROUP BY t.id, t.nome, t.cor, t.criativo_nome
@@ -74,7 +74,7 @@ export async function listMusicaIdsByUsageFilter(
 
   if (opts.tagId) {
     conditions.push(Prisma.sql`EXISTS (
-      SELECT 1 FROM musica_tag mt WHERE mt.musica_id = m.id AND mt.tag_id = ${opts.tagId}
+      SELECT 1 FROM musica_tag_manual mt WHERE mt.musica_id = m.id AND mt.tag_id = ${opts.tagId}
     )`);
   }
 
