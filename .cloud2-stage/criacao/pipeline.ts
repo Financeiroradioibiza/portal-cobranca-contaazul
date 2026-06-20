@@ -3,10 +3,14 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { uploadMasterToB2 } from './b2.js';
 import { criacaoConfig } from './config.js';
-import { produceMasterAndUso } from './ffmpeg.js';
-import { sha256File } from './hash.js';
+import { findDuplicate } from './dedupe.js';
+import { produceMasterAndUso, probeBpmFromFile } from './ffmpeg.js';
+import { detectMixSegundosFinais } from './mixDetect.js';
 import { parseMp3Filename } from './parseFilename.js';
 import { portalQuery } from './portalDb.js';
+import { pipelineLog, pipelineTimed } from './pipelineLogger.js';
+import { packUsoAudio } from './rib.js';
+import { uploadUsoToR2 } from './r2.js';
 import {
   ensureStorageDirs,
   uploadKey,
@@ -155,77 +159,113 @@ function resolveInputPath(item: ClaimedItem): string {
 }
 
 async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string | 'duplicata'> {
-  await setItemEtapa(item.id, 'deduplicacao');
-  const contentHash = await sha256File(inputPath);
+  const ctx = { itemId: item.id, jobId: item.job_id, etapa: 'deduplicacao' };
+  return pipelineTimed(ctx, async () => {
+    await setItemEtapa(item.id, 'deduplicacao');
+    const dup = await findDuplicate(inputPath);
+    if (dup.kind === 'duplicata') {
+      pipelineLog(ctx, 'duplicata', { via: dup.via, existenteId: dup.existenteId });
+      await finishItemDuplicata(item, dup.existenteId);
+      return 'duplicata' as const;
+    }
 
-  const existing = await portalQuery<{ id: string }>(
-    `SELECT id FROM musica_biblioteca WHERE content_hash = $1 LIMIT 1`,
-    [contentHash],
-  );
-  if (existing.rowCount && existing.rows[0]?.id) {
-    await finishItemDuplicata(item, existing.rows[0].id);
-    return 'duplicata';
-  }
-
-  const { artista, titulo } = parseMp3Filename(item.arquivo_nome);
-  const ins = await portalQuery<{ id: string }>(
-    `INSERT INTO musica_biblioteca
-       (titulo, artista, content_hash, status, mix_segundos_finais, mix_auto)
-     VALUES ($1, $2, $3, 'processando', $4, true)
-     RETURNING id`,
-    [titulo, artista, contentHash, criacaoConfig.defaultMixSegundos],
-  );
-  return ins.rows[0]!.id;
+    const { artista, titulo } = parseMp3Filename(item.arquivo_nome);
+    const ins = await portalQuery<{ id: string }>(
+      `INSERT INTO musica_biblioteca
+         (titulo, artista, content_hash, chromaprint, status, mix_segundos_finais, mix_auto)
+       VALUES ($1, $2, $3, $4, 'processando', $5, true)
+       RETURNING id`,
+      [
+        titulo,
+        artista,
+        dup.contentHash,
+        dup.chromaprint,
+        criacaoConfig.defaultMixSegundos,
+      ],
+    );
+    return ins.rows[0]!.id;
+  });
 }
 
 async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: string): Promise<void> {
-  await setItemEtapa(item.id, 'ponto_mix');
-  await setItemEtapa(item.id, 'normalizacao');
+  const ctx = { itemId: item.id, jobId: item.job_id, musicaId, etapa: 'producao' };
 
-  ensureStorageDirs();
-  const wd = workDir(item.id);
-  const produced = await produceMasterAndUso(inputPath, wd);
+  await pipelineTimed({ ...ctx, etapa: 'ponto_mix' }, async () => {
+    await setItemEtapa(item.id, 'ponto_mix');
+    const mixSeg = await detectMixSegundosFinais(inputPath);
+    await portalQuery(
+      `UPDATE musica_biblioteca
+          SET mix_segundos_finais = $2, updated_at = now()
+        WHERE id = $1 AND mix_auto = true`,
+      [musicaId, mixSeg],
+    );
+    pipelineLog({ ...ctx, etapa: 'ponto_mix' }, 'mix_detectado', { mixSegundos: mixSeg });
+  });
 
-  await setItemEtapa(item.id, 'armazenamento');
+  const produced = await pipelineTimed({ ...ctx, etapa: 'normalizacao' }, async () => {
+    await setItemEtapa(item.id, 'normalizacao');
+    ensureStorageDirs();
+    const wd = workDir(item.id);
+    return produceMasterAndUso(inputPath, wd);
+  });
 
-  const masterKey = await uploadMasterToB2(musicaId, produced.masterPath);
+  await pipelineTimed({ ...ctx, etapa: 'armazenamento' }, async () => {
+    await setItemEtapa(item.id, 'armazenamento');
 
-  const usoKey = usoStorageKey(musicaId, 'mp3_128_mono');
-  const usoRel = usoRelFromStorageKey(usoKey);
-  const usoDest = usoPath(usoRel);
-  await fsp.mkdir(path.dirname(usoDest), { recursive: true });
-  await fsp.copyFile(produced.uso128Path, usoDest);
+    const masterKey = await uploadMasterToB2(musicaId, produced.masterPath);
 
-  await portalQuery(
-    `INSERT INTO musica_versao (id, musica_id, formato, storage_key, size_bytes, created_at)
-     VALUES ($4, $1, 'mp3_128_mono', $2, $3, now())
-     ON CONFLICT (musica_id, formato) DO UPDATE
-       SET storage_key = EXCLUDED.storage_key,
-           size_bytes = EXCLUDED.size_bytes`,
-    [musicaId, usoKey, produced.usoSizeBytes, crypto.randomUUID()],
-  );
+    const mp3Buf = await fsp.readFile(produced.uso128Path);
+    const packed = packUsoAudio(mp3Buf);
+    const usoKey = usoStorageKey(musicaId, 'mp3_128_mono', packed.ext);
+    const usoRel = usoRelFromStorageKey(usoKey);
+    const usoDest = usoPath(usoRel);
+    await fsp.mkdir(path.dirname(usoDest), { recursive: true });
+    await fsp.writeFile(usoDest, packed.data);
 
-  await portalQuery(
-    `UPDATE musica_biblioteca
-        SET status = 'pronta',
-            duration_ms = $2,
-            master_storage_key = $3,
-            master_bitrate = 192,
-            loudness_lufs = $4,
-            true_peak_db = $5,
-            updated_at = now()
-      WHERE id = $1`,
-    [
-      musicaId,
-      produced.durationMs,
-      masterKey,
-      criacaoConfig.targetLufs,
-      criacaoConfig.targetTruePeak,
-    ],
-  );
+    await uploadUsoToR2(musicaId, usoDest, `mp3_128_mono${packed.ext}`).catch(() => null);
+
+    const bpm = await probeBpmFromFile(produced.uso128Path);
+
+    await portalQuery(
+      `INSERT INTO musica_versao (id, musica_id, formato, storage_key, size_bytes, created_at)
+       VALUES ($4, $1, 'mp3_128_mono', $2, $3, now())
+       ON CONFLICT (musica_id, formato) DO UPDATE
+         SET storage_key = EXCLUDED.storage_key,
+             size_bytes = EXCLUDED.size_bytes`,
+      [musicaId, usoKey, mp3Buf.length, crypto.randomUUID()],
+    );
+
+    await portalQuery(
+      `UPDATE musica_biblioteca
+          SET status = 'pronta',
+              duration_ms = $2,
+              master_storage_key = $3,
+              master_bitrate = 192,
+              loudness_lufs = $4,
+              true_peak_db = $5,
+              bpm = COALESCE($6, bpm),
+              updated_at = now()
+        WHERE id = $1`,
+      [
+        musicaId,
+        produced.durationMs,
+        masterKey,
+        criacaoConfig.targetLufs,
+        criacaoConfig.targetTruePeak,
+        bpm,
+      ],
+    );
+
+    pipelineLog({ ...ctx, etapa: 'armazenamento' }, 'uso_gravado', {
+      storageKey: usoKey,
+      bytes: packed.data.length,
+      encrypted: packed.encrypted,
+      bpm,
+    });
+  });
 
   await setItemEtapa(item.id, 'tags');
-  await enrichTags(musicaId);
+  await pipelineTimed({ ...ctx, etapa: 'tags' }, () => enrichTags(musicaId));
   await finishItemOk(item, musicaId);
 }
 
@@ -252,7 +292,10 @@ export async function processClaimedItem(item: ClaimedItem): Promise<void> {
     await fsp.unlink(inputPath).catch(() => {});
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'pipeline_falhou';
-    console.error('[pipeline]', item.id, msg);
+    pipelineLog(
+      { itemId: item.id, jobId: item.job_id, musicaId: musicaId ?? undefined, etapa: 'erro' },
+      msg,
+    );
     if (musicaId) {
       await portalQuery(
         `UPDATE musica_biblioteca SET status = 'erro', updated_at = now() WHERE id = $1`,
@@ -272,7 +315,16 @@ export async function runPipelineOnce(): Promise<boolean> {
 }
 
 export async function runPipelineLoop(): Promise<void> {
-  console.log('[criacao-worker] iniciado — poll', criacaoConfig.workerPollMs, 'ms');
+  console.log(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      component: 'criacao-worker',
+      msg: 'iniciado',
+      pollMs: criacaoConfig.workerPollMs,
+      mixPadraoSeg: criacaoConfig.defaultMixSegundos,
+      rib: criacaoConfig.ribSecret.length >= 16,
+    }),
+  );
   ensureStorageDirs();
   for (;;) {
     try {

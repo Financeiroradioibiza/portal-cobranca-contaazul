@@ -46,29 +46,30 @@ if [[ "$MODE" == "full" ]]; then
     --exclude .env \
     "$LOCAL/" "$REMOTE:$REMOTE_DIR/"
 elif [[ "$MODE" == "patch" ]]; then
-  echo "== 2/3 rsync PATCH → player-registry, index, tagEnrichmentCore, tags"
+  echo "== 2/3 rsync PATCH → criacao/, workers, rotas gateway"
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/player-registry.ts" \
-    "$REMOTE:$REMOTE_DIR/src/routes/criacao/player-registry.ts"
+    "$ROOT/.cloud2-stage/criacao/" \
+    "$REMOTE:$REMOTE_DIR/src/criacao/"
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/deploy/routes-criacao-index.ts" \
+    "$ROOT/.cloud2-stage/workers/criacao/" \
+    "$REMOTE:$REMOTE_DIR/src/workers/criacao/"
+  for f in ingest.ts audio.ts vinheta.ts publicar.ts enriquecer-tags.ts apagar-musica.ts refresh-tags.ts player-registry.ts publishCronogramas.ts tagEnrichmentCore.ts; do
+    rsync -avz -e "ssh -o BatchMode=yes" \
+      "$ROOT/.cloud2-stage/$f" \
+      "$REMOTE:$REMOTE_DIR/src/routes/criacao/$f"
+  done
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/criacao-index.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/index.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/apagar-musica.ts" \
-    "$REMOTE:$REMOTE_DIR/src/routes/criacao/apagar-musica.ts"
+    "$ROOT/.cloud2-stage/webservice/" \
+    "$REMOTE:$REMOTE_DIR/src/routes/webservice/"
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/refresh-tags.ts" \
-    "$REMOTE:$REMOTE_DIR/src/routes/criacao/refresh-tags.ts"
+    "$ROOT/.cloud2-stage/routes/loginByToken.js" \
+    "$REMOTE:$REMOTE_DIR/src/routes/loginByToken.js"
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/enriquecer-tags.ts" \
-    "$REMOTE:$REMOTE_DIR/src/routes/criacao/enriquecer-tags.ts"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/tagEnrichmentCore.ts" \
-    "$REMOTE:$REMOTE_DIR/src/routes/criacao/tagEnrichmentCore.ts"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/workers/criacao/tags.ts" \
-    "$REMOTE:$REMOTE_DIR/src/workers/criacao/tags.ts"
-  # Remover pipeline.ts errado em src/criacao/ (worker real usa workers/criacao/pipeline.ts)
+    "$ROOT/.cloud2-stage/webservice-index.ts" \
+    "$REMOTE:$REMOTE_DIR/src/routes/index.ts"
   "${SSH[@]}" "$REMOTE" "rm -f '$REMOTE_DIR/src/criacao/pipeline.ts'"
 else
   echo "DEPLOY_MODE inválido: $MODE" >&2

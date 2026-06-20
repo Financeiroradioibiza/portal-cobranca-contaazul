@@ -1,9 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import { verifyStreamToken } from '../../criacao/ingestToken.js';
+import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
 import { portalQuery } from '../../criacao/portalDb.js';
-import { usoPath, usoRelFromStorageKey } from '../../criacao/storage.js';
 
 type AudioParams = { musicaId: string };
 type AudioQuery = { f?: string; exp?: string; token?: string };
@@ -42,31 +40,10 @@ export async function registerAudioRoutes(app: FastifyInstance, prefix: string):
       }
       if (!key) return reply.code(404).send({ ok: false, error: 'versao_ausente' });
 
-      const rel = usoRelFromStorageKey(key);
-      const full = usoPath(rel);
-      const stat = await fsp.stat(full).catch(() => null);
-      if (!stat) return reply.code(404).send({ ok: false, error: 'arquivo_ausente' });
+      const resolved = await resolveUsoAudio(key);
+      if (!resolved) return reply.code(404).send({ ok: false, error: 'arquivo_ausente' });
 
-      reply.header('Accept-Ranges', 'bytes');
-      reply.header('Content-Type', 'audio/mpeg');
-      reply.header('Cache-Control', 'private, max-age=3600');
-
-      const range = req.headers.range;
-      if (range) {
-        const m = /bytes=(\d*)-(\d*)/.exec(range);
-        let start = m && m[1] ? parseInt(m[1], 10) : 0;
-        let end = m && m[2] ? parseInt(m[2], 10) : stat.size - 1;
-        if (!Number.isFinite(start) || start < 0) start = 0;
-        if (!Number.isFinite(end) || end >= stat.size) end = stat.size - 1;
-        if (start > end) return reply.code(416).header('Content-Range', `bytes */${stat.size}`).send();
-        reply.code(206);
-        reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-        reply.header('Content-Length', String(end - start + 1));
-        return reply.send(fs.createReadStream(full, { start, end }));
-      }
-
-      reply.header('Content-Length', String(stat.size));
-      return reply.send(fs.createReadStream(full));
+      return sendAudioReply(reply, resolved, req.headers.range, 'private, max-age=3600');
     },
   );
 }

@@ -32,8 +32,8 @@ export function usoPath(rel: string): string {
 }
 
 /** Chave relativa + prefixo `uso:` gravado no Neon/gateway. */
-export function usoStorageKey(musicaId: string, formato: string): string {
-  const rel = `musicas/${musicaId}/${formato}.mp3`;
+export function usoStorageKey(musicaId: string, formato: string, ext: '.mp3' | '.rib' = '.mp3'): string {
+  const rel = `musicas/${musicaId}/${formato}${ext}`;
   return `uso:${rel}`;
 }
 

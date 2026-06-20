@@ -126,6 +126,34 @@ async function probeDurationMs(inputPath: string): Promise<number> {
   });
 }
 
+/** BPM de tags ID3 ou null se indisponível. */
+export async function probeBpmFromFile(inputPath: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    const proc = spawn(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format_tags=TBPM',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        inputPath,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let out = '';
+    proc.stdout?.on('data', (d) => {
+      out += String(d);
+    });
+    proc.on('error', () => resolve(null));
+    proc.on('close', () => {
+      const n = parseFloat(out.trim());
+      resolve(Number.isFinite(n) && n > 40 && n < 260 ? Math.round(n) : null);
+    });
+  });
+}
+
 /**
  * Normaliza LUFS (two-pass loudnorm) e gera:
  * - master MP3 192k (stereo)

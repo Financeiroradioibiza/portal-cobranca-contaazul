@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { MIX_PADRAO_SEGUNDOS } from "@/lib/criacao/criacaoDefaults";
 import { LazyWaveformBars, WaveformBars } from "@/components/criacao/waveform/WaveformBars";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
@@ -229,7 +230,7 @@ function FaixaEditor({
   onClose: () => void;
 }) {
   const durSec = (faixa.durationMs ?? 0) / 1000;
-  const [mix, setMix] = useState<number>(faixa.mixSegundosFinais ?? 0);
+  const [mix, setMix] = useState<number>(faixa.mixSegundosFinais ?? MIX_PADRAO_SEGUNDOS);
   const [trimIni, setTrimIni] = useState<number>(faixa.trimInicioMs / 1000);
   const [trimFim, setTrimFim] = useState<number>(faixa.trimFimMs / 1000);
   const [saving, setSaving] = useState(false);
@@ -245,7 +246,7 @@ function FaixaEditor({
   const pct = (v: number) => (durSec > 0 ? Math.min(100, Math.max(0, (v / durSec) * 100)) : 0);
 
   useEffect(() => {
-    setMix(faixa.mixSegundosFinais ?? 0);
+    setMix(faixa.mixSegundosFinais ?? MIX_PADRAO_SEGUNDOS);
     setTrimIni(faixa.trimInicioMs / 1000);
     setTrimFim(faixa.trimFimMs / 1000);
     setSeekSec(0);
