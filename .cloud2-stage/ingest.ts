@@ -1,15 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import fsp from 'node:fs/promises';
+import { criacaoConfig } from '../../criacao/config.js';
 import { verifyIngestToken } from '../../criacao/ingestToken.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { ensureStorageDirs, uploadKey, uploadPath } from '../../criacao/storage.js';
 
 /** Requer @fastify/multipart no portal-ibiza (`npm i @fastify/multipart`). */
 export async function registerIngestRoutes(app: FastifyInstance, prefix: string): Promise<void> {
-  const multipart = await import('@fastify/multipart');
-  await app.register(multipart.default, {
-    limits: { fileSize: 80 * 1024 * 1024, files: 1 },
-  });
+  if (!app.hasDecorator('multipartErrors')) {
+    const multipart = await import('@fastify/multipart');
+    await app.register(multipart.default, {
+      limits: { fileSize: criacaoConfig.maxUploadBytes, files: 1, fields: 10 },
+    });
+  }
 
   app.post(`${prefix}/ingest`, async (req, reply) => {
     let token = '';
