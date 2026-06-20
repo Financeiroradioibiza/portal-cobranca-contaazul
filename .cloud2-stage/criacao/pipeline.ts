@@ -4,7 +4,8 @@ import path from 'node:path';
 import { uploadMasterToB2 } from './b2.js';
 import { criacaoConfig } from './config.js';
 import { findDuplicate } from './dedupe.js';
-import { produceMasterAndUso, probeBpmFromFile } from './ffmpeg.js';
+import { analyzeAudio } from './analyze.js';
+import { produceMasterAndUso, probeBpmFromFile, probeIsrcFromFile } from './ffmpeg.js';
 import { detectMixSegundosFinais } from './mixDetect.js';
 import { parseMp3Filename } from './parseFilename.js';
 import { portalQuery } from './portalDb.js';
@@ -226,7 +227,13 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
 
     await uploadUsoToR2(musicaId, usoDest, `mp3_128_mono${packed.ext}`).catch(() => null);
 
-    const bpm = await probeBpmFromFile(produced.uso128Path);
+    const [tagBpm, analyzed, tagIsrc] = await Promise.all([
+      probeBpmFromFile(produced.uso128Path),
+      analyzeAudio(inputPath),
+      probeIsrcFromFile(inputPath),
+    ]);
+    const bpm = tagBpm ?? analyzed.bpm;
+    const energia = analyzed.energia;
 
     await portalQuery(
       `INSERT INTO musica_versao (id, musica_id, formato, storage_key, size_bytes, created_at)
@@ -246,6 +253,8 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
               loudness_lufs = $4,
               true_peak_db = $5,
               bpm = COALESCE($6, bpm),
+              energia = COALESCE($7, energia),
+              isrc = COALESCE(isrc, $8),
               updated_at = now()
         WHERE id = $1`,
       [
@@ -255,6 +264,8 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
         criacaoConfig.targetLufs,
         criacaoConfig.targetTruePeak,
         bpm,
+        energia,
+        tagIsrc,
       ],
     );
 
@@ -263,6 +274,8 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
       bytes: packed.data.length,
       encrypted: packed.encrypted,
       bpm,
+      energia,
+      isrc: tagIsrc,
     });
   });
 

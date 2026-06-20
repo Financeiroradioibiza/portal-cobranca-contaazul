@@ -2,6 +2,7 @@ import { portalQuery } from '../../criacao/portalDb.js';
 import {
   extractGravadoraFromTags,
   fetchDeezerExplicit,
+  fetchExternalTrackMetadata,
   fetchLabelTags,
   fetchMusicBrainzExplicit,
   hasApiExplicitCheck,
@@ -41,8 +42,48 @@ function mergeGeminiExplicitCheck(
   return out;
 }
 
+async function applyMetadataEnrichment(
+  m: {
+    titulo: string;
+    artista: string;
+    isrc: string | null;
+    bpm: number | null;
+    tags_auto: unknown;
+  },
+  force = false,
+): Promise<{ merged: ExternalAutoTag[]; bpm: number | null; isrc: string | null; ano: number | null; changed: boolean }> {
+  let merged = parseTagsFromJson(m.tags_auto);
+  let changed = false;
+  let bpm = m.bpm;
+  let isrc = m.isrc;
+  let ano: number | null = null;
+
+  if (force || !isrc?.trim() || bpm == null) {
+    const meta = await fetchExternalTrackMetadata({
+      titulo: m.titulo,
+      artista: m.artista,
+      isrc: m.isrc,
+    });
+    if (meta.tags.length > 0) {
+      merged = mergeExternalTags(merged, meta.tags);
+      changed = true;
+    }
+    if (meta.bpm != null && bpm == null) {
+      bpm = meta.bpm;
+      changed = true;
+    }
+    if (meta.isrc && !isrc?.trim()) {
+      isrc = meta.isrc;
+      changed = true;
+    }
+    if (meta.ano) ano = meta.ano;
+  }
+
+  return { merged, bpm, isrc, ano, changed };
+}
+
 /**
- * Metadados pós-upload: gravadora + explicit Deezer/MB em tags_auto.
+ * Metadados pós-upload: ISRC/BPM (Deezer/MB), gravadora + explicit Deezer/MB em tags_auto.
  * Chamado ao final do pipeline e pelo poll do worker.
  */
 export async function enrichUploadTagsForMusica(musicaId: string): Promise<void> {
@@ -50,22 +91,27 @@ export async function enrichUploadTagsForMusica(musicaId: string): Promise<void>
     titulo: string;
     artista: string;
     isrc: string | null;
+    bpm: number | null;
     tags_auto: unknown;
   }>(
-    `SELECT titulo, artista, isrc, tags_auto FROM musica_biblioteca WHERE id = $1 LIMIT 1`,
+    `SELECT titulo, artista, isrc, bpm, tags_auto FROM musica_biblioteca WHERE id = $1 LIMIT 1`,
     [musicaId],
   );
   const m = row.rows[0];
   if (!m) return;
 
-  let merged = parseTagsFromJson(m.tags_auto);
-  let changed = false;
+  const meta = await applyMetadataEnrichment(m);
+  let merged = meta.merged;
+  let changed = meta.changed;
+  let bpm = meta.bpm;
+  let isrc = meta.isrc;
+  const ano = meta.ano;
 
   if (!extractGravadoraFromTags(merged)) {
     const labels = await fetchLabelTags({
       titulo: m.titulo,
       artista: m.artista,
-      isrc: m.isrc,
+      isrc,
     });
     if (labels.length > 0) {
       merged = mergeExternalTags(merged, labels);
@@ -78,7 +124,7 @@ export async function enrichUploadTagsForMusica(musicaId: string): Promise<void>
     const musicbrainz = await fetchMusicBrainzExplicit({
       titulo: m.titulo,
       artista: m.artista,
-      isrc: m.isrc,
+      isrc,
     });
     merged = mergeApiExplicitTags(merged, { deezer, musicbrainz });
     changed = true;
@@ -87,32 +133,40 @@ export async function enrichUploadTagsForMusica(musicaId: string): Promise<void>
   if (!changed) return;
 
   await portalQuery(
-    `UPDATE musica_biblioteca SET tags_auto = $2::jsonb, updated_at = now() WHERE id = $1`,
-    [musicaId, JSON.stringify(merged)],
+    `UPDATE musica_biblioteca
+        SET tags_auto = $2::jsonb,
+            bpm = COALESCE($3, bpm),
+            isrc = COALESCE(isrc, $4),
+            ano = COALESCE(ano, $5),
+            updated_at = now()
+      WHERE id = $1`,
+    [musicaId, JSON.stringify(merged), bpm, isrc, ano],
   );
 }
 
-/** Reconsulta gravadora + explicit Deezer/MB (ignora tags já preenchidas). */
+/** Reconsulta metadados + gravadora + explicit Deezer/MB. */
 export async function refreshInternetTagsForMusica(musicaId: string): Promise<{ updated: boolean; gravadora: string }> {
   const row = await portalQuery<{
     titulo: string;
     artista: string;
     isrc: string | null;
+    bpm: number | null;
     tags_auto: unknown;
   }>(
-    `SELECT titulo, artista, isrc, tags_auto FROM musica_biblioteca WHERE id = $1 LIMIT 1`,
+    `SELECT titulo, artista, isrc, bpm, tags_auto FROM musica_biblioteca WHERE id = $1 LIMIT 1`,
     [musicaId],
   );
   const m = row.rows[0];
   if (!m) throw new Error('not_found');
 
   const before = JSON.stringify(parseTagsFromJson(m.tags_auto));
-  let merged = parseTagsFromJson(m.tags_auto);
+  const meta = await applyMetadataEnrichment(m, true);
+  let merged = meta.merged;
 
   const labels = await fetchLabelTags({
     titulo: m.titulo,
     artista: m.artista,
-    isrc: m.isrc,
+    isrc: meta.isrc,
   });
   if (labels.length > 0) merged = mergeExternalTags(merged, labels);
 
@@ -120,18 +174,24 @@ export async function refreshInternetTagsForMusica(musicaId: string): Promise<{ 
   const musicbrainz = await fetchMusicBrainzExplicit({
     titulo: m.titulo,
     artista: m.artista,
-    isrc: m.isrc,
+    isrc: meta.isrc,
   });
   merged = mergeApiExplicitTags(merged, { deezer, musicbrainz });
 
   const after = JSON.stringify(merged);
-  if (before === after) {
+  if (before === after && !meta.changed) {
     return { updated: false, gravadora: extractGravadoraFromTags(merged) };
   }
 
   await portalQuery(
-    `UPDATE musica_biblioteca SET tags_auto = $2::jsonb, updated_at = now() WHERE id = $1`,
-    [musicaId, JSON.stringify(merged)],
+    `UPDATE musica_biblioteca
+        SET tags_auto = $2::jsonb,
+            bpm = COALESCE($3, bpm),
+            isrc = COALESCE(isrc, $4),
+            ano = COALESCE(ano, $5),
+            updated_at = now()
+      WHERE id = $1`,
+    [musicaId, JSON.stringify(merged), meta.bpm, meta.isrc, meta.ano],
   );
   return { updated: true, gravadora: extractGravadoraFromTags(merged) };
 }

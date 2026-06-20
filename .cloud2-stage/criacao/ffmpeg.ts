@@ -126,6 +126,48 @@ async function probeDurationMs(inputPath: string): Promise<number> {
   });
 }
 
+function normalizeIsrc(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = raw.trim().replace(/-/g, '').toUpperCase();
+  if (!/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(s)) return null;
+  return s;
+}
+
+/** ISRC de tags ID3 (TSRC/ISRC) ou null se indisponível. */
+export async function probeIsrcFromFile(inputPath: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const proc = spawn(
+      'ffprobe',
+      ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', inputPath],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let out = '';
+    proc.stdout?.on('data', (d) => {
+      out += String(d);
+    });
+    proc.on('error', () => resolve(null));
+    proc.on('close', () => {
+      try {
+        const j = JSON.parse(out) as {
+          format?: { tags?: Record<string, string> };
+          streams?: { tags?: Record<string, string> }[];
+        };
+        const tags = { ...(j.format?.tags ?? {}), ...(j.streams?.[0]?.tags ?? {}) };
+        for (const key of ['ISRC', 'isrc', 'TSRC', 'tsrc']) {
+          const hit = normalizeIsrc(tags[key]);
+          if (hit) {
+            resolve(hit);
+            return;
+          }
+        }
+        resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
 /** BPM de tags ID3 ou null se indisponível. */
 export async function probeBpmFromFile(inputPath: string): Promise<number | null> {
   return new Promise((resolve) => {

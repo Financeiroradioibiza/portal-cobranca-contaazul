@@ -64,33 +64,66 @@ export function LoginsClientesPanel() {
   const faltantes = useMemo(() => rows.filter((r) => !r.hasLogin).length, [rows]);
   const comLogin = useMemo(() => rows.filter((r) => r.hasLogin).length, [rows]);
 
-  async function gerarFaltantes() {
-    if (busy) return;
-    setBusy(true);
-    setMsg("");
-    try {
+  async function syncPlayerGateway(): Promise<{ clientes: number; pdvs: number } | null> {
+    const res = await fetch("/api/player/sync-gateway", { method: "POST" });
+    const data = (await res.json()) as {
+      error?: string;
+      clientes?: number;
+      pdvs?: number;
+    };
+    if (!res.ok) return null;
+    return { clientes: data.clientes ?? 0, pdvs: data.pdvs ?? 0 };
+  }
+
+  async function runGenerateBatches(onProgress: (detail: string) => void) {
+    let offset = 0;
+    let hasMore = true;
+    let createdTotal = 0;
+    let skippedTotal = 0;
+
+    while (hasMore) {
       const res = await fetch("/api/suporte/logins-clientes/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sync: true }),
+        body: JSON.stringify({ sync: false, offset }),
       });
       const data = (await res.json()) as {
         error?: string;
         created?: number;
         skipped?: number;
         total?: number;
-        gateway?: { clientes: number; pdvs: number } | null;
+        hasMore?: boolean;
+        nextOffset?: number;
       };
       if (!res.ok) throw new Error(data.error ?? "falhou");
-      if ((data.created ?? 0) === 0) {
+
+      createdTotal += data.created ?? 0;
+      skippedTotal += data.skipped ?? 0;
+      hasMore = Boolean(data.hasMore);
+      offset = data.nextOffset ?? offset;
+      const total = data.total ?? 0;
+      onProgress(`Gerando logins… ${Math.min(offset, total)}/${total || "…"}`);
+    }
+
+    const gateway = createdTotal > 0 ? await syncPlayerGateway() : null;
+    return { createdTotal, skippedTotal, gateway };
+  }
+
+  async function gerarFaltantes() {
+    if (busy) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const { createdTotal, skippedTotal, gateway } = await runGenerateBatches(setMsg);
+      if (createdTotal === 0) {
         setMsg(
-          `Nenhum login novo criado — ${data.skipped ?? 0} clientes já tinham credenciais (não alteradas).`,
+          `Nenhum login novo criado — ${skippedTotal} clientes já tinham credenciais (não alteradas).`,
         );
       } else {
         setMsg(
-          `${data.created ?? 0} login(s) criado(s). ${data.skipped ?? 0} já existiam e permanecem iguais.` +
-            (data.gateway ?
-              ` Player sincronizado: ${data.gateway.clientes} clientes.`
+          `${createdTotal} login(s) criado(s). ${skippedTotal} já existiam e permanecem iguais.` +
+            (gateway ?
+              ` Player sincronizado: ${gateway.clientes} clientes.`
             : ""),
         );
       }
@@ -100,6 +133,44 @@ export function LoginsClientesPanel() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function runRegenerateEmailBatches(onProgress: (detail: string) => void) {
+    let offset = 0;
+    let hasMore = true;
+    let updatedTotal = 0;
+    let unchanged = 0;
+
+    while (hasMore) {
+      const res = await fetch("/api/suporte/logins-clientes/regenerate-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirm: true,
+          sync: false,
+          offset,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        updated?: number;
+        unchanged?: number;
+        total?: number;
+        hasMore?: boolean;
+        nextOffset?: number;
+      };
+      if (!res.ok) throw new Error(data.error ?? "falhou");
+
+      updatedTotal += data.updated ?? 0;
+      unchanged = data.unchanged ?? unchanged;
+      hasMore = Boolean(data.hasMore);
+      offset = data.nextOffset ?? offset;
+      const total = data.total ?? 0;
+      onProgress(`Regerando e-mails… ${Math.min(offset, total)}/${total || "…"}`);
+    }
+
+    const gateway = updatedTotal > 0 ? await syncPlayerGateway() : null;
+    return { updatedTotal, unchanged, gateway };
   }
 
   async function regerarEmailsCurto() {
@@ -115,23 +186,11 @@ export function LoginsClientesPanel() {
     setBusy(true);
     setMsg("");
     try {
-      const res = await fetch("/api/suporte/logins-clientes/regenerate-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: true, sync: true }),
-      });
-      const data = (await res.json()) as {
-        error?: string;
-        updated?: number;
-        unchanged?: number;
-        total?: number;
-        gateway?: { clientes: number; pdvs: number } | null;
-      };
-      if (!res.ok) throw new Error(data.error ?? "falhou");
+      const { updatedTotal, unchanged, gateway } = await runRegenerateEmailBatches(setMsg);
       setMsg(
-        `${data.updated ?? 0} e-mail(s) atualizado(s). ${data.unchanged ?? 0} já estavam no formato curto.` +
-          (data.gateway ?
-            ` Player sincronizado: ${data.gateway.clientes} clientes.`
+        `${updatedTotal} e-mail(s) atualizado(s). ${unchanged} já estavam no formato curto.` +
+          (gateway ?
+            ` Player sincronizado: ${gateway.clientes} clientes.`
           : ""),
       );
       await load();

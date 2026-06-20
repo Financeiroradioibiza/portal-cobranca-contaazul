@@ -5,6 +5,8 @@ import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuck
 
 export const CLIENTE_PLAYER_EMAIL_DOMAIN = "radioibiza.com.br";
 export const CLIENTE_PLAYER_EMAIL_LOCAL_MAX = 65;
+/** bcrypt + Neon — lotes pequenos para caber no timeout Netlify (~26s). */
+export const CLIENTE_PLAYER_LOGIN_BATCH_SIZE = 10;
 
 const PASSWORD_NAME_MAX_LEN = Number(process.env.CLIENTE_PLAYER_PASSWORD_NAME_LEN) || 6;
 const EMAIL_BRAND_CHARS = 3;
@@ -128,14 +130,15 @@ async function loadTakenEmails(): Promise<Set<string>> {
 export async function createLoginForClienteIfMissing(
   portalClienteId: number,
   clienteNome: string,
+  taken?: Set<string>,
 ): Promise<"created" | "exists"> {
   const existing = await prisma.clientePlayerLogin.findUnique({
     where: { portalClienteId },
   });
   if (existing) return "exists";
 
-  const taken = await loadTakenEmails();
-  const email = buildClientePlayerEmail(clienteNome, portalClienteId, taken);
+  const emails = taken ?? (await loadTakenEmails());
+  const email = buildClientePlayerEmail(clienteNome, portalClienteId, emails);
   const passwordPlain = clientePlayerPasswordForCliente(clienteNome, portalClienteId);
   const passwordHash = bcrypt.hashSync(passwordPlain, 12);
 
@@ -152,6 +155,57 @@ export async function createLoginForClienteIfMissing(
   return "created";
 }
 
+export type ClientePlayerLoginBatchResult = {
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
+  created: number;
+  skipped: number;
+  total: number;
+  applied: number;
+  nextOffset: number;
+  hasMore: boolean;
+};
+
+/** Gera logins faltantes em lote (evita timeout Netlify com dezenas de bcrypt). */
+export async function generateMissingClientePlayerLoginsBatch(opts?: {
+  offset?: number;
+  limit?: number;
+}): Promise<ClientePlayerLoginBatchResult> {
+  const meta = await getProducaoCatalogMeta();
+  const ctx = await loadMergedProducaoPlayerContext();
+  const buckets = ctx.buckets.filter((b) => b.portalClienteId != null);
+
+  const off = Math.max(0, Math.floor(opts?.offset ?? 0));
+  const lim = Math.min(
+    25,
+    Math.max(1, Math.floor(opts?.limit ?? CLIENTE_PLAYER_LOGIN_BATCH_SIZE)),
+  );
+  const slice = buckets.slice(off, off + lim);
+  const taken = await loadTakenEmails();
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const bucket of slice) {
+    const portalClienteId = bucket.portalClienteId!;
+    const clienteNome = bucket.nome.trim() || "Cliente";
+    const result = await createLoginForClienteIfMissing(portalClienteId, clienteNome, taken);
+    if (result === "created") created++;
+    else skipped++;
+  }
+
+  const nextOffset = off + slice.length;
+  return {
+    ...meta,
+    created,
+    skipped,
+    total: buckets.length,
+    applied: slice.length,
+    nextOffset,
+    hasMore: nextOffset < buckets.length,
+  };
+}
+
 /** Gera logins **faltantes** (1ª vez em massa). Não altera logins já existentes. */
 export async function generateMissingClientePlayerLogins(): Promise<{
   layoutYearMonth: number;
@@ -160,29 +214,34 @@ export async function generateMissingClientePlayerLogins(): Promise<{
   skipped: number;
   total: number;
 }> {
-  const meta = await getProducaoCatalogMeta();
-  const ctx = await loadMergedProducaoPlayerContext();
-  const buckets = ctx.buckets.filter((b) => b.portalClienteId != null);
-
+  let offset = 0;
   let created = 0;
   let skipped = 0;
+  let total = 0;
+  let meta = await getProducaoCatalogMeta();
 
-  for (const bucket of buckets) {
-    const portalClienteId = bucket.portalClienteId!;
-    const clienteNome = bucket.nome.trim() || "Cliente";
-    const result = await createLoginForClienteIfMissing(portalClienteId, clienteNome);
-    if (result === "created") created++;
-    else skipped++;
+  for (;;) {
+    const batch = await generateMissingClientePlayerLoginsBatch({ offset });
+    meta = { layoutYearMonth: batch.layoutYearMonth, rioSourceYearMonth: batch.rioSourceYearMonth };
+    created += batch.created;
+    skipped += batch.skipped;
+    total = batch.total;
+    if (!batch.hasMore) break;
+    offset = batch.nextOffset;
   }
 
-  return { ...meta, created, skipped, total: buckets.length };
+  return { ...meta, created, skipped, total };
 }
 
-/** Regera e-mails curtos de todos os logins ativos (senhas inalteradas). Operação em massa — uso pontual. */
-export async function regenerateAllClientePlayerEmails(): Promise<{
-  layoutYearMonth: number;
-  rioSourceYearMonth: number;
-  updated: number;
+export type ClientePlayerEmailRegenPlan = Array<{
+  portalClienteId: number;
+  email: string;
+  oldEmail: string;
+}>;
+
+async function buildClientePlayerEmailRegenPlan(): Promise<{
+  meta: Awaited<ReturnType<typeof getProducaoCatalogMeta>>;
+  plan: ClientePlayerEmailRegenPlan;
   unchanged: number;
   total: number;
 }> {
@@ -203,7 +262,7 @@ export async function regenerateAllClientePlayerEmails(): Promise<{
   );
 
   const taken = new Set<string>();
-  const updates: Array<{ portalClienteId: number; email: string }> = [];
+  const plan: ClientePlayerEmailRegenPlan = [];
   let unchanged = 0;
 
   for (const login of logins) {
@@ -213,22 +272,81 @@ export async function regenerateAllClientePlayerEmails(): Promise<{
       unchanged++;
       continue;
     }
-    updates.push({ portalClienteId: login.portalClienteId, email });
+    plan.push({ portalClienteId: login.portalClienteId, email, oldEmail: login.email });
   }
 
-  for (const row of updates) {
+  return { meta, plan, unchanged, total: logins.length };
+}
+
+export type ClientePlayerEmailRegenBatchResult = {
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
+  updated: number;
+  unchanged: number;
+  total: number;
+  applied: number;
+  nextOffset: number;
+  hasMore: boolean;
+};
+
+/** Regera e-mails curtos em lote (senhas inalteradas). */
+export async function regenerateAllClientePlayerEmailsBatch(opts?: {
+  offset?: number;
+  limit?: number;
+}): Promise<ClientePlayerEmailRegenBatchResult> {
+  const { meta, plan, unchanged, total } = await buildClientePlayerEmailRegenPlan();
+
+  const off = Math.max(0, Math.floor(opts?.offset ?? 0));
+  const lim = Math.min(
+    50,
+    Math.max(1, Math.floor(opts?.limit ?? CLIENTE_PLAYER_LOGIN_BATCH_SIZE * 2)),
+  );
+  const slice = plan.slice(off, off + lim);
+
+  for (const row of slice) {
     await prisma.clientePlayerLogin.update({
       where: { portalClienteId: row.portalClienteId },
       data: { email: row.email },
     });
   }
 
+  const nextOffset = off + slice.length;
   return {
     ...meta,
-    updated: updates.length,
+    updated: slice.length,
     unchanged,
-    total: logins.length,
+    total,
+    applied: slice.length,
+    nextOffset,
+    hasMore: nextOffset < plan.length,
   };
+}
+
+/** Regera e-mails curtos de todos os logins ativos (senhas inalteradas). Operação em massa — uso pontual. */
+export async function regenerateAllClientePlayerEmails(): Promise<{
+  layoutYearMonth: number;
+  rioSourceYearMonth: number;
+  updated: number;
+  unchanged: number;
+  total: number;
+}> {
+  let offset = 0;
+  let updated = 0;
+  let meta = await getProducaoCatalogMeta();
+  let unchanged = 0;
+  let total = 0;
+
+  for (;;) {
+    const batch = await regenerateAllClientePlayerEmailsBatch({ offset });
+    meta = { layoutYearMonth: batch.layoutYearMonth, rioSourceYearMonth: batch.rioSourceYearMonth };
+    updated += batch.updated;
+    unchanged = batch.unchanged;
+    total = batch.total;
+    if (!batch.hasMore) break;
+    offset = batch.nextOffset;
+  }
+
+  return { ...meta, updated, unchanged, total };
 }
 
 export async function updateClientePlayerLoginManual(

@@ -309,6 +309,126 @@ export function extractGravadoraFromTags(tags: ExternalAutoTag[]): string {
   return hit?.valor ?? "";
 }
 
+function normalizeIsrc(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = raw.trim().replace(/-/g, "").toUpperCase();
+  if (!/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(s)) return null;
+  return s;
+}
+
+export type ExternalTrackMetadata = {
+  bpm: number | null;
+  isrc: string | null;
+  ano: number | null;
+  tags: ExternalAutoTag[];
+};
+
+async function fetchDeezerTrackMetadata(input: {
+  titulo: string;
+  artista: string;
+}): Promise<ExternalTrackMetadata> {
+  const hits = await searchDeezerTracks(input);
+  const hit = pickDeezerTrackHit(input, hits);
+  if (!hit?.id) return { bpm: null, isrc: null, ano: null, tags: [] };
+
+  const full = (await dzFetch(`/track/${hit.id}`)) as {
+    bpm?: number;
+    isrc?: string;
+    release_date?: string;
+    album?: { title?: string };
+  } | null;
+
+  const tags: ExternalAutoTag[] = [];
+  let bpm: number | null = null;
+  let isrc: string | null = null;
+  let ano: number | null = null;
+
+  if (full) {
+    if (full.bpm && Number(full.bpm) > 0) {
+      bpm = Math.round(Number(full.bpm));
+      tags.push({ fonte: "deezer", chave: "bpm", valor: String(bpm) });
+    }
+    isrc = normalizeIsrc(full.isrc);
+    if (full.release_date) {
+      const y = Number(String(full.release_date).slice(0, 4));
+      if (y) {
+        ano = y;
+        tags.push({ fonte: "deezer", chave: "ano", valor: String(y) });
+      }
+    }
+    if (full.album?.title) {
+      tags.push({ fonte: "deezer", chave: "album", valor: String(full.album.title).slice(0, 120) });
+    }
+  }
+
+  return { bpm, isrc, ano, tags };
+}
+
+async function fetchMusicBrainzTrackMetadata(input: {
+  titulo: string;
+  artista: string;
+  isrc: string | null;
+}): Promise<ExternalTrackMetadata> {
+  const tags: ExternalAutoTag[] = [];
+  let isrc = normalizeIsrc(input.isrc);
+  let ano: number | null = null;
+
+  const recordingId = await resolveMusicBrainzRecordingId({ ...input, isrc });
+  if (!recordingId) return { bpm: null, isrc, ano, tags };
+
+  const rec = (await mbFetch(`/recording/${recordingId}?fmt=json&inc=isrcs+releases`)) as {
+    isrcs?: string[];
+    releases?: { date?: string; country?: string }[];
+  } | null;
+
+  if (!isrc && rec?.isrcs?.[0]) isrc = normalizeIsrc(rec.isrcs[0]);
+
+  const rel = rec?.releases?.[0];
+  if (rel?.date) {
+    const y = Number(String(rel.date).slice(0, 4));
+    if (y) {
+      ano = y;
+      tags.push({ fonte: "musicbrainz", chave: "ano", valor: String(y) });
+    }
+  }
+  if (rel?.country) {
+    tags.push({ fonte: "musicbrainz", chave: "pais", valor: String(rel.country).slice(0, 8) });
+  }
+
+  return { bpm: null, isrc, ano, tags };
+}
+
+/** Deezer (BPM/ISRC) + MusicBrainz (ISRC/ano) — best-effort, sem chave de API. */
+export async function fetchExternalTrackMetadata(input: {
+  titulo: string;
+  artista: string;
+  isrc: string | null;
+}): Promise<ExternalTrackMetadata> {
+  const dz = await fetchDeezerTrackMetadata(input);
+  const mb = await fetchMusicBrainzTrackMetadata({
+    titulo: input.titulo,
+    artista: input.artista,
+    isrc: dz.isrc ?? input.isrc,
+  });
+
+  const isrc = dz.isrc ?? mb.isrc ?? normalizeIsrc(input.isrc);
+  const tags = mergeExternalTags(dz.tags, mb.tags);
+  if (isrc) {
+    tags.push({
+      fonte: normalizeIsrc(input.isrc) ? "interno" : dz.isrc ? "deezer" : "musicbrainz",
+      chave: "isrc",
+      valor: isrc,
+    });
+  }
+
+  return {
+    bpm: dz.bpm,
+    isrc,
+    ano: dz.ano ?? mb.ano,
+    tags,
+  };
+}
+
 /** Busca gravadora em MusicBrainz (prioridade) e Deezer (fallback). */
 export async function fetchLabelTags(input: {
   titulo: string;
