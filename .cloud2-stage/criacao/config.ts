@@ -2,7 +2,10 @@
 export const criacaoConfig = {
   ingestSecret: process.env.CRIACAO_INGEST_SECRET ?? process.env.CLOUD2_INGEST_SECRET ?? '',
   /** Raiz NVMe/local: upload scratch + versões de uso (quente). */
-  storageRoot: process.env.CRIACAO_STORAGE_ROOT ?? '/var/lib/portal-ibiza/criacao',
+  storageRoot:
+    process.env.CRIACAO_STORAGE_ROOT ??
+    process.env.CRIACAO_DATA_DIR ??
+    '/var/lib/portal-ibiza/criacao',
   /** Alvo EBU-style para loudnorm (integrado). */
   targetLufs: Number(process.env.CRIACAO_TARGET_LUFS ?? '-14'),
   targetTruePeak: Number(process.env.CRIACAO_TARGET_TP ?? '-1.0'),

@@ -170,12 +170,14 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
     }
 
     const { artista, titulo } = parseMp3Filename(item.arquivo_nome);
+    const musicaId = crypto.randomUUID();
     const ins = await portalQuery<{ id: string }>(
       `INSERT INTO musica_biblioteca
-         (titulo, artista, content_hash, chromaprint, status, mix_segundos_finais, mix_auto)
-       VALUES ($1, $2, $3, $4, 'processando', $5, true)
+         (id, titulo, artista, content_hash, chromaprint, status, mix_segundos_finais, mix_auto, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'processando', $6, true, now())
        RETURNING id`,
       [
+        musicaId,
         titulo,
         artista,
         dup.contentHash,
