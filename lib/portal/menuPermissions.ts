@@ -46,6 +46,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "cronograma", label: "Cronograma" },
       { id: "wizard", label: "Wizard IA" },
       { id: "erros", label: "Diagnóstico" },
+      { id: "relatorios", label: "Relatórios" },
     ],
   },
   {

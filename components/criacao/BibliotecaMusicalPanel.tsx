@@ -32,6 +32,7 @@ type Musica = {
   explicitGemini: "sim" | "nao" | "desconhecida" | null;
   previewUrl: string | null;
   rejeicoesCount: number;
+  programacoesCount: number;
 };
 
 function formatDuration(ms: number | null): string {
@@ -76,12 +77,10 @@ export function BibliotecaMusicalPanel() {
   const [tags, setTags] = useState<TagCriativo[]>([]);
   const [showTagManager, setShowTagManager] = useState(false);
   const [tagFor, setTagFor] = useState<Musica | null>(null);
-  const [enriching, setEnriching] = useState(false);
-  const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
-  const [checkingGemini, setCheckingGemini] = useState(false);
-  const [explicitMsg, setExplicitMsg] = useState<string | null>(null);
+  const [rowMsg, setRowMsg] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshingTagId, setRefreshingTagId] = useState<string | null>(null);
+  const [checkingGeminiId, setCheckingGeminiId] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
 
   const loadTags = useCallback(async () => {
@@ -127,8 +126,8 @@ export function BibliotecaMusicalPanel() {
     return params.toString();
   }, [search, status]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`/api/criacao/biblioteca?${queryString}`);
@@ -137,63 +136,74 @@ export function BibliotecaMusicalPanel() {
       setMusicas(data.musicas);
       setTotal(data.total);
     } catch {
-      setError("Não foi possível carregar a biblioteca.");
+      if (!opts?.silent) setError("Não foi possível carregar a biblioteca.");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [queryString]);
+
+  const patchMusica = useCallback(async (musicaId: string) => {
+    try {
+      const res = await fetch(`/api/criacao/biblioteca/${musicaId}?row=1`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { musica: Musica };
+      if (!data.musica) return;
+      setMusicas((prev) => prev.map((m) => (m.id === musicaId ? data.musica : m)));
+    } catch {
+      /* silencioso */
+    }
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const enrichLabels = useCallback(async () => {
-    setEnriching(true);
-    setEnrichMsg(null);
-    let totalProcessed = 0;
-    let totalUpdated = 0;
-    try {
-      for (let round = 0; round < 50; round += 1) {
-        setEnrichMsg(
-          round === 0
-            ? "Buscando gravadoras (MusicBrainz/Deezer)…"
-            : `${totalUpdated} gravadoras encontradas · ${totalProcessed} faixas analisadas…`,
-        );
-        const res = await fetch("/api/criacao/biblioteca/enriquecer-tags", {
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchDraft), 300);
+    return () => clearTimeout(t);
+  }, [searchDraft]);
+
+  const refreshTags = useCallback(
+    async (m: Musica) => {
+      setRefreshingTagId(m.id);
+      setRowMsg(null);
+      try {
+        const res = await fetch(`/api/criacao/biblioteca/${m.id}/refresh-tags`, { method: "POST" });
+        if (!res.ok) throw new Error("refresh_failed");
+        await patchMusica(m.id);
+      } catch {
+        setRowMsg("Falha ao buscar tags na internet.");
+      } finally {
+        setRefreshingTagId(null);
+      }
+    },
+    [patchMusica],
+  );
+
+  const checkGeminiOne = useCallback(
+    async (m: Musica) => {
+      setCheckingGeminiId(m.id);
+      setRowMsg(null);
+      try {
+        const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: 6, onlyMissing: true }),
+          body: JSON.stringify({ musicaIds: [m.id], onlyMissing: false, limit: 1 }),
         });
-        const data = (await res.json().catch(() => null)) as {
-          processed?: number;
-          updated?: number;
-          hasMore?: boolean;
-          error?: string;
-        } | null;
-        if (!res.ok) throw new Error(data?.error ?? "enrich_failed");
-        totalProcessed += data?.processed ?? 0;
-        totalUpdated += data?.updated ?? 0;
-        if (!data?.hasMore || (data?.processed ?? 0) === 0) break;
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (!res.ok) {
+          if (data?.error === "gemini_desabilitado") throw new Error("Configure GEMINI_API_KEY no Netlify.");
+          throw new Error(data?.error ?? "check_failed");
+        }
+        await patchMusica(m.id);
+      } catch (e) {
+        setRowMsg(e instanceof Error ? e.message : "Falha no check IA desta faixa.");
+      } finally {
+        setCheckingGeminiId(null);
       }
-      setEnrichMsg(
-        totalUpdated > 0
-          ? `${totalUpdated} faixa(s) receberam gravadora (${totalProcessed} analisadas).`
-          : totalProcessed > 0
-            ? `${totalProcessed} faixa(s) analisadas — nenhuma gravadora encontrada neste lote.`
-            : "Nenhuma faixa pendente de gravadora.",
-      );
-      await load();
-    } catch {
-      setEnrichMsg(
-        totalProcessed > 0
-          ? `Parcial: ${totalUpdated} gravadoras em ${totalProcessed} faixas. Tente novamente para continuar.`
-          : "Não foi possível atualizar gravadoras. Tente novamente.",
-      );
-      if (totalUpdated > 0) await load();
-    } finally {
-      setEnriching(false);
-    }
-  }, [load]);
+    },
+    [patchMusica],
+  );
 
   const apagarMusica = useCallback(
     async (m: Musica) => {
@@ -232,81 +242,16 @@ export function BibliotecaMusicalPanel() {
           audioRef.current?.pause();
           setPlayingId(null);
         }
-        await load();
+        setMusicas((prev) => prev.filter((x) => x.id !== m.id));
+        setTotal((t) => Math.max(0, t - 1));
       } catch {
         setError("Não foi possível apagar a música.");
       } finally {
         setDeletingId(null);
       }
     },
-    [load, playingId],
+    [playingId],
   );
-
-  const refreshTags = useCallback(
-    async (m: Musica) => {
-      setRefreshingTagId(m.id);
-      setError(null);
-      try {
-        const res = await fetch(`/api/criacao/biblioteca/${m.id}/refresh-tags`, { method: "POST" });
-        const data = (await res.json().catch(() => null)) as { error?: string; updated?: boolean } | null;
-        if (!res.ok) throw new Error(data?.error ?? "refresh_failed");
-        await load();
-      } catch {
-        setError("Falha ao buscar tags na internet para esta faixa.");
-      } finally {
-        setRefreshingTagId(null);
-      }
-    },
-    [load],
-  );
-
-  const checkExplicitGemini = useCallback(async () => {
-    setCheckingGemini(true);
-    setExplicitMsg(null);
-    let totalProcessed = 0;
-    let totalExplicit = 0;
-    try {
-      for (let round = 0; round < 200; round += 1) {
-        setExplicitMsg(
-          round === 0
-            ? "Gemini analisando letras (lotes de 30)…"
-            : `${totalExplicit} EXP · ${totalProcessed} faixas…`,
-        );
-        const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: 30, onlyMissing: true }),
-        });
-        const data = (await res.json().catch(() => null)) as {
-          processed?: number;
-          explicit?: number;
-          hasMore?: boolean;
-          error?: string;
-        } | null;
-        if (!res.ok) {
-          if (data?.error === "gemini_desabilitado") {
-            throw new Error("Configure GEMINI_API_KEY no Netlify.");
-          }
-          throw new Error(data?.error ?? "check_failed");
-        }
-        totalProcessed += data?.processed ?? 0;
-        totalExplicit += data?.explicit ?? 0;
-        if (!data?.hasMore || (data?.processed ?? 0) === 0) break;
-      }
-      setExplicitMsg(
-        totalExplicit > 0
-          ? `${totalExplicit} faixa(s) marcadas com EXP vermelho (${totalProcessed} analisadas pela IA).`
-          : totalProcessed > 0
-            ? `${totalProcessed} faixa(s) OK — IA não marcou EXP.`
-            : "Todas as faixas já foram analisadas pela IA.",
-      );
-      await load();
-    } catch (e) {
-      setExplicitMsg(e instanceof Error ? e.message : "Falha no check IA.");
-    } finally {
-      setCheckingGemini(false);
-    }
-  }, [load]);
 
   return (
     <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
@@ -333,28 +278,10 @@ export function BibliotecaMusicalPanel() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Biblioteca musical</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Acervo canônico — uma faixa por gravação. Tags criativas, análise local, metadados externos e
-            moderação: Deezer/MB no upload · IA manual (EXP vermelho).
+            Acervo canônico — tags DZ/MB no upload · ↻ e IA por faixa · busca instantânea.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={enriching}
-            onClick={() => void enrichLabels()}
-            className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200 dark:hover:bg-indigo-900"
-          >
-            {enriching ? "Buscando gravadoras…" : "Atualizar gravadoras"}
-          </button>
-          <button
-            type="button"
-            disabled={checkingGemini}
-            onClick={() => void checkExplicitGemini()}
-            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900 dark:bg-red-950 dark:text-red-200 dark:hover:bg-red-900"
-            title="Camada 3: Gemini — marca EXP vermelho"
-          >
-            {checkingGemini ? "IA letras…" : "Check letras (IA)"}
-          </button>
           <button
             type="button"
             onClick={() => setShowTagManager(true)}
@@ -368,32 +295,25 @@ export function BibliotecaMusicalPanel() {
         </div>
       </div>
 
-      {enrichMsg ?
-        <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200">
-          {enrichMsg}
-        </div>
-      : null}
-
-      {explicitMsg ?
-        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-          {explicitMsg}
+      {rowMsg ?
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {rowMsg}
         </div>
       : null}
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          setSearch(searchDraft);
         }}
         className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
       >
         <label className="min-w-[220px] flex-1 text-sm">
-          <span className="mb-1 block text-xs font-semibold text-slate-500">Buscar título, artista ou ISRC</span>
+          <span className="mb-1 block text-xs font-semibold text-slate-500">Buscar</span>
           <input
             type="search"
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Ex.: U2, Beautiful Day"
+            placeholder="Título, artista, tag, BPM, ISRC…"
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
           />
         </label>
@@ -412,15 +332,9 @@ export function BibliotecaMusicalPanel() {
             <option value="erro">Erro</option>
           </select>
         </label>
-        <button
-          type="submit"
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
-        >
-          Filtrar
-        </button>
       </form>
 
-      {loading ?
+      {loading && musicas.length === 0 ?
         <div className="py-10 text-sm text-slate-500">Carregando…</div>
       : error ?
         <div className="py-10 text-sm text-red-600">{error}</div>
@@ -436,10 +350,11 @@ export function BibliotecaMusicalPanel() {
           </p>
         </div>
       : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="hidden grid-cols-[40px_1fr_1.6fr_140px_60px_60px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 lg:grid">
+          <div className="hidden grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 lg:grid">
             <span />
             <span>Título</span>
             <span>Tags</span>
+            <span className="text-center" title="Programações em que a faixa aparece">Prog</span>
             <span>Gravadora</span>
             <span className="text-center">BPM</span>
             <span className="text-right">⏱</span>
@@ -448,7 +363,7 @@ export function BibliotecaMusicalPanel() {
             {musicas.map((m) => (
               <li
                 key={m.id}
-                className="grid gap-3 px-4 py-3 lg:grid-cols-[40px_1fr_1.6fr_140px_60px_60px] lg:items-center"
+                className="grid gap-3 px-4 py-3 lg:grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px] lg:items-center"
               >
                 {m.previewUrl ?
                   <button
@@ -528,10 +443,19 @@ export function BibliotecaMusicalPanel() {
                     type="button"
                     disabled={refreshingTagId === m.id}
                     onClick={() => void refreshTags(m)}
-                    title="Buscar tags na internet (gravadora + DZ/MB) — só esta faixa"
+                    title="Buscar tags na internet (gravadora + DZ/MB)"
                     className="inline-flex h-5 items-center rounded border border-dashed border-indigo-200 px-1.5 text-[10px] font-bold text-indigo-400 hover:border-indigo-400 hover:text-indigo-700 disabled:opacity-50 dark:border-indigo-900"
                   >
                     {refreshingTagId === m.id ? "…" : "↻"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={checkingGeminiId === m.id}
+                    onClick={() => void checkGeminiOne(m)}
+                    title="Check letras (IA) — EXP vermelho"
+                    className="inline-flex h-5 items-center rounded border border-dashed border-red-200 px-1.5 text-[10px] font-bold text-red-400 hover:border-red-400 hover:text-red-600 disabled:opacity-50 dark:border-red-900"
+                  >
+                    {checkingGeminiId === m.id ? "…" : "IA"}
                   </button>
                   <button
                     type="button"
@@ -550,6 +474,12 @@ export function BibliotecaMusicalPanel() {
                   >
                     {deletingId === m.id ? "…" : "🗑"}
                   </button>
+                </div>
+                <div
+                  className="text-center text-xs tabular-nums text-slate-600 dark:text-slate-300"
+                  title={`Em ${m.programacoesCount} programação(ões)`}
+                >
+                  {m.programacoesCount > 0 ? m.programacoesCount : "—"}
                 </div>
                 <div className="truncate text-xs text-slate-500">{m.gravadora || "—"}</div>
                 <div className="text-center text-sm tabular-nums text-slate-600 dark:text-slate-300">
@@ -570,7 +500,7 @@ export function BibliotecaMusicalPanel() {
           onClose={() => setShowTagManager(false)}
           onChanged={async () => {
             await loadTags();
-            await load();
+            await load({ silent: true });
           }}
         />
       : null}
@@ -582,7 +512,7 @@ export function BibliotecaMusicalPanel() {
           onClose={() => setTagFor(null)}
           onChanged={async () => {
             await loadTags();
-            await load();
+            await load({ silent: true });
           }}
         />
       : null}
@@ -849,7 +779,7 @@ function RejeicaoModal({
         body: JSON.stringify({ clienteRef, motivo: motivo.trim() }),
       });
       setBusca("");
-      await load();
+      await load({ silent: true });
       await onChanged();
     } finally {
       setBusy(false);
@@ -863,7 +793,7 @@ function RejeicaoModal({
         `/api/criacao/musicas/${musica.id}/rejeicoes?clienteRef=${encodeURIComponent(clienteRef)}`,
         { method: "DELETE" },
       );
-      await load();
+      await load({ silent: true });
       await onChanged();
     } finally {
       setBusy(false);

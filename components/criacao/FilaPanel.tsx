@@ -94,10 +94,13 @@ export function FilaPanel() {
   }, [load]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
-    const t = setInterval(() => void load(), 5000);
+    if (!autoRefresh && !openId) return;
+    const t = setInterval(() => {
+      void load();
+      if (openId) void loadItems(openId);
+    }, 4000);
     return () => clearInterval(t);
-  }, [autoRefresh, load]);
+  }, [autoRefresh, openId, load, loadItems]);
 
   const loadItems = useCallback(async (id: string) => {
     try {

@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { deleteMusicaBiblioteca, getMusicaDeleteInfo } from "@/lib/criacao/bibliotecaService";
+import { deleteMusicaBiblioteca, getMusicaBibliotecaRow, getMusicaDeleteInfo } from "@/lib/criacao/bibliotecaService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, ctx: Ctx) {
+export async function GET(request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
+    const url = new URL(request.url);
+    if (url.searchParams.get("row") === "1") {
+      const musica = await getMusicaBibliotecaRow(id);
+      return NextResponse.json({ musica });
+    }
     const info = await getMusicaDeleteInfo(id);
     return NextResponse.json(info);
   } catch (e) {

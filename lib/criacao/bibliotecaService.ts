@@ -54,6 +54,8 @@ export type MusicaBibliotecaRow = {
   previewUrl: string | null;
   /** Quantos clientes marcaram esta faixa como rejeitada (Wizard IA evita). */
   rejeicoesCount: number;
+  /** Em quantas programações (clientes) a faixa aparece em pastas. */
+  programacoesCount: number;
 };
 
 export function parseAutoTagsFromJson(raw: Prisma.JsonValue | null): AutoTag[] {
@@ -131,14 +133,149 @@ function extractGravadora(auto: AutoTag[]): string {
   return hit?.valor ?? "";
 }
 
+type MusicaDbRow = {
+  id: string;
+  titulo: string;
+  artista: string;
+  ano: number | null;
+  durationMs: number | null;
+  isrc: string | null;
+  bpm: number | null;
+  tom: string | null;
+  energia: number | null;
+  status: string;
+  mixSegundosFinais: number | null;
+  tagsAuto: Prisma.JsonValue;
+  tagsManuais: Array<{
+    tag: {
+      id: string;
+      nome: string;
+      cor: string;
+      criativoUserId: string | null;
+      criativoNome: string;
+    };
+  }>;
+  versoes: Array<{ formato: string }>;
+};
+
+async function countProgramacoesPorMusica(ids: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (ids.length === 0) return map;
+  const rows = await prisma.$queryRaw<{ musica_id: string; n: bigint }[]>`
+    SELECT pm.musica_id, COUNT(DISTINCT p.programacao_id)::bigint AS n
+      FROM pasta_musica pm
+      JOIN pasta p ON p.id = pm.pasta_id
+     WHERE pm.musica_id IN (${Prisma.join(ids)})
+     GROUP BY pm.musica_id`;
+  for (const r of rows) map.set(r.musica_id, Number(r.n));
+  return map;
+}
+
+function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
+  const or: Prisma.MusicaBibliotecaWhereInput["OR"] = [
+    { titulo: { contains: q, mode: "insensitive" } },
+    { artista: { contains: q, mode: "insensitive" } },
+    { isrc: { contains: q, mode: "insensitive" } },
+    { tom: { contains: q, mode: "insensitive" } },
+    {
+      tagsManuais: {
+        some: {
+          tag: {
+            OR: [
+              { nome: { contains: q, mode: "insensitive" } },
+              { criativoNome: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        },
+      },
+    },
+  ];
+  const bpm = Number.parseInt(q, 10);
+  if (Number.isFinite(bpm) && String(bpm) === q.replace(/\s/g, "")) {
+    or.push({ bpm });
+  }
+  return or;
+}
+
+function mapMusicaToRow(
+  m: MusicaDbRow,
+  criativoUserMap: Map<string, { tagIniciais: string | null; displayName: string | null }>,
+  rejMap: Map<string, number>,
+  progMap: Map<string, number>,
+): MusicaBibliotecaRow {
+  const tagsAutoRaw = parseAutoTagsFromJson(m.tagsAuto);
+  const tagsAuto = [...filterAutoTags(tagsAutoRaw), ...deriveLocalStyleTags(m.bpm, m.energia)];
+  const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
+  return {
+    id: m.id,
+    titulo: m.titulo,
+    artista: m.artista,
+    ano: m.ano,
+    durationMs: m.durationMs,
+    isrc: m.isrc,
+    bpm: m.bpm,
+    tom: m.tom,
+    energia: m.energia,
+    gravadora: extractGravadora(tagsAutoRaw),
+    status: m.status,
+    mixSegundosFinais: m.mixSegundosFinais,
+    tagsManuais: m.tagsManuais.map((tm) => {
+      const u = tm.tag.criativoUserId ? criativoUserMap.get(tm.tag.criativoUserId) : undefined;
+      const criativoNome = tm.tag.criativoNome || u?.displayName || "";
+      return {
+        id: tm.tag.id,
+        nome: tm.tag.nome,
+        cor: tm.tag.cor,
+        criativoIniciais: resolveCriativoIniciais(u?.tagIniciais, criativoNome, tm.tag.criativoUserId),
+        criativoNome,
+      };
+    }),
+    tagsAuto,
+    explicit: isGeminiExplicitTagged(tagsAutoRaw),
+    explicitDeezer: extractExplicitApiStatus(tagsAutoRaw, "deezer"),
+    explicitMusicbrainz: extractExplicitApiStatus(tagsAutoRaw, "musicbrainz"),
+    explicitGemini: extractExplicitApiStatus(tagsAutoRaw, "gemini"),
+    previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
+    rejeicoesCount: rejMap.get(m.id) ?? 0,
+    programacoesCount: progMap.get(m.id) ?? 0,
+  };
+}
+
+async function loadCriativoUserMap(
+  items: MusicaDbRow[],
+): Promise<Map<string, { tagIniciais: string | null; displayName: string | null }>> {
+  const criativoEmails = [
+    ...new Set(
+      items.flatMap((m) =>
+        m.tagsManuais.map((tm) => tm.tag.criativoUserId).filter((e): e is string => Boolean(e)),
+      ),
+    ),
+  ];
+  if (criativoEmails.length === 0) return new Map();
+  const criativoUsers = await prisma.portalUser.findMany({
+    where: { email: { in: criativoEmails } },
+    select: { email: true, tagIniciais: true, displayName: true },
+  });
+  return new Map(criativoUsers.map((u) => [u.email, u]));
+}
+
+const musicaInclude = {
+  tagsManuais: { include: { tag: true } },
+  versoes: { select: { formato: true } },
+} as const;
+
 export async function listMusicasBiblioteca(opts: {
   page: number;
   pageSize: number;
   search?: string;
   status?: string;
+  /** Só use true após upload — evita travar a listagem. */
+  syncPending?: boolean;
 }): Promise<{ rows: MusicaBibliotecaRow[]; total: number }> {
-  await applyPendingUploadTags().catch(() => {});
-  await applyPendingPastaUploads().catch(() => {});
+  if (opts.syncPending) {
+    await applyPendingUploadTags().catch(() => {});
+    await applyPendingPastaUploads().catch(() => {});
+  }
 
   const page = Math.max(1, opts.page);
   const pageSize = Math.min(200, Math.max(1, opts.pageSize));
@@ -150,11 +287,7 @@ export async function listMusicasBiblioteca(opts: {
   }
   const q = opts.search?.trim();
   if (q) {
-    where.OR = [
-      { titulo: { contains: q, mode: "insensitive" } },
-      { artista: { contains: q, mode: "insensitive" } },
-      { isrc: { contains: q, mode: "insensitive" } },
-    ];
+    where.OR = buildSearchWhere(q);
   }
 
   const [items, total] = await Promise.all([
@@ -163,74 +296,37 @@ export async function listMusicasBiblioteca(opts: {
       orderBy: [{ artista: "asc" }, { titulo: "asc" }],
       skip,
       take: pageSize,
-      include: {
-        tagsManuais: { include: { tag: true } },
-        versoes: { select: { formato: true } },
-      },
+      include: musicaInclude,
     }),
     prisma.musicaBiblioteca.count({ where }),
   ]);
 
-  const rejMap = await countRejeicoesPorMusica(items.map((m) => m.id));
+  const ids = items.map((m) => m.id);
+  const [rejMap, progMap, criativoUserMap] = await Promise.all([
+    countRejeicoesPorMusica(ids),
+    countProgramacoesPorMusica(ids),
+    loadCriativoUserMap(items),
+  ]);
 
-  const criativoEmails = [
-    ...new Set(
-      items.flatMap((m) =>
-        m.tagsManuais.map((tm) => tm.tag.criativoUserId).filter((e): e is string => Boolean(e)),
-      ),
-    ),
-  ];
-  const criativoUsers =
-    criativoEmails.length > 0 ?
-      await prisma.portalUser.findMany({
-        where: { email: { in: criativoEmails } },
-        select: { email: true, tagIniciais: true, displayName: true },
-      })
-    : [];
-  const criativoUserMap = new Map(criativoUsers.map((u) => [u.email, u]));
-
-  const rows: MusicaBibliotecaRow[] = items.map((m) => {
-    const tagsAutoRaw = parseAutoTagsFromJson(m.tagsAuto);
-    const tagsAuto = [
-      ...filterAutoTags(tagsAutoRaw),
-      ...deriveLocalStyleTags(m.bpm, m.energia),
-    ];
-    const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
-    return {
-      id: m.id,
-      titulo: m.titulo,
-      artista: m.artista,
-      ano: m.ano,
-      durationMs: m.durationMs,
-      isrc: m.isrc,
-      bpm: m.bpm,
-      tom: m.tom,
-      energia: m.energia,
-      gravadora: extractGravadora(tagsAutoRaw),
-      status: m.status,
-      mixSegundosFinais: m.mixSegundosFinais,
-      tagsManuais: m.tagsManuais.map((tm) => {
-        const u = tm.tag.criativoUserId ? criativoUserMap.get(tm.tag.criativoUserId) : undefined;
-        const criativoNome = tm.tag.criativoNome || u?.displayName || "";
-        return {
-          id: tm.tag.id,
-          nome: tm.tag.nome,
-          cor: tm.tag.cor,
-          criativoIniciais: resolveCriativoIniciais(u?.tagIniciais, criativoNome, tm.tag.criativoUserId),
-          criativoNome,
-        };
-      }),
-      tagsAuto,
-      explicit: isGeminiExplicitTagged(tagsAutoRaw),
-      explicitDeezer: extractExplicitApiStatus(tagsAutoRaw, "deezer"),
-      explicitMusicbrainz: extractExplicitApiStatus(tagsAutoRaw, "musicbrainz"),
-      explicitGemini: extractExplicitApiStatus(tagsAutoRaw, "gemini"),
-      previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
-      rejeicoesCount: rejMap.get(m.id) ?? 0,
-    };
-  });
+  const rows = items.map((m) => mapMusicaToRow(m, criativoUserMap, rejMap, progMap));
 
   return { rows, total };
+}
+
+export async function getMusicaBibliotecaRow(musicaId: string): Promise<MusicaBibliotecaRow> {
+  const m = await prisma.musicaBiblioteca.findUnique({
+    where: { id: musicaId },
+    include: musicaInclude,
+  });
+  if (!m) throw new Error("not_found");
+
+  const [rejMap, progMap, criativoUserMap] = await Promise.all([
+    countRejeicoesPorMusica([m.id]),
+    countProgramacoesPorMusica([m.id]),
+    loadCriativoUserMap([m]),
+  ]);
+
+  return mapMusicaToRow(m, criativoUserMap, rejMap, progMap);
 }
 
 export type MusicaDeleteInfo = {

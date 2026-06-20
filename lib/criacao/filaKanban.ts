@@ -18,6 +18,9 @@ export function inferKanbanEtapa(
   item: { status: string; etapaAtual?: string | null },
   jobEtapaAtual?: string | null,
 ): FilaItemEtapa {
+  if (item.status === "concluido") return "armazenamento";
+  if (item.status === "duplicata") return "deduplicacao";
+
   const stored = item.etapaAtual?.trim();
   if (stored && (ETAPAS as readonly string[]).includes(stored)) {
     return stored as FilaItemEtapa;
