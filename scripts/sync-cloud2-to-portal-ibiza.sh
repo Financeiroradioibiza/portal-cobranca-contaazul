@@ -18,10 +18,16 @@ fi
 
 echo "Sync: $SRC → $DEST/src"
 
-mkdir -p "$DEST/src/criacao" "$DEST/src/routes/criacao" "$DEST/src/routes/webservice" "$DEST/src/workers/criacao"
+mkdir -p "$DEST/src/criacao" "$DEST/src/routes/criacao" "$DEST/src/routes/webservice" "$DEST/src/workers/criacao" "$DEST/src/workers"
 
 rsync -a --delete "$SRC/criacao/" "$DEST/src/criacao/"
 rsync -a "$SRC/workers/criacao/" "$DEST/src/workers/criacao/"
+if [[ -f "$SRC/workers/index.ts" ]]; then
+  cp "$SRC/workers/index.ts" "$DEST/src/workers/index.ts"
+fi
+if [[ -f "$SRC/deploy/tsconfig.json" ]]; then
+  cp "$SRC/deploy/tsconfig.json" "$DEST/tsconfig.json"
+fi
 rsync -a "$SRC/webservice/" "$DEST/src/routes/webservice/"
 
 for f in ingest.ts audio.ts vinheta.ts publicar.ts enriquecer-tags.ts apagar-musica.ts refresh-tags.ts player-registry.ts publishCronogramas.ts tagEnrichmentCore.ts; do
