@@ -10,6 +10,36 @@ import {
   parseTagsFromJson,
   type ExternalAutoTag,
 } from '../../routes/criacao/tagEnrichmentCore.js';
+import { classifyExplicitLyricsWithGemini } from '../../criacao/explicitGemini.js';
+
+const EXPLICIT_TAG_FONTE = 'moderacao';
+const EXPLICIT_TAG_CHAVE = 'explicit';
+const EXPLICIT_TAG_VALOR = 'EXP';
+const EXPLICIT_CHECKED_VALOR = 'OK';
+
+function hasGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
+  return tags.some((t) => t.fonte === 'gemini' && t.chave === EXPLICIT_TAG_CHAVE);
+}
+
+function mergeGeminiExplicitCheck(
+  tags: ExternalAutoTag[],
+  geminiTag: 'sim' | 'nao' | 'desconhecida',
+): ExternalAutoTag[] {
+  const out = tags.filter(
+    (t) =>
+      !(
+        (t.fonte === 'gemini' && t.chave === EXPLICIT_TAG_CHAVE) ||
+        (t.fonte === EXPLICIT_TAG_FONTE && t.chave === EXPLICIT_TAG_CHAVE)
+      ),
+  );
+  out.push({ fonte: 'gemini', chave: EXPLICIT_TAG_CHAVE, valor: geminiTag });
+  out.push({
+    fonte: EXPLICIT_TAG_FONTE,
+    chave: EXPLICIT_TAG_CHAVE,
+    valor: geminiTag === 'sim' ? EXPLICIT_TAG_VALOR : EXPLICIT_CHECKED_VALOR,
+  });
+  return out;
+}
 
 /**
  * Metadados pós-upload: gravadora + explicit Deezer/MB em tags_auto.
@@ -106,12 +136,37 @@ export async function refreshInternetTagsForMusica(musicaId: string): Promise<{ 
   return { updated: true, gravadora: extractGravadoraFromTags(merged) };
 }
 
+/** Camada 3: Gemini no pipeline pós-upload (se GEMINI_API_KEY configurada). */
+export async function enrichGeminiForMusica(musicaId: string): Promise<void> {
+  const row = await portalQuery<{ titulo: string; artista: string; tags_auto: unknown }>(
+    `SELECT titulo, artista, tags_auto FROM musica_biblioteca WHERE id = $1 LIMIT 1`,
+    [musicaId],
+  );
+  const m = row.rows[0];
+  if (!m) return;
+
+  const existing = parseTagsFromJson(m.tags_auto);
+  if (hasGeminiExplicitCheck(existing)) return;
+
+  const geminiMap = await classifyExplicitLyricsWithGemini([
+    { id: musicaId, titulo: m.titulo, artista: m.artista },
+  ]);
+  const geminiTag = geminiMap.get(musicaId) ?? 'desconhecida';
+  const merged = mergeGeminiExplicitCheck(existing, geminiTag);
+
+  await portalQuery(
+    `UPDATE musica_biblioteca SET tags_auto = $2::jsonb, updated_at = now() WHERE id = $1`,
+    [musicaId, JSON.stringify(merged)],
+  );
+}
+
 /** Chamado pelo pipeline pós-upload (workers/criacao/pipeline.ts). */
 export async function enrichTags(
   musicaId: string,
   _meta?: { artista?: string; titulo?: string; isrc?: string | null },
 ): Promise<void> {
   await enrichUploadTagsForMusica(musicaId);
+  await enrichGeminiForMusica(musicaId);
 }
 
 /** @deprecated alias */

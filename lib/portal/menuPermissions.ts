@@ -19,6 +19,7 @@ export const PORTAL_MENU_MODULES = [
     subs: [
       { id: "grupos", label: "Grupos & Clientes" },
       { id: "vinculos", label: "Lista vínculos" },
+      { id: "atualizacoes", label: "Atl. cadastros" },
       { id: "prospects", label: "Prospects" },
       { id: "solicitar-pdv", label: "Solicitar PDV" },
     ],

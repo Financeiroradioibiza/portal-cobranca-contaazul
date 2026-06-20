@@ -704,6 +704,43 @@ model PedidoClientePdv {
   @@map("pedido_cliente_pdv")
 }
 
+enum PlayerIngestTipo {
+  feedback
+  cadastro
+}
+
+enum PlayerIngestStatus {
+  pendente
+  conciliado
+  arquivado
+}
+
+/// Recebimentos do Player 5 (feedback operador, atualização de cadastro).
+model PlayerIngest {
+  id               String             @id @default(cuid())
+  tipo             PlayerIngestTipo
+  status           PlayerIngestStatus @default(pendente)
+  clienteGatewayId Int?               @map("cliente_gateway_id")
+  clienteNome      String             @default("") @map("cliente_nome") @db.VarChar(200)
+  pdvGatewayId     Int?               @map("pdv_gateway_id")
+  pdvNome          String             @default("") @map("pdv_nome") @db.VarChar(200)
+  portalPdvId      Int?               @map("portal_pdv_id")
+  rioPdvKey        String?            @map("rio_pdv_key") @db.VarChar(120)
+  mensagem         String             @default("") @db.Text
+  payloadJson      String             @default("{}") @map("payload_json") @db.Text
+  chamadoId        String?            @map("chamado_id") @db.VarChar(64)
+  conciliadoPorEmail String?          @map("conciliado_por_email") @db.VarChar(200)
+  conciliadoPorNome  String?          @map("conciliado_por_nome") @db.VarChar(120)
+  conciliadoEm     DateTime?          @map("conciliado_em")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  @@index([tipo, status, updatedAt])
+  @@index([rioPdvKey])
+  @@index([chamadoId])
+  @@map("player_ingest")
+}
+
 // ============================================================================
 // CRIAÇÃO MUSICAL — Fase 0 (modelo de dados)
 // Portal = fonte de verdade. Os binários de áudio ficam em object storage

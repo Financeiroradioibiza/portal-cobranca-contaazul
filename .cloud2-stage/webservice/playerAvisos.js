@@ -51,7 +51,7 @@ export async function registerPlayerAvisosRoutes(app, prefix = '/api') {
       const ok = await validarTokenParaPdv(token, c, p);
       if (!ok) return reply.send({ mensagens: [] });
 
-      const res = await portalQuery<{ mensagem: string }>(
+      const res = await portalQuery(
         `SELECT mensagem FROM player_aviso_operador
          WHERE portal_cliente_id = $1 AND portal_pdv_id = $2
          ORDER BY created_at DESC

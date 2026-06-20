@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import { getPool } from '../../db/pool.js';
 import { usoPath } from '../../criacao/storage.js';
-import { loadSessionByToken } from './loginByToken.js';
+import { loadSessionByToken } from '../loginByToken.js';
 
 type GetMusicaQuery = { token?: string; id_musica?: string; playlist_id?: string };
 

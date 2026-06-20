@@ -64,6 +64,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname.startsWith("/api/player/ingest/")) {
+    return NextResponse.next();
+  }
+
   if (pathname === "/prototype.html" && process.env.NODE_ENV === "production") {
     return new NextResponse("Not Found", { status: 404 });
   }

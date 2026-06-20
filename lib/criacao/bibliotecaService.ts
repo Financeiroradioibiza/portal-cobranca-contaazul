@@ -264,11 +264,16 @@ const musicaInclude = {
   versoes: { select: { formato: true } },
 } as const;
 
+export type BibliotecaListFilter = import("@/lib/criacao/bibliotecaSearchService").BibliotecaListFilter;
+
 export async function listMusicasBiblioteca(opts: {
   page: number;
   pageSize: number;
   search?: string;
   status?: string;
+  tagId?: string;
+  gravadora?: string;
+  listFilter?: BibliotecaListFilter;
   /** Só use true após upload — evita travar a listagem. */
   syncPending?: boolean;
 }): Promise<{ rows: MusicaBibliotecaRow[]; total: number }> {
@@ -280,6 +285,7 @@ export async function listMusicasBiblioteca(opts: {
   const page = Math.max(1, opts.page);
   const pageSize = Math.min(200, Math.max(1, opts.pageSize));
   const skip = (page - 1) * pageSize;
+  const listFilter = opts.listFilter ?? "all";
 
   const where: Prisma.MusicaBibliotecaWhereInput = {};
   if (opts.status && opts.status !== "all") {
@@ -289,17 +295,53 @@ export async function listMusicasBiblioteca(opts: {
   if (q) {
     where.OR = buildSearchWhere(q);
   }
+  if (opts.tagId) {
+    where.tagsManuais = { some: { tagId: opts.tagId } };
+  }
+  const grav = opts.gravadora?.trim();
+  if (grav) {
+    where.tagsAuto = { string_contains: grav };
+  }
 
-  const [items, total] = await Promise.all([
-    prisma.musicaBiblioteca.findMany({
-      where,
-      orderBy: [{ artista: "asc" }, { titulo: "asc" }],
-      skip,
-      take: pageSize,
-      include: musicaInclude,
-    }),
-    prisma.musicaBiblioteca.count({ where }),
-  ]);
+  let items: MusicaDbRow[];
+  let total: number;
+
+  if (listFilter === "unused" || listFilter === "leastUsed") {
+    const { listMusicaIdsByUsageFilter } = await import("@/lib/criacao/bibliotecaSearchService");
+    const usage = await listMusicaIdsByUsageFilter({
+      page,
+      pageSize,
+      search: opts.search,
+      status: opts.status,
+      tagId: opts.tagId,
+      gravadora: opts.gravadora,
+      listFilter,
+    });
+    total = usage.total;
+    if (usage.ids.length === 0) {
+      items = [];
+    } else {
+      const fetched = await prisma.musicaBiblioteca.findMany({
+        where: { id: { in: usage.ids } },
+        include: musicaInclude,
+      });
+      const byId = new Map(fetched.map((m) => [m.id, m]));
+      items = usage.ids
+        .map((id) => byId.get(id))
+        .filter((m): m is NonNullable<typeof m> => m != null) as MusicaDbRow[];
+    }
+  } else {
+    [items, total] = await Promise.all([
+      prisma.musicaBiblioteca.findMany({
+        where,
+        orderBy: [{ artista: "asc" }, { titulo: "asc" }],
+        skip,
+        take: pageSize,
+        include: musicaInclude,
+      }),
+      prisma.musicaBiblioteca.count({ where }),
+    ]);
+  }
 
   const ids = items.map((m) => m.id);
   const [rejMap, progMap, criativoUserMap] = await Promise.all([

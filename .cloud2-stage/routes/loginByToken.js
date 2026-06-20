@@ -1,6 +1,5 @@
-import { getPool } from '../../db/pool.js';
-import { loadSessionByToken } from '../loginByToken.js';
-import { logotipoClienteUrl } from './publicBase.js';
+import { getPool } from '../db/pool.js';
+import { logotipoClienteUrl } from './webservice/publicBase.js';
 
 function formatLegacyDateTime(value) {
   if (!value) return null;

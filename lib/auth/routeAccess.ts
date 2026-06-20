@@ -84,6 +84,9 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
     if (pathname.startsWith("/cadastros/vinculos")) {
       return { kind: "roles", roles: CADASTROS_VINCULOS };
     }
+    if (pathname.startsWith("/cadastros/atualizacoes") || pathname.includes("/atualizacoes")) {
+      return { kind: "roles", roles: CADASTROS_FULL };
+    }
     if (
       pathname.startsWith("/cadastros/prospects") ||
       pathname.startsWith("/cadastros/solicitar-pdv") ||

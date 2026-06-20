@@ -6,6 +6,8 @@ import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
 type TagCriativo = { id: string; nome: string; cor: string; criativoNome: string; usoCount: number };
+type FacetTag = TagCriativo;
+type ListFilter = "all" | "unused" | "leastUsed";
 
 const CORES_SUGERIDAS = [
   "#eab308", "#f97316", "#ef4444", "#ec4899", "#a855f7",
@@ -71,6 +73,10 @@ export function BibliotecaMusicalPanel() {
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [status, setStatus] = useState("all");
+  const [listFilter, setListFilter] = useState<ListFilter>("all");
+  const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
+  const [gravadoraFilter, setGravadoraFilter] = useState("");
+  const [topTags, setTopTags] = useState<FacetTag[]>([]);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -96,6 +102,16 @@ export function BibliotecaMusicalPanel() {
 
   useEffect(() => {
     void loadTags();
+    void (async () => {
+      try {
+        const res = await fetch("/api/criacao/biblioteca/facets");
+        if (!res.ok) return;
+        const data = (await res.json()) as { topTags?: FacetTag[] };
+        setTopTags(data.topTags ?? []);
+      } catch {
+        /* silencioso */
+      }
+    })();
   }, [loadTags]);
 
   const togglePlay = useCallback(
@@ -120,11 +136,16 @@ export function BibliotecaMusicalPanel() {
   );
 
   const queryString = useMemo(() => {
-    const params = new URLSearchParams({ pageSize: "200" });
+    const params = new URLSearchParams({
+      pageSize: listFilter === "leastUsed" ? "10" : "200",
+    });
     if (search.trim()) params.set("search", search.trim());
     if (status !== "all") params.set("status", status);
+    if (listFilter !== "all") params.set("listFilter", listFilter);
+    if (tagIdFilter) params.set("tagId", tagIdFilter);
+    if (gravadoraFilter.trim()) params.set("gravadora", gravadoraFilter.trim());
     return params.toString();
-  }, [search, status]);
+  }, [search, status, listFilter, tagIdFilter, gravadoraFilter]);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -332,7 +353,89 @@ export function BibliotecaMusicalPanel() {
             <option value="erro">Erro</option>
           </select>
         </label>
+        <label className="min-w-[160px] text-sm">
+          <span className="mb-1 block text-xs font-semibold text-slate-500">Gravadora</span>
+          <input
+            type="search"
+            value={gravadoraFilter}
+            onChange={(e) => setGravadoraFilter(e.target.value)}
+            placeholder="Filtrar gravadora…"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+          />
+        </label>
       </form>
+
+      <div className="mb-4 space-y-2">
+        {topTags.length > 0 ?
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Top tags</span>
+            {topTags.map((t) => {
+              const active = tagIdFilter === t.id && listFilter === "all";
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setListFilter("all");
+                    setTagIdFilter(active ? null : t.id);
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm transition ${
+                    active ? "ring-2 ring-slate-900 ring-offset-1 dark:ring-white" : "opacity-90 hover:opacity-100"
+                  }`}
+                  style={{ backgroundColor: t.cor, color: readableText(t.cor) }}
+                  title={`${t.criativoNome ? `[${t.criativoNome}] ` : ""}${t.nome} · ${t.usoCount} prog.`}
+                >
+                  {t.criativoNome ? `[${t.criativoNome}] ` : ""}
+                  {t.nome}
+                </button>
+              );
+            })}
+          </div>
+        : null}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setTagIdFilter(null);
+              setListFilter(listFilter === "unused" ? "all" : "unused");
+            }}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+              listFilter === "unused" ?
+                "border-violet-400 bg-violet-50 text-violet-800 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-200"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
+            }`}
+          >
+            Músicas não usadas em clientes
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTagIdFilter(null);
+              setListFilter(listFilter === "leastUsed" ? "all" : "leastUsed");
+            }}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+              listFilter === "leastUsed" ?
+                "border-amber-400 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
+            }`}
+          >
+            Top 10 menos usadas
+          </button>
+          {(tagIdFilter || listFilter !== "all" || gravadoraFilter.trim()) ?
+            <button
+              type="button"
+              onClick={() => {
+                setTagIdFilter(null);
+                setListFilter("all");
+                setGravadoraFilter("");
+              }}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700"
+            >
+              Limpar filtros
+            </button>
+          : null}
+        </div>
+      </div>
 
       {loading && musicas.length === 0 ?
         <div className="py-10 text-sm text-slate-500">Carregando…</div>
@@ -779,7 +882,7 @@ function RejeicaoModal({
         body: JSON.stringify({ clienteRef, motivo: motivo.trim() }),
       });
       setBusca("");
-      await load({ silent: true });
+      await load();
       await onChanged();
     } finally {
       setBusy(false);
@@ -793,7 +896,7 @@ function RejeicaoModal({
         `/api/criacao/musicas/${musica.id}/rejeicoes?clienteRef=${encodeURIComponent(clienteRef)}`,
         { method: "DELETE" },
       );
-      await load({ silent: true });
+      await load();
       await onChanged();
     } finally {
       setBusy(false);

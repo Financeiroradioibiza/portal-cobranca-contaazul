@@ -88,6 +88,17 @@ export function FilaPanel() {
     }
   }, [status]);
 
+  const loadItems = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/criacao/fila/${id}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { job: { itens: JobItem[] } };
+      setItems((prev) => ({ ...prev, [id]: data.job.itens }));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     setLoading(true);
     void load();
@@ -101,17 +112,6 @@ export function FilaPanel() {
     }, 4000);
     return () => clearInterval(t);
   }, [autoRefresh, openId, load, loadItems]);
-
-  const loadItems = useCallback(async (id: string) => {
-    try {
-      const res = await fetch(`/api/criacao/fila/${id}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { job: { itens: JobItem[] } };
-      setItems((prev) => ({ ...prev, [id]: data.job.itens }));
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   function toggle(id: string) {
     if (openId === id) {
