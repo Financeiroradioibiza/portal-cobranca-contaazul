@@ -4,6 +4,7 @@ import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 import { syncPlayerGatewayRegistry } from "@/lib/player/playerGatewaySync";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +18,8 @@ export async function POST(request: Request) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
     console.error("[player/sync-gateway POST]", e);
-    return NextResponse.json({ error: msg }, { status: 502 });
+    const status =
+      msg.includes("cloud2_") || msg.includes("timeout") || msg.includes("abort") ? 502 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

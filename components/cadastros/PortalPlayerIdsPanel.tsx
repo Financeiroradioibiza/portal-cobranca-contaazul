@@ -13,6 +13,20 @@ type Row = {
 
 type PilotStep = { id: string; label: string; ok: boolean; detail: string };
 
+async function parseApiJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    if (text.trimStart().startsWith("<")) {
+      throw new Error(
+        "O servidor demorou demais ou caiu (resposta HTML). Aguarde o deploy e tente de novo.",
+      );
+    }
+    throw new Error("Resposta inválida do servidor.");
+  }
+}
+
 function ClienteLogotipoBlock({ busy, setBusy, setMsg }: {
   busy: boolean;
   setBusy: (v: boolean) => void;
@@ -305,7 +319,7 @@ export function PortalPlayerIdsPanel() {
     setMsg("");
     try {
       const res = await fetch("/api/player/sync-gateway", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const data = (await res.json()) as { error?: string; clientes?: number; pdvs?: number };
+      const data = await parseApiJson<{ error?: string; clientes?: number; pdvs?: number }>(res);
       if (!res.ok) throw new Error(data.error ?? "falhou");
       setMsg(`Player 5 sincronizado: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.`);
     } catch (e) {

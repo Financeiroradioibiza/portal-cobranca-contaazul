@@ -1,4 +1,4 @@
-import { cloud2Fetch } from "@/lib/criacao/cloud2Client";
+import { cloud2Fetch, cloud2FetchWithTimeout, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 import { mapPdvCadastroToGatewayFields } from "@/lib/player/pdvGatewayFields";
 import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import {
@@ -56,6 +56,13 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
   const loginByClienteId = new Map(logins.map((l) => [l.portalClienteId, l]));
   const logoByClienteId = new Map(logos.map((l) => [l.portalClienteId, l.jpegBase64]));
 
+  /** Logos grandes no bulk sync estouram timeout/nginx — sincronizam no upload dedicado. */
+  function logoForSync(portalClienteId: number): string | null {
+    const b64 = logoByClienteId.get(portalClienteId)?.trim() ?? "";
+    if (!b64 || b64.length > 180_000) return null;
+    return b64;
+  }
+
   const rioKeys = ctx.buckets.flatMap((b) => b.pdvs.map((p) => p.rioPdvId));
   const cadastros = await prisma.producaoPdvCadastro.findMany({
     where: { rioPdvKey: { in: rioKeys } },
@@ -94,7 +101,7 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
       email: login?.email ?? null,
       senhaHash: login?.passwordHash ?? null,
       origemRioLinhaId,
-      logotipoBase64: logoByClienteId.get(portalClienteId) ?? "",
+      logotipoBase64: logoForSync(portalClienteId),
     });
 
     const sorted = sortRioPdvsByNome(bucket.pdvs.map((p) => ({ id: p.rioPdvId, nome: p.nome })));
@@ -196,17 +203,21 @@ export async function syncPlayerGatewayRegistry(): Promise<{
 }> {
   const raw = await buildPlayerGatewaySyncPayload();
   const payload = await hydrateInstalacaoTokens(raw);
-  const res = await cloud2Fetch("/player/sync-registry", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  const res = await cloud2FetchWithTimeout(
+    "/player/sync-registry",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    90_000,
+  );
+  const data = await parseCloud2Json<{
     ok?: boolean;
     error?: string;
     clientes?: number;
     pdvs?: number;
-  };
-  if (!res.ok || !data.ok) {
+  }>(res, "sync_registry");
+  if (!res?.ok || !data.ok) {
     throw new Error(data.error ?? "sync_registry_falhou");
   }
   return { clientes: data.clientes ?? payload.clientes.length, pdvs: data.pdvs ?? payload.pdvs.length };

@@ -38,3 +38,21 @@ export async function cloud2FetchWithTimeout(
     clearTimeout(timer);
   }
 }
+
+/** Lê JSON do cloud2; se vier HTML (502/504 nginx), erro legível. */
+export async function parseCloud2Json<T extends Record<string, unknown>>(
+  res: Response | null,
+  label: string,
+): Promise<T> {
+  if (!res) throw new Error(`${label}_timeout`);
+  const text = await res.text();
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("json") && text.trimStart().startsWith("<")) {
+    throw new Error(`cloud2_${res.status}: resposta_html (${label})`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`cloud2_${res.status}: json_invalido (${label})`);
+  }
+}
