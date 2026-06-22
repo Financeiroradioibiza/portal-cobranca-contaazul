@@ -13,8 +13,19 @@ type ArvoreProg = {
   nome: string;
   formatoPadrao: string;
   publicada: boolean;
+  atualizacaoAberta: boolean;
   pastas: ArvorePasta[];
   vinhetas: ArvoreVinheta[];
+};
+
+type AtualizacaoAbertaRow = {
+  programacaoId: string;
+  programacaoNome: string;
+  clienteRef: string;
+  clienteNome: string;
+  abertaEm: string;
+  abertaPor: string;
+  publicada: boolean;
 };
 
 type PdvProgramacaoRow = {
@@ -32,6 +43,10 @@ type ProgOption = { id: string; nome: string };
 const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"];
 const VELOCIDADE_LABEL: Record<string, string> = { baixa: "Baixa", media: "Média", alta: "Alta" };
 
+function progEncerrada(prog: Pick<ArvoreProg, "publicada" | "atualizacaoAberta">): boolean {
+  return prog.publicada && !prog.atualizacaoAberta;
+}
+
 export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (programacaoId: string) => void }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteBusca, setClienteBusca] = useState("");
@@ -41,8 +56,10 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
   const [loadingArvore, setLoadingArvore] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showNovaProg, setShowNovaProg] = useState(false);
-  const [dispararProg, setDispararProg] = useState<{ id: string; nome: string } | null>(null);
+  const [fecharProg, setFecharProg] = useState<{ id: string; nome: string } | null>(null);
   const [logAberto, setLogAberto] = useState<Set<string>>(new Set());
+  const [atualizacoesAbertas, setAtualizacoesAbertas] = useState<AtualizacaoAbertaRow[]>([]);
+  const [focusProgId, setFocusProgId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/criacao/clientes")
@@ -52,6 +69,21 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
       })
       .finally(() => setLoadingClientes(false));
   }, []);
+
+  const loadAtualizacoesAbertas = useCallback(async () => {
+    try {
+      const res = await fetch("/api/criacao/atualizacoes-abertas");
+      if (!res.ok) return;
+      const data = (await res.json()) as { atualizacoes?: AtualizacaoAbertaRow[] };
+      setAtualizacoesAbertas(data.atualizacoes ?? []);
+    } catch {
+      setAtualizacoesAbertas([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAtualizacoesAbertas();
+  }, [loadAtualizacoesAbertas]);
 
   const loadArvore = useCallback(async (ref: string) => {
     setLoadingArvore(true);
@@ -86,6 +118,42 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
     const faixas = arvore.reduce((a, p) => a + p.pastas.reduce((b, f) => b + f.musicasCount, 0), 0);
     return { progs, pastas, vinhetas, faixas };
   }, [arvore]);
+
+  const openProgramacaoIds = useMemo(() => {
+    const ids = new Set(arvore.filter((p) => p.atualizacaoAberta).map((p) => p.id));
+    if (clienteSel) {
+      for (const a of atualizacoesAbertas) {
+        if (a.clienteRef === clienteSel.ref) ids.add(a.programacaoId);
+      }
+    }
+    return ids;
+  }, [arvore, atualizacoesAbertas, clienteSel]);
+  const encerradaProgramacaoIds = useMemo(
+    () => new Set(arvore.filter((p) => progEncerrada(p)).map((p) => p.id)),
+    [arvore],
+  );
+
+  async function abrirAtualizacao(progId: string) {
+    await fetch(`/api/criacao/programacoes/${progId}/abrir-atualizacao`, { method: "POST" });
+    await loadAtualizacoesAbertas();
+    if (clienteSel) await loadArvore(clienteSel.ref);
+    onOpenEditor(progId);
+  }
+
+  function irParaAtualizacaoAberta(row: AtualizacaoAbertaRow) {
+    const c = clientes.find((x) => x.ref === row.clienteRef);
+    setClienteSel(c ?? { ref: row.clienteRef, nome: row.clienteNome, pdvCount: 0 });
+    setFocusProgId(row.programacaoId);
+    setExpanded((prev) => new Set(prev).add(row.programacaoId));
+  }
+
+  useEffect(() => {
+    if (!focusProgId) return;
+    const el = document.getElementById(`prog-row-${focusProgId}`);
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const t = window.setTimeout(() => setFocusProgId(null), 2000);
+    return () => window.clearTimeout(t);
+  }, [focusProgId, arvore, clienteSel]);
 
   function toggleExpand(id: string) {
     setExpanded((prev) => {
@@ -126,6 +194,35 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
           Depois de montar aqui, escolha a pasta no <strong>Upload</strong> para enviar faixas direto.
         </p>
       </div>
+
+      {atualizacoesAbertas.length > 0 ?
+        <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50/90 px-4 py-3 shadow-sm dark:border-orange-900/60 dark:bg-orange-950/30">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-orange-800 dark:text-orange-300">
+            Atualizações abertas
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {atualizacoesAbertas.map((a) => {
+              const ativo = clienteSel?.ref === a.clienteRef && focusProgId === a.programacaoId;
+              return (
+                <button
+                  key={a.programacaoId}
+                  type="button"
+                  onClick={() => irParaAtualizacaoAberta(a)}
+                  className={
+                    "rounded-lg border px-3 py-1.5 text-left text-xs font-semibold transition " +
+                    (ativo ?
+                      "border-orange-600 bg-orange-500 text-white"
+                    : "border-orange-300 bg-white text-orange-900 hover:border-orange-400 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-100 dark:hover:bg-orange-900/40")
+                  }
+                >
+                  <span className="block truncate">{a.programacaoNome}</span>
+                  <span className="block truncate text-[10px] font-normal opacity-80">{a.clienteNome}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      : null}
 
       <div className="grid min-h-[560px] grid-cols-1 gap-4 xl:grid-cols-[minmax(240px,280px)_minmax(260px,320px)_1fr] lg:grid-cols-[minmax(240px,280px)_1fr]">
         {/* Coluna clientes — estilo Central de Suporte */}
@@ -177,7 +274,12 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
 
         {/* Coluna PDVs — amarração programação por loja */}
         {clienteSel ?
-          <PdvProgramacaoColumn clienteRef={clienteSel.ref} clienteNome={clienteSel.nome} />
+          <PdvProgramacaoColumn
+            clienteRef={clienteSel.ref}
+            clienteNome={clienteSel.nome}
+            openProgramacaoIds={openProgramacaoIds}
+            encerradaProgramacaoIds={encerradaProgramacaoIds}
+          />
         : null}
 
         {/* Coluna hierarquia */}
@@ -227,7 +329,14 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                 </div>
               : <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
                   {arvore.map((prog) => (
-                    <li key={prog.id} className="px-2 py-2">
+                    <li
+                      key={prog.id}
+                      id={`prog-row-${prog.id}`}
+                      className={
+                        "px-2 py-2 transition " +
+                        (focusProgId === prog.id ? "rounded-lg bg-orange-50 ring-2 ring-orange-300 dark:bg-orange-950/30 dark:ring-orange-800" : "")
+                      }
+                    >
                       <div className="flex items-start gap-1 rounded-lg px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <button
                           type="button"
@@ -241,9 +350,13 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-base">🎼</span>
                             <span className="font-semibold text-slate-900 dark:text-slate-100">{prog.nome}</span>
-                            {prog.publicada ?
+                            {prog.atualizacaoAberta ?
+                              <span className="rounded bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold text-orange-800 dark:bg-orange-950 dark:text-orange-300">
+                                Aberta
+                              </span>
+                            : progEncerrada(prog) ?
                               <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                                Publicada
+                                Encerrada
                               </span>
                             : <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-slate-800">
                                 Rascunho
@@ -256,17 +369,29 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                           <div className="mt-1 flex flex-wrap gap-1">
                             <button
                               type="button"
-                              onClick={() => onOpenEditor(prog.id)}
-                              className="rounded border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300"
+                              onClick={() => void abrirAtualizacao(prog.id)}
+                              className={
+                                "rounded border px-2 py-0.5 text-[10px] font-semibold transition " +
+                                (prog.atualizacaoAberta ?
+                                  "border-orange-500 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/40 dark:text-orange-200"
+                                : "border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300")
+                              }
                             >
-                              Editor completo
+                              Abrir atualização
                             </button>
                             <button
                               type="button"
-                              onClick={() => setDispararProg({ id: prog.id, nome: prog.nome })}
-                              className="rounded border border-emerald-600 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                              onClick={() => setFecharProg({ id: prog.id, nome: prog.nome })}
+                              className={
+                                "rounded border px-2 py-0.5 text-[10px] font-semibold transition " +
+                                (prog.atualizacaoAberta ?
+                                  "border-orange-600 bg-orange-500 text-white hover:bg-orange-600 dark:border-orange-700 dark:bg-orange-600"
+                                : progEncerrada(prog) ?
+                                  "border-emerald-600 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                                : "border-slate-300 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:text-slate-400")
+                              }
                             >
-                              Disparar atualização
+                              Fechar atualização
                             </button>
                             <NovaPastaInline programacaoId={prog.id} onDone={() => loadArvore(clienteSel.ref)} />
                             <NovaVinhetaInline programacaoId={prog.id} onDone={() => loadArvore(clienteSel.ref)} />
@@ -351,17 +476,18 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
         </div>
       </div>
 
-      {dispararProg && clienteSel ?
-        <DispararAtualizacaoModal
-          programacaoId={dispararProg.id}
-          programacaoNome={dispararProg.nome}
+      {fecharProg && clienteSel ?
+        <FecharAtualizacaoModal
+          programacaoId={fecharProg.id}
+          programacaoNome={fecharProg.nome}
           clienteRef={clienteSel.ref}
           clienteNome={clienteSel.nome}
-          onClose={() => setDispararProg(null)}
+          onClose={() => setFecharProg(null)}
           onDone={async () => {
-            setDispararProg(null);
+            setFecharProg(null);
+            await loadAtualizacoesAbertas();
             await loadArvore(clienteSel.ref);
-            setLogAberto((prev) => new Set(prev).add(dispararProg.id));
+            setLogAberto((prev) => new Set(prev).add(fecharProg.id));
           }}
         />
       : null}
@@ -369,7 +495,17 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
   );
 }
 
-function PdvProgramacaoColumn({ clienteRef, clienteNome }: { clienteRef: string; clienteNome: string }) {
+function PdvProgramacaoColumn({
+  clienteRef,
+  clienteNome,
+  openProgramacaoIds,
+  encerradaProgramacaoIds,
+}: {
+  clienteRef: string;
+  clienteNome: string;
+  openProgramacaoIds: Set<string>;
+  encerradaProgramacaoIds: Set<string>;
+}) {
   const [pdvs, setPdvs] = useState<PdvProgramacaoRow[]>([]);
   const [programacoes, setProgramacoes] = useState<ProgOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -432,8 +568,8 @@ function PdvProgramacaoColumn({ clienteRef, clienteNome }: { clienteRef: string;
           PDVs · {clienteNome}
         </div>
         <p className="mt-1 text-[10px] leading-snug text-slate-500">
-          Escolha qual programação musical fica amarrada em cada loja. O disparo de atualização usa só os PDVs
-          marcados.
+          Escolha qual programação musical fica amarrada em cada loja. Laranja = atualização aberta; verde = enviada e
+          encerrada.
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -462,9 +598,24 @@ function PdvProgramacaoColumn({ clienteRef, clienteNome }: { clienteRef: string;
                   {savingKey === pdv.rioPdvKey ?
                     <span className="shrink-0 text-[10px] text-slate-400">salvando…</span>
                   : pdv.programacaoNome ?
-                    <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                      {pdv.programacaoNome}
-                    </span>
+                    (() => {
+                      const aberta = pdv.programacaoId != null && openProgramacaoIds.has(pdv.programacaoId);
+                      const encerrada = pdv.programacaoId != null && encerradaProgramacaoIds.has(pdv.programacaoId);
+                      return (
+                        <span
+                          className={
+                            "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold " +
+                            (aberta ?
+                              "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
+                            : encerrada ?
+                              "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                            : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400")
+                          }
+                        >
+                          {pdv.programacaoNome}
+                        </span>
+                      );
+                    })()
                   : <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                       sem prog.
                     </span>
@@ -486,6 +637,8 @@ function PdvProgramacaoColumn({ clienteRef, clienteNome }: { clienteRef: string;
                   </button>
                   {programacoes.map((prog) => {
                     const on = pdv.programacaoId === prog.id;
+                    const aberta = openProgramacaoIds.has(prog.id);
+                    const encerrada = encerradaProgramacaoIds.has(prog.id);
                     return (
                       <button
                         key={prog.id}
@@ -494,9 +647,17 @@ function PdvProgramacaoColumn({ clienteRef, clienteNome }: { clienteRef: string;
                         onClick={() => void assign(pdv.rioPdvKey, prog.id)}
                         className={
                           "rounded border px-2 py-1 text-[10px] font-semibold transition " +
-                          (on ?
+                          (on && aberta ?
+                            "border-orange-500 bg-orange-500 text-white"
+                          : on && encerrada ?
                             "border-emerald-600 bg-emerald-600 text-white"
-                          : "border-slate-300 text-slate-600 hover:border-emerald-400 hover:text-emerald-700 dark:border-slate-600 dark:text-slate-300")
+                          : on ?
+                            "border-slate-600 bg-slate-700 text-white dark:bg-slate-300 dark:text-slate-900"
+                          : aberta ?
+                            "border-orange-300 text-orange-700 hover:border-orange-400 dark:border-orange-800 dark:text-orange-300"
+                          : encerrada ?
+                            "border-slate-300 text-slate-600 hover:border-emerald-400 hover:text-emerald-700 dark:border-slate-600 dark:text-slate-300"
+                          : "border-slate-300 text-slate-600 hover:border-slate-400 dark:border-slate-600 dark:text-slate-300")
                         }
                       >
                         {prog.nome}
@@ -726,7 +887,7 @@ const DISPARO_ERROR: Record<string, string> = {
   disparo_falhou: "Falha ao disparar a atualização.",
 };
 
-function DispararAtualizacaoModal({
+function FecharAtualizacaoModal({
   programacaoId,
   programacaoNome,
   clienteRef,
@@ -816,7 +977,7 @@ function DispararAtualizacaoModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <h2 className="text-sm font-bold">Disparar atualização</h2>
+          <h2 className="text-sm font-bold">Fechar atualização</h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
             ✕
           </button>
@@ -825,18 +986,18 @@ function DispararAtualizacaoModal({
           <p className="mb-1 text-xs font-semibold text-slate-700 dark:text-slate-200">{programacaoNome}</p>
           <p className="mb-1 text-[10px] text-slate-500">Cliente: {clienteNome}</p>
           <p className="mb-3 text-xs text-slate-500">
-            Publica no Player 5 o estado atual desta programação nos PDVs amarrados na coluna do meio e registra no
-            log (entraram / saíram). A edição continua livre — você pode disparar de novo quando quiser.
+            Envia ao Player 5 o estado atual desta programação nos PDVs amarrados e encerra o ciclo de edição. O log
+            registra o que entrou e saiu desde o último fechamento.
           </p>
           {loadingInfo ?
             <div className="mb-3 py-2 text-center text-sm text-slate-400">Verificando PDVs amarrados…</div>
           : pdvsAmarrados === 0 ?
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               Nenhum PDV amarrado a esta programação. Volte à coluna <strong>PDVs</strong> e escolha as lojas antes
-              de disparar.
+              de fechar.
             </div>
-          : <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-              {pdvsAmarrados} PDV{pdvsAmarrados === 1 ? "" : "s"} receberão esta atualização.
+          : <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
+              {pdvsAmarrados} PDV{pdvsAmarrados === 1 ? "" : "s"} receberão esta atualização ao fechar.
             </div>
           }
           {error ?
@@ -851,9 +1012,9 @@ function DispararAtualizacaoModal({
             type="button"
             onClick={() => void disparar()}
             disabled={busy || loadingInfo || pdvsAmarrados === 0 || !!resultado}
-            className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
           >
-            {busy ? "Disparando…" : "Disparar agora"}
+            {busy ? "Fechando…" : "Fechar agora"}
           </button>
         </div>
       </div>

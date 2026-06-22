@@ -54,6 +54,7 @@ export type ArvoreProgramacaoNode = {
   nome: string;
   formatoPadrao: string;
   publicada: boolean;
+  atualizacaoAberta: boolean;
   pastas: ArvorePastaNode[];
   vinhetas: ArvoreVinhetaNode[];
 };
@@ -82,6 +83,7 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
     nome: p.nome,
     formatoPadrao: p.formatoPadrao,
     publicada: p.publicada,
+    atualizacaoAberta: p.atualizacaoAbertaEm != null,
     pastas: p.pastas.map((f) => ({
       id: f.id,
       nome: f.nome,

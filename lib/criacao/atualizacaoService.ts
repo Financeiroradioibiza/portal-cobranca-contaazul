@@ -233,6 +233,8 @@ export async function dispararAtualizacao(
         snapshotAtual: snapshotAtual as unknown as Prisma.InputJsonValue,
         publicada: true,
         publishedAt: new Date(),
+        atualizacaoAbertaEm: null,
+        atualizacaoAbertaPor: "",
       },
     }),
   ]);
@@ -248,4 +250,64 @@ export async function dispararAtualizacao(
     clienteGatewayNome: pub.clienteGatewayNome,
     pdvsDisparados: portalPdvIds.length,
   };
+}
+
+export type AtualizacaoAbertaRow = {
+  programacaoId: string;
+  programacaoNome: string;
+  clienteRef: string;
+  clienteNome: string;
+  abertaEm: string;
+  abertaPor: string;
+  publicada: boolean;
+};
+
+export async function abrirAtualizacao(
+  programacaoId: string,
+  abertaPor: string,
+): Promise<{ ok: true; programacaoId: string }> {
+  const prog = await prisma.programacao.findUnique({
+    where: { id: programacaoId },
+    select: { id: true },
+  });
+  if (!prog) throw new Error("programacao_nao_encontrada");
+
+  await prisma.programacao.update({
+    where: { id: programacaoId },
+    data: {
+      atualizacaoAbertaEm: new Date(),
+      atualizacaoAbertaPor: abertaPor.slice(0, 200),
+    },
+  });
+
+  return { ok: true, programacaoId };
+}
+
+export async function listAtualizacoesAbertas(): Promise<AtualizacaoAbertaRow[]> {
+  const rows = await prisma.programacao.findMany({
+    where: { atualizacaoAbertaEm: { not: null } },
+    orderBy: { atualizacaoAbertaEm: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      nome: true,
+      clienteRef: true,
+      clienteNome: true,
+      publicada: true,
+      atualizacaoAbertaEm: true,
+      atualizacaoAbertaPor: true,
+    },
+  });
+
+  return rows
+    .filter((r) => r.atualizacaoAbertaEm)
+    .map((r) => ({
+      programacaoId: r.id,
+      programacaoNome: r.nome,
+      clienteRef: r.clienteRef,
+      clienteNome: r.clienteNome,
+      abertaEm: r.atualizacaoAbertaEm!.toISOString(),
+      abertaPor: r.atualizacaoAbertaPor,
+      publicada: r.publicada,
+    }));
 }

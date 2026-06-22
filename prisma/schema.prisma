@@ -888,6 +888,9 @@ model Programacao {
   clienteGatewayId Int?         @map("cliente_gateway_id")
   /// Snapshot das faixas por pasta após o último disparo (para diff do log).
   snapshotAtual  Json?          @map("snapshot_atual")
+  /// Ciclo de edição aberto (Abrir atualização) — limpo ao Fechar/disparar.
+  atualizacaoAbertaEm  DateTime? @map("atualizacao_aberta_em")
+  atualizacaoAbertaPor String   @default("") @map("atualizacao_aberta_por") @db.VarChar(200)
   criativoUserId String?        @map("criativo_user_id")
   criativoNome   String         @default("") @map("criativo_nome") @db.VarChar(120)
   createdAt      DateTime       @default(now()) @map("created_at")
