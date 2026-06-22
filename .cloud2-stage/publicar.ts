@@ -43,10 +43,11 @@ async function ensurePublicarGatewaySchema(gw: GwClient): Promise<void> {
     )
   `);
   await gw.query(`ALTER TABLE programas ADD COLUMN IF NOT EXISTS origem_programacao_id TEXT`);
+  // Índice completo (não parcial): ON CONFLICT (origem_programacao_id) exige constraint compatível.
+  await gw.query(`DROP INDEX IF EXISTS programas_origem_programacao_id_uidx`);
   await gw.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS programas_origem_programacao_id_uidx
     ON programas (origem_programacao_id)
-    WHERE origem_programacao_id IS NOT NULL
   `);
 
   await gw.query(`
@@ -70,10 +71,10 @@ async function ensurePublicarGatewaySchema(gw: GwClient): Promise<void> {
     )
   `);
   await gw.query(`ALTER TABLE musicas ADD COLUMN IF NOT EXISTS origem_musica_id TEXT`);
+  await gw.query(`DROP INDEX IF EXISTS musicas_origem_musica_id_uidx`);
   await gw.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS musicas_origem_musica_id_uidx
     ON musicas (origem_musica_id)
-    WHERE origem_musica_id IS NOT NULL
   `);
 
   await gw.query(`
@@ -105,6 +106,11 @@ async function ensurePublicarGatewaySchema(gw: GwClient): Promise<void> {
       downloaded CHAR(1) NOT NULL DEFAULT '0',
       UNIQUE (playlist_id, musica_id)
     )
+  `);
+  // Tabela legada pode existir sem UNIQUE — CREATE TABLE IF NOT EXISTS não adiciona a constraint.
+  await gw.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS playlist_musicas_playlist_musica_uidx
+    ON playlist_musicas (playlist_id, musica_id)
   `);
 }
 
