@@ -799,7 +799,10 @@ function DispararAtualizacaoModal({
       const code = e instanceof Error ? e.message : "disparo_falhou";
       setError(
         DISPARO_ERROR[code] ??
-          (code.startsWith("sync_registry") ? DISPARO_ERROR.sync_registry_falhou : code),
+          (code.startsWith("sync_registry") ? DISPARO_ERROR.sync_registry_falhou
+          : code.startsWith("falha_publicacao") || code.startsWith("publicar_falhou") ?
+            (code.includes(":") ? code.replace(/^[^:]+:\s*/, "Erro ao publicar: ") : DISPARO_ERROR.falha_publicacao)
+          : code),
       );
     } finally {
       setBusy(false);

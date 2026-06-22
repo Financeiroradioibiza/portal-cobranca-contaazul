@@ -19,9 +19,11 @@ function disparoErrorResponse(msg: string): NextResponse {
   ) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
-  if (
-    msg === "publicar_falhou" ||
-    msg === "falha_publicacao" ||
+    if (
+      msg === "publicar_falhou" ||
+      msg === "falha_publicacao" ||
+      msg.startsWith("falha_publicacao:") ||
+      msg.startsWith("publicar_falhou:") ||
     msg === "cliente_gateway_inexistente" ||
     msg === "gateway_clientes_falhou" ||
     msg === "publicar_timeout" ||

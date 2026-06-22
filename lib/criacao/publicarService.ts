@@ -57,12 +57,16 @@ export async function publicarProgramacao(
   const data = await parseCloud2Json<{
     ok?: boolean;
     error?: string;
+    detail?: string;
     playlists?: number;
     musicas?: number;
     semArquivo?: number;
   }>(res, "publicar");
   if (!res?.ok || !data.ok) {
-    throw new Error(data.error ?? "publicar_falhou");
+    const detail = data.detail?.trim();
+    throw new Error(
+      detail ? `${data.error ?? "publicar_falhou"}: ${detail}` : (data.error ?? "publicar_falhou"),
+    );
   }
 
   await prisma.programacao.update({

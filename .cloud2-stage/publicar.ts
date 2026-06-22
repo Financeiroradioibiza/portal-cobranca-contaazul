@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
+import type pg from 'pg';
 import { getPool } from '../../db/pool.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { criacaoConfig } from '../../criacao/config.js';
@@ -28,6 +29,84 @@ function safeFileName(artista: string, titulo: string): string {
 }
 
 const FORMATO_FALLBACK = 'mp3_128_mono';
+
+type GwClient = pg.PoolClient;
+
+/** Garante tabelas/colunas/índices do fluxo publicar (gateway legado + sync Player). */
+async function ensurePublicarGatewaySchema(gw: GwClient): Promise<void> {
+  await gw.query(`
+    CREATE TABLE IF NOT EXISTS programas (
+      id SERIAL PRIMARY KEY,
+      cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+      nome TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await gw.query(`ALTER TABLE programas ADD COLUMN IF NOT EXISTS origem_programacao_id TEXT`);
+  await gw.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS programas_origem_programacao_id_uidx
+    ON programas (origem_programacao_id)
+    WHERE origem_programacao_id IS NOT NULL
+  `);
+
+  await gw.query(`
+    CREATE TABLE IF NOT EXISTS artistas (
+      id SERIAL PRIMARY KEY,
+      nome TEXT NOT NULL,
+      foto TEXT NOT NULL DEFAULT ''
+    )
+  `);
+
+  await gw.query(`
+    CREATE TABLE IF NOT EXISTS musicas (
+      id SERIAL PRIMARY KEY,
+      titulo TEXT NOT NULL,
+      nome_arquivo TEXT NOT NULL,
+      tamanho_bytes BIGINT NOT NULL DEFAULT 0,
+      duracao INTERVAL NOT NULL DEFAULT '0',
+      corte_seg INTEGER NOT NULL DEFAULT 0,
+      storage_key TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await gw.query(`ALTER TABLE musicas ADD COLUMN IF NOT EXISTS origem_musica_id TEXT`);
+  await gw.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS musicas_origem_musica_id_uidx
+    ON musicas (origem_musica_id)
+    WHERE origem_musica_id IS NOT NULL
+  `);
+
+  await gw.query(`
+    CREATE TABLE IF NOT EXISTS playlists (
+      id SERIAL PRIMARY KEY,
+      programa_id INTEGER NOT NULL REFERENCES programas(id) ON DELETE CASCADE,
+      pdv_id INTEGER REFERENCES pdvs(id) ON DELETE SET NULL,
+      nome TEXT NOT NULL,
+      tipo CHAR(2) NOT NULL DEFAULT 'N',
+      tocar_sempre CHAR(1) NOT NULL DEFAULT 'S',
+      tempo_total INTERVAL NOT NULL DEFAULT '0',
+      tocar_cada INTEGER,
+      tipo_tocar TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS origem_pasta_id TEXT`);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS origem_vinheta_id TEXT`);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS publicado CHAR(1) NOT NULL DEFAULT 'S'`);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS tipo_agendamento TEXT DEFAULT ''`);
+
+  await gw.query(`
+    CREATE TABLE IF NOT EXISTS playlist_musicas (
+      id SERIAL PRIMARY KEY,
+      playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+      musica_id INTEGER NOT NULL REFERENCES musicas(id) ON DELETE CASCADE,
+      artista_id INTEGER REFERENCES artistas(id) ON DELETE SET NULL,
+      ordem INTEGER NOT NULL DEFAULT 0,
+      downloaded CHAR(1) NOT NULL DEFAULT '0',
+      UNIQUE (playlist_id, musica_id)
+    )
+  `);
+}
 
 interface NeonMusica {
   musica_id: string;
@@ -87,6 +166,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       const pastaPlaylistMap = new Map<string, number>();
       try {
         await gw.query('BEGIN');
+        await ensurePublicarGatewaySchema(gw);
 
         // garante cliente
         const cli = await gw.query<{ id: number }>(`SELECT id FROM clientes WHERE id = $1`, [clienteId]);
@@ -190,8 +270,9 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         await gw.query('COMMIT');
       } catch (e) {
         await gw.query('ROLLBACK').catch(() => {});
-        app.log.error({ err: e }, '[publicar] falhou');
-        return reply.code(500).send({ ok: false, error: 'falha_publicacao' });
+        const detail = e instanceof Error ? e.message : String(e);
+        app.log.error({ err: e, detail }, '[publicar] falhou');
+        return reply.code(500).send({ ok: false, error: 'falha_publicacao', detail });
       } finally {
         gw.release();
       }
