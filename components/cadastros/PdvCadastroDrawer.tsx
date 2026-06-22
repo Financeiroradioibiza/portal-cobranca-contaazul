@@ -119,6 +119,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
       const data = (await res.json()) as {
         ok?: boolean;
         playerInstalacaoToken?: string;
+        gatewaySyncError?: string | null;
         error?: string;
       };
       if (!res.ok || !data.ok || !data.playerInstalacaoToken) {
@@ -129,7 +130,13 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
           { ...prev, playerInstalacaoToken: data.playerInstalacaoToken!, playerInstaladoEm: null }
         : prev,
       );
-      setMsg("Nova chave serial gerada. Informe ao técnico para reinstalar o player.");
+      if (data.gatewaySyncError) {
+        setMsg(
+          `Nova chave gerada no portal, mas o player instalado pode continuar tocando até o sync com o cloud2 (${data.gatewaySyncError}). Tente «Sync gateway» ou contacte suporte.`,
+        );
+      } else {
+        setMsg("Nova chave serial gerada. O player instalado será desconectado no próximo ping.");
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao refazer serial.");
     } finally {

@@ -95,6 +95,7 @@ async function ensurePublicarGatewaySchema(gw: GwClient): Promise<void> {
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS origem_vinheta_id TEXT`);
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS publicado CHAR(1) NOT NULL DEFAULT 'S'`);
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS tipo_agendamento TEXT DEFAULT ''`);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS selecionavel CHAR(1) NOT NULL DEFAULT 'N'`);
 
   await gw.query(`
     CREATE TABLE IF NOT EXISTS playlist_musicas (
@@ -157,8 +158,9 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       const prog = progRes.rows[0];
       const formatoAlvo = prog.formato_padrao || FORMATO_FALLBACK;
 
-      const pastasRes = await portalQuery<{ id: string; nome: string }>(
-        `SELECT id, nome FROM pasta WHERE programacao_id = $1 ORDER BY sort_order, nome`,
+      const pastasRes = await portalQuery<{ id: string; nome: string; selecionavel: boolean }>(
+        `SELECT id, nome, COALESCE(selecionavel, false) AS selecionavel
+           FROM pasta WHERE programacao_id = $1 ORDER BY sort_order, nome`,
         [programacaoId],
       );
 
@@ -214,11 +216,19 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
           );
 
           const totalSeg = musRes.rows.reduce((s, m) => s + Math.round((m.duration_ms ?? 0) / 1000), 0);
+          const selecionavel = pasta.selecionavel === true;
           const pl = await gw.query<{ id: number }>(
-            `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, origem_pasta_id, publicado)
-               VALUES ($1, NULL, $2, 'N', 'S', make_interval(secs => $3), $4, 'S')
+            `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, selecionavel, tempo_total, origem_pasta_id, publicado)
+               VALUES ($1, NULL, $2, 'N', $3, $4, make_interval(secs => $5), $6, 'S')
              RETURNING id`,
-            [programaId, pasta.nome, totalSeg, pasta.id],
+            [
+              programaId,
+              pasta.nome,
+              selecionavel ? 'N' : 'S',
+              selecionavel ? 'S' : 'N',
+              totalSeg,
+              pasta.id,
+            ],
           );
           const playlistId = pl.rows[0].id;
           pastaPlaylistMap.set(pasta.id, playlistId);

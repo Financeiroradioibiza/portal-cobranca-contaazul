@@ -823,6 +823,7 @@ function NovaPastaInline({
 }) {
   const [open, setOpen] = useState(false);
   const [nome, setNome] = useState("");
+  const [selecionavel, setSelecionavel] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -832,9 +833,10 @@ function NovaPastaInline({
       await fetch(`/api/criacao/programacoes/${programacaoId}/pastas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome: nome.trim() }),
+        body: JSON.stringify({ nome: nome.trim(), selecionavel }),
       });
       setNome("");
+      setSelecionavel(false);
       setOpen(false);
       await onEdit?.();
       await onDone();
@@ -856,7 +858,7 @@ function NovaPastaInline({
   }
 
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-1">
       <input
         value={nome}
         onChange={(e) => setNome(e.target.value)}
@@ -865,6 +867,15 @@ function NovaPastaInline({
         className="w-28 rounded border border-slate-200 px-2 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-950"
         autoFocus
       />
+      <label className="inline-flex items-center gap-0.5 text-[9px] text-violet-700 dark:text-violet-300" title="Só toca no player quando selecionada">
+        <input
+          type="checkbox"
+          checked={selecionavel}
+          onChange={(e) => setSelecionavel(e.target.checked)}
+          className="h-3 w-3"
+        />
+        sel.
+      </label>
       <button type="button" disabled={busy} onClick={() => void submit()} className="text-[10px] font-bold text-emerald-600">
         ok
       </button>

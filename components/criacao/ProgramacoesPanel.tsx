@@ -25,7 +25,14 @@ type PastaMusicaView = {
   mixSegundosFinais: number | null;
   previewUrl: string | null;
 };
-type PastaView = { id: string; nome: string; velocidade: string; sortOrder: number; musicas: PastaMusicaView[] };
+type PastaView = {
+  id: string;
+  nome: string;
+  velocidade: string;
+  selecionavel: boolean;
+  sortOrder: number;
+  musicas: PastaMusicaView[];
+};
 type ProgramacaoDetail = {
   id: string;
   nome: string;
@@ -41,6 +48,93 @@ function formatDuration(ms: number | null): string {
   if (!ms || ms <= 0) return "—";
   const total = Math.round(ms / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+type Agendamento = {
+  id: string;
+  alvoTipo: string;
+  alvoId: string;
+  alvoNome: string;
+  diasSemana: string;
+  horaInicio: string;
+  horaFim: string;
+  dataInicio: string | null;
+  dataFim: string | null;
+  frequenciaMin: number | null;
+  frequenciaMusicas: number | null;
+  prioridade: number;
+  ativo: boolean;
+};
+
+function diasLabel(csv: string): string {
+  if (!csv.trim()) return "todos os dias";
+  const ds = csv.split(",").map((n) => DOW[Number(n)] ?? "").filter(Boolean);
+  return ds.join(", ");
+}
+
+function resumoAgendamento(a: Agendamento): string {
+  const parts = [diasLabel(a.diasSemana), `${a.horaInicio}–${a.horaFim}`];
+  if (a.dataInicio || a.dataFim) parts.push(`${a.dataInicio ?? "…"} → ${a.dataFim ?? "…"}`);
+  if (a.frequenciaMin) parts.push(`a cada ${a.frequenciaMin} min`);
+  if (a.frequenciaMusicas) {
+    parts.push(`a cada ${a.frequenciaMusicas} música${a.frequenciaMusicas === 1 ? "" : "s"}`);
+  }
+  return parts.join(" · ");
+}
+
+function agendamentosDoAlvo(ags: Agendamento[], alvoTipo: "pasta" | "vinheta", alvoId: string): Agendamento[] {
+  return ags.filter((a) => a.alvoTipo === alvoTipo && a.alvoId === alvoId);
+}
+
+/** Badge ao lado da pasta/vinheta — «Tocar sempre» ou resumo do cronograma. */
+function CronogramaAlvoBadges({
+  ags,
+  alvoTipo,
+  alvoId,
+}: {
+  ags: Agendamento[];
+  alvoTipo: "pasta" | "vinheta";
+  alvoId: string;
+}) {
+  const rules = agendamentosDoAlvo(ags, alvoTipo, alvoId);
+  const active = rules.filter((a) => a.ativo);
+  const paused = rules.filter((a) => !a.ativo);
+
+  if (rules.length === 0) {
+    return (
+      <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-500/35 dark:bg-emerald-500/15 dark:text-emerald-200">
+        TOCAR SEMPRE
+      </span>
+    );
+  }
+
+  if (active.length === 0) {
+    return (
+      <span className="rounded-md bg-slate-400/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-slate-400/30 dark:text-slate-300">
+        Cronograma pausado
+      </span>
+    );
+  }
+
+  const chipClass =
+    alvoTipo === "vinheta" ?
+      "rounded-md bg-fuchsia-500/15 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-900 ring-1 ring-fuchsia-500/30 dark:text-fuchsia-200"
+    : "rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-900 ring-1 ring-sky-500/30 dark:text-sky-200";
+
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {active.map((a) => (
+        <span key={a.id} className={chipClass} title={resumoAgendamento(a)}>
+          {resumoAgendamento(a)}
+        </span>
+      ))}
+      {paused.length > 0 ?
+        <span className="text-[10px] text-slate-400">+{paused.length} pausada{paused.length === 1 ? "" : "s"}</span>
+      : null}
+    </span>
+  );
 }
 
 export function ProgramacoesPanel() {
@@ -66,9 +160,11 @@ function ProgramacaoEditor({
   onBack: () => void;
 }) {
   const [prog, setProg] = useState<ProgramacaoDetail | null>(null);
+  const [ags, setAgs] = useState<Agendamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [novaPasta, setNovaPasta] = useState("");
+  const [novaPastaSelecionavel, setNovaPastaSelecionavel] = useState(false);
   const [addTo, setAddTo] = useState<PastaView | null>(null);
   const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
   const marcouAberta = useRef(false);
@@ -83,10 +179,15 @@ function ProgramacaoEditor({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/criacao/programacoes/${id}`);
+      const [res, ra] = await Promise.all([
+        fetch(`/api/criacao/programacoes/${id}`),
+        fetch(`/api/criacao/programacoes/${id}/agendamentos`),
+      ]);
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { programacao: ProgramacaoDetail };
       setProg(data.programacao);
+      if (ra.ok) setAgs(((await ra.json()) as { agendamentos: Agendamento[] }).agendamentos);
+      else setAgs([]);
       setSelectedByPasta((prev) => {
         const next: Record<string, Set<string>> = {};
         for (const pasta of data.programacao.pastas) {
@@ -127,8 +228,9 @@ function ProgramacaoEditor({
     await fetch(`/api/criacao/programacoes/${id}/pastas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nome }),
+      body: JSON.stringify({ nome, selecionavel: novaPastaSelecionavel }),
     });
+    setNovaPastaSelecionavel(false);
     await load();
   }
 
@@ -145,6 +247,16 @@ function ProgramacaoEditor({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ velocidade }),
+    });
+    await load();
+  }
+
+  async function setSelecionavel(pastaId: string, selecionavel: boolean) {
+    await registrarEdicao();
+    await fetch(`/api/criacao/pastas/${pastaId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selecionavel }),
     });
     await load();
   }
@@ -274,6 +386,15 @@ function ProgramacaoEditor({
           placeholder="Nome da nova pasta (ex.: POP, Bossa Up…)"
           className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
         />
+        <label className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100">
+          <input
+            type="checkbox"
+            checked={novaPastaSelecionavel}
+            onChange={(e) => setNovaPastaSelecionavel(e.target.checked)}
+            className="h-4 w-4 rounded border-violet-300 text-violet-700 focus:ring-violet-500"
+          />
+          Selecionável no player
+        </label>
         <button
           type="button"
           onClick={() => void addPasta()}
@@ -301,7 +422,7 @@ function ProgramacaoEditor({
               className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5 dark:border-slate-800 dark:bg-slate-800/50">
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                   {pasta.musicas.length > 0 ?
                     <input
                       type="checkbox"
@@ -316,6 +437,12 @@ function ProgramacaoEditor({
                     />
                   : null}
                   <span className="text-sm font-bold">{pasta.nome}</span>
+                  {pasta.selecionavel ?
+                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-950/60 dark:text-violet-200">
+                      Selecionável
+                    </span>
+                  : null}
+                  <CronogramaAlvoBadges ags={ags} alvoTipo="pasta" alvoId={pasta.id} />
                   <span className="text-xs text-slate-400">
                     {pasta.musicas.length} faixa{pasta.musicas.length === 1 ? "" : "s"}
                     {selectedCount > 0 ?
@@ -333,6 +460,18 @@ function ProgramacaoEditor({
                       Remover ({selectedCount})
                     </button>
                   : null}
+                  <label
+                    className="flex items-center gap-1.5 rounded border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100"
+                    title="Só toca no player quando o operador selecionar na grade"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={pasta.selecionavel}
+                      onChange={(e) => void setSelecionavel(pasta.id, e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-violet-300 text-violet-700 focus:ring-violet-500"
+                    />
+                    Selecionável
+                  </label>
                   <select
                     value={pasta.velocidade}
                     onChange={(e) => void setVelocidade(pasta.id, e.target.value)}
@@ -440,11 +579,13 @@ function ProgramacaoEditor({
         </div>
       }
 
-      <VinhetasSection programacaoId={id} onEdit={registrarEdicao} />
+      <VinhetasSection programacaoId={id} ags={ags} onEdit={registrarEdicao} />
 
       <CronogramaSection
         programacaoId={id}
         pastas={prog.pastas.map((p) => ({ id: p.id, nome: p.nome }))}
+        ags={ags}
+        onAgendamentosChange={setAgs}
         onEdit={registrarEdicao}
       />
 
@@ -475,9 +616,11 @@ type Vinheta = {
 
 function VinhetasSection({
   programacaoId,
+  ags,
   onEdit,
 }: {
   programacaoId: string;
+  ags: Agendamento[];
   onEdit?: () => void | Promise<void>;
 }) {
   const [vinhetas, setVinhetas] = useState<Vinheta[]>([]);
@@ -588,11 +731,12 @@ function VinhetasSection({
           {vinhetas.map((v) => (
             <div key={v.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">
                     {v.tipo === "audio" ? "Áudio" : "TTS legado"}
                   </span>
                   <span className="text-sm font-semibold">{v.nome}</span>
+                  <CronogramaAlvoBadges ags={ags} alvoTipo="vinheta" alvoId={v.id} />
                 </div>
                 <div className="flex items-center gap-2">
                   <VinhetaAudioControls
@@ -622,30 +766,6 @@ function VinhetasSection({
   );
 }
 
-const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-
-type Agendamento = {
-  id: string;
-  alvoTipo: string;
-  alvoId: string;
-  alvoNome: string;
-  diasSemana: string;
-  horaInicio: string;
-  horaFim: string;
-  dataInicio: string | null;
-  dataFim: string | null;
-  frequenciaMin: number | null;
-  frequenciaMusicas: number | null;
-  prioridade: number;
-  ativo: boolean;
-};
-
-function diasLabel(csv: string): string {
-  if (!csv.trim()) return "todos os dias";
-  const ds = csv.split(",").map((n) => DOW[Number(n)] ?? "").filter(Boolean);
-  return ds.join(", ");
-}
-
 const CRONOGRAMA_HORARIO_PRESETS = [
   { label: "Dia todo", hIni: "00:00", hFim: "23:59" },
   { label: "00:00 – 12:00", hIni: "00:00", hFim: "12:00" },
@@ -656,13 +776,16 @@ const CRONOGRAMA_HORARIO_PRESETS = [
 function CronogramaSection({
   programacaoId,
   pastas,
+  ags,
+  onAgendamentosChange,
   onEdit,
 }: {
   programacaoId: string;
   pastas: { id: string; nome: string }[];
+  ags: Agendamento[];
+  onAgendamentosChange: (next: Agendamento[]) => void;
   onEdit?: () => void | Promise<void>;
 }) {
-  const [ags, setAgs] = useState<Agendamento[]>([]);
   const [vinhetas, setVinhetas] = useState<{ id: string; nome: string }[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -683,12 +806,14 @@ function CronogramaSection({
         fetch(`/api/criacao/programacoes/${programacaoId}/agendamentos`),
         fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`),
       ]);
-      if (ra.ok) setAgs(((await ra.json()) as { agendamentos: Agendamento[] }).agendamentos);
+      if (ra.ok) {
+        onAgendamentosChange(((await ra.json()) as { agendamentos: Agendamento[] }).agendamentos);
+      }
       if (rv.ok) setVinhetas(((await rv.json()) as { vinhetas: { id: string; nome: string }[] }).vinhetas);
     } catch {
       /* silencioso */
     }
-  }, [programacaoId]);
+  }, [programacaoId, onAgendamentosChange]);
 
   useEffect(() => {
     void load();
@@ -888,9 +1013,9 @@ function CronogramaSection({
       : null}
 
       {ags.length === 0 ?
-        <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400 dark:border-slate-700">
-          Sem regras de cronograma. Por padrão, as pastas tocam o tempo todo.
-        </div>
+        <p className="rounded-xl border border-dashed border-emerald-300/60 bg-emerald-50/50 px-4 py-3 text-xs text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/20 dark:text-emerald-200">
+          Nenhuma regra criada — cada pasta e vinheta mostra <strong>TOCAR SEMPRE</strong> ao lado do nome. Use «+ Regra» para restringir horários.
+        </p>
       : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {ags.map((a) => (

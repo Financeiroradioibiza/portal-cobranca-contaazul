@@ -42,6 +42,7 @@ export type ArvorePastaNode = {
   id: string;
   nome: string;
   velocidade: string;
+  selecionavel: boolean;
   musicasCount: number;
 };
 
@@ -114,6 +115,7 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
       id: f.id,
       nome: f.nome,
       velocidade: f.velocidade,
+      selecionavel: f.selecionavel,
       musicasCount: f._count.musicas,
     })),
     vinhetas: p.vinhetas.map((v) => ({
@@ -211,6 +213,7 @@ export type PastaView = {
   id: string;
   nome: string;
   velocidade: string;
+  selecionavel: boolean;
   sortOrder: number;
   musicas: PastaMusicaView[];
 };
@@ -274,6 +277,7 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
       id: f.id,
       nome: f.nome,
       velocidade: f.velocidade,
+      selecionavel: f.selecionavel,
       sortOrder: f.sortOrder,
       musicas: f.musicas.map((pm) => {
         const m = pm.musica;
@@ -314,7 +318,7 @@ export async function deleteProgramacao(id: string): Promise<void> {
 
 export async function createPasta(
   programacaoId: string,
-  input: { nome: string; velocidade?: string },
+  input: { nome: string; velocidade?: string; selecionavel?: boolean },
 ) {
   const nome = (input.nome || "").trim();
   if (!nome) throw new Error("nome_obrigatorio");
@@ -328,6 +332,7 @@ export async function createPasta(
       programacaoId,
       nome: nome.slice(0, 120),
       velocidade: isVelocidade(input.velocidade) ? input.velocidade : "media",
+      selecionavel: input.selecionavel === true,
       sortOrder: (last?.sortOrder ?? -1) + 1,
     },
     select: { id: true },
@@ -336,11 +341,12 @@ export async function createPasta(
 
 export async function updatePasta(
   id: string,
-  patch: { nome?: string; velocidade?: string },
+  patch: { nome?: string; velocidade?: string; selecionavel?: boolean },
 ): Promise<boolean> {
   const data: Prisma.PastaUpdateInput = {};
   if (typeof patch.nome === "string" && patch.nome.trim()) data.nome = patch.nome.trim().slice(0, 120);
   if (isVelocidade(patch.velocidade)) data.velocidade = patch.velocidade;
+  if (typeof patch.selecionavel === "boolean") data.selecionavel = patch.selecionavel;
   if (Object.keys(data).length === 0) return false;
   await prisma.pasta.update({ where: { id }, data });
   return true;

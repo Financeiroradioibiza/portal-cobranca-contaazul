@@ -30,7 +30,7 @@ export async function registerPlaylistRoutes(app, prefix) {
     }
 
     const playlists = await pool.query(
-      `SELECT id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar
+      `SELECT id, nome, tipo, tocar_sempre, COALESCE(selecionavel, 'N') AS selecionavel, tempo_total, tocar_cada, tipo_tocar
          FROM playlists
         WHERE pdv_id = $1 OR (pdv_id IS NULL AND programa_id = $2)
         ORDER BY id`,
@@ -68,6 +68,7 @@ export async function registerPlaylistRoutes(app, prefix) {
         nome: pl.nome,
         tipo: pl.tipo,
         tocar_sempre: pl.tocar_sempre,
+        selecionavel: pl.selecionavel ?? 'N',
         tempo_total: intervalToLegacyHms(pl.tempo_total),
         tocar_cada: pl.tocar_cada,
         tipo_tocar: pl.tipo_tocar,

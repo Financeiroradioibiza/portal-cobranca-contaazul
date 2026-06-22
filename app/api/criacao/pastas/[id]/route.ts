@@ -10,7 +10,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
-    const body = (await request.json().catch(() => ({}))) as { nome?: string; velocidade?: string };
+    const body = (await request.json().catch(() => ({}))) as {
+      nome?: string;
+      velocidade?: string;
+      selecionavel?: boolean;
+    };
     const ok = await updatePasta(id, body);
     return NextResponse.json({ ok });
   } catch (e) {

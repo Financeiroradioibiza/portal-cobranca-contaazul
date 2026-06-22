@@ -969,6 +969,8 @@ model Pasta {
   nome          String   @db.VarChar(120)
   /// "baixa" | "media" | "alta" — ritmo da pasta (campo do mockup).
   velocidade    String   @default("media") @db.VarChar(16)
+  /// Só toca no player quando o operador seleciona na grade (não entra no slot automático).
+  selecionavel  Boolean  @default(false)
   sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")
 

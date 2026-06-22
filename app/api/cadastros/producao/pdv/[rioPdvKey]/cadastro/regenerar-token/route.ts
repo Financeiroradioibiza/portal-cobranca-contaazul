@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 import { regenerarPdvInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
-import { syncPlayerGatewayRegistry } from "@/lib/player/playerGatewaySync";
+import {
+  resolvePortalPdvIdFromRioPdvKey,
+  syncPlayerGatewayRegistryForPdvIds,
+} from "@/lib/player/playerGatewaySync";
 
 export const runtime = "nodejs";
 
@@ -17,11 +20,38 @@ export async function POST(_req: Request, ctx: Ctx) {
 
     const token = await regenerarPdvInstalacaoToken(rioPdvKey);
 
+    let gatewaySync: { clientes: number; pdvs: number } | null = null;
+    let gatewaySyncError: string | null = null;
+
     if (cloud2Enabled()) {
-      await syncPlayerGatewayRegistry().catch(() => null);
+      const portalPdvId = await resolvePortalPdvIdFromRioPdvKey(rioPdvKey);
+      if (!portalPdvId) {
+        gatewaySyncError = "pdv_sem_portal_id";
+      } else {
+        try {
+          gatewaySync = await syncPlayerGatewayRegistryForPdvIds([portalPdvId]);
+          if (gatewaySync.pdvs === 0) {
+            gatewaySyncError = "sync_nenhum_pdv";
+          }
+        } catch (e) {
+          gatewaySyncError = e instanceof Error ? e.message : "sync_falhou";
+          console.error("[cadastro/regenerar-token] sync gateway falhou", {
+            rioPdvKey,
+            portalPdvId,
+            err: e,
+          });
+        }
+      }
+    } else {
+      gatewaySyncError = "cloud2_desabilitado";
     }
 
-    return NextResponse.json({ ok: true, playerInstalacaoToken: token });
+    return NextResponse.json({
+      ok: true,
+      playerInstalacaoToken: token,
+      gatewaySync,
+      gatewaySyncError,
+    });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[cadastro/regenerar-token POST]", e);

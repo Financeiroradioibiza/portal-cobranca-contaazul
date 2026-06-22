@@ -45,6 +45,7 @@ export async function registerPingRoutes(app, prefix) {
       row.atualizacao_pendente = 'N';
     }
 
+    const serialInstalacao = String(row.serial_instalacao ?? '').trim();
     return reply.send({
       pdv: {
         id: row.pdv_id,
@@ -55,6 +56,7 @@ export async function registerPingRoutes(app, prefix) {
         ctrl_player: row.ctrl_player ?? 'N',
         ctrl_placa_carro: row.ctrl_placa_carro ?? 'N',
         ctrl_playlists: row.ctrl_playlists ?? 'N',
+        ...(serialInstalacao ? { serial_instalacao: serialInstalacao } : {}),
         ...(String(row.nome_completo_contato_extra ?? '').trim() ?
           { nome_completo_contato_extra: String(row.nome_completo_contato_extra).trim() }
         : {}),

@@ -80,6 +80,9 @@ elif [[ "$MODE" == "patch" ]]; then
     "$ROOT/.cloud2-stage/webservice/ping.js" \
     "$REMOTE:$REMOTE_DIR/src/routes/webservice/ping.js"
   rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/webservice/playlist.js" \
+    "$REMOTE:$REMOTE_DIR/src/routes/webservice/playlist.js"
+  rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/deploy/Dockerfile.worker" \
     "$REMOTE:$REMOTE_DIR/Dockerfile.worker"
   rsync -avz -e "ssh -o BatchMode=yes" \

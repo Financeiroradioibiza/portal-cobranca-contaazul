@@ -13,7 +13,17 @@ import {
 } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { ensureInstalacaoTokensForKeys } from "@/lib/player/pdvInstalacaoToken";
+
+/** `rioPdvKey` → `portalPdvId` (100.001…) no layout operacional. */
+export async function resolvePortalPdvIdFromRioPdvKey(rioPdvKey: string): Promise<number | null> {
+  const key = rioPdvKey.trim();
+  if (!key) return null;
+  const layout = await getProducaoCatalogLayout();
+  const id = layout.portalPdvIdsByRioPdvKey[key];
+  return Number.isFinite(id) && id > 0 ? Math.trunc(id) : null;
+}
 
 export type PlayerGatewaySyncPayload = {
   clientes: Array<{

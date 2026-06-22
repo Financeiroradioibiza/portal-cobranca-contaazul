@@ -10,8 +10,16 @@ export async function POST(request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
-    const body = (await request.json().catch(() => ({}))) as { nome?: string; velocidade?: string };
-    const created = await createPasta(id, { nome: body.nome ?? "", velocidade: body.velocidade });
+    const body = (await request.json().catch(() => ({}))) as {
+      nome?: string;
+      velocidade?: string;
+      selecionavel?: boolean;
+    };
+    const created = await createPasta(id, {
+      nome: body.nome ?? "",
+      velocidade: body.velocidade,
+      selecionavel: body.selecionavel,
+    });
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch (e) {
     if (e instanceof Response) return e;
