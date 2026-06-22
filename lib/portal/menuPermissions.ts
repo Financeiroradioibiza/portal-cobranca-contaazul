@@ -19,6 +19,7 @@ export const PORTAL_MENU_MODULES = [
     subs: [
       { id: "grupos", label: "Grupos & Clientes" },
       { id: "vinculos", label: "Lista vínculos" },
+      { id: "primeiro-ping", label: "Primeiro ping" },
       { id: "atualizacoes", label: "Atl. cadastros" },
       { id: "prospects", label: "Prospects" },
       { id: "solicitar-pdv", label: "Solicitar PDV" },
@@ -132,7 +133,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     desc: "Suporte operacional e consulta painel.",
     perm: {
       financeiro: ["consulta-painel"],
-      cadastros: ["vinculos"],
+      cadastros: ["vinculos", "primeiro-ping"],
       producao: "all",
       config: ["logs"],
     },

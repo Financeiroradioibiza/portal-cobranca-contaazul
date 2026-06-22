@@ -2,6 +2,7 @@
 export const CADASTROS_SIDEBAR = [
   { href: "/cadastros/grupos", label: "Rio × Produção", icon: "👥" },
   { href: "/cadastros/vinculos", label: "IDs Player", icon: "🔢" },
+  { href: "/cadastros/primeiro-ping", label: "Primeiro ping", icon: "📡" },
   { href: "/cadastros/atualizacoes", label: "Atl. cadastros", icon: "🔄" },
   { href: "/cadastros/prospects", label: "Prospects", icon: "🆕" },
   { href: "/cadastros/solicitar-pdv", label: "Solicitar PDV", icon: "📻" },

@@ -40,6 +40,7 @@ function cadastrosApiRule(pathname: string): RouteAccessRule {
   }
   if (
     pathname.includes("/vinculos") ||
+    pathname.includes("/primeiro-ping") ||
     pathname.startsWith("/api/cadastros/pdv-link")
   ) {
     return { kind: "roles", roles: CADASTROS_VINCULOS };
@@ -81,7 +82,7 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
   }
 
   if (pathname.startsWith("/api/cadastros") || pathname.startsWith("/cadastros")) {
-    if (pathname.startsWith("/cadastros/vinculos")) {
+    if (pathname.startsWith("/cadastros/vinculos") || pathname.startsWith("/cadastros/primeiro-ping")) {
       return { kind: "roles", roles: CADASTROS_VINCULOS };
     }
     if (pathname.startsWith("/cadastros/atualizacoes") || pathname.includes("/atualizacoes")) {

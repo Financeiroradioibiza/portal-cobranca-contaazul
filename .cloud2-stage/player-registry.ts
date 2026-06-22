@@ -203,7 +203,9 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
 
       const clienteIds = new Set(clientes.map((c) => c.id));
       for (const p of pdvs) {
-        if (!Number.isFinite(p.id) || !Number.isFinite(p.clienteId) || !clienteIds.has(p.clienteId)) continue;
+        if (!Number.isFinite(p.id) || !Number.isFinite(p.clienteId)) continue;
+        /** Lotes 2+ não reenviam clientes — só valida vínculo quando o payload traz clientes. */
+        if (clientes.length > 0 && !clienteIds.has(p.clienteId)) continue;
         let instalToken = String(p.instalacaoToken ?? "").trim().slice(0, 32);
         const gwInstalado = p.instaladoPlayer === "S" ? "S" : "N";
         const prev = await conn.query<{ serial_instalacao: string | null }>(
@@ -226,7 +228,7 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
              serial_instalacao, instalado, status, cidade, uf,
              ctrl_player, ctrl_placa_carro, ctrl_playlists, nome_completo_contato_extra
            )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            ON CONFLICT (id) DO UPDATE SET
              cliente_id = EXCLUDED.cliente_id,
              nome = EXCLUDED.nome,
@@ -242,7 +244,7 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
              ctrl_playlists = EXCLUDED.ctrl_playlists,
              nome_completo_contato_extra = EXCLUDED.nome_completo_contato_extra,
              instalado = CASE
-               WHEN $15 = 'N' THEN 'N'
+               WHEN $16 = 'N' THEN 'N'
                WHEN EXCLUDED.serial_instalacao IS DISTINCT FROM pdvs.serial_instalacao THEN 'N'
                ELSE COALESCE(EXCLUDED.instalado, pdvs.instalado)
              END`,
@@ -292,8 +294,9 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
       return reply.send({ ok: true, clientes: clientes.length, pdvs: pdvs.length });
     } catch (e) {
       await conn.query("ROLLBACK").catch(() => {});
+      const detail = e instanceof Error ? e.message : String(e);
       app.log.error({ err: e }, "[player/sync-registry] falhou");
-      return reply.code(500).send({ ok: false, error: "sync_falhou" });
+      return reply.code(500).send({ ok: false, error: "sync_falhou", detail });
     } finally {
       conn.release();
     }
@@ -491,6 +494,65 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
         lastPingAt: r.last_ping_at?.toISOString() ?? null,
         playerVersion: r.player_version,
         downloadPercent: r.download_percent,
+      })),
+    });
+  });
+
+  /** PDVs que já fizeram pelo menos um ping (primeiro ping registrado). */
+  app.get(`${PLAYER_PREFIX}/first-pings`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+
+    const pool = getPool();
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ping_log (
+        id BIGSERIAL PRIMARY KEY,
+        pdv_id INT NOT NULL,
+        ma TEXT,
+        ip TEXT,
+        versao_player TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `).catch(() => null);
+
+    const rows = await pool.query<{
+      pdv_id: number;
+      pdv_nome: string;
+      codigo_display: string | null;
+      cliente_id: number;
+      cliente_nome: string;
+      first_ping_at: Date;
+    }>(
+      `SELECT
+         p.id AS pdv_id,
+         p.nome AS pdv_nome,
+         p.codigo_display,
+         c.id AS cliente_id,
+         c.nome AS cliente_nome,
+         MIN(pl.created_at) AS first_ping_at
+       FROM ping_log pl
+       INNER JOIN pdvs p ON p.id = pl.pdv_id
+       INNER JOIN clientes c ON c.id = p.cliente_id
+       GROUP BY p.id, p.nome, p.codigo_display, c.id, c.nome
+       ORDER BY first_ping_at DESC`,
+    ).catch(() => ({ rows: [] as Array<{
+      pdv_id: number;
+      pdv_nome: string;
+      codigo_display: string | null;
+      cliente_id: number;
+      cliente_nome: string;
+      first_ping_at: Date;
+    }> }));
+
+    return reply.send({
+      ok: true,
+      rows: rows.rows.map((r) => ({
+        pdvId: r.pdv_id,
+        pdvNome: r.pdv_nome,
+        codigoDisplay: r.codigo_display,
+        clienteId: r.cliente_id,
+        clienteNome: r.cliente_nome,
+        firstPingAt: r.first_ping_at.toISOString(),
       })),
     });
   });

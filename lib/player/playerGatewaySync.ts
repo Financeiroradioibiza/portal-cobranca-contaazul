@@ -212,11 +212,13 @@ async function postSyncChunk(payload: {
   const data = await parseCloud2Json<{
     ok?: boolean;
     error?: string;
+    detail?: string;
     clientes?: number;
     pdvs?: number;
   }>(res, "sync_registry");
   if (!res?.ok || !data.ok) {
-    throw new Error(data.error ?? "sync_registry_falhou");
+    const extra = data.detail?.trim();
+    throw new Error(extra ? `${data.error ?? "sync_registry_falhou"}: ${extra}` : (data.error ?? "sync_registry_falhou"));
   }
   return {
     clientes: data.clientes ?? payload.clientes.length,
