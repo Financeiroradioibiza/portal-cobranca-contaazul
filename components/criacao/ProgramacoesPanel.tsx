@@ -534,15 +534,24 @@ function VinhetasSection({ programacaoId }: { programacaoId: string }) {
     setBusy(true);
     try {
       const tk = await fetch(`/api/criacao/vinhetas/${v.id}/upload-ticket`, { method: "POST" });
-      if (!tk.ok) throw new Error();
-      const { ingestUrl, token } = (await tk.json()) as { ingestUrl: string; token: string };
+      const ticket = (await tk.json().catch(() => ({}))) as { error?: string; ingestUrl?: string; token?: string };
+      if (!tk.ok) throw new Error(ticket.error ?? "ticket_falhou");
       const fd = new FormData();
-      fd.append("token", token);
+      fd.append("token", ticket.token ?? "");
       fd.append("file", file, file.name);
-      await fetch(ingestUrl, { method: "POST", body: fd });
+      const up = await fetch(ticket.ingestUrl ?? "", { method: "POST", body: fd });
+      const body = (await up.json().catch(() => ({}))) as { error?: string };
+      if (!up.ok) throw new Error(body.error ?? "upload_falhou");
       await load();
-    } catch {
-      /* ignore */
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "upload_falhou";
+      alert(
+        msg === "ingest_desabilitado" ?
+          "Upload de vinheta indisponível — configure CRIACAO_INGEST_SECRET no portal."
+        : msg === "token_invalido" ?
+          "Ticket expirado — tente enviar de novo."
+        : `Falha ao enviar áudio da vinheta: ${msg}`,
+      );
     } finally {
       setBusy(false);
     }

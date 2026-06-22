@@ -7,7 +7,7 @@ function root(): string {
 }
 
 export function ensureStorageDirs(): void {
-  for (const sub of ['upload', 'work', 'uso', 'master-local']) {
+  for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta']) {
     fs.mkdirSync(path.join(root(), sub), { recursive: true });
   }
 }
@@ -48,4 +48,21 @@ export function masterLocalPath(musicaId: string): string {
 
 export function masterStorageKey(musicaId: string): string {
   return `${criacaoConfig.b2.prefix.replace(/\/?$/, '/')}${musicaId}.mp3`;
+}
+
+/** Áudio de vinheta (spot) — MP3 plano no disco local. */
+export function vinhetaPath(vinhetaId: string): string {
+  return path.join(root(), 'vinheta', `${vinhetaId}.mp3`);
+}
+
+export function vinhetaStorageKey(vinhetaId: string): string {
+  return `vinheta:${vinhetaId}.mp3`;
+}
+
+export function vinhetaIdFromStorageKey(key: string): string | null {
+  if (!key.startsWith('vinheta:')) return null;
+  const name = key.slice('vinheta:'.length);
+  if (!name.endsWith('.mp3')) return null;
+  const id = name.slice(0, -4);
+  return id || null;
 }

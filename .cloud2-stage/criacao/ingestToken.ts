@@ -65,3 +65,18 @@ export function verifyVinhetaToken(token: string): { vinhetaId: string } | null 
   }
   return { vinhetaId };
 }
+
+/** Preview/stream vinheta: ?exp=&token= (sig de vinhetaId.exp). */
+export function verifyVinhetaStreamAccess(vinhetaId: string, exp: number, sig: string): boolean {
+  const secret = criacaoConfig.ingestSecret;
+  if (!secret || !vinhetaId || !sig) return false;
+  if (!Number.isFinite(exp) || Date.now() > exp) return false;
+  const base = `${vinhetaId}.${exp}`;
+  const expected = crypto.createHmac('sha256', secret).update(base).digest('hex');
+  if (expected.length !== sig.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+  } catch {
+    return false;
+  }
+}
