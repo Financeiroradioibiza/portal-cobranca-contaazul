@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { publicarProgramacao } from "@/lib/criacao/publicarService";
 import { prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 import { syncPlayerGatewayRegistryForPdvIds } from "@/lib/player/playerGatewaySync";
+import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 
 export type FaixaLogItem = {
   musicaId: string;
@@ -211,6 +212,7 @@ export async function dispararAtualizacao(
   const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds);
   await syncPlayerGatewayRegistryForPdvIds(portalPdvIds);
   const revision = prog.revisionAtual + 1;
+  const hasAberta = await hasAtualizacaoAbertaColumn();
 
   await prisma.$transaction([
     prisma.programacaoAtualizacao.create({
@@ -233,8 +235,9 @@ export async function dispararAtualizacao(
         snapshotAtual: snapshotAtual as unknown as Prisma.InputJsonValue,
         publicada: true,
         publishedAt: new Date(),
-        atualizacaoAbertaEm: null,
-        atualizacaoAbertaPor: "",
+        ...(hasAberta ?
+          { atualizacaoAbertaEm: null, atualizacaoAbertaPor: "" }
+        : {}),
       },
     }),
   ]);
@@ -266,6 +269,10 @@ export async function abrirAtualizacao(
   programacaoId: string,
   abertaPor: string,
 ): Promise<{ ok: true; programacaoId: string }> {
+  if (!(await hasAtualizacaoAbertaColumn())) {
+    throw new Error("migration_pendente");
+  }
+
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
     select: { id: true },
@@ -284,6 +291,8 @@ export async function abrirAtualizacao(
 }
 
 export async function listAtualizacoesAbertas(): Promise<AtualizacaoAbertaRow[]> {
+  if (!(await hasAtualizacaoAbertaColumn())) return [];
+
   const rows = await prisma.programacao.findMany({
     where: { atualizacaoAbertaEm: { not: null } },
     orderBy: { atualizacaoAbertaEm: "desc" },

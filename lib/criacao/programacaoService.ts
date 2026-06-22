@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
+import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 
 export const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"] as const;
 export type Formato = (typeof FORMATOS)[number];
@@ -63,27 +64,49 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
   const ref = clienteRef.trim();
   if (!ref) return [];
 
-  const items = await prisma.programacao.findMany({
-    where: { clienteRef: ref },
-    orderBy: [{ nome: "asc" }, { updatedAt: "desc" }],
-    include: {
-      pastas: {
-        orderBy: { sortOrder: "asc" },
-        include: { _count: { select: { musicas: true } } },
-      },
-      vinhetas: {
-        orderBy: { createdAt: "asc" },
-        select: { id: true, nome: true, tipo: true },
-      },
-    },
-  });
+  const hasAberta = await hasAtualizacaoAbertaColumn();
+  const pastasInclude = {
+    orderBy: { sortOrder: "asc" as const },
+    include: { _count: { select: { musicas: true } } },
+  };
+  const vinhetasSelect = {
+    orderBy: { createdAt: "asc" as const },
+    select: { id: true, nome: true, tipo: true },
+  };
+
+  const items = hasAberta
+    ? await prisma.programacao.findMany({
+        where: { clienteRef: ref },
+        orderBy: [{ nome: "asc" }, { updatedAt: "desc" }],
+        select: {
+          id: true,
+          nome: true,
+          formatoPadrao: true,
+          publicada: true,
+          atualizacaoAbertaEm: true,
+          pastas: pastasInclude,
+          vinhetas: vinhetasSelect,
+        },
+      })
+    : await prisma.programacao.findMany({
+        where: { clienteRef: ref },
+        orderBy: [{ nome: "asc" }, { updatedAt: "desc" }],
+        select: {
+          id: true,
+          nome: true,
+          formatoPadrao: true,
+          publicada: true,
+          pastas: pastasInclude,
+          vinhetas: vinhetasSelect,
+        },
+      });
 
   return items.map((p) => ({
     id: p.id,
     nome: p.nome,
     formatoPadrao: p.formatoPadrao,
     publicada: p.publicada,
-    atualizacaoAberta: p.atualizacaoAbertaEm != null,
+    atualizacaoAberta: hasAberta && "atualizacaoAbertaEm" in p && p.atualizacaoAbertaEm != null,
     pastas: p.pastas.map((f) => ({
       id: f.id,
       nome: f.nome,
@@ -116,7 +139,15 @@ export async function listProgramacoes(opts: {
     where,
     orderBy: { updatedAt: "desc" },
     take: 500,
-    include: {
+    select: {
+      id: true,
+      nome: true,
+      clienteRef: true,
+      clienteNome: true,
+      formatoPadrao: true,
+      publicada: true,
+      criativoNome: true,
+      updatedAt: true,
       pastas: { select: { _count: { select: { musicas: true } } } },
     },
   });
@@ -193,7 +224,14 @@ export type ProgramacaoDetail = {
 export async function getProgramacao(id: string): Promise<ProgramacaoDetail | null> {
   const p = await prisma.programacao.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      nome: true,
+      clienteRef: true,
+      clienteNome: true,
+      formatoPadrao: true,
+      publicada: true,
+      criativoNome: true,
       pastas: {
         orderBy: { sortOrder: "asc" },
         include: {

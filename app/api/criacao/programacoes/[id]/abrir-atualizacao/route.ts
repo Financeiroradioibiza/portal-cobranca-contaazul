@@ -18,6 +18,9 @@ export async function POST(_request: Request, ctx: Ctx) {
     if (msg === "programacao_nao_encontrada") {
       return NextResponse.json({ error: msg }, { status: 404 });
     }
+    if (msg === "migration_pendente") {
+      return NextResponse.json({ error: msg }, { status: 503 });
+    }
     console.error("[criacao/programacoes/:id/abrir-atualizacao POST]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
