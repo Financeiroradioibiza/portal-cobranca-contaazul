@@ -1,13 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FORMATO_LABEL } from "@/lib/criacao/programacaoService";
 import { CriativoTagSelect } from "@/components/criacao/CriativoTagSelect";
+import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
+import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
+import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vinhetaUploadClient";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
 
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
-type ArvoreVinheta = { id: string; nome: string; tipo: string };
+type ArvoreVinheta = {
+  id: string;
+  nome: string;
+  tipo: string;
+  temAudio: boolean;
+  previewUrl: string | null;
+};
 type ArvoreProg = {
   id: string;
   nome: string;
@@ -133,10 +142,19 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
     [arvore],
   );
 
-  async function abrirAtualizacao(progId: string) {
-    await fetch(`/api/criacao/programacoes/${progId}/abrir-atualizacao`, { method: "POST" });
-    await loadAtualizacoesAbertas();
-    if (clienteSel) await loadArvore(clienteSel.ref);
+  const marcouAbertaIds = useRef(new Set<string>());
+
+  async function marcarEdicaoProgramacao(progId: string) {
+    if (marcouAbertaIds.current.has(progId)) return;
+    marcouAbertaIds.current.add(progId);
+    const ok = await marcarAtualizacaoAberta(progId);
+    if (ok) {
+      await loadAtualizacoesAbertas();
+      if (clienteSel) await loadArvore(clienteSel.ref);
+    }
+  }
+
+  function abrirAtualizacao(progId: string) {
     onOpenEditor(progId);
   }
 
@@ -170,14 +188,16 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
     if (clienteSel) await loadArvore(clienteSel.ref);
   }
 
-  async function excluirPasta(id: string, nome: string) {
+  async function excluirPasta(progId: string, id: string, nome: string) {
     if (!confirm(`Excluir pasta “${nome}”?`)) return;
+    await marcarEdicaoProgramacao(progId);
     await fetch(`/api/criacao/pastas/${id}`, { method: "DELETE" });
     if (clienteSel) await loadArvore(clienteSel.ref);
   }
 
-  async function excluirVinheta(id: string, nome: string) {
+  async function excluirVinheta(progId: string, id: string, nome: string) {
     if (!confirm(`Excluir vinheta “${nome}”?`)) return;
+    await marcarEdicaoProgramacao(progId);
     await fetch(`/api/criacao/vinhetas/${id}`, { method: "DELETE" });
     if (clienteSel) await loadArvore(clienteSel.ref);
   }
@@ -393,8 +413,16 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                             >
                               Fechar atualização
                             </button>
-                            <NovaPastaInline programacaoId={prog.id} onDone={() => loadArvore(clienteSel.ref)} />
-                            <NovaVinhetaInline programacaoId={prog.id} onDone={() => loadArvore(clienteSel.ref)} />
+                            <NovaPastaInline
+                              programacaoId={prog.id}
+                              onEdit={() => marcarEdicaoProgramacao(prog.id)}
+                              onDone={() => loadArvore(clienteSel.ref)}
+                            />
+                            <NovaVinhetaInline
+                              programacaoId={prog.id}
+                              onEdit={() => marcarEdicaoProgramacao(prog.id)}
+                              onDone={() => loadArvore(clienteSel.ref)}
+                            />
                             <button
                               type="button"
                               onClick={() => void excluirProgramacao(prog.id, prog.nome)}
@@ -422,7 +450,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                               </span>
                               <button
                                 type="button"
-                                onClick={() => void excluirPasta(pasta.id, pasta.nome)}
+                                onClick={() => void excluirPasta(prog.id, pasta.id, pasta.nome)}
                                 className="shrink-0 text-[10px] text-red-400 hover:text-red-600"
                               >
                                 ✕
@@ -430,13 +458,36 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                             </li>
                           ))}
                           {prog.vinhetas.map((v) => (
-                            <li key={v.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                            <li key={v.id} className="flex flex-wrap items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40">
                               <span className="text-slate-400">{v.tipo === "audio" ? "🔊" : "🗣"}</span>
                               <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{v.nome}</span>
                               <span className="shrink-0 text-[10px] uppercase text-slate-400">{v.tipo}</span>
+                              {v.tipo === "audio" ?
+                                <span
+                                  className={
+                                    "shrink-0 rounded px-1 py-px text-[9px] font-bold " +
+                                    (v.temAudio ?
+                                      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300")
+                                  }
+                                >
+                                  {v.temAudio ? "com áudio" : "sem áudio"}
+                                </span>
+                              : null}
+                              <VinhetaAudioControls
+                                vinhetaId={v.id}
+                                tipo={v.tipo}
+                                temAudio={v.temAudio}
+                                previewUrl={v.previewUrl}
+                                compact
+                                onUploaded={async () => {
+                                  await marcarEdicaoProgramacao(prog.id);
+                                  if (clienteSel) await loadArvore(clienteSel.ref);
+                                }}
+                              />
                               <button
                                 type="button"
-                                onClick={() => void excluirVinheta(v.id, v.nome)}
+                                onClick={() => void excluirVinheta(prog.id, v.id, v.nome)}
                                 className="shrink-0 text-[10px] text-red-400 hover:text-red-600"
                               >
                                 ✕
@@ -761,7 +812,15 @@ function NovaProgramacaoInline({
   );
 }
 
-function NovaPastaInline({ programacaoId, onDone }: { programacaoId: string; onDone: () => void | Promise<void> }) {
+function NovaPastaInline({
+  programacaoId,
+  onDone,
+  onEdit,
+}: {
+  programacaoId: string;
+  onDone: () => void | Promise<void>;
+  onEdit?: () => void | Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [nome, setNome] = useState("");
   const [busy, setBusy] = useState(false);
@@ -777,6 +836,7 @@ function NovaPastaInline({ programacaoId, onDone }: { programacaoId: string; onD
       });
       setNome("");
       setOpen(false);
+      await onEdit?.();
       await onDone();
     } finally {
       setBusy(false);
@@ -815,57 +875,96 @@ function NovaPastaInline({ programacaoId, onDone }: { programacaoId: string; onD
   );
 }
 
-function NovaVinhetaInline({ programacaoId, onDone }: { programacaoId: string; onDone: () => void | Promise<void> }) {
+function NovaVinhetaInline({
+  programacaoId,
+  onDone,
+  onEdit,
+}: {
+  programacaoId: string;
+  onDone: () => void | Promise<void>;
+  onEdit?: () => void | Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [nome, setNome] = useState("");
   const [busy, setBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingUploadId = useRef<string | null>(null);
 
   async function submit() {
     if (!nome.trim() || busy) return;
     setBusy(true);
     try {
-      await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`, {
+      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome: nome.trim(), tipo: "tts" }),
+        body: JSON.stringify({ nome: nome.trim(), tipo: "audio" }),
       });
+      const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "falha_criar");
       setNome("");
       setOpen(false);
+      await onEdit?.();
       await onDone();
+      if (data.id) {
+        pendingUploadId.current = data.id;
+        fileInputRef.current?.click();
+      }
     } finally {
       setBusy(false);
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded border border-dashed border-slate-300 px-2 py-0.5 text-[10px] font-semibold text-slate-500 hover:border-slate-400 dark:border-slate-600"
-      >
-        + vinheta
-      </button>
-    );
-  }
-
   return (
-    <span className="inline-flex items-center gap-1">
+    <>
       <input
-        value={nome}
-        onChange={(e) => setNome(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && void submit()}
-        placeholder="Nome da vinheta"
-        className="w-28 rounded border border-slate-200 px-2 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-950"
-        autoFocus
+        ref={fileInputRef}
+        type="file"
+        accept="audio/mpeg,.mp3"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          const id = pendingUploadId.current;
+          pendingUploadId.current = null;
+          e.target.value = "";
+          if (!file || !id) return;
+          void (async () => {
+            try {
+              await uploadVinhetaAudio(id, file);
+              await onEdit?.();
+              await onDone();
+            } catch (err) {
+              const code = err instanceof Error ? err.message : "upload_falhou";
+              alert(vinhetaUploadErrorMessage(code));
+            }
+          })();
+        }}
       />
-      <button type="button" disabled={busy} onClick={() => void submit()} className="text-[10px] font-bold text-emerald-600">
-        ok
-      </button>
-      <button type="button" onClick={() => setOpen(false)} className="text-[10px] text-slate-400">
-        ✕
-      </button>
-    </span>
+      {!open ?
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded border border-dashed border-slate-300 px-2 py-0.5 text-[10px] font-semibold text-slate-500 hover:border-slate-400 dark:border-slate-600"
+        >
+          + vinheta
+        </button>
+      : <span className="inline-flex flex-wrap items-center gap-1">
+          <input
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void submit()}
+            placeholder="Nome da vinheta"
+            className="w-28 rounded border border-slate-200 px-2 py-0.5 text-[10px] dark:border-slate-700 dark:bg-slate-950"
+            autoFocus
+          />
+          <button type="button" disabled={busy} onClick={() => void submit()} className="text-[10px] font-bold text-emerald-600">
+            ok
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className="text-[10px] text-slate-400">
+            ✕
+          </button>
+        </span>
+      }
+    </>
   );
 }
 

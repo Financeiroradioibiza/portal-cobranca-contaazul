@@ -306,6 +306,7 @@ function FaixaEditor({
         }),
       });
       if (!res.ok) throw new Error();
+      const data = (await res.json().catch(() => ({}))) as { reprocessOk?: boolean; reprocessError?: string };
       onSaved({
         ...faixa,
         mixSegundosFinais: Math.round(mix),
@@ -313,7 +314,11 @@ function FaixaEditor({
         trimInicioMs: Math.round(trimIni * 1000),
         trimFimMs: Math.round(trimFim * 1000),
       });
-      setSavedMsg("Salvo ✓");
+      if (data.reprocessOk === false) {
+        setSavedMsg("Salvo, mas falhou reprocessar áudio — tente de novo");
+      } else {
+        setSavedMsg(trimIni > 0 || trimFim > 0 ? "Salvo e áudio recortado ✓" : "Salvo ✓");
+      }
       setTimeout(() => setSavedMsg(null), 2000);
     } catch {
       setSavedMsg("Erro ao salvar");

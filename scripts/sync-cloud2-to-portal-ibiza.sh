@@ -30,7 +30,7 @@ if [[ -f "$SRC/deploy/tsconfig.json" ]]; then
 fi
 rsync -a "$SRC/webservice/" "$DEST/src/routes/webservice/"
 
-for f in ingest.ts audio.ts vinheta.ts publicar.ts enriquecer-tags.ts apagar-musica.ts refresh-tags.ts player-registry.ts publishCronogramas.ts tagEnrichmentCore.ts; do
+for f in ingest.ts audio.ts vinheta.ts publicar.ts enriquecer-tags.ts apagar-musica.ts refresh-tags.ts reprocess-edicao.ts player-registry.ts publishCronogramas.ts tagEnrichmentCore.ts; do
   cp "$SRC/$f" "$DEST/src/routes/criacao/$f"
 done
 cp "$SRC/criacao-index.ts" "$DEST/src/routes/criacao/index.ts"

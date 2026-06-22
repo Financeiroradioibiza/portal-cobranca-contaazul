@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { criacaoConfig } from '../../criacao/config.js';
+import { produceVinhetaMp3 } from '../../criacao/ffmpeg.js';
 import { verifyVinhetaStreamAccess, verifyVinhetaToken } from '../../criacao/ingestToken.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
@@ -55,7 +56,15 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
 
     ensureStorageDirs();
     const dest = vinhetaPath(parsed.vinhetaId);
-    await fsp.writeFile(dest, fileBuffer);
+    const scratch = path.join(criacaoConfig.storageRoot, 'work', `vinheta-upload-${parsed.vinhetaId}.mp3`);
+    await fsp.mkdir(path.dirname(scratch), { recursive: true });
+    await fsp.writeFile(scratch, fileBuffer);
+    try {
+      const { durationMs } = await produceVinhetaMp3(scratch, dest);
+      app.log.info({ vinhetaId: parsed.vinhetaId, durationMs }, '[vinheta-ingest] lufs ok');
+    } finally {
+      await fsp.unlink(scratch).catch(() => null);
+    }
 
     const key = vinhetaStorageKey(parsed.vinhetaId);
     await portalQuery(

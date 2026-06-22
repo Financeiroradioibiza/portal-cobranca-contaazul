@@ -234,3 +234,60 @@ export async function produceMasterAndUso(inputPath: string, workDir: string): P
     usoSizeBytes,
   };
 }
+
+/**
+ * Gera MP3 128k mono a partir de áudio já normalizado (master/uso), aplicando trim.
+ * Não re-aplica loudnorm — o master já passou pelo pipeline de programação.
+ */
+export async function encodeTrimmedUso128Mono(
+  inputPath: string,
+  outputPath: string,
+  trimInicioMs: number,
+  trimFimMs: number,
+): Promise<{ durationMs: number }> {
+  const totalMs = await probeDurationMs(inputPath);
+  const startSec = Math.max(0, trimInicioMs / 1000);
+  const endSec = Math.max(startSec + 0.1, (totalMs - trimFimMs) / 1000);
+  const durationSec = Math.max(0.1, endSec - startSec);
+
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  await runFfmpeg([
+    '-ss',
+    String(startSec),
+    '-i',
+    inputPath,
+    '-t',
+    String(durationSec),
+    '-ac',
+    '1',
+    '-codec:a',
+    'libmp3lame',
+    '-b:a',
+    '128k',
+    outputPath,
+  ]);
+
+  const durationMs = await probeDurationMs(outputPath);
+  return { durationMs };
+}
+
+/** Normaliza vinheta (LUFS) e grava MP3 128k mono — alinhado ao target da programação. */
+export async function produceVinhetaMp3(inputPath: string, outputPath: string): Promise<{ durationMs: number }> {
+  const workDir = path.join(path.dirname(outputPath), 'work-vinheta');
+  await fsp.mkdir(workDir, { recursive: true });
+  const measured = await measureLoudnorm(inputPath);
+  const normWav = path.join(workDir, 'normalized.wav');
+
+  const loudnormApply =
+    `loudnorm=I=${criacaoConfig.targetLufs}:TP=${criacaoConfig.targetTruePeak}:LRA=${criacaoConfig.targetLra}` +
+    `:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}` +
+    `:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true:print_format=summary`;
+
+  await runFfmpeg(['-i', inputPath, '-af', loudnormApply, normWav]);
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  await runFfmpeg(['-i', normWav, '-ac', '1', '-codec:a', 'libmp3lame', '-b:a', '128k', outputPath]);
+
+  const durationMs = await probeDurationMs(outputPath);
+  await fsp.rm(workDir, { recursive: true, force: true }).catch(() => null);
+  return { durationMs };
+}

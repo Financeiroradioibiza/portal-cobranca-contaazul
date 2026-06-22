@@ -40,3 +40,44 @@ export async function uploadMasterToB2(musicaId: string, localFile: string): Pro
 
   return key;
 }
+
+/** Baixa master 192k do B2 (ou copia do disco local) para reprocessamento de trim. */
+export async function downloadMasterToFile(musicaId: string, destPath: string): Promise<boolean> {
+  const local = masterLocalPath(musicaId);
+  if (fs.existsSync(local)) {
+    await fsp.mkdir(path.dirname(destPath), { recursive: true });
+    await fsp.copyFile(local, destPath);
+    return true;
+  }
+
+  if (!b2Enabled()) return false;
+
+  const key = masterStorageKey(musicaId);
+  const mod = await import('@aws-sdk/client-s3');
+  const { S3Client, GetObjectCommand } = mod;
+  const client = new S3Client({
+    endpoint: criacaoConfig.b2.endpoint,
+    region: criacaoConfig.b2.region,
+    credentials: {
+      accessKeyId: criacaoConfig.b2.accessKeyId,
+      secretAccessKey: criacaoConfig.b2.secretAccessKey,
+    },
+    forcePathStyle: true,
+  });
+
+  const out = await client.send(
+    new GetObjectCommand({
+      Bucket: criacaoConfig.b2.bucket,
+      Key: key,
+    }),
+  );
+  if (!out.Body) return false;
+
+  await fsp.mkdir(path.dirname(destPath), { recursive: true });
+  const chunks: Buffer[] = [];
+  for await (const chunk of out.Body as AsyncIterable<Buffer>) {
+    chunks.push(Buffer.from(chunk));
+  }
+  await fsp.writeFile(destPath, Buffer.concat(chunks));
+  return true;
+}

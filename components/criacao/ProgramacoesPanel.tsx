@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProgramacoesAdminPanel } from "@/components/criacao/ProgramacoesAdminPanel";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
+import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
+import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vinhetaUploadClient";
+import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -67,8 +70,14 @@ function ProgramacaoEditor({
   const [error, setError] = useState<string | null>(null);
   const [novaPasta, setNovaPasta] = useState("");
   const [addTo, setAddTo] = useState<PastaView | null>(null);
-  const [showPublicar, setShowPublicar] = useState(false);
   const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
+  const marcouAberta = useRef(false);
+
+  async function registrarEdicao() {
+    if (marcouAberta.current) return;
+    marcouAberta.current = true;
+    await marcarAtualizacaoAberta(id);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,6 +110,7 @@ function ProgramacaoEditor({
   }, [load]);
 
   async function patchProg(patch: Record<string, unknown>) {
+    await registrarEdicao();
     await fetch(`/api/criacao/programacoes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -113,6 +123,7 @@ function ProgramacaoEditor({
     const nome = novaPasta.trim();
     if (!nome) return;
     setNovaPasta("");
+    await registrarEdicao();
     await fetch(`/api/criacao/programacoes/${id}/pastas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -123,11 +134,13 @@ function ProgramacaoEditor({
 
   async function delPasta(pastaId: string) {
     if (!confirm("Excluir esta pasta e suas faixas?")) return;
+    await registrarEdicao();
     await fetch(`/api/criacao/pastas/${pastaId}`, { method: "DELETE" });
     await load();
   }
 
   async function setVelocidade(pastaId: string, velocidade: string) {
+    await registrarEdicao();
     await fetch(`/api/criacao/pastas/${pastaId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -137,6 +150,7 @@ function ProgramacaoEditor({
   }
 
   async function removeMusica(pastaId: string, musicaId: string) {
+    await registrarEdicao();
     await fetch(`/api/criacao/pastas/${pastaId}/musicas/${musicaId}`, { method: "DELETE" });
     setSelectedByPasta((prev) => {
       const set = prev[pastaId];
@@ -176,6 +190,7 @@ function ProgramacaoEditor({
     ) {
       return;
     }
+    await registrarEdicao();
     await fetch(`/api/criacao/pastas/${pasta.id}/musicas`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -199,6 +214,7 @@ function ProgramacaoEditor({
         ? { ...prev, pastas: prev.pastas.map((f) => (f.id === pasta.id ? { ...f, musicas: next } : f)) }
         : prev,
     );
+    await registrarEdicao();
     await fetch(`/api/criacao/pastas/${pasta.id}/musicas`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -245,17 +261,6 @@ function ProgramacaoEditor({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={() => setShowPublicar(true)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
-              prog.publicada ?
-                "bg-emerald-600 text-white hover:bg-emerald-500"
-              : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
-            }`}
-          >
-            {prog.publicada ? "Republicar no Player" : "Enviar ao Player 5"}
-          </button>
         </div>
       </div>
 
@@ -435,28 +440,21 @@ function ProgramacaoEditor({
         </div>
       }
 
-      <VinhetasSection programacaoId={id} />
+      <VinhetasSection programacaoId={id} onEdit={registrarEdicao} />
 
-      <CronogramaSection programacaoId={id} pastas={prog.pastas.map((p) => ({ id: p.id, nome: p.nome }))} />
+      <CronogramaSection
+        programacaoId={id}
+        pastas={prog.pastas.map((p) => ({ id: p.id, nome: p.nome }))}
+        onEdit={registrarEdicao}
+      />
 
       {addTo ?
         <AddMusicasModal
           pasta={addTo}
           onClose={() => setAddTo(null)}
           onAdded={async () => {
+            await registrarEdicao();
             setAddTo(null);
-            await load();
-          }}
-        />
-      : null}
-
-      {showPublicar ?
-        <PublicarModal
-          programacaoId={id}
-          clienteNome={prog.clienteNome}
-          onClose={() => setShowPublicar(false)}
-          onDone={async () => {
-            setShowPublicar(false);
             await load();
           }}
         />
@@ -475,14 +473,18 @@ type Vinheta = {
   previewUrl: string | null;
 };
 
-function VinhetasSection({ programacaoId }: { programacaoId: string }) {
+function VinhetasSection({
+  programacaoId,
+  onEdit,
+}: {
+  programacaoId: string;
+  onEdit?: () => void | Promise<void>;
+}) {
   const [vinhetas, setVinhetas] = useState<Vinheta[]>([]);
   const [nome, setNome] = useState("");
-  const [tipo, setTipo] = useState<"tts" | "audio">("tts");
   const [busy, setBusy] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState<string | null>(null);
-  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingUploadId = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -503,13 +505,19 @@ function VinhetasSection({ programacaoId }: { programacaoId: string }) {
     if (!nome.trim() || busy) return;
     setBusy(true);
     try {
-      await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`, {
+      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome: nome.trim(), tipo }),
+        body: JSON.stringify({ nome: nome.trim(), tipo: "audio" }),
       });
+      const data = (await res.json().catch(() => ({}))) as { id?: string };
       setNome("");
+      await onEdit?.();
       await load();
+      if (data.id) {
+        pendingUploadId.current = data.id;
+        fileInputRef.current?.click();
+      }
     } finally {
       setBusy(false);
     }
@@ -517,60 +525,39 @@ function VinhetasSection({ programacaoId }: { programacaoId: string }) {
 
   async function remover(id: string) {
     if (!confirm("Excluir esta vinheta?")) return;
+    await onEdit?.();
     await fetch(`/api/criacao/vinhetas/${id}`, { method: "DELETE" });
     await load();
   }
 
-  async function salvarTts(v: Vinheta, texto: string, voz: string) {
-    await fetch(`/api/criacao/vinhetas/${v.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ texto, voz }),
-    });
-    await load();
-  }
-
-  async function enviarAudio(v: Vinheta, file: File) {
-    setBusy(true);
-    try {
-      const tk = await fetch(`/api/criacao/vinhetas/${v.id}/upload-ticket`, { method: "POST" });
-      const ticket = (await tk.json().catch(() => ({}))) as { error?: string; ingestUrl?: string; token?: string };
-      if (!tk.ok) throw new Error(ticket.error ?? "ticket_falhou");
-      const fd = new FormData();
-      fd.append("token", ticket.token ?? "");
-      fd.append("file", file, file.name);
-      const up = await fetch(ticket.ingestUrl ?? "", { method: "POST", body: fd });
-      const body = (await up.json().catch(() => ({}))) as { error?: string };
-      if (!up.ok) throw new Error(body.error ?? "upload_falhou");
-      await load();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "upload_falhou";
-      alert(
-        msg === "ingest_desabilitado" ?
-          "Upload de vinheta indisponível — configure CRIACAO_INGEST_SECRET no portal."
-        : msg === "token_invalido" ?
-          "Ticket expirado — tente enviar de novo."
-        : `Falha ao enviar áudio da vinheta: ${msg}`,
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function togglePlay(v: Vinheta) {
-    const a = audioRef.current;
-    if (!a || !v.previewUrl) return;
-    if (playing === v.id) {
-      a.pause();
-      return;
-    }
-    a.src = v.previewUrl;
-    a.play().then(() => setPlaying(v.id), () => setPlaying(null));
-  }
-
   return (
     <div className="mt-8">
-      <audio ref={audioRef} onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} className="hidden" />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/mpeg,.mp3"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          const id = pendingUploadId.current;
+          pendingUploadId.current = null;
+          e.target.value = "";
+          if (!file || !id) return;
+          void (async () => {
+            setBusy(true);
+            try {
+              await uploadVinhetaAudio(id, file);
+              await onEdit?.();
+              await load();
+            } catch (err) {
+              const code = err instanceof Error ? err.message : "upload_falhou";
+              alert(vinhetaUploadErrorMessage(code));
+            } finally {
+              setBusy(false);
+            }
+          })();
+        }}
+      />
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Vinhetas</h2>
       </div>
@@ -583,14 +570,6 @@ function VinhetasSection({ programacaoId }: { programacaoId: string }) {
           placeholder="Nome da vinheta (ex.: Aviso de promoção)"
           className="min-w-[220px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
         />
-        <select
-          value={tipo}
-          onChange={(e) => setTipo(e.target.value as "tts" | "audio")}
-          className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-        >
-          <option value="tts">Locução (TTS)</option>
-          <option value="audio">Áudio (upload)</option>
-        </select>
         <button
           type="button"
           onClick={() => void criar()}
@@ -603,7 +582,7 @@ function VinhetasSection({ programacaoId }: { programacaoId: string }) {
 
       {vinhetas.length === 0 ?
         <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400 dark:border-slate-700">
-          Sem vinhetas. Crie locuções (TTS) ou suba um áudio para atrelar a esta programação.
+          Sem vinhetas. Crie uma vinheta e envie o áudio MP3 para atrelar a esta programação.
         </div>
       : <div className="space-y-2">
           {vinhetas.map((v) => (
@@ -611,52 +590,30 @@ function VinhetasSection({ programacaoId }: { programacaoId: string }) {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">
-                    {v.tipo === "audio" ? "Áudio" : "TTS"}
+                    {v.tipo === "audio" ? "Áudio" : "TTS legado"}
                   </span>
                   <span className="text-sm font-semibold">{v.nome}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {v.temAudio ?
-                    <button
-                      type="button"
-                      onClick={() => togglePlay(v)}
-                      className={`flex h-7 w-7 items-center justify-center rounded text-xs ${playing === v.id ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}
-                    >
-                      {playing === v.id ? "⏸" : "▶"}
-                    </button>
-                  : null}
+                  <VinhetaAudioControls
+                    vinhetaId={v.id}
+                    tipo={v.tipo}
+                    temAudio={v.temAudio}
+                    previewUrl={v.previewUrl}
+                    onUploaded={async () => {
+                      await onEdit?.();
+                      await load();
+                    }}
+                  />
                   <button type="button" onClick={() => void remover(v.id)} className="text-slate-300 hover:text-red-600" title="Excluir">🗑</button>
                 </div>
               </div>
 
               {v.tipo === "tts" ?
-                <TtsEditor vinheta={v} onSave={salvarTts} />
-              : <div className="mt-2 flex items-center gap-3">
-                  <input
-                    ref={(el) => {
-                      fileInputs.current[v.id] = el;
-                    }}
-                    type="file"
-                    accept="audio/mpeg,.mp3"
-                    hidden
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void enviarAudio(v, f);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputs.current[v.id]?.click()}
-                    disabled={busy}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
-                  >
-                    {v.temAudio ? "Trocar áudio" : "Enviar áudio (.mp3)"}
-                  </button>
-                  <span className="text-xs text-slate-400">
-                    {v.temAudio ? "Áudio enviado (direto ao cloud2)" : "Nenhum áudio ainda"}
-                  </span>
-                </div>
-              }
+                <div className="mt-2 text-xs text-slate-500">Vinheta TTS legada — edição por locução desativada por enquanto.</div>
+              : v.temAudio ?
+                <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">Áudio enviado — use ▶ para ouvir ou “trocar” para substituir.</div>
+              : null}
             </div>
           ))}
         </div>
@@ -689,12 +646,21 @@ function diasLabel(csv: string): string {
   return ds.join(", ");
 }
 
+const CRONOGRAMA_HORARIO_PRESETS = [
+  { label: "Dia todo", hIni: "00:00", hFim: "23:59" },
+  { label: "00:00 – 12:00", hIni: "00:00", hFim: "12:00" },
+  { label: "12:00 – 18:00", hIni: "12:00", hFim: "18:00" },
+  { label: "18:00 – 23:59", hIni: "18:00", hFim: "23:59" },
+] as const;
+
 function CronogramaSection({
   programacaoId,
   pastas,
+  onEdit,
 }: {
   programacaoId: string;
   pastas: { id: string; nome: string }[];
+  onEdit?: () => void | Promise<void>;
 }) {
   const [ags, setAgs] = useState<Agendamento[]>([]);
   const [vinhetas, setVinhetas] = useState<{ id: string; nome: string }[]>([]);
@@ -703,8 +669,8 @@ function CronogramaSection({
   // form
   const [alvo, setAlvo] = useState("");
   const [dias, setDias] = useState<Set<number>>(new Set());
-  const [hIni, setHIni] = useState("08:00");
-  const [hFim, setHFim] = useState("22:00");
+  const [hIni, setHIni] = useState("00:00");
+  const [hFim, setHFim] = useState("23:59");
   const [dIni, setDIni] = useState("");
   const [dFim, setDFim] = useState("");
   const [freq, setFreq] = useState("");
@@ -735,6 +701,7 @@ function CronogramaSection({
     const [alvoTipo, alvoId] = alvo.split(":");
     setBusy(true);
     try {
+      await onEdit?.();
       await fetch(`/api/criacao/programacoes/${programacaoId}/agendamentos`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -763,11 +730,13 @@ function CronogramaSection({
   }
 
   async function remover(id: string) {
+    await onEdit?.();
     await fetch(`/api/criacao/agendamentos/${id}`, { method: "DELETE" });
     await load();
   }
 
   async function toggleAtivo(a: Agendamento) {
+    await onEdit?.();
     await fetch(`/api/criacao/agendamentos/${a.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -853,6 +822,21 @@ function CronogramaSection({
                 <input type="time" value={hIni} onChange={(e) => setHIni(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
                 <span className="text-slate-400">até</span>
                 <input type="time" value={hFim} onChange={(e) => setHFim(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {CRONOGRAMA_HORARIO_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => {
+                      setHIni(p.hIni);
+                      setHFim(p.hFim);
+                    }}
+                    className="rounded-full border border-slate-200 px-2.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
             </label>
             <label className="text-sm">
@@ -943,52 +927,6 @@ function CronogramaSection({
           </ul>
         </div>
       }
-    </div>
-  );
-}
-
-function TtsEditor({
-  vinheta,
-  onSave,
-}: {
-  vinheta: Vinheta;
-  onSave: (v: Vinheta, texto: string, voz: string) => void | Promise<void>;
-}) {
-  const [texto, setTexto] = useState(vinheta.texto);
-  const [voz, setVoz] = useState(vinheta.voz);
-  const [saving, setSaving] = useState(false);
-  const dirty = texto !== vinheta.texto || voz !== vinheta.voz;
-
-  return (
-    <div className="mt-2 space-y-2">
-      <textarea
-        value={texto}
-        onChange={(e) => setTexto(e.target.value)}
-        rows={2}
-        placeholder="Texto da locução…"
-        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-      />
-      <div className="flex items-center gap-2">
-        <input
-          value={voz}
-          onChange={(e) => setVoz(e.target.value)}
-          placeholder="Voz (ex.: feminina BR)"
-          className="w-48 rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-        />
-        <button
-          type="button"
-          disabled={!dirty || saving}
-          onClick={async () => {
-            setSaving(true);
-            await onSave(vinheta, texto, voz);
-            setSaving(false);
-          }}
-          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
-        >
-          {saving ? "Salvando…" : "Salvar texto"}
-        </button>
-        <span className="text-[10px] text-slate-400">A síntese de voz é gerada na entrega.</span>
-      </div>
     </div>
   );
 }
@@ -1225,141 +1163,6 @@ function AddMusicasModal({
           >
             {saving ? "Adicionando…" : `Adicionar ${sel.size || ""}`}
           </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-type GatewayCliente = { id: number; nome: string; pdvs: number };
-
-function PublicarModal({
-  programacaoId,
-  clienteNome,
-  onClose,
-  onDone,
-}: {
-  programacaoId: string;
-  clienteNome: string;
-  onClose: () => void;
-  onDone: () => void | Promise<void>;
-}) {
-  const [clientes, setClientes] = useState<GatewayCliente[]>([]);
-  const [selId, setSelId] = useState<number | "">("");
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [resultado, setResultado] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/criacao/gateway-clientes")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (cancelled || !d?.clientes) return;
-        const list = d.clientes as GatewayCliente[];
-        setClientes(list);
-        const alvo = clienteNome.trim().toLowerCase();
-        const sug =
-          list.find((c) => c.nome.trim().toLowerCase() === alvo) ??
-          list.find((c) => c.nome.toLowerCase().includes(alvo) || alvo.includes(c.nome.toLowerCase()));
-        if (sug) setSelId(sug.id);
-        else if (list.length === 1) setSelId(list[0].id);
-      })
-      .catch(() => setError("Não foi possível carregar clientes do Player."))
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [clienteNome]);
-
-  async function publicar() {
-    if (selId === "" || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/publicar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clienteIdGateway: selId }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        playlists?: number;
-        musicas?: number;
-        semArquivo?: number;
-        clienteGatewayNome?: string;
-      };
-      if (!res.ok) throw new Error(data.error ?? "publicar_falhou");
-      setResultado(
-        `Publicado para ${data.clienteGatewayNome ?? "Player"}: ${data.playlists ?? 0} pasta(s), ${data.musicas ?? 0} faixa(s)` +
-          (data.semArquivo ? ` (${data.semArquivo} sem arquivo de áudio)` : ""),
-      );
-      await onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao publicar.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <h2 className="text-sm font-bold">Enviar ao Player 5</h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
-        </div>
-        <div className="p-4">
-          <p className="mb-3 text-xs text-slate-500">
-            Sincroniza pastas e faixas com o webservice do Player 5 (cloud2). O áudio continua sendo baixado
-            direto do cloud2 — nada passa pelo Netlify.
-          </p>
-          {loading ?
-            <div className="py-6 text-center text-sm text-slate-400">Carregando clientes do gateway…</div>
-          : clientes.length === 0 ?
-            <div className="py-6 text-center text-sm text-red-600">
-              Nenhum cliente no gateway. Cadastre um cliente de teste no Player 5 primeiro.
-            </div>
-          : <>
-              <label className="mb-3 block text-sm">
-                <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente no Player (gateway)</span>
-                <select
-                  value={selId}
-                  onChange={(e) => setSelId(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                >
-                  <option value="">Selecione…</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nome} ({c.pdvs} PDV{c.pdvs === 1 ? "" : "s"})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {error ?
-                <div className="mb-2 text-sm text-red-600">{error}</div>
-              : null}
-              {resultado ?
-                <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-                  {resultado}
-                </div>
-              : null}
-              <button
-                type="button"
-                onClick={() => void publicar()}
-                disabled={busy || selId === ""}
-                className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
-              >
-                {busy ? "Publicando…" : "Confirmar publicação"}
-              </button>
-            </>
-          }
         </div>
       </div>
     </div>

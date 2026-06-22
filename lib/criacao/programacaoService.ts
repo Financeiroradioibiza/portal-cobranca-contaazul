@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
+import { buildVinhetaPreviewUrl } from "@/lib/criacao/vinhetaSign";
 
 export const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"] as const;
 export type Formato = (typeof FORMATOS)[number];
@@ -48,6 +49,8 @@ export type ArvoreVinhetaNode = {
   id: string;
   nome: string;
   tipo: string;
+  temAudio: boolean;
+  previewUrl: string | null;
 };
 
 export type ArvoreProgramacaoNode = {
@@ -71,7 +74,7 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
   };
   const vinhetasSelect = {
     orderBy: { createdAt: "asc" as const },
-    select: { id: true, nome: true, tipo: true },
+    select: { id: true, nome: true, tipo: true, storageKey: true },
   };
 
   const items = hasAberta
@@ -117,6 +120,8 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
       id: v.id,
       nome: v.nome,
       tipo: v.tipo,
+      temAudio: Boolean(v.storageKey),
+      previewUrl: v.storageKey ? buildVinhetaPreviewUrl(v.id) : null,
     })),
   }));
 }
