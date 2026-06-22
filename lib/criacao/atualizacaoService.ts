@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { publicarProgramacao } from "@/lib/criacao/publicarService";
 import { prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
+import { syncPlayerGatewayRegistryForPdvIds } from "@/lib/player/playerGatewaySync";
 
 export type FaixaLogItem = {
   musicaId: string;
@@ -208,6 +209,7 @@ export async function dispararAtualizacao(
 
   const codigo = await gerarCodigoAtualizacao(programacaoId, prog.clienteNome);
   const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds);
+  await syncPlayerGatewayRegistryForPdvIds(portalPdvIds);
   const revision = prog.revisionAtual + 1;
 
   await prisma.$transaction([

@@ -716,8 +716,13 @@ const DISPARO_ERROR: Record<string, string> = {
     "Cliente ainda sem ID no Player. Configure o login/ID do cliente na produção antes de disparar.",
   cloud2_desabilitado: "Cloud2 desabilitado — publicação indisponível.",
   publicar_falhou: "Falha ao publicar no gateway (cloud2).",
+  falha_publicacao: "Erro interno ao gravar a programação no gateway.",
+  cliente_gateway_inexistente:
+    "Cliente ainda não existe no gateway — sincronize os IDs Player antes de disparar.",
   publicar_timeout: "Publicação demorou demais no cloud2 — tente de novo.",
-  sync_registry_falhou: "Falha ao sincronizar PDVs no gateway antes de publicar.",
+  sync_registry_falhou: "Falha ao sincronizar PDVs no gateway após publicar.",
+  sync_registry_timeout: "Sync no gateway demorou demais — tente de novo.",
+  server_error: "Erro interno ao disparar. Veja o log do portal ou tente de novo.",
   disparo_falhou: "Falha ao disparar a atualização.",
 };
 
@@ -792,7 +797,10 @@ function DispararAtualizacaoModal({
       await onDone();
     } catch (e) {
       const code = e instanceof Error ? e.message : "disparo_falhou";
-      setError(DISPARO_ERROR[code] ?? code);
+      setError(
+        DISPARO_ERROR[code] ??
+          (code.startsWith("sync_registry") ? DISPARO_ERROR.sync_registry_falhou : code),
+      );
     } finally {
       setBusy(false);
     }

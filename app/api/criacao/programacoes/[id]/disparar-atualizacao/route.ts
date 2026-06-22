@@ -8,6 +8,31 @@ export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
+function disparoErrorResponse(msg: string): NextResponse {
+  if (msg === "programacao_nao_encontrada") {
+    return NextResponse.json({ error: msg }, { status: 404 });
+  }
+  if (
+    msg === "nenhum_pdv_amarrado" ||
+    msg === "cliente_gateway_nao_configurado" ||
+    msg === "cloud2_desabilitado"
+  ) {
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+  if (
+    msg === "publicar_falhou" ||
+    msg === "falha_publicacao" ||
+    msg === "cliente_gateway_inexistente" ||
+    msg === "gateway_clientes_falhou" ||
+    msg === "publicar_timeout" ||
+    msg.startsWith("sync_registry") ||
+    msg.startsWith("cloud2_")
+  ) {
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
+  return NextResponse.json({ error: msg }, { status: 500 });
+}
+
 export async function POST(_request: Request, ctx: Ctx) {
   try {
     const session = requirePortalSession(await getPortalSession());
@@ -20,26 +45,7 @@ export async function POST(_request: Request, ctx: Ctx) {
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
-    if (msg === "programacao_nao_encontrada") {
-      return NextResponse.json({ error: msg }, { status: 404 });
-    }
-    if (
-      msg === "nenhum_pdv_amarrado" ||
-      msg === "cliente_gateway_nao_configurado" ||
-      msg === "cloud2_desabilitado"
-    ) {
-      return NextResponse.json({ error: msg }, { status: 400 });
-    }
-    if (
-      msg === "publicar_falhou" ||
-      msg === "gateway_clientes_falhou" ||
-      msg === "sync_registry_falhou" ||
-      msg === "publicar_timeout" ||
-      msg.includes("sync_registry_timeout")
-    ) {
-      return NextResponse.json({ error: msg }, { status: 502 });
-    }
     console.error("[criacao/programacoes/:id/disparar-atualizacao POST]", e);
-    return NextResponse.json({ error: "server_error" }, { status: 500 });
+    return disparoErrorResponse(msg);
   }
 }

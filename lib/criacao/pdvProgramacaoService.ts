@@ -195,14 +195,13 @@ export async function getPortalPdvIdsForProgramacao(
   return { portalClienteId: payload.portalClienteId, portalPdvIds };
 }
 
-/** Sincroniza registry do Player e retorna IDs de PDV amarrados à programação. */
+/** Retorna IDs de PDV amarrados à programação (sem sync — feito após publicar). */
 export async function prepareDisparoProgramacao(programacaoId: string): Promise<{
   portalClienteId: number;
   portalPdvIds: number[];
 }> {
   const { portalClienteId, portalPdvIds } = await getPortalPdvIdsForProgramacao(programacaoId);
   if (portalPdvIds.length === 0) throw new Error("nenhum_pdv_amarrado");
-  await syncPlayerGatewayRegistryForPdvIds(portalPdvIds);
   return { portalClienteId, portalPdvIds };
 }
 
