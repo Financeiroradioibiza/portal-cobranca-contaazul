@@ -1,3 +1,4 @@
+import type { ProducaoPlayerStatus } from "@prisma/client";
 import { cloud2FetchWithTimeout, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 import { mapPdvCadastroToGatewayFields } from "@/lib/player/pdvGatewayFields";
 import {
@@ -198,7 +199,7 @@ type CadastroForSync = {
   controlarPlayer: boolean;
   placaCarro: boolean;
   controlarPlaylist: boolean;
-  statusPlayer: string;
+  statusPlayer: ProducaoPlayerStatus;
   cidade: string;
   estado: string;
   playerContatoExtraCodigo: string;
