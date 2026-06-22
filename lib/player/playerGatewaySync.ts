@@ -1,8 +1,14 @@
 import { cloud2FetchWithTimeout, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 import { mapPdvCadastroToGatewayFields } from "@/lib/player/pdvGatewayFields";
-import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
+import {
+  formatPortalPdvIdDisplay,
+  portalClienteIdFromPdvId,
+  proxyPortalPdvId,
+} from "@/lib/player/portalPlayerIds";
 import {
   loadMergedProducaoPlayerContext,
+  type MergedProducaoPlayerContext,
+  type ProducaoLayoutWithPlayerIds,
 } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
@@ -63,11 +69,13 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
     return b64;
   }
 
-  const rioKeys = ctx.buckets.flatMap((b) => b.pdvs.map((p) => p.rioPdvId));
+  const rioKeysFromBuckets = ctx.buckets.flatMap((b) => b.pdvs.map((p) => p.rioPdvId));
+  const rioKeys = [...new Set([...rioKeysFromBuckets, ...ctx.pdvPortalIds.keys()])];
   const cadastros = await prisma.producaoPdvCadastro.findMany({
     where: { rioPdvKey: { in: rioKeys } },
     select: {
       rioPdvKey: true,
+      nome: true,
       playerInstalacaoToken: true,
       playerInstaladoEm: true,
       controlarPlayer: true,
@@ -170,7 +178,117 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
     }
   }
 
+  appendOrphanPortalPdvsToSyncPayload({
+    ctx,
+    clientes,
+    pdvs,
+    loginByClienteId,
+    cadastroByKey,
+    logoForSync,
+  });
+
   return { clientes, pdvs };
+}
+
+type CadastroForSync = {
+  rioPdvKey: string;
+  nome: string;
+  playerInstalacaoToken: string | null;
+  playerInstaladoEm: Date | null;
+  controlarPlayer: boolean;
+  placaCarro: boolean;
+  controlarPlaylist: boolean;
+  statusPlayer: string;
+  cidade: string;
+  estado: string;
+  playerContatoExtraCodigo: string;
+  programacaoMusical: string;
+  programacaoId: string | null;
+  programacao: { nome: string; clienteRef: string | null } | null;
+};
+
+function bucketMetaForPortalClienteId(
+  layout: ProducaoLayoutWithPlayerIds,
+  portalClienteId: number,
+): { nome: string; origemRioLinhaId: string } | null {
+  for (const [bucketKey, cid] of Object.entries(layout.portalClienteIdsByBucketKey)) {
+    if (cid !== portalClienteId) continue;
+    const nome =
+      layout.clienteNomes[bucketKey]?.trim() ||
+      layout.customClientes.find((c) => c.key === bucketKey)?.nome?.trim() ||
+      "Cliente";
+    return { nome, origemRioLinhaId: bucketKey };
+  }
+  return null;
+}
+
+/** PDVs com ID Player atribuído fora do bucket visível na produção (ex.: removidos do grupo). */
+function appendOrphanPortalPdvsToSyncPayload(params: {
+  ctx: MergedProducaoPlayerContext;
+  clientes: PlayerGatewaySyncPayload["clientes"];
+  pdvs: PlayerGatewaySyncPayload["pdvs"];
+  loginByClienteId: Map<
+    number,
+    { portalClienteId: number; email: string | null; passwordHash: string | null }
+  >;
+  cadastroByKey: Map<string, CadastroForSync>;
+  logoForSync: (portalClienteId: number) => string | null;
+}): void {
+  const { ctx, clientes, pdvs, loginByClienteId, cadastroByKey, logoForSync } = params;
+  const syncedRioKeys = new Set(
+    pdvs.map((p) => p.origemRioPdvId).filter((k): k is string => Boolean(k)),
+  );
+  const syncedClienteIds = new Set(clientes.map((c) => c.id));
+
+  for (const [rioKey, portalPdvId] of ctx.pdvPortalIds) {
+    if (syncedRioKeys.has(rioKey)) continue;
+
+    const portalClienteId = portalClienteIdFromPdvId(portalPdvId);
+    const bucketMeta = bucketMetaForPortalClienteId(ctx.layout, portalClienteId);
+    if (!bucketMeta) continue;
+
+    const cad = cadastroByKey.get(rioKey);
+    const placement = ctx.layout.pdvPlacements.find((p) => p.rioPdvId === rioKey);
+    const origemRioLinhaId = placement?.rioLinhaId?.trim() || bucketMeta.origemRioLinhaId;
+    const nomePdv = cad?.nome?.trim() || bucketMeta.nome;
+    const gw = mapPdvCadastroToGatewayFields(cad);
+    const prog =
+      cad?.programacaoId != null
+        ? {
+            nome: cad.programacao?.nome?.trim() || cad.programacaoMusical?.trim() || "",
+            portalId: cad.programacaoId,
+          }
+        : cad?.programacaoMusical?.trim()
+          ? { nome: cad.programacaoMusical.trim(), portalId: null as string | null }
+          : { nome: "", portalId: null as string | null };
+
+    if (!syncedClienteIds.has(portalClienteId)) {
+      const login = loginByClienteId.get(portalClienteId);
+      clientes.push({
+        id: portalClienteId,
+        nome: bucketMeta.nome,
+        email: login?.email ?? null,
+        senhaHash: login?.passwordHash ?? null,
+        origemRioLinhaId: bucketMeta.origemRioLinhaId,
+        logotipoBase64: logoForSync(portalClienteId),
+      });
+      syncedClienteIds.add(portalClienteId);
+    }
+
+    pdvs.push({
+      id: portalPdvId,
+      clienteId: portalClienteId,
+      nome: nomePdv,
+      codigoDisplay: formatPortalPdvIdDisplay(portalPdvId),
+      origemRioPdvId: rioKey,
+      origemRioLinhaId,
+      instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
+      instaladoPlayer: cad?.playerInstaladoEm ? "S" : "N",
+      programacaoMusical: prog.nome,
+      programacaoPortalId: prog.portalId,
+      ...gw,
+    });
+  }
 }
 
 function rioKeyForSyncPdv(p: PlayerGatewaySyncPayload["pdvs"][number]): string | null {
