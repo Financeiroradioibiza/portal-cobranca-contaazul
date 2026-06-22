@@ -4,6 +4,7 @@ import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 import { dispararAtualizacao } from "@/lib/criacao/atualizacaoService";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -29,7 +30,13 @@ export async function POST(_request: Request, ctx: Ctx) {
     ) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
-    if (msg === "publicar_falhou" || msg === "gateway_clientes_falhou" || msg === "sync_registry_falhou") {
+    if (
+      msg === "publicar_falhou" ||
+      msg === "gateway_clientes_falhou" ||
+      msg === "sync_registry_falhou" ||
+      msg === "publicar_timeout" ||
+      msg.includes("sync_registry_timeout")
+    ) {
       return NextResponse.json({ error: msg }, { status: 502 });
     }
     console.error("[criacao/programacoes/:id/disparar-atualizacao POST]", e);

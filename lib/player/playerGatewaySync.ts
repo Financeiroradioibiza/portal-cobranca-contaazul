@@ -485,3 +485,24 @@ export async function syncPlayerGatewayRegistryBatchForPdvIds(
     pdvsSynced: sent.pdvs,
   };
 }
+
+/** Sync só dos PDVs informados (ex.: disparo de programação — evita varrer todo o catálogo). */
+export async function syncPlayerGatewayRegistryForPdvIds(pdvIds: number[]): Promise<{
+  clientes: number;
+  pdvs: number;
+}> {
+  const ids = [...new Set(pdvIds.filter((id) => Number.isFinite(id) && id > 0))];
+  if (ids.length === 0) return { clientes: 0, pdvs: 0 };
+
+  let offset = 0;
+  let clientes = 0;
+  let pdvs = 0;
+  while (true) {
+    const batch = await syncPlayerGatewayRegistryBatchForPdvIds(ids, offset);
+    if (offset === 0) clientes = batch.clientesSynced;
+    pdvs += batch.pdvsSynced;
+    if (batch.done) break;
+    offset = batch.nextOffset;
+  }
+  return { clientes, pdvs };
+}

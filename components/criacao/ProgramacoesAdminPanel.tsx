@@ -715,6 +715,9 @@ const DISPARO_ERROR: Record<string, string> = {
   cliente_gateway_nao_configurado:
     "Cliente ainda sem ID no Player. Configure o login/ID do cliente na produção antes de disparar.",
   cloud2_desabilitado: "Cloud2 desabilitado — publicação indisponível.",
+  publicar_falhou: "Falha ao publicar no gateway (cloud2).",
+  publicar_timeout: "Publicação demorou demais no cloud2 — tente de novo.",
+  sync_registry_falhou: "Falha ao sincronizar PDVs no gateway antes de publicar.",
   disparo_falhou: "Falha ao disparar a atualização.",
 };
 

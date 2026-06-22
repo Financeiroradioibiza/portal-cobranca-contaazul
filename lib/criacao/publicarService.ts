@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { cloud2Enabled, cloud2Fetch } from "@/lib/criacao/cloud2Client";
+import {
+  cloud2Enabled,
+  cloud2Fetch,
+  cloud2FetchWithTimeout,
+  parseCloud2Json,
+} from "@/lib/criacao/cloud2Client";
 
 export type GatewayCliente = { id: number; nome: string; pdvs: number };
 
@@ -37,22 +42,26 @@ export async function publicarProgramacao(
   });
   if (!prog) throw new Error("programacao_nao_encontrada");
 
-  const res = await cloud2Fetch("/publicar", {
-    method: "POST",
-    body: JSON.stringify({
-      programacaoId,
-      clienteIdGateway,
-      pdvIds: pdvIds?.length ? pdvIds : undefined,
-    }),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
+  const res = await cloud2FetchWithTimeout(
+    "/publicar",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        programacaoId,
+        clienteIdGateway,
+        pdvIds: pdvIds?.length ? pdvIds : undefined,
+      }),
+    },
+    120_000,
+  );
+  const data = await parseCloud2Json<{
     ok?: boolean;
     error?: string;
     playlists?: number;
     musicas?: number;
     semArquivo?: number;
-  };
-  if (!res.ok || !data.ok) {
+  }>(res, "publicar");
+  if (!res?.ok || !data.ok) {
     throw new Error(data.error ?? "publicar_falhou");
   }
 
