@@ -32,6 +32,7 @@ type SyncBody = {
     origemRioPdvId?: string | null;
     origemRioLinhaId?: string;
     instalacaoToken?: string | null;
+    instaladoPlayer?: "N" | "S";
     status?: "A" | "I";
     ctrlPlayer?: "S" | "N";
     ctrlPlacaCarro?: "S" | "N";
@@ -203,13 +204,19 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
       const clienteIds = new Set(clientes.map((c) => c.id));
       for (const p of pdvs) {
         if (!Number.isFinite(p.id) || !Number.isFinite(p.clienteId) || !clienteIds.has(p.clienteId)) continue;
-        const instalToken = String(p.instalacaoToken ?? "").trim().slice(0, 32);
+        let instalToken = String(p.instalacaoToken ?? "").trim().slice(0, 32);
+        const gwInstalado = p.instaladoPlayer === "S" ? "S" : "N";
         const prev = await conn.query<{ serial_instalacao: string | null }>(
           `SELECT serial_instalacao FROM pdvs WHERE id = $1`,
           [p.id],
         );
+        if (!instalToken) {
+          instalToken = String(prev.rows[0]?.serial_instalacao ?? "").trim().slice(0, 32);
+        }
+        if (!instalToken) {
+          instalToken = crypto.randomBytes(16).toString("hex");
+        }
         const tokenChanged =
-          instalToken.length > 0 &&
           prev.rows[0]?.serial_instalacao != null &&
           prev.rows[0].serial_instalacao !== instalToken;
 
@@ -219,14 +226,14 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
              serial_instalacao, instalado, status, cidade, uf,
              ctrl_player, ctrl_placa_carro, ctrl_playlists, nome_completo_contato_extra
            )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'N', $8, $9, $10, $11, $12, $13, $14)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
            ON CONFLICT (id) DO UPDATE SET
              cliente_id = EXCLUDED.cliente_id,
              nome = EXCLUDED.nome,
              codigo_display = EXCLUDED.codigo_display,
              origem_rio_pdv_id = EXCLUDED.origem_rio_pdv_id,
              origem_rio_linha_id = EXCLUDED.origem_rio_linha_id,
-             serial_instalacao = COALESCE(EXCLUDED.serial_instalacao, pdvs.serial_instalacao),
+             serial_instalacao = EXCLUDED.serial_instalacao,
              status = EXCLUDED.status,
              cidade = EXCLUDED.cidade,
              uf = EXCLUDED.uf,
@@ -235,10 +242,9 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
              ctrl_playlists = EXCLUDED.ctrl_playlists,
              nome_completo_contato_extra = EXCLUDED.nome_completo_contato_extra,
              instalado = CASE
-               WHEN EXCLUDED.serial_instalacao IS NOT NULL
-                 AND pdvs.serial_instalacao IS DISTINCT FROM EXCLUDED.serial_instalacao
-               THEN 'N'
-               ELSE pdvs.instalado
+               WHEN $15 = 'N' THEN 'N'
+               WHEN EXCLUDED.serial_instalacao IS DISTINCT FROM pdvs.serial_instalacao THEN 'N'
+               ELSE COALESCE(EXCLUDED.instalado, pdvs.instalado)
              END`,
           [
             p.id,
@@ -247,7 +253,8 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
             p.codigoDisplay ?? null,
             p.origemRioPdvId ?? null,
             p.origemRioLinhaId ?? null,
-            instalToken || null,
+            instalToken,
+            gwInstalado,
             p.status ?? "A",
             p.cidade ?? "",
             (p.uf ?? "").slice(0, 2).toUpperCase(),
@@ -255,22 +262,21 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
             p.ctrlPlacaCarro ?? "N",
             p.ctrlPlaylists ?? "N",
             String(p.nomeCompletoContatoExtra ?? "").trim().slice(0, 32),
+            gwInstalado,
           ],
         );
 
-        if (instalToken) {
-          await conn.query(
-            `INSERT INTO tokens (pdv_id, token, data_inicio, status)
-               VALUES ($1, $2, now(), 'ok')
-             ON CONFLICT (pdv_id) DO UPDATE SET
-               token = EXCLUDED.token,
-               data_inicio = now(),
-               status = 'ok'`,
-            [p.id, instalToken],
-          );
-          if (tokenChanged) {
-            await conn.query(`UPDATE pdvs SET instalado = 'N' WHERE id = $1`, [p.id]);
-          }
+        await conn.query(
+          `INSERT INTO tokens (pdv_id, token, data_inicio, status)
+             VALUES ($1, $2, now(), 'ok')
+           ON CONFLICT (pdv_id) DO UPDATE SET
+             token = EXCLUDED.token,
+             data_inicio = now(),
+             status = 'ok'`,
+          [p.id, instalToken],
+        );
+        if (tokenChanged || gwInstalado === "N") {
+          await conn.query(`UPDATE pdvs SET instalado = 'N' WHERE id = $1`, [p.id]);
         }
 
         const programaId = await resolveGatewayProgramaId(

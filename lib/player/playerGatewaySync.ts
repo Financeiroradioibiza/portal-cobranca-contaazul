@@ -6,6 +6,7 @@ import {
 } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
+import { ensurePdvInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
 
 export type PlayerGatewaySyncPayload = {
   clientes: Array<{
@@ -24,6 +25,8 @@ export type PlayerGatewaySyncPayload = {
     origemRioPdvId: string | null;
     origemRioLinhaId: string;
     instalacaoToken: string | null;
+    /** N = aparece no Player 5 para instalar; S = já instalado. */
+    instaladoPlayer: "N" | "S";
     /** Nome legado no gateway (programas.nome). */
     programacaoMusical: string;
     /** ID da programação no Neon — resolve programas.origem_programacao_id no sync. */
@@ -59,6 +62,7 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
     select: {
       rioPdvKey: true,
       playerInstalacaoToken: true,
+      playerInstaladoEm: true,
       controlarPlayer: true,
       placaCarro: true,
       controlarPlaylist: true,
@@ -107,6 +111,16 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
       return { nome: "", portalId: null };
     }
 
+    function instaladoPlayerFor(rioPdvKey: string): "N" | "S" {
+      const cad = cadastroByKey.get(rioPdvKey);
+      return cad?.playerInstaladoEm ? "S" : "N";
+    }
+
+    function rioKeyForToken(p: { rioPdvId: string; rioLinhaId: string; isLinhaProxy?: boolean }): string {
+      if (p.isLinhaProxy && p.rioLinhaId) return `linha:${p.rioLinhaId}`;
+      return p.rioPdvId;
+    }
+
     for (const p of pdvList) {
       const cad = cadastroByKey.get(p.rioPdvId);
       const gw = mapPdvCadastroToGatewayFields(cad);
@@ -122,6 +136,7 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
           origemRioPdvId: null,
           origemRioLinhaId: p.rioLinhaId,
           instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
+          instaladoPlayer: instaladoPlayerFor(rioKeyForToken(p)),
           programacaoMusical: prog.nome,
           programacaoPortalId: prog.portalId,
           ...gw,
@@ -140,6 +155,7 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
         origemRioPdvId: p.rioPdvId,
         origemRioLinhaId: p.rioLinhaId,
         instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
+        instaladoPlayer: instaladoPlayerFor(rioKeyForToken(p)),
         programacaoMusical: prog.nome,
         programacaoPortalId: prog.portalId,
         ...gw,
@@ -150,11 +166,29 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
   return { clientes, pdvs };
 }
 
+async function hydrateInstalacaoTokens(
+  payload: PlayerGatewaySyncPayload,
+): Promise<PlayerGatewaySyncPayload> {
+  const pdvs = await Promise.all(
+    payload.pdvs.map(async (p) => {
+      if (p.instalacaoToken?.trim()) return p;
+      const rioKey =
+        p.origemRioPdvId ??
+        (p.origemRioLinhaId ? `linha:${p.origemRioLinhaId}` : null);
+      if (!rioKey) return p;
+      const token = await ensurePdvInstalacaoToken(rioKey);
+      return { ...p, instalacaoToken: token };
+    }),
+  );
+  return { ...payload, pdvs };
+}
+
 export async function syncPlayerGatewayRegistry(): Promise<{
   clientes: number;
   pdvs: number;
 }> {
-  const payload = await buildPlayerGatewaySyncPayload();
+  const raw = await buildPlayerGatewaySyncPayload();
+  const payload = await hydrateInstalacaoTokens(raw);
   const res = await cloud2Fetch("/player/sync-registry", {
     method: "POST",
     body: JSON.stringify(payload),
