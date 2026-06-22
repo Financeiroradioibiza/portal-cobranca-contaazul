@@ -12,6 +12,70 @@ type Row = {
   link: { portalClienteId: number; portalPdvId: number } | null;
 };
 
+function SyncBadge({ synced }: { synced: boolean }) {
+  if (!synced) return null;
+  return (
+    <span
+      className="ml-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white bg-emerald-600"
+      title="Sincronizado no Player 5 (gateway)"
+    >
+      Sync
+    </span>
+  );
+}
+
+function IdsTable({
+  rows,
+  syncedPdvIds,
+  showSyncBadge,
+}: {
+  rows: Row[];
+  syncedPdvIds: Set<number>;
+  showSyncBadge: boolean;
+}) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-slate-400">Nenhum registro.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+      <table className="min-w-full text-sm">
+        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-900">
+          <tr>
+            <th className="px-3 py-2">Cliente</th>
+            <th className="px-3 py-2">PDV</th>
+            <th className="px-3 py-2 text-center">ID cliente</th>
+            <th className="px-3 py-2 text-center">ID PDV</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const pdvSynced =
+              showSyncBadge &&
+              r.link != null &&
+              syncedPdvIds.has(r.link.portalPdvId);
+            return (
+              <tr key={r.rioPdvId} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="px-3 py-2">{r.clienteNome}</td>
+                <td className="px-3 py-2">{r.rioPdvNome}</td>
+                <td className="px-3 py-2 text-center font-mono text-sky-700 dark:text-sky-400">
+                  {r.link?.portalClienteId ?? "—"}
+                </td>
+                <td className="px-3 py-2 text-center font-mono text-emerald-700 dark:text-emerald-400">
+                  <span className="inline-flex items-center justify-center gap-0.5">
+                    {r.link ? formatPortalPdvIdDisplay(r.link.portalPdvId) : "—"}
+                    {pdvSynced ? <SyncBadge synced /> : null}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 type PilotStep = { id: string; label: string; ok: boolean; detail: string };
 
 function ClienteLogotipoBlock({ busy, setBusy, setMsg }: {
@@ -143,12 +207,44 @@ function ClienteLogotipoBlock({ busy, setBusy, setMsg }: {
 export function PortalPlayerIdsPanel() {
   const [rows, setRows] = useState<Row[]>([]);
   const [stats, setStats] = useState({ total: 0, linked: 0, unlinked: 0 });
+  const [syncedPdvIds, setSyncedPdvIds] = useState<Set<number>>(new Set());
+  const [gatewayStatusOk, setGatewayStatusOk] = useState(false);
+  const [somentePendentes, setSomentePendentes] = useState(false);
   const [rioSourceYm, setRioSourceYm] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [pilotSteps, setPilotSteps] = useState<PilotStep[] | null>(null);
   const [pilotReady, setPilotReady] = useState(false);
+
+  const loadGatewayStatus = useCallback(async (list: Row[]) => {
+    const pdvIds = list.flatMap((r) => (r.link ? [r.link.portalPdvId] : []));
+    const clienteIds = list.flatMap((r) => (r.link ? [r.link.portalClienteId] : []));
+    if (pdvIds.length === 0) {
+      setGatewayStatusOk(true);
+      setSyncedPdvIds(new Set());
+      return;
+    }
+    try {
+      const res = await fetch("/api/player/gateway-status", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdvIds, clienteIds }),
+      });
+      const data = (await res.json()) as { ok?: boolean; syncedPdvIds?: number[]; error?: string };
+      if (!res.ok || !data.ok) {
+        setGatewayStatusOk(false);
+        setSyncedPdvIds(new Set());
+        return;
+      }
+      setGatewayStatusOk(true);
+      setSyncedPdvIds(new Set(data.syncedPdvIds ?? []));
+    } catch {
+      setGatewayStatusOk(false);
+      setSyncedPdvIds(new Set());
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -168,13 +264,14 @@ export function PortalPlayerIdsPanel() {
       if (!vRes.ok || !vData.ok) throw new Error(vData.error ?? "erro");
       setRows(vData.rows ?? []);
       setStats(vData.stats ?? { total: 0, linked: 0, unlinked: 0 });
+      await loadGatewayStatus(vData.rows ?? []);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao carregar.");
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadGatewayStatus]);
 
   useEffect(() => {
     void load();
@@ -300,10 +397,15 @@ export function PortalPlayerIdsPanel() {
     }
   }
 
-  async function syncGateway() {
+  async function syncGateway(pdvIds?: number[]) {
     if (busy) return;
     setBusy(true);
-    setMsg("Sincronizando Player 5 (10 PDVs por vez)…");
+    const pendentes = pdvIds?.length ?? null;
+    setMsg(
+      pendentes != null ?
+        `Sincronizando ${pendentes} PDV(s) pendente(s)…`
+      : "Sincronizando Player 5 (10 PDVs por vez)…",
+    );
     try {
       const { clientes, pdvs } = await runPlayerGatewaySyncBatches((synced, total) => {
         setMsg(
@@ -311,13 +413,28 @@ export function PortalPlayerIdsPanel() {
             `Sincronizando Player 5… ${Math.min(synced, total)}/${total} PDVs`
           : `Sincronizando Player 5… ${synced} PDV(s) enviados`,
         );
-      });
+      }, pdvIds);
       setMsg(`Player 5 sincronizado: ${clientes} clientes, ${pdvs} PDVs.`);
+      await loadGatewayStatus(rows);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao sincronizar.");
     } finally {
       setBusy(false);
     }
+  }
+
+  const rowsComId = rows.filter((r): r is Row & { link: NonNullable<Row["link"]> } => r.link != null);
+  const pendentesSync = rowsComId.filter((r) => !syncedPdvIds.has(r.link.portalPdvId));
+  const sincronizados = rowsComId.filter((r) => syncedPdvIds.has(r.link.portalPdvId));
+  const semId = rows.filter((r) => !r.link);
+
+  async function syncPendentes() {
+    if (pendentesSync.length === 0) {
+      setMsg("Nenhum PDV pendente de sync no gateway.");
+      return;
+    }
+    const ids = pendentesSync.map((r) => r.link.portalPdvId);
+    await syncGateway(ids);
   }
 
   async function verificarPiloto() {
@@ -390,7 +507,7 @@ export function PortalPlayerIdsPanel() {
             onClick={() => void syncGateway()}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200"
           >
-            Sincronizar Player 5
+            Sincronizar todos
           </button>
           <button
             type="button"
@@ -427,40 +544,87 @@ export function PortalPlayerIdsPanel() {
         </div>
       : null}
 
-      <div className="mb-3 text-xs text-slate-500">
-        {stats.linked}/{stats.total} com ID · {stats.unlinked} sem ID
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500">
+        <span>
+          {stats.linked}/{stats.total} com ID · {stats.unlinked} sem ID
+        </span>
+        {gatewayStatusOk ?
+          <>
+            <span className="text-emerald-700 dark:text-emerald-400">
+              {sincronizados.length} sync no gateway
+            </span>
+            <span className="text-amber-700 dark:text-amber-400">
+              {pendentesSync.length} pendente(s)
+            </span>
+          </>
+        : <span className="text-amber-600">Status gateway indisponível — rode sync ou recarregue.</span>}
+        <label className="inline-flex cursor-pointer items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={somentePendentes}
+            onChange={(e) => setSomentePendentes(e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          Mostrar só pendentes em cima
+        </label>
       </div>
 
       {loading ?
         <p className="text-sm text-slate-400">Carregando…</p>
       : rows.length === 0 ?
         <p className="text-sm text-slate-400">Nenhum PDV na produção musical vigente.</p>
-      : <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-900">
-              <tr>
-                <th className="px-3 py-2">Cliente</th>
-                <th className="px-3 py-2">PDV</th>
-                <th className="px-3 py-2 text-center">ID cliente</th>
-                <th className="px-3 py-2 text-center">ID PDV</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.rioPdvId} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-2">{r.clienteNome}</td>
-                  <td className="px-3 py-2">{r.rioPdvNome}</td>
-                  <td className="px-3 py-2 text-center font-mono text-sky-700 dark:text-sky-400">
-                    {r.link?.portalClienteId ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-center font-mono text-emerald-700 dark:text-emerald-400">
-                    {r.link ? formatPortalPdvIdDisplay(r.link.portalPdvId) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      : <>
+          <section className="mb-8">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  Pendentes de sync
+                </h2>
+                <p className="text-xs text-slate-500">
+                  PDVs com ID atribuído que ainda não estão no gateway Player 5.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busy || pendentesSync.length === 0}
+                onClick={() => void syncPendentes()}
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                Sincronizar pendentes ({pendentesSync.length})
+              </button>
+            </div>
+            <IdsTable rows={pendentesSync} syncedPdvIds={syncedPdvIds} showSyncBadge={false} />
+          </section>
+
+          {!somentePendentes ?
+            <>
+              <section className="mb-8">
+                <div className="mb-2">
+                  <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                    Sincronizados
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Já enviados ao gateway — badge <strong className="text-emerald-600">Sync</strong> ao
+                    lado do ID PDV.
+                  </p>
+                </div>
+                <IdsTable rows={sincronizados} syncedPdvIds={syncedPdvIds} showSyncBadge />
+              </section>
+
+              {semId.length > 0 ?
+                <section className="mb-8">
+                  <div className="mb-2">
+                    <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Sem ID Player</h2>
+                    <p className="text-xs text-slate-500">
+                      Atribua IDs com «Só faltantes» ou «Realinhar IDs» antes de sincronizar.
+                    </p>
+                  </div>
+                  <IdsTable rows={semId} syncedPdvIds={syncedPdvIds} showSyncBadge={false} />
+                </section>
+              : null}
+            </>
+          : null}
+        </>
       }
 
       <ClienteLogotipoBlock busy={busy} setBusy={setBusy} setMsg={setMsg} />

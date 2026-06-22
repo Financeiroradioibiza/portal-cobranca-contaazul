@@ -1,12 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { formatPortalPdvIdDisplay, parsePortalPdvDisplay } from "@/lib/player/portalPlayerIds";
+import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
 import type { PlayerAvisoRow } from "@/lib/suporte/playerAvisoService";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
 
-function parseIdField(raw: string): number | null {
+type SelectedPdv = {
+  portalClienteId: number;
+  portalPdvId: number;
+  clienteNome: string;
+  pdvNome: string;
+  codigoDisplay: string;
+};
+
+function parseClienteIdField(raw: string): number | null {
   const t = raw.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
+function parsePdvIdField(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const fromDisplay = parsePortalPdvDisplay(t);
+  if (fromDisplay != null) return fromDisplay;
   if (!/^\d+$/.test(t)) return null;
   const n = Number(t);
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
@@ -31,13 +51,21 @@ function parseRows(data: unknown): PlayerAvisoRow[] {
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
-    const cliente_id = parseIdField(String(r.cliente_id ?? ""));
-    const pdv_id = parseIdField(String(r.pdv_id ?? ""));
+    const cliente_id = parseClienteIdField(String(r.cliente_id ?? ""));
+    const pdv_id = parsePdvIdField(String(r.pdv_id ?? ""));
     const mensagem = typeof r.mensagem === "string" ? r.mensagem.trim() : "";
     const atualizado_em =
       typeof r.atualizado_em === "string" ? r.atualizado_em.trim() : "";
     if (cliente_id == null || pdv_id == null || !mensagem) continue;
-    out.push({ cliente_id, pdv_id, mensagem, atualizado_em });
+    out.push({
+      cliente_id,
+      pdv_id,
+      mensagem,
+      atualizado_em,
+      cliente_nome: typeof r.cliente_nome === "string" ? r.cliente_nome : undefined,
+      pdv_nome: typeof r.pdv_nome === "string" ? r.pdv_nome : undefined,
+      codigo_display: typeof r.codigo_display === "string" ? r.codigo_display : undefined,
+    });
   }
   return out;
 }
@@ -61,7 +89,141 @@ async function postAvisos(body: Record<string, unknown>) {
 const inputClass =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-fuchsia-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500/40";
 
+function PdvTargetPicker({
+  selected,
+  onSelect,
+  disabled,
+}: {
+  selected: SelectedPdv | null;
+  onSelect: (target: SelectedPdv | null) => void;
+  disabled: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlayerAvisoPdvTarget[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/suporte/player-avisos/pdv-search?q=${encodeURIComponent(q)}`, {
+        credentials: "same-origin",
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          const targets = (data as { targets?: PlayerAvisoPdvTarget[] })?.targets;
+          setResults(Array.isArray(targets) ? targets : []);
+        })
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 280);
+
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  function pick(t: PlayerAvisoPdvTarget) {
+    onSelect({
+      portalClienteId: t.portalClienteId,
+      portalPdvId: t.portalPdvId,
+      clienteNome: t.clienteNome,
+      pdvNome: t.pdvNome,
+      codigoDisplay: t.codigoDisplay,
+    });
+    setQuery("");
+    setResults([]);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={wrapRef} className="space-y-2">
+      {selected ?
+        <div className="flex items-start justify-between gap-2 rounded-lg border border-emerald-800/50 bg-emerald-950/30 px-3 py-2">
+          <div className="min-w-0 text-sm">
+            <p className="font-medium text-emerald-100">{selected.clienteNome}</p>
+            <p className="text-zinc-300">{selected.pdvNome}</p>
+            <p className="mt-1 font-mono text-[11px] text-zinc-500">
+              Cliente {selected.portalClienteId} · PDV {selected.codigoDisplay}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(null)}
+            className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+          >
+            Trocar
+          </button>
+        </div>
+      : null}
+
+      <label className="block text-xs text-zinc-500">
+        Buscar por nome do cliente ou PDV
+        <input
+          type="search"
+          value={query}
+          disabled={disabled || selected != null}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Ex.: Hering, shopping, 100.003…"
+          className={inputClass + " mt-1"}
+        />
+      </label>
+
+      {open && !selected && query.trim().length >= 2 ?
+        <div className="max-h-52 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 shadow-lg">
+          {searching ?
+            <p className="px-3 py-2 text-xs text-zinc-500">Buscando…</p>
+          : results.length === 0 ?
+            <p className="px-3 py-2 text-xs text-zinc-500">Nenhum PDV com ID Player encontrado.</p>
+          : results.map((t) => (
+              <button
+                key={t.portalPdvId}
+                type="button"
+                className="block w-full border-b border-zinc-800 px-3 py-2 text-left text-sm last:border-0 hover:bg-zinc-900"
+                onClick={() => pick(t)}
+              >
+                <span className="font-medium text-zinc-100">{t.clienteNome}</span>
+                <span className="text-zinc-400"> — {t.pdvNome}</span>
+                <span className="mt-0.5 block font-mono text-[10px] text-zinc-500">
+                  {t.codigoDisplay} (c{t.portalClienteId})
+                </span>
+              </button>
+            ))
+          }
+        </div>
+      : null}
+
+      {!selected ?
+        <p className="text-[11px] text-zinc-600">
+          Ou informe os IDs manualmente abaixo (aceita código <strong>100.001</strong> no PDV).
+        </p>
+      : null}
+    </div>
+  );
+}
+
 export function PlayerAvisosPanel() {
+  const [selected, setSelected] = useState<SelectedPdv | null>(null);
   const [clienteId, setClienteId] = useState("");
   const [pdvId, setPdvId] = useState("");
   const [mensagem, setMensagem] = useState("");
@@ -69,6 +231,23 @@ export function PlayerAvisosPanel() {
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>(null);
+
+  const resolveIds = useCallback((): { cid: number; pid: number } | null => {
+    if (selected) {
+      return { cid: selected.portalClienteId, pid: selected.portalPdvId };
+    }
+    const cid = parseClienteIdField(clienteId);
+    const pid = parsePdvIdField(pdvId);
+    if (cid == null || pid == null) return null;
+    return { cid, pid };
+  }, [selected, clienteId, pdvId]);
+
+  useEffect(() => {
+    if (selected) {
+      setClienteId(String(selected.portalClienteId));
+      setPdvId(selected.codigoDisplay);
+    }
+  }, [selected]);
 
   const applyListResponse = useCallback((data: unknown) => {
     setRows(parseRows(data));
@@ -97,11 +276,13 @@ export function PlayerAvisosPanel() {
 
   async function onAtivar(e: React.FormEvent) {
     e.preventDefault();
-    const cid = parseIdField(clienteId);
-    const pid = parseIdField(pdvId);
+    const ids = resolveIds();
     const msg = mensagem.trim();
-    if (cid == null || pid == null) {
-      setStatus({ kind: "err", text: "Informe ID cliente e ID PDV válidos (IDs Player do portal)." });
+    if (!ids) {
+      setStatus({
+        kind: "err",
+        text: "Escolha um PDV na busca ou informe ID cliente e ID PDV válidos.",
+      });
       return;
     }
     if (!msg) {
@@ -114,8 +295,8 @@ export function PlayerAvisosPanel() {
     try {
       const { res, data } = await postAvisos({
         action: "ativar",
-        cliente_id: cid,
-        pdv_id: pid,
+        cliente_id: ids.cid,
+        pdv_id: ids.pid,
         mensagem: msg,
       });
       if (!res.ok || !data || typeof data !== "object" || !(data as { ok?: boolean }).ok) {
@@ -124,17 +305,16 @@ export function PlayerAvisosPanel() {
       }
       applyListResponse(data);
       setMensagem("");
-      setStatus({ kind: "ok", text: "Mensagem publicada." });
+      setStatus({ kind: "ok", text: "Mensagem publicada — o Player 5 busca no próximo ping (~60 min ou ao reabrir)." });
     } finally {
       setBusy(false);
     }
   }
 
   async function onApagar() {
-    const cid = parseIdField(clienteId);
-    const pid = parseIdField(pdvId);
-    if (cid == null || pid == null) {
-      setStatus({ kind: "err", text: "Informe ID cliente e ID PDV para apagar." });
+    const ids = resolveIds();
+    if (!ids) {
+      setStatus({ kind: "err", text: "Escolha o PDV ou informe IDs para apagar." });
       return;
     }
 
@@ -143,8 +323,8 @@ export function PlayerAvisosPanel() {
     try {
       const { res, data } = await postAvisos({
         action: "apagar",
-        cliente_id: cid,
-        pdv_id: pid,
+        cliente_id: ids.cid,
+        pdv_id: ids.pid,
       });
       if (!res.ok || !data || typeof data !== "object" || !(data as { ok?: boolean }).ok) {
         setStatus({ kind: "err", text: mapApiError(data) });
@@ -158,14 +338,22 @@ export function PlayerAvisosPanel() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-lg">
+    <div className="mx-auto w-full max-w-2xl">
       <div className="rounded-2xl border border-zinc-800 bg-zinc-950 px-5 py-6 text-zinc-100 shadow-xl sm:px-6 sm:py-8">
         <div>
           <h2 className="text-lg font-semibold text-white">Central de avisos — player</h2>
           <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            Publica mensagens vermelhas no Player 5 (após o ping ao gateway). Use os IDs Player
-            do portal (ex.: 100, 100.001) — os mesmos de Logins e IDs Player.
+            Publica mensagens vermelhas no Player 5. Após cada ping OK, o player consulta{" "}
+            <code className="text-[11px]">/api/player-avisos</code> no cloud2 com o token do PDV.
           </p>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-amber-900/40 bg-amber-950/25 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
+          <strong>Player 5:</strong> o build precisa de{" "}
+          <code className="text-[10px]">VITE_PLAYER_AVISOS_URL=/api/player-avisos</code> e{" "}
+          <strong>não</strong> pode ter <code className="text-[10px]">VITE_PLAYER_AVISOS_DISABLED=1</code>.
+          O PDV precisa estar instalado (token válido). Mensagens aparecem junto com outros avisos
+          vermelhos do cadastro.
         </div>
 
         {status ?
@@ -197,20 +385,30 @@ export function PlayerAvisosPanel() {
               Atualizar lista
             </button>
           </div>
+
+          <PdvTargetPicker selected={selected} onSelect={setSelected} disabled={busy} />
+
           <div className="grid grid-cols-2 gap-2">
             <input
               inputMode="numeric"
               value={clienteId}
-              onChange={(e) => setClienteId(e.target.value)}
+              onChange={(e) => {
+                setSelected(null);
+                setClienteId(e.target.value);
+              }}
               placeholder="ID cliente (100…)"
               className={inputClass}
+              disabled={selected != null}
             />
             <input
-              inputMode="numeric"
               value={pdvId}
-              onChange={(e) => setPdvId(e.target.value)}
+              onChange={(e) => {
+                setSelected(null);
+                setPdvId(e.target.value);
+              }}
               placeholder="ID PDV (100.001…)"
               className={inputClass}
+              disabled={selected != null}
             />
           </div>
           <textarea
@@ -248,8 +446,13 @@ export function PlayerAvisosPanel() {
             <ul className="mt-3 max-h-[min(50vh,420px)] space-y-2 overflow-y-auto text-sm">
               {rows.map((row, i) => (
                 <li key={`${row.cliente_id}-${row.pdv_id}-${row.atualizado_em}-${i}`} className="rounded-lg bg-black/25 px-3 py-2">
+                  {row.cliente_nome || row.pdv_nome ?
+                    <p className="text-zinc-200">
+                      {row.cliente_nome ?? "Cliente"} — {row.pdv_nome ?? "PDV"}
+                    </p>
+                  : null}
                   <span className="font-mono text-xs text-zinc-500">
-                    c{row.cliente_id} · pdv{row.pdv_id}
+                    c{row.cliente_id} · {row.codigo_display ?? formatPortalPdvIdDisplay(row.pdv_id)}
                   </span>
                   <p className="mt-1 text-zinc-200">{row.mensagem}</p>
                   {row.atualizado_em ?

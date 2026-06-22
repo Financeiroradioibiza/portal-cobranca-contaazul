@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
+import { resolvePlayerAvisoPdvLabels } from "@/lib/suporte/playerAvisoPdvSearch";
 
 export type PlayerAvisosAction = "listar" | "ativar" | "apagar";
 
@@ -7,6 +9,9 @@ export type PlayerAvisoRow = {
   pdv_id: number;
   mensagem: string;
   atualizado_em: string;
+  cliente_nome?: string;
+  pdv_nome?: string;
+  codigo_display?: string;
 };
 
 const MAX_MSG = 2000;
@@ -58,7 +63,19 @@ export async function listPlayerAvisoRows(): Promise<PlayerAvisoRow[]> {
     orderBy: { createdAt: "desc" },
     take: MAX_ROWS,
   });
-  return rows.map(rowFromDb);
+  const labels = await resolvePlayerAvisoPdvLabels(
+    rows.map((r) => ({ portalClienteId: r.portalClienteId, portalPdvId: r.portalPdvId })),
+  );
+  return rows.map((r) => {
+    const base = rowFromDb(r);
+    const label = labels.get(r.portalPdvId);
+    return {
+      ...base,
+      cliente_nome: label?.clienteNome,
+      pdv_nome: label?.pdvNome,
+      codigo_display: label?.codigoDisplay ?? formatPortalPdvIdDisplay(r.portalPdvId),
+    };
+  });
 }
 
 export async function activatePlayerAviso(

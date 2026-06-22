@@ -498,6 +498,49 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
     });
   });
 
+  /** Quais IDs do portal já existem no gateway (sync). */
+  app.post<{ Body: { pdvIds?: number[]; clienteIds?: number[] } }>(
+    `${PLAYER_PREFIX}/registry-check`,
+    async (req, reply) => {
+      if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+
+      const pdvIds = [
+        ...new Set(
+          (Array.isArray(req.body?.pdvIds) ? req.body.pdvIds : [])
+            .map((id) => Math.trunc(Number(id)))
+            .filter((id) => id > 0),
+        ),
+      ];
+      const clienteIds = [
+        ...new Set(
+          (Array.isArray(req.body?.clienteIds) ? req.body.clienteIds : [])
+            .map((id) => Math.trunc(Number(id)))
+            .filter((id) => id > 0),
+        ),
+      ];
+
+      const pool = getPool();
+      let syncedPdvIds: number[] = [];
+      let syncedClienteIds: number[] = [];
+
+      if (pdvIds.length > 0) {
+        const r = await pool.query<{ id: number }>(`SELECT id FROM pdvs WHERE id = ANY($1::int[])`, [
+          pdvIds,
+        ]);
+        syncedPdvIds = r.rows.map((row) => row.id);
+      }
+      if (clienteIds.length > 0) {
+        const r = await pool.query<{ id: number }>(
+          `SELECT id FROM clientes WHERE id = ANY($1::int[])`,
+          [clienteIds],
+        );
+        syncedClienteIds = r.rows.map((row) => row.id);
+      }
+
+      return reply.send({ ok: true, syncedPdvIds, syncedClienteIds });
+    },
+  );
+
   /** PDVs que já fizeram pelo menos um ping (primeiro ping registrado). */
   app.get(`${PLAYER_PREFIX}/first-pings`, async (req, reply) => {
     if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });

@@ -303,3 +303,66 @@ export async function syncPlayerGatewayRegistry(): Promise<{
   }
   return { clientes, pdvs };
 }
+
+function filterPayloadByPdvIds(
+  raw: PlayerGatewaySyncPayload,
+  pdvIds: number[],
+): { clientes: PlayerGatewaySyncPayload["clientes"]; pdvs: PlayerGatewaySyncPayload["pdvs"] } {
+  const idSet = new Set(pdvIds.filter((id) => Number.isFinite(id) && id > 0));
+  const pdvs = raw.pdvs.filter((p) => idSet.has(p.id));
+  const clienteIds = new Set(pdvs.map((p) => p.clienteId));
+  const clientes = raw.clientes.filter((c) => clienteIds.has(c.id));
+  return { clientes, pdvs };
+}
+
+/** Sync de PDVs específicos (pendentes), em lotes. offset 0 envia clientes necessários. */
+export async function syncPlayerGatewayRegistryBatchForPdvIds(
+  pdvIds: number[],
+  offset: number,
+  batchSize = SYNC_PDV_BATCH_SIZE,
+): Promise<SyncGatewayBatchResult> {
+  const raw = await buildPlayerGatewaySyncPayload();
+  const filtered = filterPayloadByPdvIds(raw, pdvIds);
+  const totalClientes = filtered.clientes.length;
+  const totalPdvs = filtered.pdvs.length;
+  const slice = filtered.pdvs.slice(offset, offset + batchSize);
+
+  if (offset === 0 && totalPdvs === 0) {
+    return {
+      done: true,
+      nextOffset: 0,
+      totalClientes: 0,
+      totalPdvs: 0,
+      clientesSynced: 0,
+      pdvsSynced: 0,
+    };
+  }
+
+  if (slice.length === 0) {
+    return {
+      done: true,
+      nextOffset: offset,
+      totalClientes,
+      totalPdvs,
+      clientesSynced: 0,
+      pdvsSynced: 0,
+    };
+  }
+
+  const hydrated = await hydrateInstalacaoTokens({ clientes: [], pdvs: slice });
+  const chunk = {
+    clientes: offset === 0 ? filtered.clientes : [],
+    pdvs: hydrated.pdvs,
+  };
+  const sent = await postSyncChunk(chunk);
+  const nextOffset = offset + slice.length;
+
+  return {
+    done: nextOffset >= totalPdvs,
+    nextOffset,
+    totalClientes,
+    totalPdvs,
+    clientesSynced: offset === 0 ? sent.clientes : 0,
+    pdvsSynced: sent.pdvs,
+  };
+}

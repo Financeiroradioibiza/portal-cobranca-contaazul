@@ -29,11 +29,13 @@ async function parseApiJson<T>(res: Response): Promise<T> {
 /** Sincroniza Player 5 em lotes de 10 PDVs (várias chamadas curtas ao portal). */
 export async function runPlayerGatewaySyncBatches(
   onProgress?: (syncedPdvs: number, totalPdvs: number | null) => void,
+  pdvIds?: number[],
 ): Promise<{ clientes: number; pdvs: number }> {
   let offset = 0;
   let totalClientes = 0;
   let syncedPdvs = 0;
   let totalPdvs: number | null = null;
+  const filterIds = pdvIds?.filter((id) => Number.isFinite(id) && id > 0);
 
   while (true) {
     onProgress?.(syncedPdvs, totalPdvs);
@@ -41,7 +43,11 @@ export async function runPlayerGatewaySyncBatches(
     const res = await fetch("/api/player/sync-gateway", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ offset, batchSize: SYNC_PDV_BATCH_SIZE }),
+      body: JSON.stringify({
+        offset,
+        batchSize: SYNC_PDV_BATCH_SIZE,
+        ...(filterIds?.length ? { pdvIds: filterIds } : {}),
+      }),
     });
     const data = await parseApiJson<SyncGatewayBatchResult>(res);
     if (!res.ok) throw new Error(data.error ?? "falhou");

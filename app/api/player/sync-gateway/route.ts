@@ -4,6 +4,7 @@ import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 import {
   syncPlayerGatewayRegistry,
   syncPlayerGatewayRegistryBatch,
+  syncPlayerGatewayRegistryBatchForPdvIds,
   SYNC_PDV_BATCH_SIZE,
 } from "@/lib/player/playerGatewaySync";
 
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
       offset?: number;
       batchSize?: number;
       all?: boolean;
+      pdvIds?: number[];
     };
 
     if (body.all === true) {
@@ -32,7 +34,14 @@ export async function POST(request: Request) {
       20,
       Math.max(1, Math.floor(Number(body.batchSize) || SYNC_PDV_BATCH_SIZE)),
     );
-    const result = await syncPlayerGatewayRegistryBatch(offset, batchSize);
+
+    const pdvIdsRaw = Array.isArray(body.pdvIds) ? body.pdvIds : [];
+    const pdvIds = [...new Set(pdvIdsRaw.map((id) => Math.trunc(Number(id))).filter((id) => id > 0))];
+
+    const result =
+      pdvIds.length > 0 ?
+        await syncPlayerGatewayRegistryBatchForPdvIds(pdvIds, offset, batchSize)
+      : await syncPlayerGatewayRegistryBatch(offset, batchSize);
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     if (e instanceof Response) return e;
