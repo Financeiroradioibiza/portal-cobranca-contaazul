@@ -6,7 +6,7 @@ import {
 } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
-import { ensurePdvInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
+import { ensureInstalacaoTokensForKeys } from "@/lib/player/pdvInstalacaoToken";
 
 export type PlayerGatewaySyncPayload = {
   clientes: Array<{
@@ -166,20 +166,27 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
   return { clientes, pdvs };
 }
 
+function rioKeyForSyncPdv(p: PlayerGatewaySyncPayload["pdvs"][number]): string | null {
+  return p.origemRioPdvId ?? (p.origemRioLinhaId ? `linha:${p.origemRioLinhaId}` : null);
+}
+
 async function hydrateInstalacaoTokens(
   payload: PlayerGatewaySyncPayload,
 ): Promise<PlayerGatewaySyncPayload> {
-  const pdvs = await Promise.all(
-    payload.pdvs.map(async (p) => {
-      if (p.instalacaoToken?.trim()) return p;
-      const rioKey =
-        p.origemRioPdvId ??
-        (p.origemRioLinhaId ? `linha:${p.origemRioLinhaId}` : null);
-      if (!rioKey) return p;
-      const token = await ensurePdvInstalacaoToken(rioKey);
-      return { ...p, instalacaoToken: token };
-    }),
-  );
+  const missingKeys = payload.pdvs
+    .filter((p) => !p.instalacaoToken?.trim())
+    .map((p) => rioKeyForSyncPdv(p))
+    .filter((k): k is string => Boolean(k));
+
+  const tokensByKey = await ensureInstalacaoTokensForKeys(missingKeys);
+
+  const pdvs = payload.pdvs.map((p) => {
+    if (p.instalacaoToken?.trim()) return p;
+    const rioKey = rioKeyForSyncPdv(p);
+    const token = rioKey ? tokensByKey.get(rioKey) : undefined;
+    return token ? { ...p, instalacaoToken: token } : p;
+  });
+
   return { ...payload, pdvs };
 }
 
