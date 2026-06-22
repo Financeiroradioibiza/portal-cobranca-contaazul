@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { addMusicasToPasta, reorderPastaMusicas } from "@/lib/criacao/programacaoService";
+import { addMusicasToPasta, removeMusicasFromPasta, reorderPastaMusicas } from "@/lib/criacao/programacaoService";
 
 export const runtime = "nodejs";
 
@@ -30,6 +30,23 @@ export async function PUT(request: Request, ctx: Ctx) {
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/pastas/:id/musicas PUT]", e);
+    return NextResponse.json({ error: "server_error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request, ctx: Ctx) {
+  try {
+    requirePortalSession(await getPortalSession());
+    const { id } = await ctx.params;
+    const body = (await request.json().catch(() => ({}))) as { musicaIds?: string[] };
+    const removed = await removeMusicasFromPasta(
+      id,
+      Array.isArray(body.musicaIds) ? body.musicaIds : [],
+    );
+    return NextResponse.json({ removed });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    console.error("[criacao/pastas/:id/musicas DELETE]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }

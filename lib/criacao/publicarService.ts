@@ -27,6 +27,7 @@ export type PublicarResultado = {
 export async function publicarProgramacao(
   programacaoId: string,
   clienteIdGateway: number,
+  pdvIds?: number[],
 ): Promise<PublicarResultado> {
   if (!cloud2Enabled()) throw new Error("cloud2_desabilitado");
 
@@ -38,7 +39,11 @@ export async function publicarProgramacao(
 
   const res = await cloud2Fetch("/publicar", {
     method: "POST",
-    body: JSON.stringify({ programacaoId, clienteIdGateway }),
+    body: JSON.stringify({
+      programacaoId,
+      clienteIdGateway,
+      pdvIds: pdvIds?.length ? pdvIds : undefined,
+    }),
   });
   const data = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
@@ -57,7 +62,7 @@ export async function publicarProgramacao(
   });
 
   const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
-  await signalPlayerProgramacaoUpdate(clienteIdGateway);
+  await signalPlayerProgramacaoUpdate(clienteIdGateway, pdvIds);
 
   const gw = await listGatewayClientes().catch(() => [] as GatewayCliente[]);
   const cli = gw.find((c) => c.id === clienteIdGateway);

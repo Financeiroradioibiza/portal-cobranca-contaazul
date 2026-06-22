@@ -196,20 +196,6 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         gw.release();
       }
 
-      try {
-        const pool = getPool();
-        await pool.query(
-          `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE cliente_id = $1`,
-          [clienteId],
-        );
-      } catch {
-        try {
-          await getPool().query(`UPDATE pdvs SET atualizacao_pendente = 'S' WHERE cliente_id = $1`, [clienteId]);
-        } catch {
-          /* colunas podem não existir ainda */
-        }
-      }
-
       return reply.send({
         ok: true,
         playlists: totalPlaylists,

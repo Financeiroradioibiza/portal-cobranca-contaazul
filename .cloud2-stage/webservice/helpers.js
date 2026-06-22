@@ -28,14 +28,9 @@ export function apiPublicBaseUrl() {
   );
 }
 
-/** Programa do PDV: `pdvs.programa_id` ou primeiro do cliente (legado). */
+/** Programa do PDV: `pdvs.programa_id` amarrado no portal (sync por PDV). Sem fallback legado por cliente. */
 export async function resolveProgramaIdForSession(pool, session) {
   const linked = Number(session.programa_id);
   if (Number.isFinite(linked) && linked > 0) return linked;
-
-  const r = await pool.query(
-    `SELECT id FROM programas WHERE cliente_id = $1 ORDER BY id LIMIT 1`,
-    [session.cliente_id],
-  );
-  return r.rows[0]?.id ?? null;
+  return null;
 }

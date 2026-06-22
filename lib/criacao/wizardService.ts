@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
+import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 
 function norm(s: string): string {
   return s
@@ -154,7 +155,7 @@ export async function gerarPlaylist(instrucao: string, total?: number): Promise<
       artista: m.artista,
       bpm: m.bpm,
       tagIds: new Set(m.tagsManuais.map((t) => t.tagId)),
-      formatoUso: m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato,
+      formatoUso: pickLowestPreviewFormato(m.versoes) ?? undefined,
       uso: usoMap.get(m.id) ?? 0,
     }));
 

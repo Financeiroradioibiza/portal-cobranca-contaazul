@@ -134,9 +134,11 @@ Upload de logo no portal: **Cadastros → IDs Player** (JPEG + sync). Coluna `pl
 
 ## Programação por PDV
 
-- Cadastro PDV: campo **Programação musical** (`producao_pdv_cadastro.programacao_musical`).
-- Deve coincidir com `programas.nome` no gateway após publicar em Criação.
-- Sync: resolve `pdvs.programa_id` → `/playlist/`, `/agendas/`, vinhetas usam esse programa.
+- Central de programações: coluna **PDVs** amarra cada loja a uma programação do cliente (`producao_pdv_cadastro.programacao_id`).
+- Sync envia `programacaoPortalId` → gateway resolve `pdvs.programa_id` via `programas.origem_programacao_id`.
+- **Disparar atualização** publica a programação e sinaliza `atualizacao_pendente` **só nos PDVs amarrados**.
+- Ao mudar amarração no portal, sync + signal no PDV → Player 5 refaz `/playlist/` no ping (programa por loja, não mais um programa único por cliente).
+- `/playlist/` usa exclusivamente `pdvs.programa_id` (sem fallback ao primeiro programa do cliente).
 
 ---
 

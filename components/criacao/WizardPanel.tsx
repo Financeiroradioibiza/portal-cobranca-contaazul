@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 
 type Bucket = { pct: number; frase: string; tagId: string | null; tagNome: string | null };
 type Interpretacao = {
@@ -25,9 +26,6 @@ export function WizardPanel() {
   const [res, setRes] = useState<Resultado | null>(null);
   const [faixas, setFaixas] = useState<Faixa[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState<string | null>(null);
 
   // salvar
   const [programacoes, setProgramacoes] = useState<Programacao[]>([]);
@@ -66,17 +64,6 @@ export function WizardPanel() {
     }
   }
 
-  function play(f: Faixa) {
-    const a = audioRef.current;
-    if (!a || !f.previewUrl) return;
-    if (playing === f.id) {
-      a.pause();
-      return;
-    }
-    a.src = f.previewUrl;
-    a.play().then(() => setPlaying(f.id), () => setPlaying(null));
-  }
-
   const remove = useCallback((id: string) => {
     setFaixas((prev) => prev.filter((f) => f.id !== id));
   }, []);
@@ -111,7 +98,6 @@ export function WizardPanel() {
 
   return (
     <div className="mx-auto max-w-[1100px] px-3 py-6 sm:px-4">
-      <audio ref={audioRef} onEnded={() => setPlaying(null)} onPause={() => setPlaying(null)} className="hidden" />
 
       <div className="mb-6">
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Wizard IA</div>
@@ -199,13 +185,15 @@ export function WizardPanel() {
                 <li key={f.id} className="flex items-center gap-3 px-4 py-2 text-sm">
                   <span className="w-5 shrink-0 text-right text-xs tabular-nums text-slate-400">{idx + 1}</span>
                   {f.previewUrl ?
-                    <button
-                      type="button"
-                      onClick={() => play(f)}
-                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-xs ${playing === f.id ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"}`}
-                    >
-                      {playing === f.id ? "⏸" : "▶"}
-                    </button>
+                    <MusicaPreviewButton
+                      track={{
+                        id: f.id,
+                        titulo: f.titulo,
+                        artista: f.artista,
+                        previewUrl: f.previewUrl,
+                        durationMs: null,
+                      }}
+                    />
                   : <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-slate-100 text-xs text-slate-300 dark:bg-slate-800">🎵</span>
                   }
                   <div className="min-w-0 flex-1">

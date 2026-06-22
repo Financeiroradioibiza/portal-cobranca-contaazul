@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
+import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import {
   deriveLocalStyleTags,
   filterAutoTags,
@@ -77,7 +78,7 @@ export async function listFaixasEdicao(opts: {
   const criativoUserMap = new Map(criativoUsers.map((u) => [u.email, u]));
 
   return items.map((m) => {
-    const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
+    const formatoUso = pickLowestPreviewFormato(m.versoes);
     const tagsAutoRaw = parseAutoTagsFromJson(m.tagsAuto);
     const tagsAuto = [...filterAutoTags(tagsAutoRaw), ...deriveLocalStyleTags(m.bpm, m.energia)];
     return {

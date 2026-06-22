@@ -430,6 +430,8 @@ model ProducaoPdvCadastro {
 
   nome               String               @default("") @db.Text
   programacaoMusical String               @default("Padrão") @map("programacao_musical") @db.VarChar(120)
+  /// Programação musical amarrada a este PDV (Central de programações).
+  programacaoId      String?              @map("programacao_id")
   versaoPlayer       String               @default("") @map("versao_player") @db.VarChar(64)
   cep                String               @default("") @db.VarChar(16)
   endereco           String               @default("") @db.Text
@@ -463,6 +465,9 @@ model ProducaoPdvCadastro {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  programacao Programacao? @relation(fields: [programacaoId], references: [id], onDelete: SetNull)
+
+  @@index([programacaoId])
   @@map("producao_pdv_cadastro")
 }
 
@@ -892,6 +897,7 @@ model Programacao {
   vinhetas     Vinheta[]
   agendamentos Agendamento[]
   atualizacoes ProgramacaoAtualizacao[]
+  pdvCadastros ProducaoPdvCadastro[]
 
   @@index([clienteRef])
   @@map("programacao")

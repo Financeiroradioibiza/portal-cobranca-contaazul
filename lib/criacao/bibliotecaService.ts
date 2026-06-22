@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
+import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
 import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
@@ -171,12 +172,50 @@ async function countProgramacoesPorMusica(ids: string[]): Promise<Map<string, nu
   return map;
 }
 
+function appendDerivedStyleSearch(
+  or: NonNullable<Prisma.MusicaBibliotecaWhereInput["OR"]>,
+  q: string,
+): void {
+  const l = q
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const rules: Array<{ keys: string[]; where: Prisma.MusicaBibliotecaWhereInput }> = [
+    { keys: ["calmo"], where: { energia: { lt: 0.35 } } },
+    {
+      keys: ["moderado"],
+      where: { AND: [{ energia: { gte: 0.35 } }, { energia: { lt: 0.55 } }] },
+    },
+    {
+      keys: ["animado"],
+      where: { AND: [{ energia: { gte: 0.55 } }, { energia: { lt: 0.75 } }] },
+    },
+    { keys: ["alta energia", "altaenergia"], where: { energia: { gte: 0.75 } } },
+    { keys: ["lento"], where: { bpm: { lt: 90 } } },
+    {
+      keys: ["mid-tempo", "midtempo", "mid tempo"],
+      where: { AND: [{ bpm: { gte: 90 } }, { bpm: { lt: 120 } }] },
+    },
+    {
+      keys: ["upbeat"],
+      where: { AND: [{ bpm: { gte: 120 } }, { bpm: { lt: 140 } }] },
+    },
+    { keys: ["dance"], where: { bpm: { gte: 140 } } },
+  ];
+  for (const rule of rules) {
+    if (rule.keys.some((k) => l.includes(k.replace(/\s/g, "")) || l.includes(k))) {
+      or.push(rule.where);
+    }
+  }
+}
+
 function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
   const or: Prisma.MusicaBibliotecaWhereInput["OR"] = [
     { titulo: { contains: q, mode: "insensitive" } },
     { artista: { contains: q, mode: "insensitive" } },
     { isrc: { contains: q, mode: "insensitive" } },
     { tom: { contains: q, mode: "insensitive" } },
+    { tagsAuto: { string_contains: q } },
     {
       tagsManuais: {
         some: {
@@ -194,6 +233,7 @@ function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
   if (Number.isFinite(bpm) && String(bpm) === q.replace(/\s/g, "")) {
     or.push({ bpm });
   }
+  appendDerivedStyleSearch(or, q);
   return or;
 }
 
@@ -205,7 +245,7 @@ function mapMusicaToRow(
 ): MusicaBibliotecaRow {
   const tagsAutoRaw = parseAutoTagsFromJson(m.tagsAuto);
   const tagsAuto = [...filterAutoTags(tagsAutoRaw), ...deriveLocalStyleTags(m.bpm, m.energia)];
-  const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
+  const formatoUso = pickLowestPreviewFormato(m.versoes);
   return {
     id: m.id,
     titulo: m.titulo,

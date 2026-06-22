@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
@@ -77,9 +78,6 @@ export function BibliotecaMusicalPanel() {
   const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
   const [gravadoraFilter, setGravadoraFilter] = useState("");
   const [topTags, setTopTags] = useState<FacetTag[]>([]);
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const [audioError, setAudioError] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [tags, setTags] = useState<TagCriativo[]>([]);
   const [showTagManager, setShowTagManager] = useState(false);
   const [tagFor, setTagFor] = useState<Musica | null>(null);
@@ -113,27 +111,6 @@ export function BibliotecaMusicalPanel() {
       }
     })();
   }, [loadTags]);
-
-  const togglePlay = useCallback(
-    (m: Musica) => {
-      const audio = audioRef.current;
-      if (!audio || !m.previewUrl) return;
-      setAudioError(null);
-      if (playingId === m.id) {
-        audio.pause();
-        return;
-      }
-      audio.src = m.previewUrl;
-      audio.play().then(
-        () => setPlayingId(m.id),
-        () => {
-          setAudioError("Não foi possível tocar esta faixa.");
-          setPlayingId(null);
-        },
-      );
-    },
-    [playingId],
-  );
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
@@ -259,10 +236,6 @@ export function BibliotecaMusicalPanel() {
       try {
         const res = await fetch(`/api/criacao/biblioteca/${m.id}`, { method: "DELETE" });
         if (!res.ok) throw new Error("delete_failed");
-        if (playingId === m.id) {
-          audioRef.current?.pause();
-          setPlayingId(null);
-        }
         setMusicas((prev) => prev.filter((x) => x.id !== m.id));
         setTotal((t) => Math.max(0, t - 1));
       } catch {
@@ -271,27 +244,11 @@ export function BibliotecaMusicalPanel() {
         setDeletingId(null);
       }
     },
-    [playingId],
+    [],
   );
 
   return (
     <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
-      <audio
-        ref={audioRef}
-        crossOrigin="anonymous"
-        onEnded={() => setPlayingId(null)}
-        onPause={() => setPlayingId(null)}
-        onError={() => {
-          setAudioError("Não foi possível carregar o áudio (verifique CSP ou link expirado).");
-          setPlayingId(null);
-        }}
-        className="hidden"
-      />
-      {audioError ?
-        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {audioError}
-        </div>
-      : null}
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
@@ -469,19 +426,16 @@ export function BibliotecaMusicalPanel() {
                 className="grid gap-3 px-4 py-3 lg:grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px] lg:items-center"
               >
                 {m.previewUrl ?
-                  <button
-                    type="button"
-                    onClick={() => togglePlay(m)}
-                    aria-label={playingId === m.id ? "Pausar" : "Tocar"}
-                    title={playingId === m.id ? "Pausar" : "Tocar"}
-                    className={`flex h-9 w-9 items-center justify-center rounded-lg text-base transition ${
-                      playingId === m.id ?
-                        "bg-emerald-600 text-white hover:bg-emerald-500"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {playingId === m.id ? "⏸" : "▶"}
-                  </button>
+                  <MusicaPreviewButton
+                    track={{
+                      id: m.id,
+                      titulo: m.titulo,
+                      artista: m.artista,
+                      previewUrl: m.previewUrl,
+                      durationMs: m.durationMs,
+                    }}
+                    className="h-9 w-9 text-base"
+                  />
                 : <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-base text-slate-300 dark:bg-slate-800">
                     🎵
                   </div>

@@ -40,8 +40,40 @@ type SyncBody = {
     uf?: string;
     nomeCompletoContatoExtra?: string;
     programacaoMusical?: string;
+    programacaoPortalId?: string | null;
   }>;
 };
+
+async function resolveGatewayProgramaId(
+  conn: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<{ id: number }> }> },
+  clienteId: number,
+  programacaoPortalId: string | null | undefined,
+  programacaoMusical: string | undefined,
+): Promise<number | null> {
+  const portalId = String(programacaoPortalId ?? "").trim();
+  if (portalId) {
+    const byOrigem = await conn.query(
+      `SELECT id FROM programas
+        WHERE cliente_id = $1 AND origem_programacao_id = $2
+        ORDER BY id LIMIT 1`,
+      [clienteId, portalId],
+    );
+    if (byOrigem.rows[0]?.id) return byOrigem.rows[0].id;
+  }
+
+  const nome = String(programacaoMusical ?? "").trim();
+  if (nome) {
+    const byNome = await conn.query(
+      `SELECT id FROM programas
+        WHERE cliente_id = $1 AND lower(trim(nome)) = lower(trim($2))
+        ORDER BY id LIMIT 1`,
+      [clienteId, nome],
+    );
+    if (byNome.rows[0]?.id) return byNome.rows[0].id;
+  }
+
+  return null;
+}
 
 /** Sincroniza clientes/PDVs do portal Neon → gateway MySQL (IDs 100+, 100.001). */
 export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix = "/criacao"): Promise<void> {
@@ -241,14 +273,12 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
           }
         }
 
-        const progNome = String(p.programacaoMusical ?? "Padrão").trim() || "Padrão";
-        const progMatch = await conn.query<{ id: number }>(
-          `SELECT id FROM programas
-            WHERE cliente_id = $1 AND lower(trim(nome)) = lower(trim($2))
-            ORDER BY id LIMIT 1`,
-          [p.clienteId, progNome],
+        const programaId = await resolveGatewayProgramaId(
+          conn,
+          p.clienteId,
+          p.programacaoPortalId,
+          p.programacaoMusical,
         );
-        const programaId = progMatch.rows[0]?.id ?? null;
         await conn.query(`UPDATE pdvs SET programa_id = $1 WHERE id = $2`, [programaId, p.id]);
       }
 
@@ -264,17 +294,25 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
   });
 
   /** Após publicar programação — Player 5 lê atualizacao_pendente no ping e refaz /playlist/. */
-  app.post<{ Body: { clienteId?: number } }>(`${PLAYER_PREFIX}/signal-atualizacao`, async (req, reply) => {
+  app.post<{ Body: { clienteId?: number; pdvIds?: number[] } }>(`${PLAYER_PREFIX}/signal-atualizacao`, async (req, reply) => {
     if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
     const clienteId = Number(req.body?.clienteId);
     if (!Number.isFinite(clienteId) || clienteId <= 0) {
       return reply.code(400).send({ ok: false, error: "parametros_invalidos" });
     }
+    const pdvIdsRaw = Array.isArray(req.body?.pdvIds) ? req.body.pdvIds : [];
+    const pdvIds = pdvIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0);
     const pool = getPool();
-    const r = await pool.query(
-      `UPDATE pdvs SET atualizacao_pendente = 'S' WHERE cliente_id = $1`,
-      [clienteId],
-    );
+    const r =
+      pdvIds.length > 0 ?
+        await pool.query(
+          `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE id = ANY($1::int[])`,
+          [pdvIds],
+        )
+      : await pool.query(
+          `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE cliente_id = $1`,
+          [clienteId],
+        );
     return reply.send({ ok: true, pdvs: r.rowCount ?? 0 });
   });
 

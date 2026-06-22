@@ -21,6 +21,14 @@ export type WaveformTrimEdit = {
   onMix?: (sec: number) => void;
 };
 
+export type WaveformRegionSelect = {
+  durationSec: number;
+  startSec: number;
+  endSec: number;
+  onStart: (sec: number) => void;
+  onEnd: (sec: number) => void;
+};
+
 type WaveformBarsProps = {
   previewUrl: string | null;
   barCount?: number;
@@ -31,6 +39,8 @@ type WaveformBarsProps = {
   onSeek?: (ratio: number) => void;
   /** Arrastar handles de trim / mix na waveform */
   trimEdit?: WaveformTrimEdit;
+  /** Seleção de trecho para preview (handles ciano) */
+  regionSelect?: WaveformRegionSelect;
   /** Posição do playhead 0–100 */
   playheadPct?: number;
   overlays?: WaveformOverlay[];
@@ -38,7 +48,7 @@ type WaveformBarsProps = {
   dimColor?: string;
 };
 
-type DragMode = "trim-start" | "trim-end" | "mix" | null;
+type DragMode = "trim-start" | "trim-end" | "mix" | "region-start" | "region-end" | null;
 
 function pctFromSec(sec: number, durationSec: number): number {
   if (durationSec <= 0) return 0;
@@ -53,6 +63,7 @@ export function WaveformBars({
   interactive = false,
   onSeek,
   trimEdit,
+  regionSelect,
   playheadPct,
   overlays = [],
   barColor = "rgba(255,255,255,0.85)",
@@ -146,12 +157,20 @@ export function WaveformBars({
 
   const hitTrimHandle = useCallback(
     (clientX: number): DragMode => {
-      if (!trimEdit || trimEdit.durationSec <= 0) return null;
       const wrap = wrapRef.current;
       if (!wrap) return null;
       const rect = wrap.getBoundingClientRect();
       const x = clientX - rect.left;
       const hit = Math.max(14, rect.width * 0.015);
+
+      if (regionSelect && regionSelect.durationSec > 0) {
+        const startX = (regionSelect.startSec / regionSelect.durationSec) * rect.width;
+        const endX = (regionSelect.endSec / regionSelect.durationSec) * rect.width;
+        if (Math.abs(x - startX) <= hit) return "region-start";
+        if (Math.abs(x - endX) <= hit) return "region-end";
+      }
+
+      if (!trimEdit || trimEdit.durationSec <= 0) return null;
 
       const startX = (trimEdit.trimStartSec / trimEdit.durationSec) * rect.width;
       const endX = ((trimEdit.durationSec - trimEdit.trimEndSec) / trimEdit.durationSec) * rect.width;
@@ -169,12 +188,24 @@ export function WaveformBars({
       }
       return null;
     },
-    [trimEdit],
+    [trimEdit, regionSelect],
   );
 
   const applyDrag = useCallback(
     (mode: DragMode, ratio: number) => {
-      if (!trimEdit || !mode) return;
+      if (!mode) return;
+      if (mode === "region-start" || mode === "region-end") {
+        if (!regionSelect) return;
+        const d = regionSelect.durationSec;
+        const t = ratio * d;
+        if (mode === "region-start") {
+          regionSelect.onStart(Math.min(Math.max(0, t), regionSelect.endSec - 0.1));
+        } else {
+          regionSelect.onEnd(Math.max(Math.min(d, t), regionSelect.startSec + 0.1));
+        }
+        return;
+      }
+      if (!trimEdit) return;
       const d = trimEdit.durationSec;
       const t = ratio * d;
       const endSec = d - trimEdit.trimEndSec;
@@ -193,7 +224,7 @@ export function WaveformBars({
         trimEdit.onMix(Math.round(mix));
       }
     },
-    [trimEdit],
+    [trimEdit, regionSelect],
   );
 
   useEffect(() => {
@@ -237,6 +268,9 @@ export function WaveformBars({
         trimEdit.durationSec,
       )
     : null;
+  const regionStartPct =
+    regionSelect ? pctFromSec(regionSelect.startSec, regionSelect.durationSec) : null;
+  const regionEndPct = regionSelect ? pctFromSec(regionSelect.endSec, regionSelect.durationSec) : null;
 
   return (
     <div
@@ -289,6 +323,20 @@ export function WaveformBars({
           className="pointer-events-none absolute inset-y-0 z-10 w-0.5 -translate-x-1/2 border-l-2 border-dashed border-emerald-400"
           style={{ left: `${mixStartPct}%` }}
           title="Início do ponto de mix"
+        />
+      : null}
+      {regionStartPct != null ?
+        <div
+          className="pointer-events-none absolute inset-y-0 z-10 w-1 -translate-x-1/2 bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.9)]"
+          style={{ left: `${regionStartPct}%` }}
+          title="Início do trecho"
+        />
+      : null}
+      {regionEndPct != null ?
+        <div
+          className="pointer-events-none absolute inset-y-0 z-10 w-1 -translate-x-1/2 bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.9)]"
+          style={{ left: `${regionEndPct}%` }}
+          title="Fim do trecho"
         />
       : null}
       {playheadPct != null ?

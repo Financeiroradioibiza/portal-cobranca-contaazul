@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
+import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 
 export const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"] as const;
 export type Formato = (typeof FORMATOS)[number];
@@ -231,7 +232,7 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
       sortOrder: f.sortOrder,
       musicas: f.musicas.map((pm) => {
         const m = pm.musica;
-        const formatoUso = m.versoes.find((v) => v.formato === "mp3_128_mono")?.formato ?? m.versoes[0]?.formato;
+        const formatoUso = pickLowestPreviewFormato(m.versoes);
         return {
           id: m.id,
           titulo: m.titulo,
@@ -334,6 +335,16 @@ export async function addMusicasToPasta(pastaId: string, musicaIds: string[]): P
 
 export async function removeMusicaFromPasta(pastaId: string, musicaId: string): Promise<void> {
   await prisma.pastaMusica.deleteMany({ where: { pastaId, musicaId } });
+}
+
+/** Remove várias faixas da pasta de uma vez. */
+export async function removeMusicasFromPasta(pastaId: string, musicaIds: string[]): Promise<number> {
+  const ids = Array.from(new Set(musicaIds.filter((x) => typeof x === "string" && x)));
+  if (ids.length === 0) return 0;
+  const result = await prisma.pastaMusica.deleteMany({
+    where: { pastaId, musicaId: { in: ids } },
+  });
+  return result.count;
 }
 
 /** Reordena as músicas da pasta conforme a ordem da lista de ids fornecida. */

@@ -1,11 +1,29 @@
-import { CriacaoErrorDock } from "@/components/criacao/CriacaoErrorDock";
+"use client";
 
-/** Espaço no rodapé para o painel de diagnóstico fixo (sempre visível nos testes). */
+import { CriacaoErrorDock } from "@/components/criacao/CriacaoErrorDock";
+import { MusicaPreviewProvider, useMusicaPreview } from "@/components/criacao/MusicaPreviewDock";
+
+function CriacaoLayoutShell({ children }: { children: React.ReactNode }) {
+  const { track } = useMusicaPreview();
+  return (
+    <div
+      className={
+        track ?
+          "min-h-full pb-[calc(min(46vh,340px)+11rem)]"
+        : "min-h-full pb-[min(46vh,340px)]"
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Espaço no rodapé para player de preview + painel de diagnóstico fixo. */
 export default function CriacaoLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-full pb-[min(46vh,340px)]">
-      {children}
+    <MusicaPreviewProvider>
+      <CriacaoLayoutShell>{children}</CriacaoLayoutShell>
       <CriacaoErrorDock />
-    </div>
+    </MusicaPreviewProvider>
   );
 }

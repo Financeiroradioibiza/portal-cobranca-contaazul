@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { publicarProgramacao, sugerirGatewayCliente, listGatewayClientes } from "@/lib/criacao/publicarService";
+import { publicarProgramacao } from "@/lib/criacao/publicarService";
+import { prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 
 export type FaixaLogItem = {
   musicaId: string;
@@ -176,32 +177,27 @@ export type DispararAtualizacaoResult = {
   musicas: number;
   semArquivo: number;
   clienteGatewayNome: string;
+  pdvsDisparados: number;
 };
 
 export async function dispararAtualizacao(
   programacaoId: string,
   disparadaPor: string,
-  clienteIdGateway?: number,
 ): Promise<DispararAtualizacaoResult> {
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
     select: {
       id: true,
+      clienteRef: true,
       clienteNome: true,
       revisionAtual: true,
-      clienteGatewayId: true,
       snapshotAtual: true,
     },
   });
   if (!prog) throw new Error("programacao_nao_encontrada");
 
-  let gatewayId = clienteIdGateway ?? prog.clienteGatewayId ?? null;
-  if (!gatewayId || gatewayId <= 0) {
-    const clientes = await listGatewayClientes().catch(() => []);
-    const sug = sugerirGatewayCliente(prog.clienteNome, clientes);
-    if (!sug) throw new Error("cliente_gateway_obrigatorio");
-    gatewayId = sug.id;
-  }
+  const { portalClienteId, portalPdvIds } = await prepareDisparoProgramacao(programacaoId);
+  const gatewayId = portalClienteId;
 
   const snapshotAtual = await buildProgramacaoSnapshot(programacaoId);
   const snapshotAnterior = parseSnapshot(prog.snapshotAtual);
@@ -211,7 +207,7 @@ export async function dispararAtualizacao(
   );
 
   const codigo = await gerarCodigoAtualizacao(programacaoId, prog.clienteNome);
-  const pub = await publicarProgramacao(programacaoId, gatewayId);
+  const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds);
   const revision = prog.revisionAtual + 1;
 
   await prisma.$transaction([
@@ -248,5 +244,6 @@ export async function dispararAtualizacao(
     musicas: pub.musicas,
     semArquivo: pub.semArquivo,
     clienteGatewayNome: pub.clienteGatewayNome,
+    pdvsDisparados: portalPdvIds.length,
   };
 }

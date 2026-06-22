@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProgramacoesAdminPanel } from "@/components/criacao/ProgramacoesAdminPanel";
+import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -41,34 +42,11 @@ function formatDuration(ms: number | null): string {
 
 export function ProgramacoesPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playingId, setPlayingId] = useState<string | null>(null);
-
-  const play = useCallback(
-    (m: PastaMusicaView) => {
-      const audio = audioRef.current;
-      if (!audio || !m.previewUrl) return;
-      const key = `${m.id}`;
-      if (playingId === key) {
-        audio.pause();
-        return;
-      }
-      audio.src = m.previewUrl;
-      audio.play().then(() => setPlayingId(key), () => setPlayingId(null));
-    },
-    [playingId],
-  );
 
   if (selectedId) {
     return (
       <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
-        <audio ref={audioRef} crossOrigin="anonymous" onEnded={() => setPlayingId(null)} onPause={() => setPlayingId(null)} className="hidden" />
-        <ProgramacaoEditor
-          id={selectedId}
-          onBack={() => setSelectedId(null)}
-          playingId={playingId}
-          onPlay={play}
-        />
+        <ProgramacaoEditor id={selectedId} onBack={() => setSelectedId(null)} />
       </div>
     );
   }
@@ -80,13 +58,9 @@ export function ProgramacoesPanel() {
 function ProgramacaoEditor({
   id,
   onBack,
-  playingId,
-  onPlay,
 }: {
   id: string;
   onBack: () => void;
-  playingId: string | null;
-  onPlay: (m: PastaMusicaView) => void;
 }) {
   const [prog, setProg] = useState<ProgramacaoDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,6 +68,7 @@ function ProgramacaoEditor({
   const [novaPasta, setNovaPasta] = useState("");
   const [addTo, setAddTo] = useState<PastaView | null>(null);
   const [showPublicar, setShowPublicar] = useState(false);
+  const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +78,17 @@ function ProgramacaoEditor({
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { programacao: ProgramacaoDetail };
       setProg(data.programacao);
+      setSelectedByPasta((prev) => {
+        const next: Record<string, Set<string>> = {};
+        for (const pasta of data.programacao.pastas) {
+          const kept = prev[pasta.id];
+          if (!kept?.size) continue;
+          const valid = new Set(pasta.musicas.map((m) => m.id));
+          const filtered = new Set([...kept].filter((mid) => valid.has(mid)));
+          if (filtered.size > 0) next[pasta.id] = filtered;
+        }
+        return next;
+      });
     } catch {
       setError("Não foi possível carregar a programação.");
     } finally {
@@ -152,6 +138,54 @@ function ProgramacaoEditor({
 
   async function removeMusica(pastaId: string, musicaId: string) {
     await fetch(`/api/criacao/pastas/${pastaId}/musicas/${musicaId}`, { method: "DELETE" });
+    setSelectedByPasta((prev) => {
+      const set = prev[pastaId];
+      if (!set?.has(musicaId)) return prev;
+      const nextSet = new Set(set);
+      nextSet.delete(musicaId);
+      return { ...prev, [pastaId]: nextSet };
+    });
+    await load();
+  }
+
+  function toggleMusicaSelected(pastaId: string, musicaId: string, checked: boolean) {
+    setSelectedByPasta((prev) => {
+      const next = new Set(prev[pastaId] ?? []);
+      if (checked) next.add(musicaId);
+      else next.delete(musicaId);
+      return { ...prev, [pastaId]: next };
+    });
+  }
+
+  function toggleSelectAllPasta(pasta: PastaView) {
+    const allIds = pasta.musicas.map((m) => m.id);
+    setSelectedByPasta((prev) => {
+      const current = prev[pasta.id] ?? new Set<string>();
+      const allSelected = allIds.length > 0 && allIds.every((mid) => current.has(mid));
+      return { ...prev, [pasta.id]: allSelected ? new Set() : new Set(allIds) };
+    });
+  }
+
+  async function removeSelectedMusicas(pasta: PastaView) {
+    const ids = [...(selectedByPasta[pasta.id] ?? [])];
+    if (ids.length === 0) return;
+    if (
+      !confirm(
+        `Remover ${ids.length} faixa${ids.length === 1 ? "" : "s"} da pasta “${pasta.nome}”?`,
+      )
+    ) {
+      return;
+    }
+    await fetch(`/api/criacao/pastas/${pasta.id}/musicas`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ musicaIds: ids }),
+    });
+    setSelectedByPasta((prev) => {
+      const next = { ...prev };
+      delete next[pasta.id];
+      return next;
+    });
     await load();
   }
 
@@ -249,19 +283,51 @@ function ProgramacaoEditor({
           Crie a primeira pasta (playlist) e adicione faixas da biblioteca.
         </div>
       : <div className="space-y-4">
-          {prog.pastas.map((pasta) => (
+          {prog.pastas.map((pasta) => {
+            const selected = selectedByPasta[pasta.id] ?? new Set<string>();
+            const selectedCount = selected.size;
+            const allSelected =
+              pasta.musicas.length > 0 && pasta.musicas.every((m) => selected.has(m.id));
+            const someSelected = selectedCount > 0 && !allSelected;
+
+            return (
             <div
               key={pasta.id}
               className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5 dark:border-slate-800 dark:bg-slate-800/50">
                 <div className="flex items-center gap-2">
+                  {pasta.musicas.length > 0 ?
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someSelected;
+                      }}
+                      onChange={() => toggleSelectAllPasta(pasta)}
+                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-950"
+                      title={allSelected ? "Desmarcar todas" : "Selecionar todas"}
+                      aria-label={`Selecionar todas as faixas de ${pasta.nome}`}
+                    />
+                  : null}
                   <span className="text-sm font-bold">{pasta.nome}</span>
                   <span className="text-xs text-slate-400">
                     {pasta.musicas.length} faixa{pasta.musicas.length === 1 ? "" : "s"}
+                    {selectedCount > 0 ?
+                      ` · ${selectedCount} selecionada${selectedCount === 1 ? "" : "s"}`
+                    : null}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {selectedCount > 0 ?
+                    <button
+                      type="button"
+                      onClick={() => void removeSelectedMusicas(pasta)}
+                      className="rounded border border-red-300 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/70"
+                    >
+                      Remover ({selectedCount})
+                    </button>
+                  : null}
                   <select
                     value={pasta.velocidade}
                     onChange={(e) => void setVelocidade(pasta.id, e.target.value)}
@@ -299,6 +365,13 @@ function ProgramacaoEditor({
               : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                   {pasta.musicas.map((m, idx) => (
                     <li key={m.id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(m.id)}
+                        onChange={(e) => toggleMusicaSelected(pasta.id, m.id, e.target.checked)}
+                        className="h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-950"
+                        aria-label={`Selecionar ${m.titulo}`}
+                      />
                       <div className="flex flex-col text-slate-300">
                         <button
                           type="button"
@@ -320,17 +393,15 @@ function ProgramacaoEditor({
                         </button>
                       </div>
                       {m.previewUrl ?
-                        <button
-                          type="button"
-                          onClick={() => onPlay(m)}
-                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-xs ${
-                            playingId === m.id ?
-                              "bg-emerald-600 text-white"
-                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                          }`}
-                        >
-                          {playingId === m.id ? "⏸" : "▶"}
-                        </button>
+                        <MusicaPreviewButton
+                          track={{
+                            id: m.id,
+                            titulo: m.titulo,
+                            artista: m.artista,
+                            previewUrl: m.previewUrl,
+                            durationMs: m.durationMs,
+                          }}
+                        />
                       : <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-slate-100 text-xs text-slate-300 dark:bg-slate-800">
                           🎵
                         </span>
@@ -359,7 +430,8 @@ function ProgramacaoEditor({
                 </ul>
               }
             </div>
-          ))}
+            );
+          })}
         </div>
       }
 
@@ -912,7 +984,26 @@ function TtsEditor({
   );
 }
 
-type BibRow = { id: string; titulo: string; artista: string; durationMs: number | null };
+type BibRow = {
+  id: string;
+  titulo: string;
+  artista: string;
+  durationMs: number | null;
+  bpm: number | null;
+  tagsManuais: { id: string; nome: string; cor: string; criativoIniciais: string }[];
+  tagsAuto: { fonte: string; chave?: string; valor: string }[];
+};
+
+type TagChip = { id: string; nome: string; cor: string; criativoNome: string };
+
+function tagChipTextColor(hex: string): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return "#0f172a";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "#0f172a" : "#f8fafc";
+}
 
 function AddMusicasModal({
   pasta,
@@ -925,17 +1016,27 @@ function AddMusicasModal({
 }) {
   const [busca, setBusca] = useState("");
   const [draft, setDraft] = useState("");
+  const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
+  const [allTags, setAllTags] = useState<TagChip[]>([]);
   const [rows, setRows] = useState<BibRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const jaNaPasta = useMemo(() => new Set(pasta.musicas.map((m) => m.id)), [pasta.musicas]);
 
+  useEffect(() => {
+    void fetch("/api/criacao/tags")
+      .then((r) => (r.ok ? r.json() : { tags: [] }))
+      .then((d: { tags?: TagChip[] }) => setAllTags(d.tags ?? []))
+      .catch(() => setAllTags([]));
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ pageSize: "100", status: "pronta" });
       if (busca.trim()) params.set("search", busca.trim());
+      if (tagIdFilter) params.set("tagId", tagIdFilter);
       const res = await fetch(`/api/criacao/biblioteca?${params.toString()}`);
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { musicas: BibRow[] };
@@ -945,7 +1046,7 @@ function AddMusicasModal({
     } finally {
       setLoading(false);
     }
-  }, [busca]);
+  }, [busca, tagIdFilter]);
 
   useEffect(() => {
     void load();
@@ -1000,13 +1101,49 @@ function AddMusicasModal({
             type="search"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Buscar na biblioteca (título, artista, ISRC)…"
+            placeholder="Buscar título, artista, ISRC, tag, gravadora, BPM, estilo…"
             className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
           />
           <button type="submit" className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
             Buscar
           </button>
         </form>
+        {allTags.length > 0 ?
+          <div className="max-h-24 overflow-y-auto border-b border-slate-200 px-4 py-2 dark:border-slate-800">
+            <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              Filtrar por tag
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {allTags.map((t) => {
+                const active = tagIdFilter === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTagIdFilter(active ? null : t.id)}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                      active ? "ring-2 ring-slate-900 ring-offset-1 dark:ring-white" : "opacity-90 hover:opacity-100"
+                    }`}
+                    style={{ backgroundColor: t.cor, color: tagChipTextColor(t.cor) }}
+                    title={t.criativoNome ? `[${t.criativoNome}] ${t.nome}` : t.nome}
+                  >
+                    {t.criativoNome ? `[${t.criativoNome}] ` : ""}
+                    {t.nome}
+                  </button>
+                );
+              })}
+              {tagIdFilter ?
+                <button
+                  type="button"
+                  onClick={() => setTagIdFilter(null)}
+                  className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-50 dark:border-slate-600"
+                >
+                  Limpar tag
+                </button>
+              : null}
+            </div>
+          </div>
+        : null}
         <div className="min-h-0 flex-1 overflow-auto">
           {loading ?
             <div className="py-8 text-center text-sm text-slate-500">Carregando…</div>
@@ -1038,6 +1175,28 @@ function AddMusicasModal({
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium text-slate-800 dark:text-slate-100">{m.titulo || "(sem título)"}</div>
                         <div className="truncate text-xs text-slate-500">{m.artista || "—"}</div>
+                        {(m.tagsManuais?.length ?? 0) > 0 || (m.tagsAuto?.length ?? 0) > 0 ?
+                          <div className="mt-0.5 flex flex-wrap gap-1">
+                            {m.tagsManuais?.slice(0, 4).map((t) => (
+                              <span
+                                key={t.id}
+                                className="rounded px-1 py-px text-[9px] font-bold"
+                                style={{ backgroundColor: t.cor, color: tagChipTextColor(t.cor) }}
+                              >
+                                {t.criativoIniciais ? `${t.criativoIniciais} ` : ""}
+                                {t.nome}
+                              </span>
+                            ))}
+                            {m.tagsAuto?.slice(0, 3).map((t, i) => (
+                              <span
+                                key={`${t.fonte}-${t.chave ?? ""}-${t.valor}-${i}`}
+                                className="rounded bg-slate-100 px-1 py-px text-[9px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                              >
+                                {t.valor}
+                              </span>
+                            ))}
+                          </div>
+                        : null}
                       </div>
                       {already ? <span className="shrink-0 text-[10px] text-slate-400">já na pasta</span> : null}
                     </button>

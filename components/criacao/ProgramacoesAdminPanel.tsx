@@ -17,6 +17,18 @@ type ArvoreProg = {
   vinhetas: ArvoreVinheta[];
 };
 
+type PdvProgramacaoRow = {
+  rioPdvKey: string;
+  nome: string;
+  portalPdvId: number | null;
+  codigoDisplay: string;
+  programacaoId: string | null;
+  programacaoNome: string | null;
+  isLinhaProxy: boolean;
+};
+
+type ProgOption = { id: string; nome: string };
+
 const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"];
 const VELOCIDADE_LABEL: Record<string, string> = { baixa: "Baixa", media: "Média", alta: "Alta" };
 
@@ -115,7 +127,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
         </p>
       </div>
 
-      <div className="grid min-h-[560px] grid-cols-1 gap-4 lg:grid-cols-[minmax(260px,320px)_1fr]">
+      <div className="grid min-h-[560px] grid-cols-1 gap-4 xl:grid-cols-[minmax(240px,280px)_minmax(260px,320px)_1fr] lg:grid-cols-[minmax(240px,280px)_1fr]">
         {/* Coluna clientes — estilo Central de Suporte */}
         <div className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="border-b border-slate-200 bg-[#f5f0e8] px-3 py-2.5 dark:border-slate-800 dark:bg-slate-800/80">
@@ -162,6 +174,11 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
             }
           </ul>
         </div>
+
+        {/* Coluna PDVs — amarração programação por loja */}
+        {clienteSel ?
+          <PdvProgramacaoColumn clienteRef={clienteSel.ref} clienteNome={clienteSel.nome} />
+        : null}
 
         {/* Coluna hierarquia */}
         <div className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -338,6 +355,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
         <DispararAtualizacaoModal
           programacaoId={dispararProg.id}
           programacaoNome={dispararProg.nome}
+          clienteRef={clienteSel.ref}
           clienteNome={clienteSel.nome}
           onClose={() => setDispararProg(null)}
           onDone={async () => {
@@ -347,6 +365,150 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
           }}
         />
       : null}
+    </div>
+  );
+}
+
+function PdvProgramacaoColumn({ clienteRef, clienteNome }: { clienteRef: string; clienteNome: string }) {
+  const [pdvs, setPdvs] = useState<PdvProgramacaoRow[]>([]);
+  const [programacoes, setProgramacoes] = useState<ProgOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/criacao/clientes/${encodeURIComponent(clienteRef)}/pdv-programacoes`);
+      if (!res.ok) throw new Error("falha_carregar");
+      const data = (await res.json()) as {
+        pdvs?: PdvProgramacaoRow[];
+        programacoes?: ProgOption[];
+      };
+      setPdvs(data.pdvs ?? []);
+      setProgramacoes(data.programacoes ?? []);
+    } catch {
+      setPdvs([]);
+      setProgramacoes([]);
+      setError("Não foi possível carregar os PDVs.");
+    } finally {
+      setLoading(false);
+    }
+  }, [clienteRef]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function assign(rioPdvKey: string, programacaoId: string | null) {
+    setSavingKey(rioPdvKey);
+    setError(null);
+    try {
+      const res = await fetch(`/api/criacao/clientes/${encodeURIComponent(clienteRef)}/pdv-programacoes`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rioPdvKey, programacaoId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        pdvs?: PdvProgramacaoRow[];
+        programacoes?: ProgOption[];
+      };
+      if (!res.ok) throw new Error(data.error ?? "falha_salvar");
+      setPdvs(data.pdvs ?? []);
+      setProgramacoes(data.programacoes ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao salvar.");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-auto lg:col-span-2 xl:col-span-1">
+      <div className="border-b border-slate-200 bg-[#eef6ff] px-3 py-2.5 dark:border-slate-800 dark:bg-slate-800/80">
+        <div className="text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+          PDVs · {clienteNome}
+        </div>
+        <p className="mt-1 text-[10px] leading-snug text-slate-500">
+          Escolha qual programação musical fica amarrada em cada loja. O disparo de atualização usa só os PDVs
+          marcados.
+        </p>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        {loading ?
+          <p className="px-2 py-6 text-sm text-slate-500">Carregando PDVs…</p>
+        : error ?
+          <p className="px-2 py-4 text-sm text-red-600">{error}</p>
+        : pdvs.length === 0 ?
+          <p className="px-2 py-6 text-sm text-slate-500">Nenhum PDV neste cliente.</p>
+        : <ul className="space-y-2">
+            {pdvs.map((pdv) => (
+              <li
+                key={pdv.rioPdvKey}
+                className="rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 dark:border-slate-700 dark:bg-slate-950/40"
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {pdv.nome}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {pdv.codigoDisplay}
+                      {pdv.isLinhaProxy ? " · proxy linha" : ""}
+                    </div>
+                  </div>
+                  {savingKey === pdv.rioPdvKey ?
+                    <span className="shrink-0 text-[10px] text-slate-400">salvando…</span>
+                  : pdv.programacaoNome ?
+                    <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      {pdv.programacaoNome}
+                    </span>
+                  : <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                      sem prog.
+                    </span>
+                  }
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    disabled={savingKey === pdv.rioPdvKey}
+                    onClick={() => void assign(pdv.rioPdvKey, null)}
+                    className={
+                      "rounded border px-2 py-1 text-[10px] font-semibold transition " +
+                      (!pdv.programacaoId ?
+                        "border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900"
+                      : "border-slate-300 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:text-slate-400")
+                    }
+                  >
+                    Nenhuma
+                  </button>
+                  {programacoes.map((prog) => {
+                    const on = pdv.programacaoId === prog.id;
+                    return (
+                      <button
+                        key={prog.id}
+                        type="button"
+                        disabled={savingKey === pdv.rioPdvKey}
+                        onClick={() => void assign(pdv.rioPdvKey, prog.id)}
+                        className={
+                          "rounded border px-2 py-1 text-[10px] font-semibold transition " +
+                          (on ?
+                            "border-emerald-600 bg-emerald-600 text-white"
+                          : "border-slate-300 text-slate-600 hover:border-emerald-400 hover:text-emerald-700 dark:border-slate-600 dark:text-slate-300")
+                        }
+                      >
+                        {prog.nome}
+                      </button>
+                    );
+                  })}
+                </div>
+              </li>
+            ))}
+          </ul>
+        }
+      </div>
     </div>
   );
 }
@@ -546,74 +708,63 @@ function NovaVinhetaInline({ programacaoId, onDone }: { programacaoId: string; o
   );
 }
 
-type GatewayCliente = { id: number; nome: string; pdvs: number };
-
-type AtualizacaoLogItem = {
-  id: string;
-  codigo: string;
-  revision: number;
-  disparadaEm: string;
-  disparadaPor: string;
-  diff: { entraram: FaixaDiff[]; sairam: FaixaDiff[] };
-  musicasPublicadas: number;
-  playlistsPublicadas: number;
-};
-
 type FaixaDiff = { musicaId: string; titulo: string; artista: string; pastaNome: string };
+
+const DISPARO_ERROR: Record<string, string> = {
+  nenhum_pdv_amarrado: "Nenhum PDV amarrado a esta programação. Escolha os PDVs na coluna do meio.",
+  cliente_gateway_nao_configurado:
+    "Cliente ainda sem ID no Player. Configure o login/ID do cliente na produção antes de disparar.",
+  cloud2_desabilitado: "Cloud2 desabilitado — publicação indisponível.",
+  disparo_falhou: "Falha ao disparar a atualização.",
+};
 
 function DispararAtualizacaoModal({
   programacaoId,
   programacaoNome,
+  clienteRef,
   clienteNome,
   onClose,
   onDone,
 }: {
   programacaoId: string;
   programacaoNome: string;
+  clienteRef: string;
   clienteNome: string;
   onClose: () => void;
   onDone: () => void | Promise<void>;
 }) {
-  const [clientes, setClientes] = useState<GatewayCliente[]>([]);
-  const [selId, setSelId] = useState<number | "">("");
-  const [loading, setLoading] = useState(true);
+  const [pdvsAmarrados, setPdvsAmarrados] = useState(0);
+  const [loadingInfo, setLoadingInfo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/criacao/gateway-clientes")
+    fetch(`/api/criacao/clientes/${encodeURIComponent(clienteRef)}/pdv-programacoes`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (cancelled || !d?.clientes) return;
-        const list = d.clientes as GatewayCliente[];
-        setClientes(list);
-        const alvo = clienteNome.trim().toLowerCase();
-        const sug =
-          list.find((c) => c.nome.trim().toLowerCase() === alvo) ??
-          list.find((c) => c.nome.toLowerCase().includes(alvo) || alvo.includes(c.nome.toLowerCase()));
-        if (sug) setSelId(sug.id);
-        else if (list.length === 1) setSelId(list[0].id);
+        if (cancelled || !d?.pdvs) return;
+        const n = (d.pdvs as PdvProgramacaoRow[]).filter((p) => p.programacaoId === programacaoId).length;
+        setPdvsAmarrados(n);
       })
-      .catch(() => setError("Não foi possível carregar clientes do Player."))
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingInfo(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [clienteNome]);
+  }, [clienteRef, programacaoId]);
 
   async function disparar() {
-    if (selId === "" || busy) return;
+    if (busy || pdvsAmarrados === 0) return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/criacao/programacoes/${programacaoId}/disparar-atualizacao`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clienteIdGateway: selId }),
+        body: JSON.stringify({}),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -624,19 +775,21 @@ function DispararAtualizacaoModal({
         playlists?: number;
         semArquivo?: number;
         clienteGatewayNome?: string;
+        pdvsDisparados?: number;
       };
       if (!res.ok) throw new Error(data.error ?? "disparo_falhou");
       const ent = data.diff?.entraram?.length ?? 0;
       const sai = data.diff?.sairam?.length ?? 0;
       setResultado(
-        `${data.codigo ?? "Atualização"} — rev. ${data.revision ?? "?"} enviada para ${data.clienteGatewayNome ?? "Player"}: ` +
-          `${data.playlists ?? 0} pasta(s), ${data.musicas ?? 0} faixa(s). ` +
+        `${data.codigo ?? "Atualização"} — rev. ${data.revision ?? "?"} enviada para ${data.clienteGatewayNome ?? clienteNome}: ` +
+          `${data.pdvsDisparados ?? pdvsAmarrados} PDV(s), ${data.playlists ?? 0} pasta(s), ${data.musicas ?? 0} faixa(s). ` +
           `Entraram ${ent}, saíram ${sai}.` +
           (data.semArquivo ? ` (${data.semArquivo} sem áudio)` : ""),
       );
       await onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao disparar.");
+      const code = e instanceof Error ? e.message : "disparo_falhou";
+      setError(DISPARO_ERROR[code] ?? code);
     } finally {
       setBusy(false);
     }
@@ -656,55 +809,54 @@ function DispararAtualizacaoModal({
         </div>
         <div className="p-4">
           <p className="mb-1 text-xs font-semibold text-slate-700 dark:text-slate-200">{programacaoNome}</p>
+          <p className="mb-1 text-[10px] text-slate-500">Cliente: {clienteNome}</p>
           <p className="mb-3 text-xs text-slate-500">
-            Publica imediatamente no Player 5 o estado atual da programação e registra no log (entraram / saíram).
-            A edição continua livre — você pode disparar de novo quando quiser.
+            Publica no Player 5 o estado atual desta programação nos PDVs amarrados na coluna do meio e registra no
+            log (entraram / saíram). A edição continua livre — você pode disparar de novo quando quiser.
           </p>
-          {loading ?
-            <div className="py-6 text-center text-sm text-slate-400">Carregando clientes do gateway…</div>
-          : clientes.length === 0 ?
-            <div className="py-6 text-center text-sm text-red-600">
-              Nenhum cliente no gateway. Cadastre um cliente de teste no Player 5 primeiro.
+          {loadingInfo ?
+            <div className="mb-3 py-2 text-center text-sm text-slate-400">Verificando PDVs amarrados…</div>
+          : pdvsAmarrados === 0 ?
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              Nenhum PDV amarrado a esta programação. Volte à coluna <strong>PDVs</strong> e escolha as lojas antes
+              de disparar.
             </div>
-          : <>
-              <label className="mb-3 block text-sm">
-                <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente no Player (gateway)</span>
-                <select
-                  value={selId}
-                  onChange={(e) => setSelId(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                >
-                  <option value="">Selecione…</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nome} ({c.pdvs} PDV{c.pdvs === 1 ? "" : "s"})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {error ?
-                <div className="mb-2 text-sm text-red-600">{error}</div>
-              : null}
-              {resultado ?
-                <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-                  {resultado}
-                </div>
-              : null}
-              <button
-                type="button"
-                onClick={() => void disparar()}
-                disabled={busy || selId === "" || !!resultado}
-                className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {busy ? "Disparando…" : "Disparar agora"}
-              </button>
-            </>
+          : <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+              {pdvsAmarrados} PDV{pdvsAmarrados === 1 ? "" : "s"} receberão esta atualização.
+            </div>
           }
+          {error ?
+            <div className="mb-2 text-sm text-red-600">{error}</div>
+          : null}
+          {resultado ?
+            <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+              {resultado}
+            </div>
+          : null}
+          <button
+            type="button"
+            onClick={() => void disparar()}
+            disabled={busy || loadingInfo || pdvsAmarrados === 0 || !!resultado}
+            className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {busy ? "Disparando…" : "Disparar agora"}
+          </button>
         </div>
       </div>
     </div>
   );
 }
+
+type AtualizacaoLogItem = {
+  id: string;
+  codigo: string;
+  revision: number;
+  disparadaEm: string;
+  disparadaPor: string;
+  diff: { entraram: FaixaDiff[]; sairam: FaixaDiff[] };
+  musicasPublicadas: number;
+  playlistsPublicadas: number;
+};
 
 function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
   const [rows, setRows] = useState<AtualizacaoLogItem[]>([]);

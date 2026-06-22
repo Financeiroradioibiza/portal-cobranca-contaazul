@@ -74,6 +74,9 @@ elif [[ "$MODE" == "patch" ]]; then
     "$ROOT/.cloud2-stage/webservice/getMusica.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/webservice/getMusica.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/webservice/helpers.js" \
+    "$REMOTE:$REMOTE_DIR/src/routes/webservice/helpers.js"
+  rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/deploy/Dockerfile.worker" \
     "$REMOTE:$REMOTE_DIR/Dockerfile.worker"
   "${SSH[@]}" "$REMOTE" "rm -f '$REMOTE_DIR/src/workers/criacao/pipeline.ts'"

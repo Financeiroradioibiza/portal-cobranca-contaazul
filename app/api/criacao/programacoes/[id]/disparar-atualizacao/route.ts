@@ -7,20 +7,14 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(request: Request, ctx: Ctx) {
+export async function POST(_request: Request, ctx: Ctx) {
   try {
     const session = requirePortalSession(await getPortalSession());
     if (!cloud2Enabled()) {
       return NextResponse.json({ error: "cloud2_desabilitado" }, { status: 503 });
     }
     const { id } = await ctx.params;
-    const body = (await request.json().catch(() => ({}))) as { clienteIdGateway?: number };
-    const clienteIdGateway = Number(body.clienteIdGateway);
-    const resultado = await dispararAtualizacao(
-      id,
-      session.displayName ?? session.email,
-      Number.isFinite(clienteIdGateway) && clienteIdGateway > 0 ? clienteIdGateway : undefined,
-    );
+    const resultado = await dispararAtualizacao(id, session.displayName ?? session.email);
     return NextResponse.json(resultado);
   } catch (e) {
     if (e instanceof Response) return e;
@@ -28,10 +22,14 @@ export async function POST(request: Request, ctx: Ctx) {
     if (msg === "programacao_nao_encontrada") {
       return NextResponse.json({ error: msg }, { status: 404 });
     }
-    if (msg === "cliente_gateway_obrigatorio" || msg === "cloud2_desabilitado") {
+    if (
+      msg === "nenhum_pdv_amarrado" ||
+      msg === "cliente_gateway_nao_configurado" ||
+      msg === "cloud2_desabilitado"
+    ) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
-    if (msg === "publicar_falhou" || msg === "gateway_clientes_falhou") {
+    if (msg === "publicar_falhou" || msg === "gateway_clientes_falhou" || msg === "sync_registry_falhou") {
       return NextResponse.json({ error: msg }, { status: 502 });
     }
     console.error("[criacao/programacoes/:id/disparar-atualizacao POST]", e);

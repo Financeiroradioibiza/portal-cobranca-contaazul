@@ -3,8 +3,6 @@ import { mapPdvCadastroToGatewayFields } from "@/lib/player/pdvGatewayFields";
 import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import {
   loadMergedProducaoPlayerContext,
-  loadProgramacaoMusicalMaps,
-  resolveProgramacaoMusicalForBucket,
 } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
@@ -26,7 +24,10 @@ export type PlayerGatewaySyncPayload = {
     origemRioPdvId: string | null;
     origemRioLinhaId: string;
     instalacaoToken: string | null;
+    /** Nome legado no gateway (programas.nome). */
     programacaoMusical: string;
+    /** ID da programação no Neon — resolve programas.origem_programacao_id no sync. */
+    programacaoPortalId: string | null;
     status: "A" | "I";
     ctrlPlayer: "S" | "N";
     ctrlPlacaCarro: "S" | "N";
@@ -38,7 +39,7 @@ export type PlayerGatewaySyncPayload = {
 };
 
 export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySyncPayload> {
-  const [ctx, logins, logos, progMaps] = await Promise.all([
+  const [ctx, logins, logos] = await Promise.all([
     loadMergedProducaoPlayerContext(),
     prisma.clientePlayerLogin.findMany({
       where: { active: true },
@@ -47,7 +48,6 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
     prisma.playerClienteLogotipo.findMany({
       select: { portalClienteId: true, jpegBase64: true },
     }),
-    loadProgramacaoMusicalMaps(),
   ]);
 
   const loginByClienteId = new Map(logins.map((l) => [l.portalClienteId, l]));
@@ -66,6 +66,9 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
       cidade: true,
       estado: true,
       playerContatoExtraCodigo: true,
+      programacaoMusical: true,
+      programacaoId: true,
+      programacao: { select: { nome: true, clienteRef: true } },
     },
   });
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
@@ -90,13 +93,24 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
       logotipoBase64: logoByClienteId.get(portalClienteId) ?? "",
     });
 
-    const programacaoMusical = resolveProgramacaoMusicalForBucket(bucket, progMaps);
     const sorted = sortRioPdvsByNome(bucket.pdvs.map((p) => ({ id: p.rioPdvId, nome: p.nome })));
     const pdvList = sorted.map((s) => bucket.pdvs.find((p) => p.rioPdvId === s.id)!);
+
+    function programacaoForPdv(rioPdvKey: string): { nome: string; portalId: string | null } {
+      const cad = cadastroByKey.get(rioPdvKey);
+      if (cad?.programacaoId) {
+        const nome = cad.programacao?.nome?.trim() || cad.programacaoMusical?.trim() || "";
+        return { nome, portalId: cad.programacaoId };
+      }
+      const leg = cad?.programacaoMusical?.trim();
+      if (leg) return { nome: leg, portalId: null };
+      return { nome: "", portalId: null };
+    }
 
     for (const p of pdvList) {
       const cad = cadastroByKey.get(p.rioPdvId);
       const gw = mapPdvCadastroToGatewayFields(cad);
+      const prog = programacaoForPdv(p.rioPdvId);
 
       if (p.isLinhaProxy) {
         const virtualId = proxyPortalPdvId(portalClienteId);
@@ -108,7 +122,8 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
           origemRioPdvId: null,
           origemRioLinhaId: p.rioLinhaId,
           instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
-          programacaoMusical,
+          programacaoMusical: prog.nome,
+          programacaoPortalId: prog.portalId,
           ...gw,
         });
         continue;
@@ -125,7 +140,8 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
         origemRioPdvId: p.rioPdvId,
         origemRioLinhaId: p.rioLinhaId,
         instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
-        programacaoMusical,
+        programacaoMusical: prog.nome,
+        programacaoPortalId: prog.portalId,
         ...gw,
       });
     }
