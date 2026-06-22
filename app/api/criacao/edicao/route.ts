@@ -9,7 +9,9 @@ export async function GET(request: Request) {
     requirePortalSession(await getPortalSession());
     const url = new URL(request.url);
     const search = url.searchParams.get("search") ?? undefined;
-    const faixas = await listFaixasEdicao({ search });
+    const tagId = url.searchParams.get("tagId") ?? undefined;
+    const pastaId = url.searchParams.get("pastaId") ?? undefined;
+    const faixas = await listFaixasEdicao({ search, tagId, pastaId });
     return NextResponse.json({ faixas });
   } catch (e) {
     if (e instanceof Response) return e;

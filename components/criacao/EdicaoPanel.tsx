@@ -7,6 +7,7 @@ import { LazyWaveformBars, WaveformBars } from "@/components/criacao/waveform/Wa
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
+type TagChip = { id: string; nome: string; cor: string; criativoNome?: string };
 
 type Faixa = {
   id: string;
@@ -90,8 +91,17 @@ export function EdicaoPanel() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
+  const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
+  const [allTags, setAllTags] = useState<TagChip[]>([]);
   const [sel, setSel] = useState<Faixa | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void fetch("/api/criacao/tags")
+      .then((r) => (r.ok ? r.json() : { tags: [] }))
+      .then((d: { tags?: TagChip[] }) => setAllTags(d.tags ?? []))
+      .catch(() => setAllTags([]));
+  }, []);
 
   useEffect(() => {
     if (sel) editorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -101,7 +111,10 @@ export function EdicaoPanel() {
     setLoading(true);
     setError(null);
     try {
-      const qs = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : "";
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      if (tagIdFilter) params.set("tagId", tagIdFilter);
+      const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`/api/criacao/edicao${qs}`);
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { faixas: Faixa[] };
@@ -112,7 +125,7 @@ export function EdicaoPanel() {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, tagIdFilter]);
 
   useEffect(() => {
     void load();
@@ -134,19 +147,58 @@ export function EdicaoPanel() {
           e.preventDefault();
           setSearch(draft);
         }}
-        className="mb-4 flex gap-2"
+        className="mb-2 flex gap-2"
       >
         <input
           type="search"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Buscar faixa por título ou artista…"
+          placeholder="Título, artista, tag, mood (calmo, animado…), BPM, pasta ou programação…"
           className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
         />
         <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
           Buscar
         </button>
       </form>
+      {allTags.length > 0 ?
+        <div className="mb-4 max-h-24 overflow-y-auto rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            Filtrar por tag
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {allTags.map((t) => {
+              const active = tagIdFilter === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTagIdFilter(active ? null : t.id)}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                    active ? "ring-2 ring-slate-900 ring-offset-1 dark:ring-white" : "opacity-90 hover:opacity-100"
+                  }`}
+                  style={{ backgroundColor: t.cor, color: readableText(t.cor) }}
+                  title={t.criativoNome ? `[${t.criativoNome}] ${t.nome}` : t.nome}
+                >
+                  {t.criativoNome ? `[${t.criativoNome}] ` : ""}
+                  {t.nome}
+                </button>
+              );
+            })}
+            {tagIdFilter ?
+              <button
+                type="button"
+                onClick={() => setTagIdFilter(null)}
+                className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-50 dark:border-slate-600"
+              >
+                Limpar tag
+              </button>
+            : null}
+          </div>
+        </div>
+      : null}
+      <p className="mb-4 text-[11px] text-slate-500">
+        Dica: busque pelo <strong>nome da pasta</strong> ou da <strong>programação</strong> para listar todas as faixas da playlist.
+      </p>
 
       {loading ?
         <div className="py-10 text-sm text-slate-500">Carregando faixas e waveforms…</div>

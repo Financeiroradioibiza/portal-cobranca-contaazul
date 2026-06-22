@@ -209,8 +209,9 @@ function appendDerivedStyleSearch(
   }
 }
 
-function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
-  const or: Prisma.MusicaBibliotecaWhereInput["OR"] = [
+/** OR clauses compartilhadas: título, artista, tags, mood/BPM, pasta/programação. */
+export function buildBibliotecaSearchOr(q: string): NonNullable<Prisma.MusicaBibliotecaWhereInput["OR"]> {
+  const or: NonNullable<Prisma.MusicaBibliotecaWhereInput["OR"]> = [
     { titulo: { contains: q, mode: "insensitive" } },
     { artista: { contains: q, mode: "insensitive" } },
     { isrc: { contains: q, mode: "insensitive" } },
@@ -228,6 +229,25 @@ function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
         },
       },
     },
+    {
+      pastas: {
+        some: {
+          pasta: {
+            OR: [
+              { nome: { contains: q, mode: "insensitive" } },
+              {
+                programacao: {
+                  OR: [
+                    { nome: { contains: q, mode: "insensitive" } },
+                    { clienteNome: { contains: q, mode: "insensitive" } },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
   ];
   const bpm = Number.parseInt(q, 10);
   if (Number.isFinite(bpm) && String(bpm) === q.replace(/\s/g, "")) {
@@ -235,6 +255,10 @@ function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
   }
   appendDerivedStyleSearch(or, q);
   return or;
+}
+
+function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
+  return buildBibliotecaSearchOr(q);
 }
 
 function mapMusicaToRow(

@@ -82,6 +82,9 @@ elif [[ "$MODE" == "patch" ]]; then
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/deploy/Dockerfile.worker" \
     "$REMOTE:$REMOTE_DIR/Dockerfile.worker"
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/deploy/Dockerfile.api" \
+    "$REMOTE:$REMOTE_DIR/Dockerfile.api"
   "${SSH[@]}" "$REMOTE" "rm -f '$REMOTE_DIR/src/workers/criacao/pipeline.ts'"
 else
   echo "DEPLOY_MODE inválido: $MODE" >&2

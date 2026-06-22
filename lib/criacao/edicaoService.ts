@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import {
+  buildBibliotecaSearchOr,
   deriveLocalStyleTags,
   filterAutoTags,
   parseAutoTagsFromJson,
@@ -28,15 +29,20 @@ export type FaixaEdicaoRow = {
 
 export async function listFaixasEdicao(opts: {
   search?: string;
+  tagId?: string;
+  pastaId?: string;
   limit?: number;
 }): Promise<FaixaEdicaoRow[]> {
   const where: Prisma.MusicaBibliotecaWhereInput = { status: "pronta" };
   const q = opts.search?.trim();
   if (q) {
-    where.OR = [
-      { titulo: { contains: q, mode: "insensitive" } },
-      { artista: { contains: q, mode: "insensitive" } },
-    ];
+    where.OR = buildBibliotecaSearchOr(q);
+  }
+  if (opts.tagId) {
+    where.tagsManuais = { some: { tagId: opts.tagId } };
+  }
+  if (opts.pastaId) {
+    where.pastas = { some: { pastaId: opts.pastaId } };
   }
 
   const items = await prisma.musicaBiblioteca.findMany({
