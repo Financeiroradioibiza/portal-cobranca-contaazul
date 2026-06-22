@@ -1,4 +1,4 @@
-import { cloud2Fetch, cloud2FetchWithTimeout, parseCloud2Json } from "@/lib/criacao/cloud2Client";
+import { cloud2FetchWithTimeout, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 import { mapPdvCadastroToGatewayFields } from "@/lib/player/pdvGatewayFields";
 import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import {
@@ -197,19 +197,17 @@ async function hydrateInstalacaoTokens(
   return { ...payload, pdvs };
 }
 
-export async function syncPlayerGatewayRegistry(): Promise<{
-  clientes: number;
-  pdvs: number;
-}> {
-  const raw = await buildPlayerGatewaySyncPayload();
-  const payload = await hydrateInstalacaoTokens(raw);
+async function postSyncChunk(payload: {
+  clientes: PlayerGatewaySyncPayload["clientes"];
+  pdvs: PlayerGatewaySyncPayload["pdvs"];
+}): Promise<{ clientes: number; pdvs: number }> {
   const res = await cloud2FetchWithTimeout(
     "/player/sync-registry",
     {
       method: "POST",
       body: JSON.stringify(payload),
     },
-    90_000,
+    45_000,
   );
   const data = await parseCloud2Json<{
     ok?: boolean;
@@ -220,5 +218,86 @@ export async function syncPlayerGatewayRegistry(): Promise<{
   if (!res?.ok || !data.ok) {
     throw new Error(data.error ?? "sync_registry_falhou");
   }
-  return { clientes: data.clientes ?? payload.clientes.length, pdvs: data.pdvs ?? payload.pdvs.length };
+  return {
+    clientes: data.clientes ?? payload.clientes.length,
+    pdvs: data.pdvs ?? payload.pdvs.length,
+  };
+}
+
+export const SYNC_PDV_BATCH_SIZE = 10;
+
+export type SyncGatewayBatchResult = {
+  done: boolean;
+  nextOffset: number;
+  totalClientes: number;
+  totalPdvs: number;
+  clientesSynced: number;
+  pdvsSynced: number;
+};
+
+/** Um lote do sync (offset 0 envia todos os clientes + primeiros N PDVs). */
+export async function syncPlayerGatewayRegistryBatch(
+  offset: number,
+  batchSize = SYNC_PDV_BATCH_SIZE,
+): Promise<SyncGatewayBatchResult> {
+  const raw = await buildPlayerGatewaySyncPayload();
+  const totalClientes = raw.clientes.length;
+  const totalPdvs = raw.pdvs.length;
+  const slice = raw.pdvs.slice(offset, offset + batchSize);
+
+  if (offset === 0 && totalClientes === 0 && slice.length === 0) {
+    return {
+      done: true,
+      nextOffset: 0,
+      totalClientes: 0,
+      totalPdvs: 0,
+      clientesSynced: 0,
+      pdvsSynced: 0,
+    };
+  }
+
+  if (slice.length === 0) {
+    return {
+      done: true,
+      nextOffset: offset,
+      totalClientes,
+      totalPdvs,
+      clientesSynced: 0,
+      pdvsSynced: 0,
+    };
+  }
+
+  const hydrated = await hydrateInstalacaoTokens({ clientes: [], pdvs: slice });
+  const chunk = {
+    clientes: offset === 0 ? raw.clientes : [],
+    pdvs: hydrated.pdvs,
+  };
+  const sent = await postSyncChunk(chunk);
+  const nextOffset = offset + slice.length;
+
+  return {
+    done: nextOffset >= totalPdvs,
+    nextOffset,
+    totalClientes,
+    totalPdvs,
+    clientesSynced: offset === 0 ? sent.clientes : 0,
+    pdvsSynced: sent.pdvs,
+  };
+}
+
+export async function syncPlayerGatewayRegistry(): Promise<{
+  clientes: number;
+  pdvs: number;
+}> {
+  let offset = 0;
+  let clientes = 0;
+  let pdvs = 0;
+  while (true) {
+    const batch = await syncPlayerGatewayRegistryBatch(offset);
+    if (offset === 0) clientes = batch.clientesSynced;
+    pdvs += batch.pdvsSynced;
+    if (batch.done) break;
+    offset = batch.nextOffset;
+  }
+  return { clientes, pdvs };
 }

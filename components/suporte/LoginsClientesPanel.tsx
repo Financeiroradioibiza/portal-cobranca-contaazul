@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
+import { runPlayerGatewaySyncBatches } from "@/lib/player/syncGatewayClient";
 
 type LoginRow = {
   portalClienteId: number;
@@ -65,14 +66,17 @@ export function LoginsClientesPanel() {
   const comLogin = useMemo(() => rows.filter((r) => r.hasLogin).length, [rows]);
 
   async function syncPlayerGateway(): Promise<{ clientes: number; pdvs: number } | null> {
-    const res = await fetch("/api/player/sync-gateway", { method: "POST" });
-    const data = (await res.json()) as {
-      error?: string;
-      clientes?: number;
-      pdvs?: number;
-    };
-    if (!res.ok) return null;
-    return { clientes: data.clientes ?? 0, pdvs: data.pdvs ?? 0 };
+    try {
+      return await runPlayerGatewaySyncBatches((synced, total) => {
+        setMsg(
+          total != null
+            ? `Sincronizando Player 5… ${Math.min(synced, total)}/${total} PDVs`
+            : `Sincronizando Player 5… ${synced} PDV(s)`,
+        );
+      });
+    } catch {
+      return null;
+    }
   }
 
   async function runGenerateBatches(onProgress: (detail: string) => void) {

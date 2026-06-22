@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
+import { runPlayerGatewaySyncBatches } from "@/lib/player/syncGatewayClient";
 import { currentBrazilYearMonth, formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 
 type Row = {
@@ -12,20 +13,6 @@ type Row = {
 };
 
 type PilotStep = { id: string; label: string; ok: boolean; detail: string };
-
-async function parseApiJson<T>(res: Response): Promise<T> {
-  const text = await res.text();
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    if (text.trimStart().startsWith("<")) {
-      throw new Error(
-        "O servidor demorou demais ou caiu (resposta HTML). Aguarde o deploy e tente de novo.",
-      );
-    }
-    throw new Error("Resposta inválida do servidor.");
-  }
-}
 
 function ClienteLogotipoBlock({ busy, setBusy, setMsg }: {
   busy: boolean;
@@ -316,12 +303,16 @@ export function PortalPlayerIdsPanel() {
   async function syncGateway() {
     if (busy) return;
     setBusy(true);
-    setMsg("");
+    setMsg("Sincronizando Player 5 (10 PDVs por vez)…");
     try {
-      const res = await fetch("/api/player/sync-gateway", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const data = await parseApiJson<{ error?: string; clientes?: number; pdvs?: number }>(res);
-      if (!res.ok) throw new Error(data.error ?? "falhou");
-      setMsg(`Player 5 sincronizado: ${data.clientes ?? 0} clientes, ${data.pdvs ?? 0} PDVs.`);
+      const { clientes, pdvs } = await runPlayerGatewaySyncBatches((synced, total) => {
+        setMsg(
+          total != null ?
+            `Sincronizando Player 5… ${Math.min(synced, total)}/${total} PDVs`
+          : `Sincronizando Player 5… ${synced} PDV(s) enviados`,
+        );
+      });
+      setMsg(`Player 5 sincronizado: ${clientes} clientes, ${pdvs} PDVs.`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao sincronizar.");
     } finally {
