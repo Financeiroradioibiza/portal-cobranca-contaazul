@@ -58,6 +58,7 @@ Avisos operador (vermelho): Player 5 chama `POST /api/player-avisos` (configurar
 | Vinhetas VP/VA | playlists tipo VP/VA + `agendas` | `/vinhetas_programadas/`, `/vinhetas_agendadas/` |
 | Avisos operador (Suporte) | Neon `player_aviso_operador` (lido via cloud2) | POST `/api/player-avisos` |
 | Download reportado | tabela `atualizadas` | GET/POST `/save_atualizadas/` |
+| Ping + versão + cache no Suporte | `ping_log` + `atualizadas` → `POST /criacao/player/telemetry` | `/api/ping/` + `/save_atualizadas/` |
 | Código contato extra (ALERTACORTE/CADASTRO) | `pdvs.nome_completo_contato_extra` | loginByToken, ping |
 | Logotipo cliente (JPEG) | `clientes.logotipo_jpeg` | GET `/logotipo_cliente/` + URL em loginByToken |
 
@@ -181,6 +182,7 @@ Cronogramas de pastas/vinhetas: publicados via `publishCronogramas.ts`. Avisos o
 ### P3 — Auxiliares
 
 - [x] `save_atualizadas/` (tabela `atualizadas` no gateway)
+- [x] Telemetria Suporte/Dashboard (`/criacao/player/telemetry` ← ping + cache)
 - [x] `logotipo_cliente/` (endpoint + URL no loginByToken quando há JPEG)
 - [x] `nome_completo_contato_extra` (campo cadastro `player_contato_extra_codigo`)
 - [x] Programa por PDV (`programacaoMusical` no cadastro → `pdvs.programa_id` no gateway)

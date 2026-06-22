@@ -24,6 +24,20 @@ export async function registerPingRoutes(app, prefix) {
       /* ping_log opcional */
     }
 
+    const versao = String(req.query.versao_player ?? "").trim();
+    if (versao) {
+      await pool
+        .query(
+          `UPDATE pdvs SET versao_player = $1, date_last_update = now(), updated_at = now() WHERE id = $2`,
+          [versao, row.pdv_id],
+        )
+        .catch(() => null);
+    } else {
+      await pool
+        .query(`UPDATE pdvs SET date_last_update = now(), updated_at = now() WHERE id = $1`, [row.pdv_id])
+        .catch(() => null);
+    }
+
     if (req.query.pdv_atualizado === '1') {
       await pool
         .query(`UPDATE pdvs SET atualizacao_pendente = 'N' WHERE id = $1`, [row.pdv_id])

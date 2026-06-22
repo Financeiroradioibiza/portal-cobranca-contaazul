@@ -369,4 +369,123 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
     );
     return reply.send({ ok: true, pdvs: pdvs.rows });
   });
+
+  /** Telemetria Player 5 para o portal (ping + cache). Portal → cloud2, nunca direto do player. */
+  app.post<{ Body: { pdvIds?: number[] } }>(`${PLAYER_PREFIX}/telemetry`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+
+    const pdvIdsRaw = Array.isArray(req.body?.pdvIds) ? req.body.pdvIds : [];
+    const pdvIds = [...new Set(pdvIdsRaw.map((id) => Math.trunc(Number(id))).filter((id) => id > 0))];
+    if (pdvIds.length === 0) {
+      return reply.send({ ok: true, pdvs: [], pingsToday: 0 });
+    }
+
+    const pool = getPool();
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ping_log (
+        id BIGSERIAL PRIMARY KEY,
+        pdv_id INT NOT NULL,
+        ma TEXT,
+        ip TEXT,
+        versao_player TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `).catch(() => null);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atualizadas (
+        id SERIAL PRIMARY KEY,
+        pdv_id INT NOT NULL,
+        musica_id INT NOT NULL,
+        programa_id INT NOT NULL DEFAULT 0,
+        percentual INT NOT NULL DEFAULT 100,
+        playlist_atualizada CHAR(1) NOT NULL DEFAULT 'S',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (pdv_id, musica_id, programa_id)
+      )
+    `).catch(() => null);
+
+    const pingsTodayRes = await pool.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM ping_log
+        WHERE created_at >= (date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo')`,
+    ).catch(() => ({ rows: [{ n: "0" }] }));
+
+    const stats = await pool.query<{
+      pdv_id: number;
+      first_ping_at: Date | null;
+      last_ping_at: Date | null;
+      player_version: string | null;
+      download_percent: number | null;
+    }>(
+      `WITH targets AS (
+         SELECT unnest($1::int[]) AS pdv_id
+       ),
+       ping_stats AS (
+         SELECT
+           pl.pdv_id,
+           MIN(pl.created_at) AS first_ping_at,
+           MAX(pl.created_at) AS last_ping_at,
+           (ARRAY_AGG(NULLIF(trim(pl.versao_player), '') ORDER BY pl.created_at DESC))[1] AS player_version
+         FROM ping_log pl
+         INNER JOIN targets t ON t.pdv_id = pl.pdv_id
+         GROUP BY pl.pdv_id
+       ),
+       cache_stats AS (
+         SELECT
+           p.id AS pdv_id,
+           CASE
+             WHEN COALESCE(tot.total_musicas, 0) = 0 THEN NULL
+             ELSE ROUND(100.0 * COALESCE(dlv.baixadas, 0) / tot.total_musicas)::int
+           END AS download_percent
+         FROM pdvs p
+         INNER JOIN targets t ON t.pdv_id = p.id
+         LEFT JOIN LATERAL (
+           SELECT COUNT(DISTINCT pm.musica_id)::int AS total_musicas
+           FROM playlists pl
+           INNER JOIN playlist_musicas pm ON pm.playlist_id = pl.id
+           WHERE pl.programa_id = p.programa_id
+             AND pl.tipo = 'N'
+             AND COALESCE(pl.publicado, 'S') = 'S'
+             AND (pl.pdv_id IS NULL OR pl.pdv_id = p.id)
+         ) tot ON true
+         LEFT JOIN LATERAL (
+           SELECT COUNT(DISTINCT a.musica_id)::int AS baixadas
+           FROM atualizadas a
+           WHERE a.pdv_id = p.id
+             AND a.programa_id = COALESCE(p.programa_id, 0)
+             AND a.percentual >= 100
+         ) dlv ON true
+       )
+       SELECT
+         t.pdv_id,
+         ps.first_ping_at,
+         ps.last_ping_at,
+         ps.player_version,
+         cs.download_percent
+       FROM targets t
+       LEFT JOIN ping_stats ps ON ps.pdv_id = t.pdv_id
+       LEFT JOIN cache_stats cs ON cs.pdv_id = t.pdv_id
+       ORDER BY t.pdv_id`,
+      [pdvIds],
+    ).catch(() => ({ rows: [] as Array<{
+      pdv_id: number;
+      first_ping_at: Date | null;
+      last_ping_at: Date | null;
+      player_version: string | null;
+      download_percent: number | null;
+    }> }));
+
+    return reply.send({
+      ok: true,
+      pingsToday: Number(pingsTodayRes.rows[0]?.n ?? 0) || 0,
+      pdvs: stats.rows.map((r) => ({
+        pdvId: r.pdv_id,
+        firstPingAt: r.first_ping_at?.toISOString() ?? null,
+        lastPingAt: r.last_ping_at?.toISOString() ?? null,
+        playerVersion: r.player_version,
+        downloadPercent: r.download_percent,
+      })),
+    });
+  });
 }

@@ -22,6 +22,40 @@ export type ClientePdvProgramacaoPayload = {
   programacoes: Array<{ id: string; nome: string }>;
 };
 
+type CadastroProgramacaoFields = {
+  programacaoId: string | null;
+  programacaoMusical: string;
+  programacao: { id: string; nome: string; clienteRef: string } | null;
+} | null
+  | undefined;
+
+/** Resolve amarração PDV → programação (Central de programações / criação). */
+export function resolvePdvProgramacaoAssignment(
+  cad: CadastroProgramacaoFields,
+  clienteRef: string,
+  programacoesDoCliente: Array<{ id: string; nome: string }>,
+): { programacaoId: string | null; programacaoNome: string | null } {
+  let programacaoId = cad?.programacaoId ?? null;
+  let programacaoNome = cad?.programacao?.nome ?? null;
+
+  if (programacaoId && cad?.programacao?.clienteRef !== clienteRef) {
+    programacaoId = null;
+    programacaoNome = null;
+  }
+
+  if (!programacaoId && cad?.programacaoMusical?.trim()) {
+    const leg = programacoesDoCliente.find(
+      (pr) => pr.nome.trim().toLowerCase() === cad.programacaoMusical.trim().toLowerCase(),
+    );
+    if (leg) {
+      programacaoId = leg.id;
+      programacaoNome = leg.nome;
+    }
+  }
+
+  return { programacaoId, programacaoNome };
+}
+
 async function findBucketForClienteRef(clienteRef: string) {
   const ctx = await loadMergedProducaoPlayerContext();
   const ref = clienteRef.trim();
@@ -78,23 +112,11 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
         proxyPortalPdvId(bucket.portalClienteId)
       : (ctx.pdvPortalIds.get(p.rioPdvId) ?? null);
 
-    let programacaoId = cad?.programacaoId ?? null;
-    let programacaoNome = cad?.programacao?.nome ?? null;
-
-    if (programacaoId && cad?.programacao?.clienteRef !== bucket.key) {
-      programacaoId = null;
-      programacaoNome = null;
-    }
-
-    if (!programacaoId && cad?.programacaoMusical?.trim()) {
-      const leg = programacoes.find(
-        (pr) => pr.nome.trim().toLowerCase() === cad.programacaoMusical.trim().toLowerCase(),
-      );
-      if (leg) {
-        programacaoId = leg.id;
-        programacaoNome = leg.nome;
-      }
-    }
+    const { programacaoId, programacaoNome } = resolvePdvProgramacaoAssignment(
+      cad,
+      bucket.key,
+      programacoes,
+    );
 
     return {
       rioPdvKey: p.rioPdvId,

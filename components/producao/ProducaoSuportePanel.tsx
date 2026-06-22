@@ -37,8 +37,20 @@ function suporteColCount(
   showContatos: boolean,
   clienteMode: boolean,
 ): number {
-  const identCols = clienteMode ? 3 : 5;
-  return identCols + (showPlayer ? 5 : 0) + (showContatos ? 4 : 0);
+  const identCols = clienteMode ? 4 : 5;
+  const playerCols = showPlayer ? (clienteMode ? 4 : 5) : 0;
+  return identCols + playerCols + (showContatos ? 4 : 0);
+}
+
+function ProgramacaoCriacaoCell({ nome }: { nome: string | null }) {
+  if (nome) {
+    return (
+      <span className="font-medium text-emerald-800 dark:text-emerald-300" title="Amarração da Central de programações">
+        {nome}
+      </span>
+    );
+  }
+  return <span className="text-slate-400">sem prog.</span>;
 }
 
 function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
@@ -495,16 +507,49 @@ function IdCell({
   );
 }
 
+function PlayerTelemetryHint({
+  row,
+  telemetriaDisponivel,
+}: {
+  row: SuportePdvRow;
+  telemetriaDisponivel: boolean;
+}) {
+  if (row.portalPdvId == null) {
+    return (
+      <span className="text-[10px] text-amber-700 dark:text-amber-300" title="Atribua ID Player em Cadastros → IDs Player">
+        sem ID Player
+      </span>
+    );
+  }
+  if (!telemetriaDisponivel) {
+    return (
+      <span className="text-[10px] text-slate-400" title="Portal não conseguiu ler o cloud2 (ping/cache)">
+        cloud2 offline
+      </span>
+    );
+  }
+  if (!row.telemetry.lastPingAt) {
+    return (
+      <span className="text-[10px] text-slate-400" title="Player 5 ainda não fez ping neste PDV">
+        aguardando ping
+      </span>
+    );
+  }
+  return null;
+}
+
 function PdvRow({
   row,
   showPlayerBlock,
   showContatosBlock,
   clienteMode,
+  telemetriaDisponivel,
 }: {
   row: SuportePdvRow;
   showPlayerBlock: boolean;
   showContatosBlock: boolean;
   clienteMode: boolean;
+  telemetriaDisponivel: boolean;
 }) {
   const telHref =
     row.contatoLojaTelefone ?
@@ -546,6 +591,11 @@ function PdvRow({
           mono
         />
       </td>
+      {clienteMode ?
+        <td className="min-w-[7rem] max-w-[12rem] px-2 py-2 align-top">
+          <ProgramacaoCriacaoCell nome={row.programacaoCriacaoNome} />
+        </td>
+      : null}
       {!clienteMode ?
         <>
           <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
@@ -564,11 +614,16 @@ function PdvRow({
         <>
           <td className={"px-2 py-2 align-top " + BLOCK_DIVIDER}>
             <DownloadBar percent={row.telemetry.downloadPercent} />
+            <PlayerTelemetryHint row={row} telemetriaDisponivel={telemetriaDisponivel} />
           </td>
-          <td className="px-2 py-2 align-top text-slate-700 dark:text-slate-300">
-            {row.programacaoMusical}
+          {!clienteMode ?
+            <td className="px-2 py-2 align-top">
+              <ProgramacaoCriacaoCell nome={row.programacaoCriacaoNome} />
+            </td>
+          : null}
+          <td className="px-2 py-2 align-top text-slate-500">
+            {row.telemetry.playerVersion ?? row.playerVersion ?? "—"}
           </td>
-          <td className="px-2 py-2 align-top text-slate-500">{row.playerVersion ?? "—"}</td>
           <td className="whitespace-nowrap px-2 py-2 align-top text-slate-500">
             {fmtPing(row.telemetry.firstPingAt)}
           </td>
@@ -619,7 +674,7 @@ export function ProducaoSuportePanel() {
   const [listFilter, setListFilter] = useState<ListFilter>("todos");
   const [batchSize, setBatchSize] = useState<BatchSize>(DEFAULT_BATCH);
   const [visibleCount, setVisibleCount] = useState<number>(DEFAULT_BATCH);
-  const [showPlayerBlock, setShowPlayerBlock] = useState(false);
+  const [showPlayerBlock, setShowPlayerBlock] = useState(true);
   const [showContatosBlock, setShowContatosBlock] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("pdv");
   const [selectedClienteKey, setSelectedClienteKey] = useState<string | null>(null);
@@ -627,7 +682,8 @@ export function ProducaoSuportePanel() {
 
   const clienteMode = viewMode === "cliente" && Boolean(selectedClienteKey);
   const colCount = suporteColCount(showPlayerBlock, showContatosBlock, clienteMode);
-  const identColSpan = clienteMode ? 3 : 5;
+  const identColSpan = clienteMode ? 4 : 5;
+  const playerColSpan = clienteMode ? 4 : 5;
   const hasExtraColumns = showPlayerBlock || showContatosBlock;
 
   const clienteOptions = useMemo(
@@ -702,6 +758,7 @@ export function ProducaoSuportePanel() {
   const visible = filtered.slice(0, visibleCount);
   const remaining = filtered.length - visible.length;
   const ov = data?.overview;
+  const telemetriaDisponivel = ov?.telemetriaDisponivel ?? false;
 
   return (
     <div className="min-w-0 w-full py-4">
@@ -739,24 +796,46 @@ export function ProducaoSuportePanel() {
         />
         <OverviewCard
           title="Sem ping 5 dias"
-          value={String(ov?.semPing5Dias ?? "—")}
+          value={telemetriaDisponivel ? String(ov?.semPing5Dias ?? "—") : "—"}
           sub={
-            ov && ov.semPing5Dias > 0 ?
+            !telemetriaDisponivel ?
+              "Telemetria Player 5 indisponível"
+            : ov && ov.semPing5Dias > 0 ?
               "Player ativo sem ping recente"
             : "Nenhum alerta no momento"
           }
-          subTone={ov && ov.semPing5Dias > 0 ? "bad" : "good"}
+          subTone={
+            !telemetriaDisponivel ? "muted"
+            : ov && ov.semPing5Dias > 0 ? "bad"
+            : "good"
+          }
           icon="⚠️"
           tone="orange"
         />
         <OverviewCard
-          title="Chamados abertos"
-          value="—"
-          sub="Módulo em breve"
-          icon="🎫"
+          title="Cache médio"
+          value={
+            telemetriaDisponivel && ov?.cacheMedioPercent != null ?
+              `${ov.cacheMedioPercent}%`
+            : "—"
+          }
+          sub={
+            telemetriaDisponivel ?
+              `Pings hoje: ${ov?.pingsHoje ?? 0} · via cloud2`
+            : "Player 5 → cloud2 → portal"
+          }
+          icon="📡"
           tone="blue"
         />
       </section>
+
+      {!telemetriaDisponivel && data ?
+        <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] leading-snug text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+          Telemetria do Player 5 (versão, ping, cache) vem do gateway cloud2 — ping a cada ~60 min e
+          `save_atualizadas` no download. Confira `CLOUD2_BASE_URL` + secret e se o PDV já tem ID Player
+          sincronizado.
+        </p>
+      : null}
 
       <section className="min-w-0 rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-700 dark:bg-slate-800/80">
@@ -845,7 +924,7 @@ export function ProducaoSuportePanel() {
             <BlockColumnToggle alwaysOn label="Identificação" />
             <BlockColumnToggle
               active={showPlayerBlock}
-              label="Player & cache"
+              label="Player 5"
               onClick={() => setShowPlayerBlock((v) => !v)}
             />
             <BlockColumnToggle
@@ -897,8 +976,8 @@ export function ProducaoSuportePanel() {
                   {clienteMode ? "PDVs do cliente" : "Identificação"}
                 </th>
                 {showPlayerBlock ?
-                  <th colSpan={5} className={"px-2 pb-0 pt-2 text-left " + BLOCK_DIVIDER}>
-                    Player & cache
+                  <th colSpan={playerColSpan} className={"px-2 pb-0 pt-2 text-left " + BLOCK_DIVIDER}>
+                    Player 5 · cloud2
                   </th>
                 : null}
                 {showContatosBlock ?
@@ -913,6 +992,11 @@ export function ProducaoSuportePanel() {
                 </th>
                 <th className="min-w-[9rem] px-2 py-2">PDV</th>
                 <th className="whitespace-nowrap px-2 py-2">CNPJ PDV</th>
+                {clienteMode ?
+                  <th className="min-w-[7rem] px-2 py-2" title="Amarração definida na Central de programações (criação)">
+                    Programação
+                  </th>
+                : null}
                 {!clienteMode ?
                   <>
                     <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID cliente no Player">
@@ -924,7 +1008,14 @@ export function ProducaoSuportePanel() {
                 {showPlayerBlock ?
                   <>
                     <th className={"whitespace-nowrap px-2 py-2 " + BLOCK_DIVIDER}>Cache</th>
-                    <th className="px-2 py-2">Programação</th>
+                    {!clienteMode ?
+                      <th
+                        className="px-2 py-2"
+                        title="Amarração definida na Central de programações (criação)"
+                      >
+                        Programação
+                      </th>
+                    : null}
                     <th className="whitespace-nowrap px-2 py-2">Versão player</th>
                     <th className="whitespace-nowrap px-2 py-2">1º ping</th>
                     <th className="whitespace-nowrap px-2 py-2">Último ping</th>
@@ -964,6 +1055,7 @@ export function ProducaoSuportePanel() {
                     showPlayerBlock={showPlayerBlock}
                     showContatosBlock={showContatosBlock}
                     clienteMode={clienteMode}
+                    telemetriaDisponivel={telemetriaDisponivel}
                   />
                 ))}
             </tbody>
@@ -1007,9 +1099,9 @@ export function ProducaoSuportePanel() {
         : null}
 
         <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          Ordem: últimos cadastros/instalações primeiro. Busca aceita CNPJ com ou sem máscara, nome
-          do PDV ou do cliente, ou ID do Player (ex. 100.001). Google Maps usa nome + endereço + bairro
-          (igual Consulta Painel).
+          Ordem: últimos cadastros/instalações primeiro. Versão, pings e cache vêm do Player 5 via cloud2
+          (`/api/ping/` + `/api/save_atualizadas/`). Busca aceita CNPJ, nome, ID Player (100.001) ou
+          programação. Maps usa endereço do cadastro.
         </p>
       </section>
     </div>

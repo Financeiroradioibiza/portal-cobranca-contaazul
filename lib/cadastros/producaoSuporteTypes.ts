@@ -13,6 +13,8 @@ export type SuportePdvRow = {
   /** ID do cliente no Player (100, 101, …). */
   portalClienteId: number | null;
   programacaoMusical: string;
+  /** Programação amarrada na Central de programações (criação), por PDV. */
+  programacaoCriacaoNome: string | null;
   playerVersion: string | null;
   contatoLojaNome: string;
   contatoLojaTelefone: string;
@@ -30,6 +32,10 @@ export type SuporteOverview = {
   totalPdvs: number;
   semPing5Dias: number;
   chamadosAbertos: number | null;
+  /** Player 5 → cloud2 → portal respondeu com ping/cache. */
+  telemetriaDisponivel: boolean;
+  pingsHoje: number | null;
+  cacheMedioPercent: number | null;
 };
 
 export type ProducaoSuportePayload = {

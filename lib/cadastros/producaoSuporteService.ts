@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { resolvePdvProgramacaoAssignment } from "@/lib/criacao/pdvProgramacaoService";
 import { buildGoogleMapsFromPdvAddress } from "@/lib/cadastros/googleMapsFromCadastro";
 import {
   getProducaoDashboard,
@@ -16,8 +17,9 @@ function isSemPing5Dias(
   telemetry: DashboardPdvTelemetry,
   controlarPlayer: boolean,
   statusPlayer: "Ativo" | "Inativo",
+  telemetriaOk: boolean,
 ): boolean {
-  if (!controlarPlayer || statusPlayer !== "Ativo") return false;
+  if (!telemetriaOk || !controlarPlayer || statusPlayer !== "Ativo") return false;
   const last = telemetry.lastPingAt;
   if (!last) return true;
   const age = Date.now() - new Date(last).getTime();
@@ -32,12 +34,21 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
     return {
       layoutYearMonth: dash.layoutYearMonth,
       rioSourceYearMonth: dash.rioSourceYearMonth,
-      overview: { totalPdvs: 0, semPing5Dias: 0, chamadosAbertos: null },
+      overview: {
+        totalPdvs: 0,
+        semPing5Dias: 0,
+        chamadosAbertos: null,
+        telemetriaDisponivel: false,
+        pingsHoje: null,
+        cacheMedioPercent: null,
+      },
       pdvs: [],
     };
   }
 
-  const [cadastros, rioPdvs, portalMaps] = await Promise.all([
+  const clienteKeys = [...new Set(dash.clientes.map((c) => c.key))];
+
+  const [cadastros, rioPdvs, portalMaps, programacoesPorCliente] = await Promise.all([
     prisma.producaoPdvCadastro.findMany({
       where: { rioPdvKey: { in: pdvKeys } },
       select: {
@@ -48,6 +59,9 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
         contatoLojaTelefone: true,
         contatoLojaEmail: true,
         createdAt: true,
+        programacaoId: true,
+        programacaoMusical: true,
+        programacao: { select: { id: true, nome: true, clienteRef: true } },
       },
     }),
     prisma.rioCompPdv.findMany({
@@ -55,7 +69,19 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
       select: { id: true, createdAt: true },
     }),
     loadPortalPlayerIdMaps(pdvKeys),
+    prisma.programacao.findMany({
+      where: { clienteRef: { in: clienteKeys } },
+      select: { id: true, nome: true, clienteRef: true },
+      orderBy: { nome: "asc" },
+    }),
   ]);
+
+  const programacoesByClienteRef = new Map<string, Array<{ id: string; nome: string }>>();
+  for (const prog of programacoesPorCliente) {
+    const list = programacoesByClienteRef.get(prog.clienteRef) ?? [];
+    list.push({ id: prog.id, nome: prog.nome });
+    programacoesByClienteRef.set(prog.clienteRef, list);
+  }
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
   const rioCreatedByKey = new Map(rioPdvs.map((p) => [p.id, p.createdAt]));
@@ -78,6 +104,12 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
         pdv.telemetry,
         pdv.controlarPlayer,
         pdv.statusPlayer,
+        dash.overview.telemetriaDisponivel,
+      );
+      const { programacaoNome: programacaoCriacaoNome } = resolvePdvProgramacaoAssignment(
+        cad,
+        cliente.key,
+        programacoesByClienteRef.get(cliente.key) ?? [],
       );
 
       rows.push({
@@ -91,6 +123,7 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
         portalPdvId: link?.portalPdvId ?? null,
         portalClienteId: link?.portalClienteId ?? null,
         programacaoMusical: pdv.programacaoMusical,
+        programacaoCriacaoNome,
         playerVersion: pdv.telemetry.playerVersion,
         contatoLojaNome: cad?.contatoLojaNome?.trim() ?? "",
         contatoLojaTelefone: cad?.contatoLojaTelefone?.trim() ?? "",
@@ -117,6 +150,9 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
       totalPdvs: rows.length,
       semPing5Dias,
       chamadosAbertos: null,
+      telemetriaDisponivel: dash.overview.telemetriaDisponivel,
+      pingsHoje: dash.overview.pingsHoje,
+      cacheMedioPercent: dash.overview.cacheMedioPercent,
     },
     pdvs: rows,
   };

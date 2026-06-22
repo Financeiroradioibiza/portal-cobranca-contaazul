@@ -21,5 +21,6 @@ export function matchesSuporteSearch(row: SuportePdvRow, needle: string): boolea
     if (row.portalPdvId != null && formatPortalPdvIdDisplay(row.portalPdvId).includes(q)) return true;
   }
 
-  return row.nome.toLowerCase().includes(q) || row.clienteNome.toLowerCase().includes(q);
+  return row.nome.toLowerCase().includes(q) || row.clienteNome.toLowerCase().includes(q)
+    || (row.programacaoCriacaoNome?.toLowerCase().includes(q) ?? false);
 }

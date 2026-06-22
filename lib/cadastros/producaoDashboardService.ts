@@ -12,6 +12,10 @@ import {
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
 import {
+  loadPlayerGatewayTelemetry,
+  mergeGatewayTelemetry,
+} from "@/lib/player/loadPlayerGatewayTelemetry";
+import {
   buildPlayerIdMapFromBuckets,
   loadMergedProducaoPlayerContext,
   loadProgramacaoMusicalMaps,
@@ -94,14 +98,18 @@ export type ProducaoDashboardPayload = {
   clientes: DashboardClienteRow[];
 };
 
-function emptyTelemetry(): DashboardPdvTelemetry {
-  return {
-    playerVersion: null,
-    downloadPercent: null,
-    firstPingAt: null,
-    lastPingAt: null,
-    isOnline: null,
-  };
+const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+function isSemPing5Dias(
+  telemetry: DashboardPdvTelemetry,
+  controlarPlayer: boolean,
+  statusPlayer: "Ativo" | "Inativo",
+  telemetriaOk: boolean,
+): boolean {
+  if (!telemetriaOk || !controlarPlayer || statusPlayer !== "Ativo") return false;
+  const last = telemetry.lastPingAt;
+  if (!last) return true;
+  return Date.now() - new Date(last).getTime() > FIVE_DAYS_MS;
 }
 
 function deriveOnlineStatus(
@@ -216,10 +224,14 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
   });
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
 
+  const portalPdvIds = [...new Set([...playerCtx.pdvPortalIds.values()].filter((id) => id > 0))];
+  const gatewayTelemetry = await loadPlayerGatewayTelemetry(portalPdvIds);
+
   let totalPdvs = 0;
   let onlinePdvs = 0;
   let offlinePdvs = 0;
   let semPingPdvs = 0;
+  const cacheSamples: number[] = [];
 
   const clientes: DashboardClienteRow[] = merged.map((c) => {
     const meta = c.rioLinhaId ? linhaMeta.get(c.rioLinhaId) : undefined;
@@ -233,7 +245,18 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
 
     const pdvs: DashboardPdvRow[] = c.pdvs.map((p) => {
       const cad = cadastroByKey.get(p.rioPdvId);
-      const telemetry = emptyTelemetry();
+      const portalPdvId = playerCtx.pdvPortalIds.get(p.rioPdvId) ?? null;
+      const { playerVersion: cadPlayerVersion } = resolveProgramacaoAndPlayerVersion({
+        programacaoMusical: progBucket,
+        versaoPlayer: cad?.versaoPlayer,
+      });
+      const telemetry = mergeGatewayTelemetry(
+        portalPdvId,
+        gatewayTelemetry.byPdvId,
+        cadPlayerVersion,
+      );
+      if (telemetry.downloadPercent != null) cacheSamples.push(telemetry.downloadPercent);
+
       const statusPlayer = cad?.statusPlayer ?? "Ativo";
       const controlarPlayer = cad?.controlarPlayer ?? false;
       const controlarPlaylist = cad?.controlarPlaylist ?? false;
@@ -246,11 +269,11 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
       } else if (online === false) {
         offlinePdvs += 1;
         cOffline += 1;
-      } else if (controlarPlayer && statusPlayer === "Ativo") {
+      } else if (isSemPing5Dias(telemetry, controlarPlayer, statusPlayer, gatewayTelemetry.ok)) {
         semPingPdvs += 1;
       }
 
-      const { programacaoMusical, playerVersion } = resolveProgramacaoAndPlayerVersion({
+      const { programacaoMusical } = resolveProgramacaoAndPlayerVersion({
         programacaoMusical: progBucket,
         versaoPlayer: cad?.versaoPlayer,
       });
@@ -269,10 +292,7 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
         cnpj: cad?.cnpj ?? p.documento ?? "",
         cidade: cad?.cidade ?? "",
         estado: cad?.estado ?? "",
-        telemetry: {
-          ...telemetry,
-          playerVersion: playerVersion ?? telemetry.playerVersion,
-        },
+        telemetry,
       };
     });
 
@@ -306,6 +326,11 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
     };
   });
 
+  const cacheMedioPercent =
+    cacheSamples.length > 0 ?
+      Math.round(cacheSamples.reduce((a, b) => a + b, 0) / cacheSamples.length)
+    : null;
+
   return {
     ...meta,
     overview: {
@@ -313,13 +338,13 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
       onlinePdvs,
       offlinePdvs,
       semPingPdvs,
-      cacheMedioPercent: null,
-      pingsHoje: null,
+      cacheMedioPercent,
+      pingsHoje: gatewayTelemetry.pingsToday,
       pingsVariacaoPercent: null,
       vinhetasGeradas: null,
       chamadosAbertos: null,
       pings24h: null,
-      telemetriaDisponivel: false,
+      telemetriaDisponivel: gatewayTelemetry.ok,
     },
     clientes,
   };
