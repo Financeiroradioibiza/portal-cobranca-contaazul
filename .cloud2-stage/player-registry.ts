@@ -208,8 +208,8 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
         if (clientes.length > 0 && !clienteIds.has(p.clienteId)) continue;
         let instalToken = String(p.instalacaoToken ?? "").trim().slice(0, 32);
         const gwInstalado = p.instaladoPlayer === "S" ? "S" : "N";
-        const prev = await conn.query<{ serial_instalacao: string | null }>(
-          `SELECT serial_instalacao FROM pdvs WHERE id = $1`,
+        const prev = await conn.query<{ serial_instalacao: string | null; programa_id: number | null }>(
+          `SELECT serial_instalacao, programa_id FROM pdvs WHERE id = $1`,
           [p.id],
         );
         if (!instalToken) {
@@ -289,7 +289,14 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
           p.programacaoPortalId,
           p.programacaoMusical,
         );
+        const prevProgramaId = prev.rows[0]?.programa_id ?? null;
         await conn.query(`UPDATE pdvs SET programa_id = $1 WHERE id = $2`, [programaId, p.id]);
+        if (programaId !== prevProgramaId) {
+          await conn.query(
+            `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE id = $1`,
+            [p.id],
+          );
+        }
       }
 
       await conn.query("COMMIT");
