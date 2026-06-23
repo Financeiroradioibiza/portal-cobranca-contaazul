@@ -356,14 +356,26 @@ export async function deletePasta(id: string): Promise<void> {
   await prisma.pasta.delete({ where: { id } });
 }
 
-/** Adiciona músicas ao final da pasta, ignorando as que já estão e ids inexistentes. */
+/** Adiciona músicas ao final da pasta, ignorando as que já estão na programação e ids inexistentes. */
 export async function addMusicasToPasta(pastaId: string, musicaIds: string[]): Promise<number> {
   const ids = Array.from(new Set(musicaIds.filter((x) => typeof x === "string" && x)));
   if (ids.length === 0) return 0;
 
-  const [validas, existentes, last] = await Promise.all([
+  const pasta = await prisma.pasta.findUnique({
+    where: { id: pastaId },
+    select: { programacaoId: true },
+  });
+  if (!pasta) return 0;
+
+  const [validas, existentesNaProgramacao, last] = await Promise.all([
     prisma.musicaBiblioteca.findMany({ where: { id: { in: ids } }, select: { id: true } }),
-    prisma.pastaMusica.findMany({ where: { pastaId, musicaId: { in: ids } }, select: { musicaId: true } }),
+    prisma.pastaMusica.findMany({
+      where: {
+        musicaId: { in: ids },
+        pasta: { programacaoId: pasta.programacaoId },
+      },
+      select: { musicaId: true },
+    }),
     prisma.pastaMusica.findFirst({
       where: { pastaId },
       orderBy: { sortOrder: "desc" },
@@ -372,7 +384,7 @@ export async function addMusicasToPasta(pastaId: string, musicaIds: string[]): P
   ]);
 
   const validSet = new Set(validas.map((v) => v.id));
-  const jaTem = new Set(existentes.map((e) => e.musicaId));
+  const jaTem = new Set(existentesNaProgramacao.map((e) => e.musicaId));
   const novos = ids.filter((id) => validSet.has(id) && !jaTem.has(id));
   if (novos.length === 0) return 0;
 

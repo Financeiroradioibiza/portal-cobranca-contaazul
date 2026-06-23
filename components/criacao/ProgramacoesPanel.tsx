@@ -592,6 +592,7 @@ function ProgramacaoEditor({
       {addTo ?
         <AddMusicasModal
           pasta={addTo}
+          pastas={prog.pastas}
           onClose={() => setAddTo(null)}
           onAdded={async () => {
             await registrarEdicao();
@@ -1079,10 +1080,12 @@ function tagChipTextColor(hex: string): string {
 
 function AddMusicasModal({
   pasta,
+  pastas,
   onClose,
   onAdded,
 }: {
   pasta: PastaView;
+  pastas: PastaView[];
   onClose: () => void;
   onAdded: () => void;
 }) {
@@ -1094,7 +1097,17 @@ function AddMusicasModal({
   const [loading, setLoading] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
-  const jaNaPasta = useMemo(() => new Set(pasta.musicas.map((m) => m.id)), [pasta.musicas]);
+  const { jaNaProgramacao, pastaPorMusica } = useMemo(() => {
+    const ids = new Set<string>();
+    const map = new Map<string, string>();
+    for (const p of pastas) {
+      for (const m of p.musicas) {
+        ids.add(m.id);
+        if (!map.has(m.id)) map.set(m.id, p.nome);
+      }
+    }
+    return { jaNaProgramacao: ids, pastaPorMusica: map };
+  }, [pastas]);
 
   useEffect(() => {
     void fetch("/api/criacao/tags")
@@ -1125,6 +1138,7 @@ function AddMusicasModal({
   }, [load]);
 
   function toggle(id: string) {
+    if (jaNaProgramacao.has(id)) return;
     setSel((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -1223,8 +1237,10 @@ function AddMusicasModal({
             <div className="py-8 text-center text-sm text-slate-400">Nenhuma faixa pronta encontrada.</div>
           : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {rows.map((m) => {
-                const already = jaNaPasta.has(m.id);
+                const already = jaNaProgramacao.has(m.id);
                 const checked = sel.has(m.id);
+                const pastaExistente = pastaPorMusica.get(m.id);
+                const inCurrentPasta = pasta.musicas.some((x) => x.id === m.id);
                 return (
                   <li key={m.id}>
                     <button
@@ -1270,7 +1286,11 @@ function AddMusicasModal({
                           </div>
                         : null}
                       </div>
-                      {already ? <span className="shrink-0 text-[10px] text-slate-400">já na pasta</span> : null}
+                      {already ?
+                        <span className="shrink-0 text-[10px] text-slate-400">
+                          {inCurrentPasta ? "já na pasta" : `já em «${pastaExistente ?? "outra pasta"}»`}
+                        </span>
+                      : null}
                     </button>
                   </li>
                 );
