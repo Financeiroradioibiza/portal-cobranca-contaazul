@@ -1,9 +1,15 @@
 import { getPool } from '../../db/pool.js';
 import { formatLegacyDateTime } from './helpers.js';
+import { clientIpFromRequest, rateLimitCheck } from './rateLimit.js';
 
 /** GET /api/getPdvs/ — lista PDVs do cliente com token (formato CakePHP). */
 export async function registerGetPdvsRoutes(app, prefix) {
   app.get(`${prefix}/getPdvs/`, async (req, reply) => {
+    const ip = clientIpFromRequest(req);
+    if (!rateLimitCheck(`getPdvs:${ip}`, { windowMs: 60_000, max: 40 })) {
+      return reply.send({ mensagem: 'cliente_invalido' });
+    }
+
     const clienteId = Number(req.query.id);
     if (!Number.isFinite(clienteId) || clienteId <= 0) {
       return reply.send({ mensagem: 'cliente_invalido' });

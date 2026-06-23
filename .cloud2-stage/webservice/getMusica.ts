@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { getPool } from '../../db/pool.js';
 import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
 import { loadSessionByToken } from '../loginByToken.js';
+import { musicaAutorizadaParaSession } from './helpers.js';
 
 type GetMusicaQuery = { token?: string; id_musica?: string; playlist_id?: string };
 
@@ -23,6 +24,17 @@ export async function registerGetMusicaRoutes(app: FastifyInstance, prefix: stri
     }
 
     const pool = getPool();
+    const playlistIdRaw = req.query.playlist_id;
+    const autorizada = await musicaAutorizadaParaSession(
+      pool,
+      session,
+      idMusica,
+      playlistIdRaw != null && String(playlistIdRaw).trim() !== '' ? playlistIdRaw : undefined,
+    );
+    if (!autorizada) {
+      return reply.code(404).send({ mensagem: 'musica_nao_encontrada' });
+    }
+
     const r = await pool.query<{ storage_key: string | null }>(
       `SELECT storage_key FROM musicas WHERE id = $1 LIMIT 1`,
       [idMusica],

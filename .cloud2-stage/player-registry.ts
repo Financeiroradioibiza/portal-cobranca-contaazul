@@ -244,9 +244,9 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
              ctrl_playlists = EXCLUDED.ctrl_playlists,
              nome_completo_contato_extra = EXCLUDED.nome_completo_contato_extra,
              instalado = CASE
-               WHEN $16 = 'N' THEN 'N'
                WHEN EXCLUDED.serial_instalacao IS DISTINCT FROM pdvs.serial_instalacao THEN 'N'
-               ELSE COALESCE(EXCLUDED.instalado, pdvs.instalado)
+               WHEN $16 = 'S' THEN 'S'
+               ELSE COALESCE(pdvs.instalado, 'N')
              END`,
           [
             p.id,
@@ -277,8 +277,10 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
              status = 'ok'`,
           [p.id, instalToken],
         );
-        if (tokenChanged || gwInstalado === "N") {
+        if (tokenChanged) {
           await conn.query(`UPDATE pdvs SET instalado = 'N' WHERE id = $1`, [p.id]);
+        } else if (gwInstalado === "S") {
+          await conn.query(`UPDATE pdvs SET instalado = 'S' WHERE id = $1`, [p.id]);
         }
 
         const programaId = await resolveGatewayProgramaId(
@@ -496,6 +498,23 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
         downloadPercent: r.download_percent,
       })),
     });
+  });
+
+  /** Zera telemetria após regerar token no suporte (ping, cache, instalado). */
+  app.post<{ Body: { pdvId?: number } }>(`${PLAYER_PREFIX}/reset-instalacao`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+
+    const pdvId = Math.trunc(Number(req.body?.pdvId));
+    if (!Number.isFinite(pdvId) || pdvId <= 0) {
+      return reply.code(400).send({ ok: false, error: "parametros_invalidos" });
+    }
+
+    const pool = getPool();
+    await pool.query(`DELETE FROM ping_log WHERE pdv_id = $1`, [pdvId]).catch(() => null);
+    await pool.query(`DELETE FROM atualizadas WHERE pdv_id = $1`, [pdvId]).catch(() => null);
+    await pool.query(`UPDATE pdvs SET instalado = 'N' WHERE id = $1`, [pdvId]).catch(() => null);
+
+    return reply.send({ ok: true, pdvId });
   });
 
   /** Quais IDs do portal já existem no gateway (sync). */

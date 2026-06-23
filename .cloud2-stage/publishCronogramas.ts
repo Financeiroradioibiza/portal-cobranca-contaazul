@@ -107,7 +107,6 @@ export async function publishCronogramasAndVinhetas(
     if (ag.alvo_tipo === 'pasta') {
       const playlistId = pastaPlaylistMap.get(ag.alvo_id);
       if (!playlistId) continue;
-      await gw.query(`UPDATE playlists SET tocar_sempre = 'N', publicado = 'S' WHERE id = $1`, [playlistId]);
       for (const dia of diasFromCsv(ag.dias_semana)) {
         await gw.query(
           `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
@@ -182,5 +181,63 @@ export async function publishCronogramasAndVinhetas(
     agendas++;
   }
 
+  await syncPastasSelecionavelFlags(gw, programacaoId, pastaPlaylistMap);
+
   return { agendas, vinhetas };
+}
+
+export function neonSelecionavelAtivo(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === 't' || s === 'true' || s === '1';
+}
+
+/**
+ * Sincroniza `selecionavel` + `tocar_sempre` de **todas** as pastas da programação
+ * (não só as que têm cronograma — pastas selecionáveis costumam ser «tocar sempre»).
+ */
+export async function syncPastasSelecionavelFlags(
+  gw: GwClient,
+  programacaoId: string,
+  pastaPlaylistMap: Map<string, number>,
+): Promise<number> {
+  const pastasSelRes = await portalQuery<{ id: string; selecionavel: boolean }>(
+    `SELECT id, COALESCE(selecionavel, false) AS selecionavel
+       FROM pasta WHERE programacao_id = $1`,
+    [programacaoId],
+  );
+  const selecionavelByPastaId = new Map(
+    pastasSelRes.rows.map((p) => [p.id, neonSelecionavelAtivo(p.selecionavel)]),
+  );
+
+  const agPastasRes = await portalQuery<{ alvo_id: string }>(
+    `SELECT DISTINCT alvo_id
+       FROM agendamento
+      WHERE programacao_id = $1 AND ativo = true AND alvo_tipo = 'pasta'`,
+    [programacaoId],
+  );
+  const pastasComCronograma = new Set(agPastasRes.rows.map((r) => r.alvo_id));
+
+  let updated = 0;
+  for (const [pastaId, playlistId] of pastaPlaylistMap) {
+    const isSel = selecionavelByPastaId.get(pastaId) === true;
+    if (isSel) {
+      await gw.query(
+        `UPDATE playlists SET selecionavel = 'S', tocar_sempre = 'N', publicado = 'S' WHERE id = $1`,
+        [playlistId],
+      );
+    } else if (pastasComCronograma.has(pastaId)) {
+      await gw.query(
+        `UPDATE playlists SET selecionavel = 'N', tocar_sempre = 'N', publicado = 'S' WHERE id = $1`,
+        [playlistId],
+      );
+    } else {
+      await gw.query(
+        `UPDATE playlists SET selecionavel = 'N', tocar_sempre = 'S', publicado = 'S' WHERE id = $1`,
+        [playlistId],
+      );
+    }
+    updated++;
+  }
+  return updated;
 }

@@ -34,3 +34,42 @@ export async function resolveProgramaIdForSession(pool, session) {
   if (Number.isFinite(linked) && linked > 0) return linked;
   return null;
 }
+
+/**
+ * Faixa autorizada se estiver numa playlist do programa deste PDV
+ * (mesma regra de `/playlist/` — impede IDOR por `id_musica` arbitrário).
+ */
+export async function musicaAutorizadaParaSession(pool, session, musicaId, playlistIdOpt) {
+  const programaId = await resolveProgramaIdForSession(pool, session);
+  const pdvId = Number(session.pdv_id);
+  if (!programaId || !Number.isFinite(pdvId) || pdvId <= 0) return false;
+
+  const musicaIdN = Number(musicaId);
+  if (!Number.isFinite(musicaIdN) || musicaIdN <= 0) return false;
+
+  const playlistIdN = Number(playlistIdOpt);
+  if (Number.isFinite(playlistIdN) && playlistIdN > 0) {
+    const scoped = await pool.query(
+      `SELECT 1
+         FROM playlist_musicas pm
+         JOIN playlists pl ON pl.id = pm.playlist_id
+        WHERE pm.musica_id = $1
+          AND pl.id = $2
+          AND (pl.pdv_id = $3 OR (pl.pdv_id IS NULL AND pl.programa_id = $4))
+        LIMIT 1`,
+      [musicaIdN, playlistIdN, pdvId, programaId],
+    );
+    return (scoped.rowCount ?? 0) > 0;
+  }
+
+  const r = await pool.query(
+    `SELECT 1
+       FROM playlist_musicas pm
+       JOIN playlists pl ON pl.id = pm.playlist_id
+      WHERE pm.musica_id = $1
+        AND (pl.pdv_id = $2 OR (pl.pdv_id IS NULL AND pl.programa_id = $3))
+      LIMIT 1`,
+    [musicaIdN, pdvId, programaId],
+  );
+  return (r.rowCount ?? 0) > 0;
+}

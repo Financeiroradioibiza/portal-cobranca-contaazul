@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { deletePasta, updatePasta } from "@/lib/criacao/programacaoService";
+import { syncPastaFlagsProgramacao } from "@/lib/criacao/publicarService";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
@@ -16,6 +18,17 @@ export async function PATCH(request: Request, ctx: Ctx) {
       selecionavel?: boolean;
     };
     const ok = await updatePasta(id, body);
+    if (typeof body.selecionavel === "boolean") {
+      const pasta = await prisma.pasta.findUnique({
+        where: { id },
+        select: { programacaoId: true },
+      });
+      if (pasta?.programacaoId) {
+        await syncPastaFlagsProgramacao(pasta.programacaoId).catch((e) => {
+          console.error("[criacao/pastas/:id PATCH] sync-pasta-flags", e);
+        });
+      }
+    }
     return NextResponse.json({ ok });
   } catch (e) {
     if (e instanceof Response) return e;

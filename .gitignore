@@ -37,6 +37,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# netlify local build artifacts
+/.netlify/
+deno.lock
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -1,9 +1,15 @@
 import bcrypt from 'bcryptjs';
 import { getPool } from '../../db/pool.js';
+import { clientIpFromRequest, rateLimitCheck } from './rateLimit.js';
 
 /** POST /api/login/ — contrato CakePHP + Player 5 ({ mensagem: ["valido", cliente_id] }). */
 export async function registerLoginRoutes(app, prefix) {
   app.post(`${prefix}/login/`, async (req, reply) => {
+    const ip = clientIpFromRequest(req);
+    if (!rateLimitCheck(`login:${ip}`, { windowMs: 60_000, max: 20 })) {
+      return reply.code(429).send({ mensagem: 'usuario_invalido' });
+    }
+
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     const password = String(req.body?.password ?? '');
 

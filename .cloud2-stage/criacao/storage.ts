@@ -6,6 +6,14 @@ function root(): string {
   return criacaoConfig.storageRoot;
 }
 
+/** Impede path traversal em chaves relativas (`../`). */
+function pathDentroDe(baseDir: string, rel: string): string | null {
+  const base = path.resolve(baseDir);
+  const target = path.resolve(baseDir, rel);
+  if (target !== base && !target.startsWith(`${base}${path.sep}`)) return null;
+  return target;
+}
+
 export function ensureStorageDirs(): void {
   for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta']) {
     fs.mkdirSync(path.join(root(), sub), { recursive: true });
@@ -28,7 +36,9 @@ export function workDir(itemId: string): string {
 
 /** Caminho absoluto de uma versão de uso a partir da chave relativa. */
 export function usoPath(rel: string): string {
-  return path.join(root(), 'uso', rel);
+  const safe = pathDentroDe(path.join(root(), 'uso'), rel);
+  if (!safe) throw new Error('storage_key_invalida');
+  return safe;
 }
 
 /** Chave relativa + prefixo `uso:` gravado no Neon/gateway. */
@@ -52,7 +62,13 @@ export function masterStorageKey(musicaId: string): string {
 
 /** Áudio de vinheta (spot) — MP3 plano no disco local. */
 export function vinhetaPath(vinhetaId: string): string {
-  return path.join(root(), 'vinheta', `${vinhetaId}.mp3`);
+  const id = String(vinhetaId ?? '').trim();
+  if (!id || id.includes('..') || id.includes('/') || id.includes('\\')) {
+    throw new Error('vinheta_id_invalido');
+  }
+  const safe = pathDentroDe(path.join(root(), 'vinheta'), `${id}.mp3`);
+  if (!safe) throw new Error('vinheta_id_invalido');
+  return safe;
 }
 
 export function vinhetaStorageKey(vinhetaId: string): string {

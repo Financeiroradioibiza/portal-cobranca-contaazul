@@ -13,26 +13,30 @@ type ResolvedAudio = {
 };
 
 export async function resolveUsoAudio(storageKey: string): Promise<ResolvedAudio | null> {
-  const vinhetaId = vinhetaIdFromStorageKey(storageKey);
-  if (vinhetaId) {
-    const filePath = vinhetaPath(vinhetaId);
+  try {
+    const vinhetaId = vinhetaIdFromStorageKey(storageKey);
+    if (vinhetaId) {
+      const filePath = vinhetaPath(vinhetaId);
+      const stat = await fsp.stat(filePath).catch(() => null);
+      if (!stat) return null;
+      return { filePath, mp3Buffer: null, contentLength: stat.size };
+    }
+
+    const rel = usoRelFromStorageKey(storageKey);
+    const filePath = usoPath(rel);
     const stat = await fsp.stat(filePath).catch(() => null);
     if (!stat) return null;
+
+    if (isRibFile(rel)) {
+      const rib = await fsp.readFile(filePath);
+      const mp3Buffer = decryptRib(rib);
+      return { filePath, mp3Buffer, contentLength: mp3Buffer.length };
+    }
+
     return { filePath, mp3Buffer: null, contentLength: stat.size };
+  } catch {
+    return null;
   }
-
-  const rel = usoRelFromStorageKey(storageKey);
-  const filePath = usoPath(rel);
-  const stat = await fsp.stat(filePath).catch(() => null);
-  if (!stat) return null;
-
-  if (isRibFile(rel)) {
-    const rib = await fsp.readFile(filePath);
-    const mp3Buffer = decryptRib(rib);
-    return { filePath, mp3Buffer, contentLength: mp3Buffer.length };
-  }
-
-  return { filePath, mp3Buffer: null, contentLength: stat.size };
 }
 
 /** Stream MP3 para preview (biblioteca) ou player — suporta .rib e range parcial. */

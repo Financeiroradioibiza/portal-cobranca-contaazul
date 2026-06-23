@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
+import { portalQuery } from '../../criacao/portalDb.js';
 import { getPool } from '../../db/pool.js';
 import { loadSessionByToken } from './loginByToken.js';
 
 type UpdateQuery = { token?: string; pdv_id?: string };
 
-/** GET /updatePdvInstalado/ */
+/** GET /updatePdvInstalado/ — marca licença consumida; some do /getPdvs/ até refazer serial. */
 export async function registerUpdatePdvInstaladoRoutes(
   app: FastifyInstance,
   prefix: string,
@@ -22,7 +23,26 @@ export async function registerUpdatePdvInstaladoRoutes(
     }
 
     const pool = getPool();
-    await pool.query(`UPDATE pdvs SET instalado = 'S', updated_at = now() WHERE id = $1`, [pdvId]);
+    await pool.query(`UPDATE pdvs SET instalado = 'S' WHERE id = $1`, [pdvId]);
+
+    /** Espelha no Neon para o sync-registry não reabrir a licença (`instaladoPlayer: S`). */
+    try {
+      const rio = await pool.query<{ origem_rio_pdv_id: string | null }>(
+        `SELECT origem_rio_pdv_id FROM pdvs WHERE id = $1 LIMIT 1`,
+        [pdvId],
+      );
+      const rioKey = String(rio.rows[0]?.origem_rio_pdv_id ?? '').trim();
+      if (rioKey) {
+        await portalQuery(
+          `UPDATE producao_pdv_cadastro
+              SET player_instalado_em = NOW()
+            WHERE rio_pdv_key = $1`,
+          [rioKey],
+        );
+      }
+    } catch {
+      /* PORTAL_DATABASE_URL ausente ou cadastro órfão — cloud2.instalado=S basta para getPdvs. */
+    }
 
     return reply.send({ mensagem: 'ok' });
   });

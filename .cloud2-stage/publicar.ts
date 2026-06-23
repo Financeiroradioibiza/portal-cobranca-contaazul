@@ -4,7 +4,7 @@ import type pg from 'pg';
 import { getPool } from '../../db/pool.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { criacaoConfig } from '../../criacao/config.js';
-import { publishCronogramasAndVinhetas } from './publishCronogramas.js';
+import { publishCronogramasAndVinhetas, syncPastasSelecionavelFlags, neonSelecionavelAtivo } from './publishCronogramas.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;
@@ -216,7 +216,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
           );
 
           const totalSeg = musRes.rows.reduce((s, m) => s + Math.round((m.duration_ms ?? 0) / 1000), 0);
-          const selecionavel = pasta.selecionavel === true;
+          const selecionavel = neonSelecionavelAtivo(pasta.selecionavel);
           const pl = await gw.query<{ id: number }>(
             `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, selecionavel, tempo_total, origem_pasta_id, publicado)
                VALUES ($1, NULL, $2, 'N', $3, $4, make_interval(secs => $5), $6, 'S')
@@ -301,6 +301,50 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         agendas: totalAgendas,
         vinhetas: totalVinhetas,
       });
+    },
+  );
+
+  /** Sincroniza só `selecionavel`/`tocar_sempre` das pastas (sem republicar faixas). */
+  app.post<{ Body: { programacaoId?: string; clienteIdGateway?: number } }>(
+    `${prefix}/sync-pasta-flags`,
+    async (req, reply) => {
+      if (!authorized(req)) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+      const programacaoId = String(req.body?.programacaoId ?? '').trim();
+      const clienteId = Number(req.body?.clienteIdGateway);
+      if (!programacaoId || !Number.isFinite(clienteId) || clienteId <= 0) {
+        return reply.code(400).send({ ok: false, error: 'parametros_invalidos' });
+      }
+
+      const pool = getPool();
+      const gw = await pool.connect();
+      try {
+        await gw.query('BEGIN');
+        const progGw = await gw.query<{ id: number }>(
+          `SELECT id FROM programas WHERE origem_programacao_id = $1 AND cliente_id = $2 LIMIT 1`,
+          [programacaoId, clienteId],
+        );
+        if (progGw.rowCount === 0) {
+          await gw.query('ROLLBACK');
+          return reply.code(404).send({ ok: false, error: 'programa_nao_encontrado' });
+        }
+        const programaId = progGw.rows[0].id;
+        const pls = await gw.query<{ id: number; origem_pasta_id: string }>(
+          `SELECT id, origem_pasta_id
+             FROM playlists
+            WHERE programa_id = $1 AND origem_pasta_id IS NOT NULL`,
+          [programaId],
+        );
+        const pastaPlaylistMap = new Map(pls.rows.map((r) => [r.origem_pasta_id, r.id]));
+        const updated = await syncPastasSelecionavelFlags(gw, programacaoId, pastaPlaylistMap);
+        await gw.query('COMMIT');
+        return reply.send({ ok: true, updated });
+      } catch (e) {
+        await gw.query('ROLLBACK').catch(() => {});
+        const detail = e instanceof Error ? e.message : String(e);
+        return reply.code(500).send({ ok: false, error: 'sync_pasta_flags_falhou', detail });
+      } finally {
+        gw.release();
+      }
     },
   );
 }

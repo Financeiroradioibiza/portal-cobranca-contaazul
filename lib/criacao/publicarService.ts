@@ -90,6 +90,47 @@ export async function publicarProgramacao(
   };
 }
 
+/**
+ * Propaga só a flag «Selecionável» das pastas ao gateway (sem republicar faixas).
+ * Usado ao marcar/desmarcar no portal — evita exigir republicação completa.
+ */
+export async function syncPastaFlagsProgramacao(programacaoId: string): Promise<void> {
+  if (!cloud2Enabled()) return;
+
+  const prog = await prisma.programacao.findUnique({
+    where: { id: programacaoId },
+    select: { publicada: true, clienteGatewayId: true },
+  });
+  if (!prog?.publicada || !prog.clienteGatewayId) return;
+
+  const res = await cloud2FetchWithTimeout(
+    "/sync-pasta-flags",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        programacaoId,
+        clienteIdGateway: prog.clienteGatewayId,
+      }),
+    },
+    30_000,
+  );
+  const data = await parseCloud2Json<{ ok?: boolean; error?: string; detail?: string }>(
+    res,
+    "sync-pasta-flags",
+  );
+  if (!res?.ok || !data.ok) {
+    const detail = data.detail?.trim();
+    throw new Error(
+      detail ?
+        `${data.error ?? "sync_pasta_flags_falhou"}: ${detail}`
+      : (data.error ?? "sync_pasta_flags_falhou"),
+    );
+  }
+
+  const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
+  await signalPlayerProgramacaoUpdate(prog.clienteGatewayId);
+}
+
 /** Sugere o cliente do gateway cujo nome mais se aproxima do cliente da produção. */
 export function sugerirGatewayCliente(
   clienteNome: string,
