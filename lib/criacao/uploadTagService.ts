@@ -6,33 +6,44 @@ const DEFAULT_COR = "#6366f1";
 
 /** Aplica tags de upload pendentes (itens concluídos com musicaId). Idempotente. */
 export async function applyPendingUploadTags(limit = 80): Promise<number> {
-  const items = await prisma.processamentoItem.findMany({
-    where: {
-      status: "concluido",
-      musicaId: { not: null },
-      job: { uploadTagNome: { not: "" } },
-    },
-    take: limit,
-    orderBy: { updatedAt: "desc" },
-    include: {
-      job: {
-        select: {
-          uploadTagNome: true,
-          criativoUserId: true,
-          criativoNome: true,
-        },
-      },
-    },
-  });
+  const items = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      musicaId: string;
+      uploadTagNome: string;
+      criativoUserId: string | null;
+      criativoNome: string;
+    }>
+  >`
+    SELECT pi.id,
+           pi.musica_id AS "musicaId",
+           j.upload_tag_nome AS "uploadTagNome",
+           j.criativo_user_id AS "criativoUserId",
+           j.criativo_nome AS "criativoNome"
+      FROM processamento_item pi
+      JOIN processamento_job j ON j.id = pi.job_id
+     WHERE pi.status = 'concluido'
+       AND pi.musica_id IS NOT NULL
+       AND j.upload_tag_nome <> ''
+       AND NOT EXISTS (
+         SELECT 1
+           FROM musica_tag_manual mtm
+           JOIN tag_criativo tc ON tc.id = mtm.tag_id
+          WHERE mtm.musica_id = pi.musica_id
+            AND tc.nome = j.upload_tag_nome
+            AND COALESCE(tc.criativo_user_id, '') = COALESCE(j.criativo_user_id, '')
+       )
+     ORDER BY pi.updated_at DESC
+     LIMIT ${Math.min(200, Math.max(1, limit))}
+  `;
 
   let applied = 0;
   for (const item of items) {
-    if (!item.musicaId) continue;
     const ok = await applyUploadTagForMusica({
       musicaId: item.musicaId,
-      tagNome: item.job.uploadTagNome,
-      criativoUserId: item.job.criativoUserId,
-      criativoNome: item.job.criativoNome,
+      tagNome: item.uploadTagNome,
+      criativoUserId: item.criativoUserId,
+      criativoNome: item.criativoNome,
     });
     if (ok) applied += 1;
   }

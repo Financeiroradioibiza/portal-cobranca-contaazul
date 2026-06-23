@@ -2,7 +2,6 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { publicarProgramacao } from "@/lib/criacao/publicarService";
 import { prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
-import { syncPlayerGatewayRegistryForPdvIds } from "@/lib/player/playerGatewaySync";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 
 export type FaixaLogItem = {
@@ -210,7 +209,6 @@ export async function dispararAtualizacao(
 
   const codigo = await gerarCodigoAtualizacao(programacaoId, prog.clienteNome);
   const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds);
-  await syncPlayerGatewayRegistryForPdvIds(portalPdvIds);
   const revision = prog.revisionAtual + 1;
   const hasAberta = await hasAtualizacaoAbertaColumn();
 

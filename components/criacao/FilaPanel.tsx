@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FilaJobKanban } from "@/components/criacao/FilaJobKanban";
 import { ETAPA_LABEL } from "@/lib/criacao/filaKanban";
 
@@ -71,6 +71,18 @@ export function FilaPanel() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, JobItem[]>>({});
   const [itemView, setItemView] = useState<"kanban" | "lista">("kanban");
+  const lastSyncPendingAt = useRef(0);
+
+  const syncPending = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastSyncPendingAt.current < 25_000) return;
+    lastSyncPendingAt.current = now;
+    try {
+      await fetch("/api/criacao/fila/sync-pending", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -101,17 +113,19 @@ export function FilaPanel() {
 
   useEffect(() => {
     setLoading(true);
+    void syncPending();
     void load();
-  }, [load]);
+  }, [load, syncPending]);
 
   useEffect(() => {
     if (!autoRefresh && !openId) return;
     const t = setInterval(() => {
+      void syncPending();
       void load();
       if (openId) void loadItems(openId);
     }, 4000);
     return () => clearInterval(t);
-  }, [autoRefresh, openId, load, loadItems]);
+  }, [autoRefresh, openId, load, loadItems, syncPending]);
 
   function toggle(id: string) {
     if (openId === id) {
@@ -138,6 +152,8 @@ export function FilaPanel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decision }),
     });
+    lastSyncPendingAt.current = 0;
+    await syncPending();
     await loadItems(jobId);
     await load();
   }

@@ -599,10 +599,15 @@ function PdvProgramacaoColumn({
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
+        hint?: string;
         pdvs?: PdvProgramacaoRow[];
         programacoes?: ProgOption[];
       };
-      if (!res.ok) throw new Error(data.error ?? "falha_salvar");
+      if (!res.ok) {
+        if (data.pdvs) setPdvs(data.pdvs);
+        if (data.programacoes) setProgramacoes(data.programacoes);
+        throw new Error(data.hint ?? data.error ?? "falha_salvar");
+      }
       setPdvs(data.pdvs ?? []);
       setProgramacoes(data.programacoes ?? []);
     } catch (e) {

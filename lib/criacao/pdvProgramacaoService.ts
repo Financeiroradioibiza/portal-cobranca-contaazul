@@ -2,7 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
-import { syncPlayerGatewayRegistryForPdvIds } from "@/lib/player/playerGatewaySync";
+import { syncPdvProgramacaoToGateway, type SyncPdvProgramacaoResult } from "@/lib/player/pdvProgramacaoGatewaySync";
+
+export type { SyncPdvProgramacaoResult };
 
 export type PdvProgramacaoRow = {
   rioPdvKey: string;
@@ -208,8 +210,11 @@ export async function prepareDisparoProgramacao(programacaoId: string): Promise<
 export async function syncRegistryAfterPdvAssignment(
   portalClienteId: number,
   portalPdvId: number,
-): Promise<void> {
-  await syncPlayerGatewayRegistryForPdvIds([portalPdvId]);
-  const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
-  await signalPlayerProgramacaoUpdate(portalClienteId, [portalPdvId]);
+  expectedProgramacaoPortalId: string | null,
+): Promise<SyncPdvProgramacaoResult> {
+  return syncPdvProgramacaoToGateway({
+    portalClienteId,
+    portalPdvId,
+    expectedProgramacaoPortalId,
+  });
 }

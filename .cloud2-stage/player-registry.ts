@@ -524,8 +524,8 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
     return reply.send({ ok: true, pdvId });
   });
 
-  /** Quais IDs do portal já existem no gateway (sync). */
-  app.post<{ Body: { pdvIds?: number[]; clienteIds?: number[] } }>(
+  /** Quais IDs do portal já existem no gateway (sync). Com `details: true` devolve programa amarrado. */
+  app.post<{ Body: { pdvIds?: number[]; clienteIds?: number[]; details?: boolean } }>(
     `${PLAYER_PREFIX}/registry-check`,
     async (req, reply) => {
       if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
@@ -544,16 +544,50 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
             .filter((id) => id > 0),
         ),
       ];
+      const withDetails = req.body?.details === true;
 
       const pool = getPool();
       let syncedPdvIds: number[] = [];
       let syncedClienteIds: number[] = [];
+      let pdvDetails: Array<{
+        id: number;
+        programaId: number | null;
+        origemProgramacaoId: string | null;
+        programaNome: string | null;
+        atualizacaoPendente: string | null;
+      }> = [];
 
       if (pdvIds.length > 0) {
-        const r = await pool.query<{ id: number }>(`SELECT id FROM pdvs WHERE id = ANY($1::int[])`, [
-          pdvIds,
-        ]);
-        syncedPdvIds = r.rows.map((row) => row.id);
+        if (withDetails) {
+          const r = await pool.query<{
+            id: number;
+            programa_id: number | null;
+            origem_programacao_id: string | null;
+            programa_nome: string | null;
+            atualizacao_pendente: string | null;
+          }>(
+            `SELECT p.id, p.programa_id, p.atualizacao_pendente,
+                    pr.nome AS programa_nome, pr.origem_programacao_id
+               FROM pdvs p
+               LEFT JOIN programas pr ON pr.id = p.programa_id
+              WHERE p.id = ANY($1::int[])
+              ORDER BY p.id`,
+            [pdvIds],
+          );
+          syncedPdvIds = r.rows.map((row) => row.id);
+          pdvDetails = r.rows.map((row) => ({
+            id: row.id,
+            programaId: row.programa_id,
+            origemProgramacaoId: row.origem_programacao_id,
+            programaNome: row.programa_nome,
+            atualizacaoPendente: row.atualizacao_pendente,
+          }));
+        } else {
+          const r = await pool.query<{ id: number }>(`SELECT id FROM pdvs WHERE id = ANY($1::int[])`, [
+            pdvIds,
+          ]);
+          syncedPdvIds = r.rows.map((row) => row.id);
+        }
       }
       if (clienteIds.length > 0) {
         const r = await pool.query<{ id: number }>(
@@ -563,7 +597,7 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
         syncedClienteIds = r.rows.map((row) => row.id);
       }
 
-      return reply.send({ ok: true, syncedPdvIds, syncedClienteIds });
+      return reply.send({ ok: true, syncedPdvIds, syncedClienteIds, pdvDetails });
     },
   );
 

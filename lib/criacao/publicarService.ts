@@ -1,3 +1,5 @@
+import { getPortalPdvIdsForProgramacao } from "@/lib/criacao/pdvProgramacaoService";
+import { syncProgramacaoPdvsToGateway } from "@/lib/player/pdvProgramacaoGatewaySync";
 import { prisma } from "@/lib/prisma";
 import {
   cloud2Enabled,
@@ -74,8 +76,26 @@ export async function publicarProgramacao(
     data: { publicada: true, publishedAt: new Date() },
   });
 
-  const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
-  await signalPlayerProgramacaoUpdate(clienteIdGateway, pdvIds);
+  let portalPdvIdsToSync = pdvIds?.filter((id) => Number.isFinite(id) && id > 0) ?? [];
+  if (portalPdvIdsToSync.length === 0) {
+    try {
+      const linked = await getPortalPdvIdsForProgramacao(programacaoId);
+      portalPdvIdsToSync = linked.portalPdvIds;
+    } catch {
+      portalPdvIdsToSync = [];
+    }
+  }
+
+  if (portalPdvIdsToSync.length > 0) {
+    await syncProgramacaoPdvsToGateway({
+      portalClienteId: clienteIdGateway,
+      portalPdvIds: portalPdvIdsToSync,
+      programacaoPortalId: programacaoId,
+    });
+  } else {
+    const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
+    await signalPlayerProgramacaoUpdate(clienteIdGateway);
+  }
 
   const gw = await listGatewayClientes().catch(() => [] as GatewayCliente[]);
   const cli = gw.find((c) => c.id === clienteIdGateway);
