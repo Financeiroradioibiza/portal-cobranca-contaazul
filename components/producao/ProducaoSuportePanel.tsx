@@ -38,9 +38,17 @@ function suporteColCount(
   clienteMode: boolean,
 ): number {
   const identCols = clienteMode ? 4 : 5;
-  const playerCols = showPlayer ? (clienteMode ? 4 : 5) : 0;
+  const playerCols = showPlayer ? (clienteMode ? 5 : 6) : 0;
   return identCols + playerCols + (showContatos ? 4 : 0);
 }
+
+const EMPTY_TELEMETRY: SuportePdvRow["telemetry"] = {
+  playerVersion: null,
+  downloadPercent: null,
+  firstPingAt: null,
+  lastPingAt: null,
+  isOnline: null,
+};
 
 function ProgramacaoCriacaoCell({ nome }: { nome: string | null }) {
   if (nome) {
@@ -538,18 +546,105 @@ function PlayerTelemetryHint({
   return null;
 }
 
+function PlayerTokenCell({
+  row,
+  canRegenerate,
+  onRegenerated,
+}: {
+  row: SuportePdvRow;
+  canRegenerate: boolean;
+  onRegenerated: (newToken: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const token = row.playerInstalacaoToken;
+
+  async function regerar() {
+    if (!canRegenerate || busy) return;
+    if (
+      !window.confirm(
+        "Gera uma nova chave de instalação. O player atual deixa de funcionar e ping/cache deste PDV serão zerados. Continuar?",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/suporte/pdv/${encodeURIComponent(row.rioPdvKey)}/regenerar-token`,
+        { method: "POST" },
+      );
+      const data = (await res.json()) as {
+        ok?: boolean;
+        playerInstalacaoToken?: string;
+        telemetryResetError?: string | null;
+        gatewaySyncError?: string | null;
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !data.playerInstalacaoToken) {
+        throw new Error(data.error ?? "falhou");
+      }
+      onRegenerated(data.playerInstalacaoToken);
+      if (data.telemetryResetError || data.gatewaySyncError) {
+        window.alert(
+          [
+            "Nova chave gerada.",
+            data.gatewaySyncError ? `Sync gateway: ${data.gatewaySyncError}.` : null,
+            data.telemetryResetError ? `Reset telemetria: ${data.telemetryResetError}.` : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Erro ao regerar token.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex min-w-[7rem] flex-col gap-1">
+      {token ?
+        <div className="flex items-center gap-0.5">
+          <span
+            className="max-w-[5.5rem] truncate font-mono text-[10px] text-slate-600 dark:text-slate-300"
+            title={token}
+          >
+            {token.slice(0, 8)}…
+          </span>
+          <CopyTextButton size="compact" variant="icon" text={token} label="Copiar token" />
+        </div>
+      : <span className="text-[10px] text-slate-400">sem token</span>}
+      {canRegenerate ?
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded border border-amber-400 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+          onClick={() => void regerar()}
+        >
+          {busy ? "…" : "Regerar"}
+        </button>
+      : null}
+    </div>
+  );
+}
+
 function PdvRow({
   row,
   showPlayerBlock,
   showContatosBlock,
   clienteMode,
   telemetriaDisponivel,
+  canRegenerarToken,
+  onTokenRegenerated,
 }: {
   row: SuportePdvRow;
   showPlayerBlock: boolean;
   showContatosBlock: boolean;
   clienteMode: boolean;
   telemetriaDisponivel: boolean;
+  canRegenerarToken: boolean;
+  onTokenRegenerated: (rioPdvKey: string, newToken: string) => void;
 }) {
   const telHref =
     row.contatoLojaTelefone ?
@@ -615,6 +710,13 @@ function PdvRow({
           <td className={"px-2 py-2 align-top " + BLOCK_DIVIDER}>
             <DownloadBar percent={row.telemetry.downloadPercent} />
             <PlayerTelemetryHint row={row} telemetriaDisponivel={telemetriaDisponivel} />
+          </td>
+          <td className="px-2 py-2 align-top">
+            <PlayerTokenCell
+              row={row}
+              canRegenerate={canRegenerarToken}
+              onRegenerated={(newToken) => onTokenRegenerated(row.rioPdvKey, newToken)}
+            />
           </td>
           {!clienteMode ?
             <td className="px-2 py-2 align-top">
@@ -683,7 +785,7 @@ export function ProducaoSuportePanel() {
   const clienteMode = viewMode === "cliente" && Boolean(selectedClienteKey);
   const colCount = suporteColCount(showPlayerBlock, showContatosBlock, clienteMode);
   const identColSpan = clienteMode ? 4 : 5;
-  const playerColSpan = clienteMode ? 4 : 5;
+  const playerColSpan = clienteMode ? 5 : 6;
   const hasExtraColumns = showPlayerBlock || showContatosBlock;
 
   const clienteOptions = useMemo(
@@ -753,6 +855,28 @@ export function ProducaoSuportePanel() {
     if (viewMode === "cliente" && !selectedClienteKey) {
       setViewMode("pdv");
     }
+  }
+
+  function handleTokenRegenerated(rioPdvKey: string, newToken: string) {
+    setData((prev) => {
+      if (!prev) return prev;
+      const telemetriaOk = prev.overview.telemetriaDisponivel;
+      return {
+        ...prev,
+        pdvs: prev.pdvs.map((r) => {
+          if (r.rioPdvKey !== rioPdvKey) return r;
+          const semPing5Dias =
+            telemetriaOk && r.controlarPlayer && r.statusPlayer === "Ativo";
+          return {
+            ...r,
+            playerInstalacaoToken: newToken,
+            playerVersion: null,
+            telemetry: { ...EMPTY_TELEMETRY },
+            semPing5Dias,
+          };
+        }),
+      };
+    });
   }
 
   const visible = filtered.slice(0, visibleCount);
@@ -1008,6 +1132,9 @@ export function ProducaoSuportePanel() {
                 {showPlayerBlock ?
                   <>
                     <th className={"whitespace-nowrap px-2 py-2 " + BLOCK_DIVIDER}>Cache</th>
+                    <th className="whitespace-nowrap px-2 py-2" title="Chave serial de instalação do Player 5">
+                      Token
+                    </th>
                     {!clienteMode ?
                       <th
                         className="px-2 py-2"
@@ -1056,6 +1183,8 @@ export function ProducaoSuportePanel() {
                     showContatosBlock={showContatosBlock}
                     clienteMode={clienteMode}
                     telemetriaDisponivel={telemetriaDisponivel}
+                    canRegenerarToken={data?.canRegenerarToken ?? false}
+                    onTokenRegenerated={handleTokenRegenerated}
                   />
                 ))}
             </tbody>

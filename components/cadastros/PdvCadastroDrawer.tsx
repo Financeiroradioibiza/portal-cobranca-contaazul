@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ProducaoPdvCadastroDto } from "@/lib/cadastros/producaoPdvCadastroService";
-import { CopyTextButton } from "@/components/CopyTextButton";
 
 type Props = {
   rioPdvKey: string | null;
@@ -95,50 +94,6 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
       onSaved?.();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao salvar.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function refazerSerial() {
-    if (!rioPdvKey || !editMode || busy) return;
-    if (
-      !window.confirm(
-        "Gera uma nova chave serial de instalação. O player instalado deixa de funcionar até ser reinstalado com a nova chave. Continuar?",
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setMsg("");
-    try {
-      const res = await fetch(
-        `/api/cadastros/producao/pdv/${encodeURIComponent(rioPdvKey)}/cadastro/regenerar-token`,
-        { method: "POST" },
-      );
-      const data = (await res.json()) as {
-        ok?: boolean;
-        playerInstalacaoToken?: string;
-        gatewaySyncError?: string | null;
-        error?: string;
-      };
-      if (!res.ok || !data.ok || !data.playerInstalacaoToken) {
-        throw new Error(data.error ?? "falhou");
-      }
-      setForm((prev) =>
-        prev ?
-          { ...prev, playerInstalacaoToken: data.playerInstalacaoToken!, playerInstaladoEm: null }
-        : prev,
-      );
-      if (data.gatewaySyncError) {
-        setMsg(
-          `Nova chave gerada no portal, mas o player instalado pode continuar tocando até o sync com o cloud2 (${data.gatewaySyncError}). Tente «Sync gateway» ou contacte suporte.`,
-        );
-      } else {
-        setMsg("Nova chave serial gerada. O player instalado será desconectado no próximo ping.");
-      }
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao refazer serial.");
     } finally {
       setBusy(false);
     }
@@ -301,48 +256,6 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
                 Só aparece no player quando Controlar player e Controlar playlist estão «Sim».
               </p>
             </Field>
-
-            <p className="text-[10px] font-bold uppercase text-slate-400">Player — instalação</p>
-            <Field label="Chave serial (token de instalação)">
-              <div className="flex items-center gap-1">
-                <input
-                  className="min-w-0 flex-1 rounded border border-slate-300 bg-slate-100 px-2 py-1 font-mono text-xs dark:border-slate-600 dark:bg-slate-900"
-                  value={form.playerInstalacaoToken}
-                  readOnly
-                />
-                {form.playerInstalacaoToken ?
-                  <CopyTextButton
-                    size="compact"
-                    variant="icon"
-                    text={form.playerInstalacaoToken}
-                    label="Copiar serial"
-                  />
-                : null}
-              </div>
-            </Field>
-            {form.playerInstaladoEm ?
-              <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                Instalado em{" "}
-                {new Date(form.playerInstaladoEm).toLocaleString("pt-BR", {
-                  dateStyle: "short",
-                  timeStyle: "short",
-                })}
-              </p>
-            : <p className="text-[11px] text-slate-500">Ainda não instalado no player.</p>}
-            {editMode ?
-              <button
-                type="button"
-                disabled={busy}
-                className="w-full rounded-md border border-amber-400 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
-                onClick={() => void refazerSerial()}
-              >
-                Refazer serial
-              </button>
-            : null}
-            <p className="text-[10px] text-slate-400">
-              Como no painel legado: o player amarra esta chave na 1ª instalação. Refazer desamarra e exige
-              nova instalação.
-            </p>
 
             <p className="text-[10px] font-bold uppercase text-slate-400">Contato loja</p>
             <Field label="Nome">

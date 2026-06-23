@@ -12,6 +12,8 @@ export type SuportePdvRow = {
   portalPdvId: number | null;
   /** ID do cliente no Player (100, 101, …). */
   portalClienteId: number | null;
+  /** Chave serial de instalação (suporte). */
+  playerInstalacaoToken: string | null;
   programacaoMusical: string;
   /** Programação amarrada na Central de programações (criação), por PDV. */
   programacaoCriacaoNome: string | null;
@@ -43,4 +45,6 @@ export type ProducaoSuportePayload = {
   rioSourceYearMonth: number;
   overview: SuporteOverview;
   pdvs: SuportePdvRow[];
+  /** Usuário pode regerar token (perfil suporte). */
+  canRegenerarToken: boolean;
 };

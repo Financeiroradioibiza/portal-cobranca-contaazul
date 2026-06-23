@@ -26,7 +26,9 @@ function isSemPing5Dias(
   return age > FIVE_DAYS_MS;
 }
 
-export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
+export async function getProducaoSuporte(options?: {
+  canRegenerarToken?: boolean;
+}): Promise<ProducaoSuportePayload> {
   const dash = await getProducaoDashboard();
   const pdvKeys = dash.clientes.flatMap((c) => c.pdvs.map((p) => p.rioPdvKey));
 
@@ -43,6 +45,7 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
         cacheMedioPercent: null,
       },
       pdvs: [],
+      canRegenerarToken: false,
     };
   }
 
@@ -59,6 +62,7 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
         contatoLojaTelefone: true,
         contatoLojaEmail: true,
         createdAt: true,
+        playerInstalacaoToken: true,
         programacaoId: true,
         programacaoMusical: true,
         programacao: { select: { id: true, nome: true, clienteRef: true } },
@@ -122,6 +126,7 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
         clienteKey: cliente.key,
         portalPdvId: link?.portalPdvId ?? null,
         portalClienteId: link?.portalClienteId ?? null,
+        playerInstalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
         programacaoMusical: pdv.programacaoMusical,
         programacaoCriacaoNome,
         playerVersion: pdv.telemetry.playerVersion,
@@ -155,5 +160,6 @@ export async function getProducaoSuporte(): Promise<ProducaoSuportePayload> {
       cacheMedioPercent: dash.overview.cacheMedioPercent,
     },
     pdvs: rows,
+    canRegenerarToken: options?.canRegenerarToken ?? false,
   };
 }
