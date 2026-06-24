@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import {
-  billingEmailJoined,
+  billingEmailOnlyJoined,
   cobrancaFaturamentoBlock,
   fetchPersonDetail,
+  firstOutrosContatoFromPersonDetail,
 } from "@/lib/contaazul/personBilling";
 import { isLinhaAsPdvKey, linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
+import { onlyDigits } from "@/lib/format";
 import type { ProducaoPlayerStatus } from "@prisma/client";
 import { newPlayerInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
 import {
@@ -84,26 +86,51 @@ export async function fetchCobrancaContatoForLinha(rioLinhaId: string): Promise<
 
   const linha = await prisma.rioCompClienteLinha.findUnique({
     where: { id: rioLinhaId },
-    select: { caPersonId: true, emailCobranca: true, razaoSocial: true, nomeFantasia: true },
+    select: { caPersonId: true, emailCobranca: true },
   });
   if (!linha || !isRioCaPersonLinked(linha.caPersonId)) return null;
 
   try {
     const detail = await fetchPersonDetail(token, linha.caPersonId);
-    const email = billingEmailJoined(detail) || linha.emailCobranca || "";
-    const nome =
-      cobrancaNomeFromCa(detail) ||
-      linha.razaoSocial ||
-      linha.nomeFantasia ||
-      "";
+    const email = billingEmailOnlyJoined(detail) || linha.emailCobranca || "";
+    const nome = cobrancaNomeFromCa(detail);
     const telefone = cobrancaPhonesFromCa(detail);
+    if (!nome && !email && !telefone) return null;
     return { nome, email, telefone };
   } catch {
+    if (linha.emailCobranca) {
+      return { nome: "", email: linha.emailCobranca, telefone: "" };
+    }
+    return null;
+  }
+}
+
+export async function fetchLojaContatoFromCaLinha(rioLinhaId: string): Promise<{
+  nome: string;
+  email: string;
+  telefone: string;
+} | null> {
+  const token = await getValidAccessToken();
+  if (!token) return null;
+
+  const linha = await prisma.rioCompClienteLinha.findUnique({
+    where: { id: rioLinhaId },
+    select: { caPersonId: true },
+  });
+  if (!linha || !isRioCaPersonLinked(linha.caPersonId)) return null;
+
+  try {
+    const detail = await fetchPersonDetail(token, linha.caPersonId);
+    const contato = firstOutrosContatoFromPersonDetail(detail);
+    if (!contato) return null;
+    const telefoneDigits = onlyDigits(contato.telefone);
     return {
-      nome: linha.razaoSocial || linha.nomeFantasia || "",
-      email: linha.emailCobranca || "",
-      telefone: "",
+      nome: contato.nome,
+      email: contato.email,
+      telefone: telefoneDigits || contato.telefone,
     };
+  } catch {
+    return null;
   }
 }
 

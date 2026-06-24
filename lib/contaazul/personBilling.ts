@@ -294,6 +294,54 @@ export function billingEmailJoined(raw: unknown, fallbackMainEmail?: string | nu
   return fallbackMainEmail?.trim() ?? null;
 }
 
+export type CaOutrosContatoBrief = {
+  nome: string;
+  telefone: string;
+  email: string;
+};
+
+function phoneFromCaRecord(raw: Record<string, unknown>): string {
+  const tel = raw.telefone ?? raw.celular ?? raw.telefone_celular ?? raw.telefoneCelular ?? raw.phone;
+  if (typeof tel === "string") return tel.trim();
+  if (Array.isArray(tel)) {
+    return tel
+      .map((t) => (typeof t === "string" ? t : str((t as { numero?: string }).numero)))
+      .filter(Boolean)
+      .join("; ");
+  }
+  return "";
+}
+
+function nomeFromCaOutrosContato(raw: Record<string, unknown>): string {
+  return (
+    str(raw.nome) ||
+    str(raw.nome_contato) ||
+    str(raw.nomeContato) ||
+    str(raw.pessoa) ||
+    str(raw.name) ||
+    ""
+  );
+}
+
+/** Primeiro «outros contatos» da pessoa CA (pessoa + telefone/e-mail quando existirem). */
+export function firstOutrosContatoFromPersonDetail(raw: unknown): CaOutrosContatoBrief | null {
+  const o = asRecord(raw);
+  if (!o) return null;
+  const outros = (o.outros_contatos ?? o.outrosContatos) as unknown;
+  if (!Array.isArray(outros)) return null;
+
+  for (const item of outros) {
+    if (!isRecord(item)) continue;
+    const nome = nomeFromCaOutrosContato(item);
+    const telefone = phoneFromCaRecord(item);
+    const email = str(item.email ?? item.endereco_email ?? item.enderecoEmail) ?? "";
+    if (nome || telefone || email) {
+      return { nome, telefone, email };
+    }
+  }
+  return null;
+}
+
 export async function fetchPersonDetail(accessToken: string, id: string): Promise<unknown> {
   return caFetch<unknown>(`/v1/pessoas/${encodeURIComponent(id)}`, accessToken);
 }

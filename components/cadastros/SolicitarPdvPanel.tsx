@@ -98,7 +98,6 @@ const CNPJ_LOOKUP_ERRORS: Record<string, string> = {
 export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string; prospectId?: string }) {
   const [pedido, setPedido] = useState<PedidoPdvView | null>(null);
   const [vigenteYm, setVigenteYm] = useState<number | null>(null);
-  const [isFinance, setIsFinance] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -193,7 +192,7 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
       setContatoCobrancaEmail(prefill.contatoCobrancaEmail);
       setContatoCobrancaTel(prefill.contatoCobrancaTel);
       if (prefill.fromProducao) {
-        setMsg("Cadastro importado da produção e Conta Azul (cobrança).");
+        setMsg("Cadastro importado da produção (ou Conta Azul, quando houver contato).");
       }
     },
     [],
@@ -204,13 +203,6 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
     async function boot() {
       setLoading(true);
       try {
-        const meRes = await fetch("/api/auth/me", { credentials: "same-origin" });
-        const me = meRes.ok ? await meRes.json() : null;
-        if (!cancelled && me) {
-          const roles: string[] = Array.isArray(me.roles) ? me.roles : [];
-          setIsFinance(roles.includes("cobranca") || roles.includes("master"));
-        }
-
         const opcoesRes = await fetch("/api/cadastros/pedidos-cliente/rio-opcoes", {
           credentials: "same-origin",
         });
@@ -361,6 +353,12 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
     setBairro("");
     setCidade("");
     setUf("");
+    setContatoLojaNome("");
+    setContatoLojaWhatsapp("");
+    setContatoLojaEmail("");
+    setContatoCobrancaNome("");
+    setContatoCobrancaEmail("");
+    setContatoCobrancaTel("");
     lastLookupDigitsRef.current = "";
     setMsg(null);
   }
@@ -517,44 +515,11 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
     }
   }
 
-  async function importarRio() {
-    if (!pedido?.id) return;
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch(`/api/cadastros/pedidos-cliente/${pedido.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ action: "importar_rio" }),
-      });
-      const data = res.ok ? await res.json() : null;
-      if (!res.ok) {
-        const err = (data as { error?: string })?.error;
-        if (err === "cliente_rio_nao_encontrado") {
-          setMsg("Cliente não encontrado na Planilha Rio. Cadastre o cliente lá primeiro.");
-        } else {
-          setMsg("Não foi possível importar o PDV.");
-        }
-        return;
-      }
-      const saved = parsePedido(data);
-      if (saved) {
-        applyPedido(saved);
-        setMsg("PDV importado na Planilha Rio.");
-      }
-    } catch {
-      setMsg("Erro de rede.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const statusLabel = {
     rascunho: "Rascunho",
-    enviado: "Enviado (legado)",
+    enviado: "Enviado",
     em_analise: "Cadastro atualizado",
-    importado: "PDV importado (legado)",
+    importado: "Importado",
     cancelado: "Cancelado",
   }[pedido?.status ?? "rascunho"];
 
@@ -689,8 +654,20 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
       </Section>
 
       <Section title="Contato loja">
-        <Field label="Nome contato loja" value={contatoLojaNome} onChange={setContatoLojaNome} required />
-        <Field label="WhatsApp loja" value={contatoLojaWhatsapp} onChange={setContatoLojaWhatsapp} required />
+        <Field
+          label="Nome contato loja"
+          value={contatoLojaNome}
+          onChange={setContatoLojaNome}
+          required
+          hint="Importado dos «outros contatos» do Conta Azul ou do cadastro já salvo na produção."
+        />
+        <Field
+          label="WhatsApp loja"
+          value={contatoLojaWhatsapp}
+          onChange={(v) => setContatoLojaWhatsapp(onlyDigits(v))}
+          required
+          hint="Somente números — ex.: 21991040227 (21 = DDD, 991040227 = celular)."
+        />
         <Field
           label="E-mail loja"
           value={contatoLojaEmail}
@@ -702,7 +679,8 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
 
       <Section title="Contato cobrança">
         <p className="sm:col-span-2 text-xs text-slate-500">
-          Preenchido automaticamente do Conta Azul quando disponível. Campos opcionais nesta atualização.
+          Contato de cobrança/faturamento do Conta Azul (quando cadastrado). Campos opcionais nesta
+          atualização — não usa razão social do cliente.
         </p>
         <Field label="Nome responsável cobrança" value={contatoCobrancaNome} onChange={setContatoCobrancaNome} />
         <Field label="E-mail responsável cobrança" value={contatoCobrancaEmail} onChange={setContatoCobrancaEmail} />
@@ -726,16 +704,6 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
         >
           Atualizar cadastro
         </button>
-        {isFinance && pedido?.status !== "importado" && pedido?.id ?
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void importarRio()}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Importar PDV na Rio (legado)
-          </button>
-        : null}
         {rioLinhaId && vigenteYm ?
           <Link
             href={`/financeiro/planilha-rio?ym=${vigenteYm}`}

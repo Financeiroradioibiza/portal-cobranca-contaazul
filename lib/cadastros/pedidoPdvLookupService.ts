@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { isLinhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
-import { fetchCobrancaContatoForLinha } from "@/lib/cadastros/producaoPdvCadastroService";
+import { fetchCobrancaContatoForLinha, fetchLojaContatoFromCaLinha } from "@/lib/cadastros/producaoPdvCadastroService";
 
 export type RioClienteOption = {
   id: string;
@@ -145,7 +145,7 @@ export async function getPedidoPrefillForRioPdv(
   rioLinhaId: string,
   rioPdvId: string,
 ): Promise<PedidoPdvPrefill | null> {
-  const [linha, pdv, cadastro, cobranca] = await Promise.all([
+  const [linha, pdv, cadastro, cobranca, lojaCa] = await Promise.all([
     prisma.rioCompClienteLinha.findUnique({
       where: { id: rioLinhaId },
       select: { id: true, nomeFantasia: true, razaoSocial: true, documento: true, grupoSite: true },
@@ -156,6 +156,7 @@ export async function getPedidoPrefillForRioPdv(
     }),
     prisma.producaoPdvCadastro.findUnique({ where: { rioPdvKey: rioPdvId } }),
     fetchCobrancaContatoForLinha(rioLinhaId),
+    fetchLojaContatoFromCaLinha(rioLinhaId),
   ]);
 
   if (!linha || !pdv) return null;
@@ -190,9 +191,9 @@ export async function getPedidoPrefillForRioPdv(
     bairro: cadastro?.bairro ?? "",
     cidade: cadastro?.cidade ?? "",
     uf: cadastro?.estado ?? "",
-    contatoLojaNome: cadastro?.contatoLojaNome ?? "",
-    contatoLojaWhatsapp: cadastro?.contatoLojaTelefone ?? "",
-    contatoLojaEmail: cadastro?.contatoLojaEmail ?? "",
+    contatoLojaNome: pick(cadastro?.contatoLojaNome, lojaCa?.nome),
+    contatoLojaWhatsapp: pick(cadastro?.contatoLojaTelefone, lojaCa?.telefone),
+    contatoLojaEmail: pick(cadastro?.contatoLojaEmail, lojaCa?.email),
     contatoCobrancaNome: pick(cadastro?.contatoCobrancaNome, cobranca?.nome),
     contatoCobrancaEmail: pick(cadastro?.contatoCobrancaEmail, cobranca?.email),
     contatoCobrancaTel: pick(cadastro?.contatoCobrancaTelefone, cobranca?.telefone),
