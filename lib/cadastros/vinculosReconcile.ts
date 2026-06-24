@@ -32,9 +32,9 @@ export function semPainelMotivo(pdv: ProducaoPdvRef): SemPainelMotivo | null {
 
 export function semPainelMotivoLabel(motivo: SemPainelMotivo): string {
   if (motivo === "linha_proxy") {
-    return "cliente = PDV (lista vínculos)";
+    return "cliente = PDV";
   }
-  return "na lista vínculos";
+  return "sem ID Player";
 }
 
 export function buildVinculosReconcileReport(input: {

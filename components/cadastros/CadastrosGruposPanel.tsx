@@ -76,6 +76,8 @@ function DraggableProdPdv({
   editMode,
   onSelect,
   onToggleMulti,
+  onActivateId,
+  activating,
   tone = "normal",
 }: {
   pdv: ProducaoPdvRef;
@@ -84,6 +86,8 @@ function DraggableProdPdv({
   editMode: boolean;
   onSelect: () => void;
   onToggleMulti: (checked: boolean) => void;
+  onActivateId?: () => void;
+  activating?: boolean;
   tone?: "normal" | "novo" | "pendencia";
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -164,6 +168,19 @@ function DraggableProdPdv({
           </span>
         : null}
       </button>
+      {!linked && !editMode && onActivateId ?
+        <button
+          type="button"
+          disabled={activating}
+          onClick={(e) => {
+            e.stopPropagation();
+            onActivateId();
+          }}
+          className="shrink-0 rounded border border-sky-500 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-400 dark:text-sky-300 dark:hover:bg-sky-950/40"
+        >
+          {activating ? "…" : "Ativar ID"}
+        </button>
+      : null}
     </div>
   );
 }
@@ -218,6 +235,8 @@ export function CadastrosGruposPanel() {
   const [editMode, setEditMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [activatingPdvKey, setActivatingPdvKey] = useState<string | null>(null);
+  const [activatingBucketKey, setActivatingBucketKey] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [onlySemPainel, setOnlySemPainel] = useState(false);
   const [showVinculoDiag, setShowVinculoDiag] = useState(false);
@@ -467,6 +486,96 @@ export function CadastrosGruposPanel() {
       setBusy(false);
     }
   }, []);
+
+  const applyPlayerIdLinks = useCallback(
+    (assigned: Array<{ rioPdvKey: string; portalPdvId: number; portalClienteId: number }>) => {
+      setLinkMap((prev) => {
+        const links = new Map(prev);
+        for (const a of assigned) {
+          links.set(a.rioPdvKey, {
+            portalPdvId: a.portalPdvId,
+            portalClienteId: a.portalClienteId,
+          });
+        }
+        setClientesBase(buildProducaoClientes(linhasRio, links));
+        return links;
+      });
+    },
+    [linhasRio],
+  );
+
+  const activatePdvId = useCallback(async (rioPdvKey: string) => {
+    if (activatingPdvKey || activatingBucketKey) return;
+    setActivatingPdvKey(rioPdvKey);
+    setMsg("");
+    try {
+      const res = await fetch("/api/player/portal-ids/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rioPdvKey }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        hint?: string;
+        assigned?: Array<{
+          rioPdvKey: string;
+          portalPdvId: number;
+          portalClienteId: number;
+          display?: string;
+        }>;
+        portalClienteId?: number;
+        gateway?: { pdvs: number };
+      };
+      if (!res.ok) throw new Error(data.hint ?? data.error ?? "falha_ativar_id");
+      if (data.assigned?.length) applyPlayerIdLinks(data.assigned);
+      const item = data.assigned?.find((a) => a.rioPdvKey === rioPdvKey) ?? data.assigned?.[0];
+      setMsg(
+        item ?
+          `Player ${item.display ?? item.portalPdvId} ativo · cliente ${data.portalClienteId ?? item.portalClienteId}.` +
+            (data.gateway ? ` Gateway sync OK (${data.gateway.pdvs} PDV).` : "")
+        : "ID Player já estava ativo.",
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao ativar ID.");
+    } finally {
+      setActivatingPdvKey(null);
+    }
+  }, [activatingPdvKey, activatingBucketKey, applyPlayerIdLinks]);
+
+  const activateBucketIds = useCallback(async (bucketKey: string) => {
+    if (activatingPdvKey || activatingBucketKey) return;
+    setActivatingBucketKey(bucketKey);
+    setMsg("");
+    try {
+      const res = await fetch("/api/player/portal-ids/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bucketKey }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        hint?: string;
+        assigned?: Array<{
+          rioPdvKey: string;
+          portalPdvId: number;
+          portalClienteId: number;
+          display?: string;
+        }>;
+        portalClienteId?: number;
+        gateway?: { pdvs: number };
+      };
+      if (!res.ok) throw new Error(data.hint ?? data.error ?? "falha_ativar_id");
+      if (data.assigned?.length) applyPlayerIdLinks(data.assigned);
+      setMsg(
+        `Cliente ${data.portalClienteId ?? "—"} · ${data.assigned?.length ?? 0} ID(s) ativados.` +
+          (data.gateway ? ` Gateway sync OK (${data.gateway.pdvs} PDV).` : ""),
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao ativar IDs.");
+    } finally {
+      setActivatingBucketKey(null);
+    }
+  }, [activatingPdvKey, activatingBucketKey, applyPlayerIdLinks]);
 
   useEffect(() => {
     void fetch("/api/cadastros/producao-catalog")
@@ -1142,6 +1251,8 @@ export function CadastrosGruposPanel() {
                                   onToggleMulti={(checked) =>
                                     togglePdvSelection(item.rioPdvId, checked)
                                   }
+                                  onActivateId={() => void activatePdvId(item.rioPdvId)}
+                                  activating={activatingPdvKey === item.rioPdvId}
                                 />
                               ))}
                             </div>
@@ -1216,6 +1327,16 @@ export function CadastrosGruposPanel() {
                             </span>
                           : null}
                           <span className="text-[10px] text-slate-500">{c.pdvCount} PDV</span>
+                          {!editMode && c.pdvs.some((p) => !p.portalPlayerId) ?
+                            <button
+                              type="button"
+                              disabled={activatingBucketKey === c.key || activatingPdvKey != null}
+                              onClick={() => void activateBucketIds(c.key)}
+                              className="rounded border border-sky-500 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-400 dark:text-sky-300 dark:hover:bg-sky-950/40"
+                            >
+                              {activatingBucketKey === c.key ? "Ativando…" : "Ativar IDs"}
+                            </button>
+                          : null}
                           {editMode && isEmpty ?
                             isHidden ?
                               <button
@@ -1260,6 +1381,8 @@ export function CadastrosGruposPanel() {
                                   onToggleMulti={(checked) =>
                                     togglePdvSelection(pdv.rioPdvId, checked)
                                   }
+                                  onActivateId={() => void activatePdvId(pdv.rioPdvId)}
+                                  activating={activatingPdvKey === pdv.rioPdvId}
                                 />
                               ))
                             }

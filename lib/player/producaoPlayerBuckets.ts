@@ -493,3 +493,131 @@ export function resolveProgramacaoMusicalForBucket(
 export async function resetProducaoPlayerIdsForMonth(_yearMonth: number): Promise<void> {
   await resetProducaoPlayerIdsOnCatalog();
 }
+
+export type AssignPortalPlayerIdItem = {
+  rioPdvKey: string;
+  portalPdvId: number;
+  portalClienteId: number;
+};
+
+function findBucketForRioPdvKey(
+  buckets: ProducaoPlayerBucket[],
+  rioPdvKey: string,
+): ProducaoPlayerBucket | null {
+  for (const bucket of buckets) {
+    if (bucket.pdvs.some((p) => p.rioPdvId === rioPdvKey)) return bucket;
+  }
+  return null;
+}
+
+function sortedNonProxyPdvs(bucket: ProducaoPlayerBucket) {
+  return sortRioPdvsByNome(
+    bucket.pdvs.filter((p) => !p.isLinhaProxy).map((p) => ({ id: p.rioPdvId, nome: p.nome })),
+  );
+}
+
+/** Atribui ID Player a PDV(s) da produção musical (catálogo operacional — não altera Planilha Rio). */
+export async function assignPortalPlayerIdsForRioPdvKeys(
+  rioPdvKeys: string[],
+  opts?: { allMissingInBucket?: boolean },
+): Promise<{ portalClienteId: number; assigned: AssignPortalPlayerIdItem[] }> {
+  const keys = [...new Set(rioPdvKeys.map((k) => k.trim()).filter(Boolean))];
+  if (keys.length === 0) throw new Error("parametros_invalidos");
+
+  const ctx = await loadMergedProducaoPlayerContext();
+  const layoutIds = { ...ctx.layout.portalClienteIdsByBucketKey };
+  const pdvIds = { ...ctx.layout.portalPdvIdsByRioPdvKey };
+  const pdvPortalIds = pdvPortalIdsFromLayout(pdvIds);
+  let nextClienteId = await getMaxPortalClienteId(layoutIds, pdvIds);
+  const assigned: AssignPortalPlayerIdItem[] = [];
+
+  const bucketsTouched = new Map<string, ProducaoPlayerBucket>();
+  for (const key of keys) {
+    const bucket = findBucketForRioPdvKey(ctx.buckets, key);
+    if (!bucket) throw new Error("pdv_nao_encontrado");
+    bucketsTouched.set(bucket.key, bucket);
+  }
+
+  for (const bucket of bucketsTouched.values()) {
+    let portalClienteId = layoutIds[bucket.key] ?? bucket.portalClienteId ?? null;
+    if (portalClienteId == null) {
+      portalClienteId = ++nextClienteId;
+      layoutIds[bucket.key] = portalClienteId;
+    }
+
+    const keysForBucket =
+      opts?.allMissingInBucket ?
+        sortedNonProxyPdvs(bucket)
+          .map((p) => p.id)
+          .filter((id) => !pdvPortalIds.has(id))
+      : keys.filter((k) => bucket.pdvs.some((p) => p.rioPdvId === k));
+
+    for (const rioPdvKey of keysForBucket) {
+      const pdv = bucket.pdvs.find((p) => p.rioPdvId === rioPdvKey);
+      if (!pdv) continue;
+
+      if (pdv.isLinhaProxy) {
+        const portalPdvId = proxyPortalPdvId(portalClienteId);
+        assigned.push({ rioPdvKey, portalPdvId, portalClienteId });
+        continue;
+      }
+
+      const existing = pdvPortalIds.get(rioPdvKey);
+      if (existing != null) {
+        assigned.push({ rioPdvKey, portalPdvId: existing, portalClienteId });
+        continue;
+      }
+
+      const sorted = sortedNonProxyPdvs(bucket);
+      const targetIdx = sorted.findIndex((p) => p.id === rioPdvKey);
+      if (targetIdx < 0) throw new Error("pdv_nao_encontrado");
+      const seq = targetIdx + 1;
+      const portalPdvId = buildPortalPdvId(portalClienteId, seq);
+
+      const owner = Object.entries(pdvIds).find(([, id]) => id === portalPdvId);
+      if (owner && owner[0] !== rioPdvKey) {
+        throw new Error("seq_player_ocupado");
+      }
+
+      pdvIds[rioPdvKey] = portalPdvId;
+      pdvPortalIds.set(rioPdvKey, portalPdvId);
+      assigned.push({ rioPdvKey, portalPdvId, portalClienteId });
+    }
+  }
+
+  const newAssignments = assigned.filter((a) => !ctx.pdvPortalIds.has(a.rioPdvKey));
+  const layoutChanged = Object.keys(layoutIds).some(
+    (k) => layoutIds[k] !== ctx.layout.portalClienteIdsByBucketKey[k],
+  );
+  if (newAssignments.length > 0 || layoutChanged) {
+    await savePlayerIdsOnCatalogLayout({
+      portalClienteIdsByBucketKey: layoutIds,
+      portalPdvIdsByRioPdvKey: pdvIds,
+    });
+    if (newAssignments.length > 0) {
+      const { ensureInstalacaoTokensForKeys } = await import("@/lib/player/pdvInstalacaoToken");
+      await ensureInstalacaoTokensForKeys(newAssignments.map((a) => a.rioPdvKey));
+    }
+  }
+
+  const firstBucket = bucketsTouched.values().next().value;
+  const portalClienteIdOut =
+    firstBucket != null ?
+      (layoutIds[firstBucket.key] ?? assigned[0]?.portalClienteId ?? 0)
+    : assigned[0]?.portalClienteId ?? 0;
+
+  return { portalClienteId: portalClienteIdOut, assigned };
+}
+
+export async function assignPortalPlayerIdsForBucketKey(
+  bucketKey: string,
+): Promise<{ portalClienteId: number; assigned: AssignPortalPlayerIdItem[] }> {
+  const ctx = await loadMergedProducaoPlayerContext();
+  const bucket = ctx.buckets.find((b) => b.key === bucketKey);
+  if (!bucket) throw new Error("cliente_nao_encontrado");
+  const keys = bucket.pdvs.filter((p) => !p.isLinhaProxy).map((p) => p.rioPdvId);
+  if (keys.length === 0 && bucket.pdvs.some((p) => p.isLinhaProxy)) {
+    return assignPortalPlayerIdsForRioPdvKeys([bucket.pdvs.find((p) => p.isLinhaProxy)!.rioPdvId]);
+  }
+  return assignPortalPlayerIdsForRioPdvKeys(keys, { allMissingInBucket: true });
+}
