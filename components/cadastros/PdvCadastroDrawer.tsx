@@ -43,6 +43,19 @@ function Field({
   );
 }
 
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      res.ok ?
+        "Resposta inválida do servidor."
+      : `Erro ${res.status} ao comunicar com o servidor.`,
+    );
+  }
+}
+
 export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Props) {
   const [form, setForm] = useState<ProducaoPdvCadastroDto | null>(null);
   const [busy, setBusy] = useState(false);
@@ -59,7 +72,11 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
       const res = await fetch(
         `/api/cadastros/producao/pdv/${encodeURIComponent(key)}/cadastro?${qs.toString()}`,
       );
-      const data = (await res.json()) as { ok?: boolean; cadastro?: ProducaoPdvCadastroDto; error?: string };
+      const data = await readJsonResponse<{
+        ok?: boolean;
+        cadastro?: ProducaoPdvCadastroDto;
+        error?: string;
+      }>(res);
       if (!res.ok || !data.ok || !data.cadastro) throw new Error(data.error ?? "load_erro");
       setForm(data.cadastro);
     } catch (e) {
@@ -92,7 +109,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
           body: JSON.stringify(patch),
         },
       );
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = await readJsonResponse<{ ok?: boolean; error?: string }>(res);
       if (!res.ok || !data.ok) throw new Error(data.error ?? "save_erro");
       setMsg("Cadastro salvo.");
       onSaved?.();

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import {
   getOrCreatePdvCadastro,
   updatePdvCadastro,
@@ -7,6 +7,24 @@ import {
 export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ rioPdvKey: string }> };
+
+function scheduleGatewaySyncForPdv(rioPdvKey: string) {
+  after(async () => {
+    try {
+      const { cloud2Enabled } = await import("@/lib/criacao/cloud2Client");
+      if (!cloud2Enabled()) return;
+      const {
+        resolvePortalPdvIdFromRioPdvKey,
+        syncPlayerGatewayRegistryForPdvIds,
+      } = await import("@/lib/player/playerGatewaySync");
+      const portalPdvId = await resolvePortalPdvIdFromRioPdvKey(rioPdvKey);
+      if (!portalPdvId) return;
+      await syncPlayerGatewayRegistryForPdvIds([portalPdvId]);
+    } catch (e) {
+      console.error("[cadastro PATCH] sync gateway falhou", { rioPdvKey, err: e });
+    }
+  });
+}
 
 export async function GET(req: Request, context: Ctx) {
   const { rioPdvKey: raw } = await context.params;
@@ -42,11 +60,7 @@ export async function PATCH(req: Request, context: Ctx) {
 
   try {
     const cadastro = await updatePdvCadastro(rioPdvKey, body as never);
-    const { cloud2Enabled } = await import("@/lib/criacao/cloud2Client");
-    if (cloud2Enabled()) {
-      const { syncPlayerGatewayRegistry } = await import("@/lib/player/playerGatewaySync");
-      await syncPlayerGatewayRegistry().catch(() => null);
-    }
+    scheduleGatewaySyncForPdv(rioPdvKey);
     return NextResponse.json({ ok: true, cadastro });
   } catch (e) {
     return NextResponse.json(
