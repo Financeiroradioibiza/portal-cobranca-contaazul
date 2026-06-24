@@ -37,6 +37,12 @@ export async function provisionClientePlayerForBucket(
   const portalPdvIds = portalPdvIdsForBucket(bucket, ctx.pdvPortalIds);
   if (portalPdvIds.length === 0) throw new Error("pdv_sem_id_player");
 
+  const existingLogin = await prisma.clientePlayerLogin.findUnique({
+    where: { portalClienteId },
+    select: { active: true },
+  });
+  if (existingLogin?.active) throw new Error("login_ja_existe");
+
   const clienteNome = bucket.nome.trim() || "Cliente";
   const loginStatus = await createLoginForClienteIfMissing(portalClienteId, clienteNome);
 

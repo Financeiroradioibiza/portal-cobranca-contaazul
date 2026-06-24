@@ -214,6 +214,27 @@ function ClienteDropZone({
   );
 }
 
+function bucketPortalClienteId(c: ProducaoClienteBucket): number | null {
+  for (const p of c.pdvs) {
+    const id = p.portalPlayerId?.portalClienteId;
+    if (id != null) return id;
+  }
+  return null;
+}
+
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      res.ok ?
+        "Resposta inválida do servidor."
+      : `Erro ${res.status} ao comunicar com o servidor.`,
+    );
+  }
+}
+
 export function CadastrosGruposPanel() {
   const [rioSourceYm, setRioSourceYm] = useState<number | null>(null);
   const [rioGrupos, setRioGrupos] = useState<ProducaoGrupoNode[]>([]);
@@ -238,6 +259,7 @@ export function CadastrosGruposPanel() {
   const [activatingPdvKey, setActivatingPdvKey] = useState<string | null>(null);
   const [activatingBucketKey, setActivatingBucketKey] = useState<string | null>(null);
   const [provisioningBucketKey, setProvisioningBucketKey] = useState<string | null>(null);
+  const [playerLoginClienteIds, setPlayerLoginClienteIds] = useState<Set<number>>(() => new Set());
   const [q, setQ] = useState("");
   const [onlySemPainel, setOnlySemPainel] = useState(false);
   const [showVinculoDiag, setShowVinculoDiag] = useState(false);
@@ -578,8 +600,26 @@ export function CadastrosGruposPanel() {
     }
   }, [activatingPdvKey, activatingBucketKey, provisioningBucketKey, applyPlayerIdLinks]);
 
+  const loadPlayerLoginIds = useCallback(() => {
+    void fetch("/api/player/portal-ids/player-logins")
+      .then((r) => readJsonResponse<{ ok?: boolean; portalClienteIds?: number[] }>(r))
+      .then((d) => {
+        if (d.ok && d.portalClienteIds) {
+          setPlayerLoginClienteIds(new Set(d.portalClienteIds));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const provisionClientePlayer = useCallback(async (bucketKey: string, clienteNome: string) => {
     if (activatingPdvKey || activatingBucketKey || provisioningBucketKey) return;
+
+    const ok = window.confirm(
+      `Tem certeza que deseja criar o login Player e sincronizar «${clienteNome.trim() || "Cliente"}» no Player 5?\n\n` +
+        "Esta ação grava credenciais fixas para o cliente e envia cadastro + login ao gateway.",
+    );
+    if (!ok) return;
+
     setProvisioningBucketKey(bucketKey);
     setMsg("");
     try {
@@ -588,36 +628,44 @@ export function CadastrosGruposPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bucketKey }),
       });
-      const data = (await res.json()) as {
+      const data = await readJsonResponse<{
+        ok?: boolean;
         error?: string;
         loginStatus?: "created" | "exists";
         email?: string;
         passwordPlain?: string;
         portalClienteId?: number;
         gateway?: { pdvs: number; clientes: number } | null;
-      };
-      if (!res.ok) throw new Error(data.error ?? "falha_login_player");
+      }>(res);
+      if (!res.ok) {
+        if (res.status === 409 || data.error === "login_ja_existe") {
+          loadPlayerLoginIds();
+          throw new Error("Este cliente já possui login Player.");
+        }
+        throw new Error(data.error ?? "falha_login_player");
+      }
+      if (data.portalClienteId) {
+        setPlayerLoginClienteIds((prev) => new Set([...prev, data.portalClienteId!]));
+      }
       const cred =
         data.email && data.passwordPlain ?
           `Login ${data.email} · senha ${data.passwordPlain}`
         : data.email ?
           `Login ${data.email}`
         : "";
-      const loginNote =
-        data.loginStatus === "created" ? "Login criado" : "Login já existia";
       const syncNote =
         data.gateway ?
           ` · sync Player 5 (${data.gateway.pdvs} PDV)`
         : " · cloud2 desabilitado";
       setMsg(
-        `${clienteNome.trim() || "Cliente"} ${data.portalClienteId ?? ""}: ${loginNote}. ${cred}${syncNote}`,
+        `${clienteNome.trim() || "Cliente"} ${data.portalClienteId ?? ""}: Player logado.${cred ? ` ${cred}` : ""}${syncNote}`,
       );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao criar login Player.");
     } finally {
       setProvisioningBucketKey(null);
     }
-  }, [activatingPdvKey, activatingBucketKey, provisioningBucketKey]);
+  }, [activatingPdvKey, activatingBucketKey, provisioningBucketKey, loadPlayerLoginIds]);
 
   useEffect(() => {
     void fetch("/api/cadastros/producao-catalog")
@@ -626,7 +674,8 @@ export function CadastrosGruposPanel() {
         if (d.ok && d.rioSourceYearMonth) setRioSourceYm(d.rioSourceYearMonth);
       })
       .catch(() => {});
-  }, []);
+    loadPlayerLoginIds();
+  }, [loadPlayerLoginIds]);
 
   useEffect(() => {
     if (rioSourceYm == null) return;
@@ -1384,19 +1433,36 @@ export function CadastrosGruposPanel() {
                             </button>
                           : null}
                           {!editMode && c.pdvs.some((p) => p.portalPlayerId) ?
-                            <button
-                              type="button"
-                              disabled={
-                                provisioningBucketKey === c.key ||
-                                activatingBucketKey != null ||
-                                activatingPdvKey != null
+                            (() => {
+                              const portalClienteId = bucketPortalClienteId(c);
+                              const hasPlayerLogin =
+                                portalClienteId != null && playerLoginClienteIds.has(portalClienteId);
+                              if (hasPlayerLogin) {
+                                return (
+                                  <span
+                                    className="rounded border border-emerald-600 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                    title="Login Player já criado para este cliente"
+                                  >
+                                    Player Logado
+                                  </span>
+                                );
                               }
-                              onClick={() => void provisionClientePlayer(c.key, c.nome)}
-                              className="rounded border border-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
-                              title="Cria login do cliente (se faltante) e sincroniza só este cliente no Player 5"
-                            >
-                              {provisioningBucketKey === c.key ? "Sync…" : "Login Player"}
-                            </button>
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={
+                                    provisioningBucketKey === c.key ||
+                                    activatingBucketKey != null ||
+                                    activatingPdvKey != null
+                                  }
+                                  onClick={() => void provisionClientePlayer(c.key, c.nome)}
+                                  className="rounded border border-rose-600 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-500 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                                  title="Criar login Player e sincronizar só este cliente no Player 5"
+                                >
+                                  {provisioningBucketKey === c.key ? "Criando…" : "Sem Login"}
+                                </button>
+                              );
+                            })()
                           : null}
                           {editMode && isEmpty ?
                             isHidden ?

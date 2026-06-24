@@ -3,6 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { provisionClientePlayerForBucket } from "@/lib/player/provisionClientePlayer";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -25,6 +26,9 @@ export async function POST(request: Request) {
       msg === "pdv_sem_id_player"
     ) {
       return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    if (msg === "login_ja_existe") {
+      return NextResponse.json({ error: msg }, { status: 409 });
     }
     console.error("[player/portal-ids/provision-cliente POST]", e);
     return NextResponse.json({ error: msg }, { status: 500 });
