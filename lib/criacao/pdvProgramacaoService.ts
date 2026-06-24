@@ -218,3 +218,23 @@ export async function syncRegistryAfterPdvAssignment(
     expectedProgramacaoPortalId,
   });
 }
+
+/**
+ * Amarração em rascunho ou com atualização aberta fica só no portal;
+ * sync/verify no gateway ocorre no disparo (Fechar atualização).
+ */
+export async function shouldDeferGatewayVerifyOnPdvAssignment(
+  programacaoId: string | null,
+  previousProgramacaoId: string | null,
+): Promise<boolean> {
+  const ids = [...new Set([programacaoId, previousProgramacaoId].filter(Boolean))] as string[];
+  if (ids.length === 0) return true;
+
+  const progs = await prisma.programacao.findMany({
+    where: { id: { in: ids } },
+    select: { publicada: true, atualizacaoAbertaEm: true },
+  });
+  if (progs.length === 0) return true;
+
+  return progs.some((p) => !p.publicada || p.atualizacaoAbertaEm != null);
+}

@@ -3,6 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import {
   getClientePdvProgramacoes,
   savePdvProgramacaoAssignment,
+  shouldDeferGatewayVerifyOnPdvAssignment,
   syncRegistryAfterPdvAssignment,
 } from "@/lib/criacao/pdvProgramacaoService";
 import type { SyncPdvProgramacaoResult } from "@/lib/criacao/pdvProgramacaoService";
@@ -14,7 +15,7 @@ type Ctx = { params: Promise<{ ref: string }> };
 
 function gatewaySyncHint(error: string): string {
   if (error === "programacao_nao_publicada_no_gateway") {
-    return "Publique a programação no Player 5 antes de amarrar o PDV.";
+    return "Programação ainda não está no Player 5 — use Fechar atualização ou publique antes de trocar PDV em programação já encerrada.";
   }
   if (error === "programa_gateway_desalinhado" || error.startsWith("programa_gateway_desalinhado:")) {
     return "Gateway desalinhado — publique/dispare a programação ou use sync gateway.";
@@ -69,8 +70,17 @@ export async function PATCH(request: Request, ctx: Ctx) {
     await savePdvProgramacaoAssignment(clienteRef, rioPdvKey, programacaoId);
 
     let gatewaySync: SyncPdvProgramacaoResult | null = null;
+    const deferGatewayVerify = await shouldDeferGatewayVerifyOnPdvAssignment(
+      programacaoId,
+      previousProgramacaoId,
+    );
 
-    if (payloadBefore.portalClienteId != null && pdvRowBefore?.portalPdvId != null && cloud2Enabled()) {
+    if (
+      !deferGatewayVerify &&
+      payloadBefore.portalClienteId != null &&
+      pdvRowBefore?.portalPdvId != null &&
+      cloud2Enabled()
+    ) {
       try {
         gatewaySync = await syncRegistryAfterPdvAssignment(
           payloadBefore.portalClienteId,
