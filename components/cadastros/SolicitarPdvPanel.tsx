@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isValidBrazilianCnpj } from "@/lib/cadastros/cnpjLookup";
 import { prospectToPedidoPrefill } from "@/lib/cadastros/prospectService";
 import type { PedidoPdvView, ProspectView } from "@/lib/cadastros/prospectTypes";
 import { onlyDigits } from "@/lib/format";
@@ -87,6 +88,12 @@ const SYNC_ERROR_LABELS: Record<string, string> = {
   pdv_rio_invalido: "PDV não pertence ao cliente selecionado.",
 };
 
+const CNPJ_LOOKUP_ERRORS: Record<string, string> = {
+  cnpj_invalido: "CNPJ inválido — informe os 14 dígitos do PDV (não use o CNPJ do cliente).",
+  cnpj_nao_encontrado: "CNPJ não encontrado na Receita Federal.",
+  cnpj_lookup_falhou: "Não foi possível consultar a Receita agora. Tente de novo em instantes.",
+};
+
 export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string; prospectId?: string }) {
   const [pedido, setPedido] = useState<PedidoPdvView | null>(null);
   const [vigenteYm, setVigenteYm] = useState<number | null>(null);
@@ -101,6 +108,7 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
   const [pdvs, setPdvs] = useState<RioPdvOption[]>([]);
   const [rioPdvId, setRioPdvId] = useState("");
   const [cnpjBusy, setCnpjBusy] = useState(false);
+  const lastLookupDigitsRef = useRef("");
 
   const [nomeFantasia, setNomeFantasia] = useState("");
   const [clienteNome, setClienteNome] = useState("");
@@ -343,11 +351,21 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
     setClienteNome(cliente.nome);
     setClienteQuery(cliente.nome);
     setRioPdvId("");
+    setDocumento("");
+    setCep("");
+    setEndereco("");
+    setNumero("");
+    setComplemento("");
+    setBairro("");
+    setCidade("");
+    setUf("");
+    lastLookupDigitsRef.current = "";
     setMsg(null);
   }
 
   async function onSelectPdv(pdvId: string) {
     setRioPdvId(pdvId);
+    lastLookupDigitsRef.current = "";
     if (!rioLinhaId || !pdvId) return;
     setBusy(true);
     setMsg(null);
@@ -366,38 +384,63 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
     }
   }
 
-  async function lookupCnpj() {
-    const digits = onlyDigits(documento);
-    if (digits.length !== 14) return;
+  const lookupCnpj = useCallback(async (raw?: string) => {
+    const digits = onlyDigits(raw ?? documento);
+    if (digits.length !== 14) {
+      setMsg("Informe o CNPJ do PDV com 14 dígitos.");
+      return;
+    }
+    if (!isValidBrazilianCnpj(digits)) {
+      setMsg(CNPJ_LOOKUP_ERRORS.cnpj_invalido);
+      return;
+    }
+    if (lastLookupDigitsRef.current === digits) return;
+
     setCnpjBusy(true);
-    setMsg(null);
+    setMsg("Consultando endereço na Receita Federal…");
     try {
       const res = await fetch(`/api/cadastros/cnpj-lookup?cnpj=${encodeURIComponent(digits)}`, {
         credentials: "same-origin",
       });
-      const data = res.ok ? await res.json() : null;
-      const row = (data as { data?: Record<string, string> })?.data;
-      if (!row) {
-        setMsg("CNPJ não encontrado na Receita.");
+      const data = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        data?: Record<string, string>;
+      } | null;
+      if (!res.ok || !data?.ok || !data.data) {
+        const err = data?.error ?? "cnpj_lookup_falhou";
+        setMsg(CNPJ_LOOKUP_ERRORS[err] ?? CNPJ_LOOKUP_ERRORS.cnpj_lookup_falhou);
         return;
       }
+      const row = data.data;
+      lastLookupDigitsRef.current = digits;
       if (row.cnpj) setDocumento(row.cnpj);
       if (row.razaoSocial) setRazaoSocial(row.razaoSocial);
-      if (row.nomeFantasia && !nomeFantasia.trim()) setNomeFantasia(row.nomeFantasia);
-      if (row.cep) setCep(row.cep);
-      if (row.endereco) setEndereco(row.endereco);
-      if (row.numero) setNumero(row.numero);
-      if (row.complemento) setComplemento(row.complemento);
-      if (row.bairro) setBairro(row.bairro);
-      if (row.cidade) setCidade(row.cidade);
-      if (row.uf) setUf(row.uf);
-      setMsg("Endereço preenchido pela Receita Federal.");
+      if (row.nomeFantasia) setNomeFantasia((prev) => prev.trim() || row.nomeFantasia);
+      setCep(row.cep ?? "");
+      setEndereco(row.endereco ?? "");
+      setNumero(row.numero ?? "");
+      setComplemento(row.complemento ?? "");
+      setBairro(row.bairro ?? "");
+      setCidade(row.cidade ?? "");
+      setUf(row.uf ?? "");
+      setMsg("Endereço importado da Receita Federal.");
     } catch {
-      setMsg("Erro ao consultar CNPJ.");
+      setMsg(CNPJ_LOOKUP_ERRORS.cnpj_lookup_falhou);
     } finally {
       setCnpjBusy(false);
     }
-  }
+  }, [documento]);
+
+  useEffect(() => {
+    const digits = onlyDigits(documento);
+    if (digits.length !== 14 || !isValidBrazilianCnpj(digits)) return;
+    if (lastLookupDigitsRef.current === digits) return;
+    const t = setTimeout(() => {
+      void lookupCnpj(documento);
+    }, 600);
+    return () => clearTimeout(t);
+  }, [documento, lookupCnpj]);
 
   async function saveDraft() {
     if (!rioLinhaId || !rioPdvId) {
@@ -606,14 +649,35 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
       <Section title="Dados do PDV">
         <Field label="Nome fantasia loja" value={nomeFantasia} onChange={setNomeFantasia} required />
         <Field label="Razão social" value={razaoSocial} onChange={setRazaoSocial} required />
-        <Field
-          label="CNPJ"
-          value={documento}
-          onChange={setDocumento}
-          onBlur={() => void lookupCnpj()}
-          required
-          hint={cnpjBusy ? "Consultando Receita…" : "Ao sair do campo, busca endereço na Receita (14 dígitos)."}
-        />
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+            CNPJ do PDV *
+            <div className="mt-1 flex flex-wrap gap-2">
+              <input
+                className={inputClass + " min-w-[14rem] flex-1"}
+                value={documento}
+                onChange={(e) => {
+                  lastLookupDigitsRef.current = "";
+                  setDocumento(e.target.value);
+                }}
+                onBlur={(e) => void lookupCnpj(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                disabled={busy || cnpjBusy}
+                onClick={() => void lookupCnpj(documento)}
+                className="rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-900 disabled:opacity-50 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100"
+              >
+                {cnpjBusy ? "Consultando…" : "Buscar na Receita"}
+              </button>
+            </div>
+            <span className="mt-1 block text-[11px] font-normal text-slate-500">
+              Use o CNPJ da loja/PDV — não o do cliente matriz. Ao completar 14 dígitos, o endereço é
+              importado automaticamente.
+            </span>
+          </label>
+        </div>
         <Field label="CEP" value={cep} onChange={setCep} required />
         <Field label="Endereço" value={endereco} onChange={setEndereco} className="sm:col-span-2" required />
         <Field label="Número" value={numero} onChange={setNumero} />

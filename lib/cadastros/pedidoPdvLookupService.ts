@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { isLinhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
 import { fetchCobrancaContatoForLinha } from "@/lib/cadastros/producaoPdvCadastroService";
@@ -101,6 +102,27 @@ function pick(...values: (string | null | undefined)[]): string {
   return "";
 }
 
+/** CNPJ do PDV — nunca herda o documento do cliente, salvo linha-as-PDV. */
+function documentoForPedidoPrefill(args: {
+  rioPdvId: string;
+  pdvDocumento: string | null | undefined;
+  linhaDocumento: string | null | undefined;
+  cadastroCnpj: string | null | undefined;
+}): string | null {
+  const pdvDoc = args.pdvDocumento?.trim() || null;
+  const linhaDoc = args.linhaDocumento?.trim() || null;
+  const cadastroDoc = args.cadastroCnpj?.trim() || null;
+  const linhaAsPdv = isLinhaAsPdvKey(args.rioPdvId);
+
+  if (linhaAsPdv) {
+    return pick(cadastroDoc, pdvDoc, linhaDoc) || null;
+  }
+
+  if (pdvDoc) return pdvDoc;
+  if (cadastroDoc && cadastroDoc !== linhaDoc) return cadastroDoc;
+  return null;
+}
+
 export async function getPedidoPrefillForRioPdv(
   rioLinhaId: string,
   rioPdvId: string,
@@ -131,7 +153,12 @@ export async function getPedidoPrefillForRioPdv(
     clienteNome,
     nomeFantasia: pick(cadastro?.nome, pdv.nome),
     razaoSocial: pick(cadastro?.razaoSocial, linha.razaoSocial, linha.nomeFantasia),
-    documento: pick(cadastro?.cnpj, pdv.documento, linha.documento) || null,
+    documento: documentoForPedidoPrefill({
+      rioPdvId,
+      pdvDocumento: pdv.documento,
+      linhaDocumento: linha.documento,
+      cadastroCnpj: cadastro?.cnpj,
+    }),
     cep: cadastro?.cep ?? "",
     endereco: cadastro?.endereco ?? "",
     numero: cadastro?.numero ?? "",
