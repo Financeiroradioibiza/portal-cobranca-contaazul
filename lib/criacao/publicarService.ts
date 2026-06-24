@@ -63,12 +63,23 @@ export async function publicarProgramacao(
     playlists?: number;
     musicas?: number;
     semArquivo?: number;
+    pdvsLinked?: number;
   }>(res, "publicar");
   if (!res?.ok || !data.ok) {
     const detail = data.detail?.trim();
     throw new Error(
       detail ? `${data.error ?? "publicar_falhou"}: ${detail}` : (data.error ?? "publicar_falhou"),
     );
+  }
+
+  const pdvIdsEnviados = pdvIds?.filter((id) => Number.isFinite(id) && id > 0) ?? [];
+  if (pdvIdsEnviados.length > 0) {
+    const linked = data.pdvsLinked ?? 0;
+    if (linked < pdvIdsEnviados.length) {
+      throw new Error(
+        `pdv_programa_nao_amarrado: esperados ${pdvIdsEnviados.length}, amarrados ${linked}`,
+      );
+    }
   }
 
   await prisma.programacao.update({

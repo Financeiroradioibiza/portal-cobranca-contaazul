@@ -139,12 +139,14 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
   });
 
   // Publica uma programação do Neon nas tabelas legadas do gateway (consumidas pelo player)
-  app.post<{ Body: { programacaoId?: string; clienteIdGateway?: number } }>(
+  app.post<{ Body: { programacaoId?: string; clienteIdGateway?: number; pdvIds?: number[] } }>(
     `${prefix}/publicar`,
     async (req, reply) => {
       if (!authorized(req)) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
       const programacaoId = String(req.body?.programacaoId ?? '').trim();
       const clienteId = Number(req.body?.clienteIdGateway);
+      const pdvIdsRaw = Array.isArray(req.body?.pdvIds) ? req.body.pdvIds : [];
+      const pdvIds = pdvIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0);
       if (!programacaoId || !Number.isFinite(clienteId) || clienteId <= 0) {
         return reply.code(400).send({ ok: false, error: 'parametros_invalidos' });
       }
@@ -171,6 +173,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       let semArquivo = 0;
       let totalAgendas = 0;
       let totalVinhetas = 0;
+      let pdvsLinked = 0;
       const pastaPlaylistMap = new Map<string, number>();
       try {
         await gw.query('BEGIN');
@@ -283,6 +286,27 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         totalAgendas = cron.agendas;
         totalVinhetas = cron.vinhetas;
 
+        if (pdvIds.length > 0) {
+          const linkRes = await gw.query(
+            `UPDATE pdvs
+                SET programa_id = $1,
+                    atualizacao_pendente = 'S',
+                    atualizacao_pendente_agenda = 'S'
+              WHERE id = ANY($2::int[]) AND cliente_id = $3
+              RETURNING id`,
+            [programaId, pdvIds, clienteId],
+          );
+          pdvsLinked = linkRes.rowCount ?? 0;
+          if (pdvsLinked < pdvIds.length) {
+            await gw.query('ROLLBACK');
+            return reply.code(409).send({
+              ok: false,
+              error: 'pdv_programa_nao_amarrado',
+              detail: `Esperados ${pdvIds.length} PDV(s), amarrados ${pdvsLinked}`,
+            });
+          }
+        }
+
         await gw.query('COMMIT');
       } catch (e) {
         await gw.query('ROLLBACK').catch(() => {});
@@ -300,6 +324,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         semArquivo,
         agendas: totalAgendas,
         vinhetas: totalVinhetas,
+        pdvsLinked,
       });
     },
   );

@@ -998,6 +998,8 @@ const DISPARO_ERROR: Record<string, string> = {
   publicar_timeout: "Publicação demorou demais no cloud2 — tente de novo.",
   sync_registry_falhou: "Falha ao sincronizar PDVs no gateway após publicar.",
   sync_registry_timeout: "Sync no gateway demorou demais — tente de novo.",
+  pdv_programa_nao_amarrado:
+    "A programação foi publicada, mas o PDV não foi amarrado no gateway — tente de novo ou contate suporte.",
   server_error: "Erro interno ao disparar. Veja o log do portal ou tente de novo.",
   disparo_falhou: "Falha ao disparar a atualização.",
 };

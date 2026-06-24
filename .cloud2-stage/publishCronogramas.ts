@@ -183,7 +183,51 @@ export async function publishCronogramasAndVinhetas(
 
   await syncPastasSelecionavelFlags(gw, programacaoId, pastaPlaylistMap);
 
+  const pastasComCronograma = new Set(
+    agRes.rows.filter((ag) => ag.alvo_tipo === 'pasta').map((ag) => ag.alvo_id),
+  );
+  agendas += await ensureDefaultAgendasForUnscheduledPastas(
+    gw,
+    programacaoId,
+    programaId,
+    pastaPlaylistMap,
+    pastasComCronograma,
+  );
+
   return { agendas, vinhetas };
+}
+
+/** Pastas sem cronograma no portal tocam o dia todo (Player 5 usa /agendas/ no slot). */
+async function ensureDefaultAgendasForUnscheduledPastas(
+  gw: GwClient,
+  programacaoId: string,
+  programaId: number,
+  pastaPlaylistMap: Map<string, number>,
+  pastasComCronograma: Set<string>,
+): Promise<number> {
+  const pastasSelRes = await portalQuery<{ id: string; selecionavel: boolean }>(
+    `SELECT id, COALESCE(selecionavel, false) AS selecionavel
+       FROM pasta WHERE programacao_id = $1`,
+    [programacaoId],
+  );
+  const selecionavelByPastaId = new Map(
+    pastasSelRes.rows.map((p) => [p.id, neonSelecionavelAtivo(p.selecionavel)]),
+  );
+
+  let created = 0;
+  for (const [pastaId, playlistId] of pastaPlaylistMap) {
+    if (pastasComCronograma.has(pastaId)) continue;
+    if (selecionavelByPastaId.get(pastaId)) continue;
+    for (const dia of [0, 1, 2, 3, 4, 5, 6]) {
+      await gw.query(
+        `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
+           VALUES ($1, $2, NULL, $3, '00:00:00'::time, '23:59:59'::time, NULL, NULL, NULL)`,
+        [programaId, playlistId, dia],
+      );
+      created++;
+    }
+  }
+  return created;
 }
 
 export function neonSelecionavelAtivo(v: unknown): boolean {
