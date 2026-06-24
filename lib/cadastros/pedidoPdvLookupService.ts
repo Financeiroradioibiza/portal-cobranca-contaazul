@@ -159,7 +159,6 @@ export async function getPedidoPrefillForRioPdv(
   ]);
 
   const cobranca = contatosCa.cobranca;
-  const lojaCa = contatosCa.loja;
 
   if (!linha || !pdv) return null;
 
@@ -193,9 +192,9 @@ export async function getPedidoPrefillForRioPdv(
     bairro: cadastro?.bairro ?? "",
     cidade: cadastro?.cidade ?? "",
     uf: cadastro?.estado ?? "",
-    contatoLojaNome: pick(cadastro?.contatoLojaNome, lojaCa?.nome),
-    contatoLojaWhatsapp: pick(cadastro?.contatoLojaTelefone, lojaCa?.telefone),
-    contatoLojaEmail: pick(cadastro?.contatoLojaEmail, lojaCa?.email),
+    contatoLojaNome: cadastro?.contatoLojaNome ?? "",
+    contatoLojaWhatsapp: cadastro?.contatoLojaTelefone ?? "",
+    contatoLojaEmail: cadastro?.contatoLojaEmail ?? "",
     contatoCobrancaNome: pick(cadastro?.contatoCobrancaNome, cobranca?.nome),
     contatoCobrancaEmail: pick(cadastro?.contatoCobrancaEmail, cobranca?.email),
     contatoCobrancaTel: pick(cadastro?.contatoCobrancaTelefone, cobranca?.telefone),

@@ -659,7 +659,7 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
           value={contatoLojaNome}
           onChange={setContatoLojaNome}
           required
-          hint="Importado dos «outros contatos» do Conta Azul ou do cadastro já salvo na produção."
+          hint="Preenchimento manual ou cadastro já salvo na produção."
         />
         <Field
           label="WhatsApp loja"
@@ -679,8 +679,8 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
 
       <Section title="Contato cobrança">
         <p className="sm:col-span-2 text-xs text-slate-500">
-          Contato de cobrança/faturamento do Conta Azul (quando cadastrado). Campos opcionais nesta
-          atualização — não usa razão social do cliente.
+          Importado do Conta Azul (contato cobrança/faturamento e «outros contatos») ou do cadastro
+          já salvo na produção.
         </p>
         <Field label="Nome responsável cobrança" value={contatoCobrancaNome} onChange={setContatoCobrancaNome} />
         <Field label="E-mail responsável cobrança" value={contatoCobrancaEmail} onChange={setContatoCobrancaEmail} />

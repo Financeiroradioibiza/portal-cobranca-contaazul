@@ -76,6 +76,23 @@ function cobrancaNomeFromCa(raw: unknown): string {
   );
 }
 
+function cobrancaContatoFromCaDetail(
+  detail: unknown,
+  linhaEmailCobranca: string | null,
+): { nome: string; email: string; telefone: string } | null {
+  const outros = firstOutrosContatoFromPersonDetail(detail);
+  const nome = cobrancaNomeFromCa(detail) || outros?.nome || "";
+  const email =
+    billingEmailOnlyJoined(detail) ||
+    outros?.email ||
+    linhaEmailCobranca?.trim() ||
+    "";
+  const telRaw = cobrancaPhonesFromCa(detail) || outros?.telefone || "";
+  const telefone = onlyDigits(telRaw) || telRaw.trim();
+  if (!nome && !email && !telefone) return null;
+  return { nome, email, telefone };
+}
+
 export async function fetchCobrancaContatoForLinha(rioLinhaId: string): Promise<{
   nome: string;
   email: string;
@@ -85,56 +102,29 @@ export async function fetchCobrancaContatoForLinha(rioLinhaId: string): Promise<
   return cobranca;
 }
 
-export async function fetchLojaContatoFromCaLinha(rioLinhaId: string): Promise<{
-  nome: string;
-  email: string;
-  telefone: string;
-} | null> {
-  const { loja } = await fetchContatosCaForLinha(rioLinhaId);
-  return loja;
-}
-
 export async function fetchContatosCaForLinha(rioLinhaId: string): Promise<{
   cobranca: { nome: string; email: string; telefone: string } | null;
-  loja: { nome: string; email: string; telefone: string } | null;
 }> {
   const token = await getValidAccessToken();
-  if (!token) return { cobranca: null, loja: null };
+  if (!token) return { cobranca: null };
 
   const linha = await prisma.rioCompClienteLinha.findUnique({
     where: { id: rioLinhaId },
     select: { caPersonId: true, emailCobranca: true },
   });
   if (!linha || !isRioCaPersonLinked(linha.caPersonId)) {
-    return { cobranca: null, loja: null };
+    return { cobranca: null };
   }
 
   try {
     const detail = await fetchPersonDetail(token, linha.caPersonId);
-    const email = billingEmailOnlyJoined(detail) || linha.emailCobranca || "";
-    const cobrancaNome = cobrancaNomeFromCa(detail);
-    const cobrancaTel = cobrancaPhonesFromCa(detail);
-    const cobranca =
-      cobrancaNome || email || cobrancaTel ?
-        { nome: cobrancaNome, email, telefone: cobrancaTel }
-      : null;
-
-    const outros = firstOutrosContatoFromPersonDetail(detail);
-    const loja =
-      outros ?
-        {
-          nome: outros.nome,
-          email: outros.email,
-          telefone: onlyDigits(outros.telefone) || outros.telefone,
-        }
-      : null;
-
-    return { cobranca, loja };
+    const cobranca = cobrancaContatoFromCaDetail(detail, linha.emailCobranca);
+    return { cobranca };
   } catch {
     if (linha.emailCobranca) {
-      return { cobranca: { nome: "", email: linha.emailCobranca, telefone: "" }, loja: null };
+      return { cobranca: { nome: "", email: linha.emailCobranca, telefone: "" } };
     }
-    return { cobranca: null, loja: null };
+    return { cobranca: null };
   }
 }
 
@@ -182,7 +172,6 @@ async function defaultSeedForKey(
   razaoSocial: string;
   rioLinhaId: string;
   cobranca: { nome: string; email: string; telefone: string } | null;
-  loja: { nome: string; email: string; telefone: string } | null;
 }> {
   if (isLinhaAsPdvKey(rioPdvKey)) {
     const realLinhaId = rioPdvKey.replace(/^linha:/, "");
@@ -195,14 +184,13 @@ async function defaultSeedForKey(
         documento: true,
       },
     });
-    const contatos = refreshCobranca ? await fetchContatosCaForLinha(realLinhaId) : { cobranca: null, loja: null };
+    const contatos = refreshCobranca ? await fetchContatosCaForLinha(realLinhaId) : { cobranca: null };
     return {
       nome: linha?.nomeFantasia?.trim() || "Sem nome",
       documento: linha?.documento ?? null,
       razaoSocial: linha?.razaoSocial?.trim() || linha?.nomeFantasia || "",
       rioLinhaId: linha?.id ?? realLinhaId,
       cobranca: contatos.cobranca,
-      loja: contatos.loja,
     };
   }
 
@@ -215,42 +203,26 @@ async function defaultSeedForKey(
   const contatos =
     refreshCobranca && pdv?.cliente.id ?
       await fetchContatosCaForLinha(pdv.cliente.id)
-    : { cobranca: null, loja: null };
+    : { cobranca: null };
   return {
     nome: pdv?.nome?.trim() || pdv?.cliente.nomeFantasia || "Sem nome",
     documento: pdv?.documento ?? null,
     razaoSocial: pdv?.cliente.razaoSocial || pdv?.cliente.nomeFantasia || "",
     rioLinhaId: pdv?.cliente.id ?? "",
     cobranca: contatos.cobranca,
-    loja: contatos.loja,
   };
 }
 
 function buildCaContatoPatch(
-  row: NonNullable<Awaited<ReturnType<typeof prisma.producaoPdvCadastro.findUnique>>>,
   seed: {
     cobranca: { nome: string; email: string; telefone: string } | null;
-    loja: { nome: string; email: string; telefone: string } | null;
   },
-  opts?: { forceLoja?: boolean },
 ) {
   const data: Record<string, string> = {};
   if (seed.cobranca) {
     data.contatoCobrancaNome = seed.cobranca.nome;
     data.contatoCobrancaEmail = seed.cobranca.email;
     data.contatoCobrancaTelefone = seed.cobranca.telefone;
-  }
-  if (seed.loja) {
-    const force = opts?.forceLoja === true;
-    if ((force || !row.contatoLojaNome.trim()) && seed.loja.nome) {
-      data.contatoLojaNome = seed.loja.nome;
-    }
-    if ((force || !row.contatoLojaEmail.trim()) && seed.loja.email) {
-      data.contatoLojaEmail = seed.loja.email;
-    }
-    if ((force || !row.contatoLojaTelefone.trim()) && seed.loja.telefone) {
-      data.contatoLojaTelefone = seed.loja.telefone;
-    }
   }
   return data;
 }
@@ -278,23 +250,20 @@ export async function getOrCreatePdvCadastro(
         contatoCobrancaNome: seed.cobranca?.nome ?? "",
         contatoCobrancaEmail: seed.cobranca?.email ?? "",
         contatoCobrancaTelefone: seed.cobranca?.telefone ?? "",
-        contatoLojaNome: seed.loja?.nome ?? "",
-        contatoLojaEmail: seed.loja?.email ?? "",
-        contatoLojaTelefone: seed.loja?.telefone ?? "",
       },
     });
-    return rowToDto(row, Boolean(seed.cobranca || seed.loja));
+    return rowToDto(row, Boolean(seed.cobranca));
   }
 
   if (refreshCobranca) {
     const seed = await defaultSeedForKey(rioPdvKey, true);
-    const patch = buildCaContatoPatch(row, seed, { forceLoja: opts?.forceCaContatos === true });
+    const patch = buildCaContatoPatch(seed);
     if (Object.keys(patch).length > 0) {
       row = await prisma.producaoPdvCadastro.update({
         where: { rioPdvKey },
         data: patch,
       });
-      return rowToDto(row, Boolean(seed.cobranca || seed.loja));
+      return rowToDto(row, Boolean(seed.cobranca));
     }
   }
 

@@ -261,9 +261,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
               </p>
             </Field>
 
-            <p className="text-[10px] font-bold uppercase text-slate-400">
-              Contato loja {form.contatoLojaNome || form.contatoLojaTelefone ? "" : "(importa «outros contatos» do CA)"}
-            </p>
+            <p className="text-[10px] font-bold uppercase text-slate-400">Contato loja</p>
             <Field label="Nome">
               <input
                 className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
@@ -292,7 +290,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
             </div>
 
             <p className="text-[10px] font-bold uppercase text-slate-400">
-              Contato cobrança {form.cobrancaFromCa ? "(Conta Azul)" : ""}
+              Contato cobrança {form.cobrancaFromCa ? "(Conta Azul — CCF + outros contatos)" : ""}
             </p>
             <Field label="Nome">
               <input
