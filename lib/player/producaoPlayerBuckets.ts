@@ -510,6 +510,24 @@ function findBucketForRioPdvKey(
   return null;
 }
 
+/** IDs Player (316.001…) de todos os PDVs do bucket — para sync pontual no gateway. */
+export function portalPdvIdsForBucket(
+  bucket: ProducaoPlayerBucket,
+  pdvPortalIds: Map<string, number>,
+): number[] {
+  const portalClienteId = bucket.portalClienteId;
+  const ids = new Set<number>();
+  for (const pdv of bucket.pdvs) {
+    if (pdv.isLinhaProxy) {
+      if (portalClienteId != null) ids.add(proxyPortalPdvId(portalClienteId));
+      continue;
+    }
+    const portalPdvId = pdvPortalIds.get(pdv.rioPdvId);
+    if (portalPdvId != null) ids.add(portalPdvId);
+  }
+  return [...ids];
+}
+
 function sortedNonProxyPdvs(bucket: ProducaoPlayerBucket) {
   return sortRioPdvsByNome(
     bucket.pdvs.filter((p) => !p.isLinhaProxy).map((p) => ({ id: p.rioPdvId, nome: p.nome })),

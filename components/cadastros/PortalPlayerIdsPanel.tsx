@@ -284,7 +284,6 @@ export function PortalPlayerIdsPanel() {
   ): Promise<{
     clientes: number;
     pdvs: number;
-    logins?: { created: number; skipped: number } | null;
     gateway?: { clientes: number; pdvs: number } | null;
   }> {
     let offset = 0;
@@ -292,7 +291,6 @@ export function PortalPlayerIdsPanel() {
     let last: {
       clientes?: number;
       pdvs?: number;
-      logins?: { created: number; skipped: number } | null;
       gateway?: { clientes: number; pdvs: number } | null;
       nextOffset?: number;
       total?: number;
@@ -317,7 +315,6 @@ export function PortalPlayerIdsPanel() {
         nextOffset?: number;
         total?: number;
         applied?: number;
-        logins?: { created: number; skipped: number } | null;
         gateway?: { clientes: number; pdvs: number } | null;
       };
       if (!res.ok) throw new Error(data.error ?? "falhou");
@@ -336,7 +333,6 @@ export function PortalPlayerIdsPanel() {
     return {
       clientes: last.clientes ?? 0,
       pdvs: last.pdvs ?? 0,
-      logins: last.logins,
       gateway: last.gateway,
     };
   }
@@ -346,8 +342,8 @@ export function PortalPlayerIdsPanel() {
     if (
       !window.confirm(
         "Substitui todos os IDs pela organização da produção musical (100, 100.001…), em lotes de 10. " +
-          "Numeração antiga do painel legado / Rio será descartada. Logins e logotipos órfãos são removidos; " +
-          "novos logins são gerados ao final. Continuar?",
+          "Numeração antiga do painel legado / Rio será descartada. Logins e logotipos órfãos são removidos. " +
+          "Depois, use «Login Player» na produção por cliente. Continuar?",
       )
     ) {
       return;
@@ -358,9 +354,6 @@ export function PortalPlayerIdsPanel() {
       const data = await runPlayerIdAssignBatches(false, sync, setMsg);
       setMsg(
         `IDs realinhados: ${data.clientes} clientes, ${data.pdvs} PDVs.` +
-          (data.logins ?
-            ` Logins: ${data.logins.created} criado(s), ${data.logins.skipped} já existiam.`
-          : "") +
           (data.gateway ?
             ` Gateway: ${data.gateway.clientes} clientes, ${data.gateway.pdvs} PDVs.`
           : ""),

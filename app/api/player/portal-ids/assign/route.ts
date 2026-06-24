@@ -4,7 +4,6 @@ import {
   assignMissingPortalPlayerIdsBatch,
   realignPortalPlayerIdsBatch,
 } from "@/lib/player/assignPortalPlayerIds";
-import { generateMissingClientePlayerLogins } from "@/lib/player/clientePlayerLoginService";
 import { syncPlayerGatewayRegistry } from "@/lib/player/playerGatewaySync";
 import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 
@@ -30,24 +29,16 @@ export async function POST(request: Request) {
           reset: body.reset === true || offset === 0,
         });
 
-    let logins: { created: number; skipped: number } | null = null;
     let sync: { clientes: number; pdvs: number } | null = null;
 
-    if (!result.hasMore) {
-      if (!body.onlyMissing) {
-        const lg = await generateMissingClientePlayerLogins();
-        logins = { created: lg.created, skipped: lg.skipped };
-      }
-      if (body.sync !== false && cloud2Enabled()) {
-        sync = await syncPlayerGatewayRegistry();
-      }
+    if (!result.hasMore && body.sync !== false && cloud2Enabled()) {
+      sync = await syncPlayerGatewayRegistry();
     }
 
     return NextResponse.json({
       ok: true,
       ...result,
       realigned: !body.onlyMissing,
-      logins,
       gateway: sync,
     });
   } catch (e) {

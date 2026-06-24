@@ -237,6 +237,7 @@ export function CadastrosGruposPanel() {
   const [msg, setMsg] = useState("");
   const [activatingPdvKey, setActivatingPdvKey] = useState<string | null>(null);
   const [activatingBucketKey, setActivatingBucketKey] = useState<string | null>(null);
+  const [provisioningBucketKey, setProvisioningBucketKey] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [onlySemPainel, setOnlySemPainel] = useState(false);
   const [showVinculoDiag, setShowVinculoDiag] = useState(false);
@@ -505,7 +506,7 @@ export function CadastrosGruposPanel() {
   );
 
   const activatePdvId = useCallback(async (rioPdvKey: string) => {
-    if (activatingPdvKey || activatingBucketKey) return;
+    if (activatingPdvKey || activatingBucketKey || provisioningBucketKey) return;
     setActivatingPdvKey(rioPdvKey);
     setMsg("");
     try {
@@ -540,10 +541,10 @@ export function CadastrosGruposPanel() {
     } finally {
       setActivatingPdvKey(null);
     }
-  }, [activatingPdvKey, activatingBucketKey, applyPlayerIdLinks]);
+  }, [activatingPdvKey, activatingBucketKey, provisioningBucketKey, applyPlayerIdLinks]);
 
   const activateBucketIds = useCallback(async (bucketKey: string) => {
-    if (activatingPdvKey || activatingBucketKey) return;
+    if (activatingPdvKey || activatingBucketKey || provisioningBucketKey) return;
     setActivatingBucketKey(bucketKey);
     setMsg("");
     try {
@@ -575,7 +576,48 @@ export function CadastrosGruposPanel() {
     } finally {
       setActivatingBucketKey(null);
     }
-  }, [activatingPdvKey, activatingBucketKey, applyPlayerIdLinks]);
+  }, [activatingPdvKey, activatingBucketKey, provisioningBucketKey, applyPlayerIdLinks]);
+
+  const provisionClientePlayer = useCallback(async (bucketKey: string, clienteNome: string) => {
+    if (activatingPdvKey || activatingBucketKey || provisioningBucketKey) return;
+    setProvisioningBucketKey(bucketKey);
+    setMsg("");
+    try {
+      const res = await fetch("/api/player/portal-ids/provision-cliente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bucketKey }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        loginStatus?: "created" | "exists";
+        email?: string;
+        passwordPlain?: string;
+        portalClienteId?: number;
+        gateway?: { pdvs: number; clientes: number } | null;
+      };
+      if (!res.ok) throw new Error(data.error ?? "falha_login_player");
+      const cred =
+        data.email && data.passwordPlain ?
+          `Login ${data.email} · senha ${data.passwordPlain}`
+        : data.email ?
+          `Login ${data.email}`
+        : "";
+      const loginNote =
+        data.loginStatus === "created" ? "Login criado" : "Login já existia";
+      const syncNote =
+        data.gateway ?
+          ` · sync Player 5 (${data.gateway.pdvs} PDV)`
+        : " · cloud2 desabilitado";
+      setMsg(
+        `${clienteNome.trim() || "Cliente"} ${data.portalClienteId ?? ""}: ${loginNote}. ${cred}${syncNote}`,
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao criar login Player.");
+    } finally {
+      setProvisioningBucketKey(null);
+    }
+  }, [activatingPdvKey, activatingBucketKey, provisioningBucketKey]);
 
   useEffect(() => {
     void fetch("/api/cadastros/producao-catalog")
@@ -1330,11 +1372,30 @@ export function CadastrosGruposPanel() {
                           {!editMode && c.pdvs.some((p) => !p.portalPlayerId) ?
                             <button
                               type="button"
-                              disabled={activatingBucketKey === c.key || activatingPdvKey != null}
+                              disabled={
+                                activatingBucketKey === c.key ||
+                                activatingPdvKey != null ||
+                                provisioningBucketKey != null
+                              }
                               onClick={() => void activateBucketIds(c.key)}
                               className="rounded border border-sky-500 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-400 dark:text-sky-300 dark:hover:bg-sky-950/40"
                             >
                               {activatingBucketKey === c.key ? "Ativando…" : "Ativar IDs"}
+                            </button>
+                          : null}
+                          {!editMode && c.pdvs.some((p) => p.portalPlayerId) ?
+                            <button
+                              type="button"
+                              disabled={
+                                provisioningBucketKey === c.key ||
+                                activatingBucketKey != null ||
+                                activatingPdvKey != null
+                              }
+                              onClick={() => void provisionClientePlayer(c.key, c.nome)}
+                              className="rounded border border-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-500 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+                              title="Cria login do cliente (se faltante) e sincroniza só este cliente no Player 5"
+                            >
+                              {provisioningBucketKey === c.key ? "Sync…" : "Login Player"}
                             </button>
                           : null}
                           {editMode && isEmpty ?

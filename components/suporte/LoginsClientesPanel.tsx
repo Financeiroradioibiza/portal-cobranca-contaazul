@@ -250,8 +250,9 @@ export function LoginsClientesPanel() {
     <div className="space-y-4">
       <p className="text-sm text-slate-600 dark:text-slate-400">
         Credenciais do <strong>Player</strong> para repassar ao cliente. Geradas <strong>uma vez</strong> e
-        mantidas estáveis — o player precisa de login/senha fixos. Novos clientes recebem login automático;
-        clientes existentes só ganham login pelo botão abaixo (faltantes) ou edição manual.
+        mantidas estáveis — o player precisa de login/senha fixos. Use <strong>Login Player</strong> na
+        produção (ao lado do cliente, após ativar IDs) ou «Gerar logins faltantes» aqui para clientes
+        antigos em lote.
         {yearMonth != null ?
           <> · Planilha {formatYearMonthLabel(yearMonth)}.</>
         : null}
