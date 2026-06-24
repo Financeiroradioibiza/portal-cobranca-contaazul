@@ -100,7 +100,14 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
     setBusy(true);
     setMsg("");
     try {
-      const { rioPdvKey: _k, cobrancaFromCa: _c, programacaoMusical: _p, ...patch } = form;
+      const {
+        rioPdvKey: _k,
+        cobrancaFromCa: _c,
+        programacaoMusical: _p,
+        controlarPlayer: _cp,
+        playerContatoExtraCodigo: _ace,
+        ...patch
+      } = form;
       const res = await fetch(
         `/api/cadastros/producao/pdv/${encodeURIComponent(rioPdvKey)}/cadastro`,
         {
@@ -240,8 +247,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
 
             <div className="grid grid-cols-2 gap-2">
               <Field label="Placa de carro">{boolSelect(form.placaCarro, (v) => setForm({ ...form!, placaCarro: v }), disabled)}</Field>
-              <Field label="Controlar player">{boolSelect(form.controlarPlayer, (v) => setForm({ ...form!, controlarPlayer: v }), disabled)}</Field>
-              <Field label="Controlar playlist">{boolSelect(form.controlarPlaylist, (v) => setForm({ ...form!, controlarPlaylist: v }), disabled)}</Field>
+              <Field label="Aviso locução">{boolSelect(form.controlarPlaylist, (v) => setForm({ ...form!, controlarPlaylist: v }), disabled)}</Field>
               <Field label="Status player">
                 <select
                   className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
@@ -256,27 +262,11 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
                 </select>
               </Field>
             </div>
-
-            <Field label="Aviso codificado (Player)">
-              <select
-                className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
-                value={form.playerContatoExtraCodigo}
-                disabled={disabled}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    playerContatoExtraCodigo: e.target.value as ProducaoPdvCadastroDto["playerContatoExtraCodigo"],
-                  })
-                }
-              >
-                <option value="">Nenhum</option>
-                <option value="ALERTACORTE">ALERTACORTE — cobrança em aberto</option>
-                <option value="CADASTRO">CADASTRO — cadastro desatualizado</option>
-              </select>
-              <p className="mt-1 text-[10px] text-slate-500">
-                Só aparece no player quando Controlar player e Controlar playlist estão «Sim».
-              </p>
-            </Field>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <strong>Placa de carro</strong> libera o aviso de veículo no Player.{" "}
+              <strong>Aviso locução</strong> libera a vinheta por texto (TTS) em Avisos. Avisos
+              operacionais vêm do Suporte.
+            </p>
 
             <p className="text-[10px] font-bold uppercase text-slate-400">Contato loja</p>
             <Field label="Nome">

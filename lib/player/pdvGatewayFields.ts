@@ -11,7 +11,7 @@ export type PdvGatewayFields = {
 
 const DEFAULT: PdvGatewayFields = {
   status: "A",
-  ctrlPlayer: "N",
+  ctrlPlayer: "S",
   ctrlPlacaCarro: "N",
   ctrlPlaylists: "N",
   cidade: "",
@@ -21,25 +21,23 @@ const DEFAULT: PdvGatewayFields = {
 
 /** Mapeia cadastro produção (portal) → flags que o Player 5 lê em loginByToken/ping. */
 export function mapPdvCadastroToGatewayFields(cad?: {
-  controlarPlayer?: boolean;
   placaCarro?: boolean;
   controlarPlaylist?: boolean;
   statusPlayer?: "Ativo" | "Inativo";
   cidade?: string;
   estado?: string;
-  playerContatoExtraCodigo?: string;
 } | null): PdvGatewayFields {
   if (!cad) return DEFAULT;
-  const codigo = (cad.playerContatoExtraCodigo ?? "").trim().toUpperCase();
-  const nomeCompletoContatoExtra =
-    codigo === "ALERTACORTE" || codigo === "CADASTRO" ? codigo : "";
   return {
     status: cad.statusPlayer === "Inativo" ? "I" : "A",
-    ctrlPlayer: cad.controlarPlayer ? "S" : "N",
+    /** Player 5 — transporte sempre liberado; «controlar player» saiu do cadastro. */
+    ctrlPlayer: "S",
     ctrlPlacaCarro: cad.placaCarro ? "S" : "N",
+    /** «Aviso locução» no cadastro → vinheta por texto no Player. */
     ctrlPlaylists: cad.controlarPlaylist ? "S" : "N",
     cidade: (cad.cidade ?? "").trim(),
     uf: (cad.estado ?? "").trim().slice(0, 2).toUpperCase(),
-    nomeCompletoContatoExtra,
+    /** Avisos codificados legados — substituídos por avisos do Suporte. */
+    nomeCompletoContatoExtra: "",
   };
 }

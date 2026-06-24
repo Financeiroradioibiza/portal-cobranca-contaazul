@@ -49,31 +49,17 @@ async function resolveGatewayProgramaId(
   conn: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<{ id: number }> }> },
   clienteId: number,
   programacaoPortalId: string | null | undefined,
-  programacaoMusical: string | undefined,
 ): Promise<number | null> {
   const portalId = String(programacaoPortalId ?? "").trim();
-  if (portalId) {
-    const byOrigem = await conn.query(
-      `SELECT id FROM programas
-        WHERE cliente_id = $1 AND origem_programacao_id = $2
-        ORDER BY id LIMIT 1`,
-      [clienteId, portalId],
-    );
-    if (byOrigem.rows[0]?.id) return byOrigem.rows[0].id;
-  }
+  if (!portalId) return null;
 
-  const nome = String(programacaoMusical ?? "").trim();
-  if (nome) {
-    const byNome = await conn.query(
-      `SELECT id FROM programas
-        WHERE cliente_id = $1 AND lower(trim(nome)) = lower(trim($2))
-        ORDER BY id LIMIT 1`,
-      [clienteId, nome],
-    );
-    if (byNome.rows[0]?.id) return byNome.rows[0].id;
-  }
-
-  return null;
+  const byOrigem = await conn.query(
+    `SELECT id FROM programas
+      WHERE cliente_id = $1 AND origem_programacao_id = $2
+      ORDER BY id LIMIT 1`,
+    [clienteId, portalId],
+  );
+  return byOrigem.rows[0]?.id ?? null;
 }
 
 /** Sincroniza clientes/PDVs do portal Neon → gateway MySQL (IDs 100+, 100.001). */
@@ -283,19 +269,16 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
           await conn.query(`UPDATE pdvs SET instalado = 'S' WHERE id = $1`, [p.id]);
         }
 
-        const programaId = await resolveGatewayProgramaId(
-          conn,
-          p.clienteId,
-          p.programacaoPortalId,
-          p.programacaoMusical,
-        );
+        const programaId = await resolveGatewayProgramaId(conn, p.clienteId, p.programacaoPortalId);
         const prevProgramaId = prev.rows[0]?.programa_id ?? null;
-        await conn.query(`UPDATE pdvs SET programa_id = $1 WHERE id = $2`, [programaId, p.id]);
-        if (programaId !== prevProgramaId) {
-          await conn.query(
-            `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE id = $1`,
-            [p.id],
-          );
+        if (programaId != null) {
+          await conn.query(`UPDATE pdvs SET programa_id = $1 WHERE id = $2`, [programaId, p.id]);
+          if (programaId !== prevProgramaId) {
+            await conn.query(
+              `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE id = $1`,
+              [p.id],
+            );
+          }
         }
       }
 

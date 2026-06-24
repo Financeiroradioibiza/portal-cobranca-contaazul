@@ -65,8 +65,21 @@ elif [[ "$MODE" == "patch" ]]; then
       "$REMOTE:$REMOTE_DIR/src/routes/criacao/$f"
   done
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/stubs.ts" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/stubs.ts"
+    "$ROOT/.cloud2-stage/webservice/" \
+    "$REMOTE:$REMOTE_DIR/src/routes/webservice/"
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/routes/loginByToken.js" \
+    "$REMOTE:$REMOTE_DIR/src/routes/loginByToken.js"
+  "${SSH[@]}" "$REMOTE" "mkdir -p '$REMOTE_DIR/scripts'"
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/scripts/copy-webservice-js.sh" \
+    "$REMOTE:$REMOTE_DIR/scripts/copy-webservice-js.sh"
+  "${SSH[@]}" "$REMOTE" "chmod +x '$REMOTE_DIR/scripts/copy-webservice-js.sh' && rm -f \
+    '$REMOTE_DIR/src/routes/webservice/playlist.ts' \
+    '$REMOTE_DIR/src/routes/webservice/loginByToken.ts'"
+  rsync -avz -e "ssh -o BatchMode=yes" \
+    "$ROOT/.cloud2-stage/deploy/package.build.json" \
+    "$REMOTE:$REMOTE_DIR/package.json"
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/criacao-index.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/index.ts"
@@ -74,23 +87,8 @@ elif [[ "$MODE" == "patch" ]]; then
     "$ROOT/.cloud2-stage/webservice/getMusica.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/webservice/getMusica.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/helpers.js" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/helpers.js"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/ping.js" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/ping.js"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/playlist.js" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/playlist.js"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/rateLimit.js" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/rateLimit.js"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/login.js" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/login.js"
-  rsync -avz -e "ssh -o BatchMode=yes" \
-    "$ROOT/.cloud2-stage/webservice/getPdvs.js" \
-    "$REMOTE:$REMOTE_DIR/src/routes/webservice/getPdvs.js"
+    "$ROOT/.cloud2-stage/webservice/stubs.ts" \
+    "$REMOTE:$REMOTE_DIR/src/routes/webservice/stubs.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$LOCAL/src/index.ts" \
     "$REMOTE:$REMOTE_DIR/src/index.ts"
@@ -106,8 +104,8 @@ else
   exit 1
 fi
 
-echo "== 3/3 Docker rebuild api + worker-audio"
-"${SSH[@]}" "$REMOTE" "cd '$INFRA_DIR' && docker compose build api worker-audio && docker compose up -d api worker-audio"
+echo "== 3/3 Docker rebuild api + worker-audio (sem cache na API — corrige rotas webservice)"
+"${SSH[@]}" "$REMOTE" "cd '$INFRA_DIR' && docker compose build --no-cache api && docker compose build worker-audio && docker compose up -d api worker-audio"
 
 echo ""
 echo "OK. Teste sync-registry (401 sem secret = rota existe):"

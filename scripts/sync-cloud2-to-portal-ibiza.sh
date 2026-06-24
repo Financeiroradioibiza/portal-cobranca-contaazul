@@ -38,6 +38,11 @@ cp "$SRC/criacao-index.ts" "$DEST/src/routes/criacao/index.ts"
 cp "$SRC/routes/loginByToken.js" "$DEST/src/routes/loginByToken.js"
 cp "$SRC/webservice-index.ts" "$DEST/src/routes/index.ts"
 
+# .ts legados sobrescrevem o build e ignoram estes .js corrigidos
+rm -f \
+  "$DEST/src/routes/webservice/playlist.ts" \
+  "$DEST/src/routes/webservice/loginByToken.ts"
+
 echo "OK — rode em $DEST:"
 echo "  npm install"
 echo "  npm run build"

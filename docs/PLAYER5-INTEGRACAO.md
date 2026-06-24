@@ -50,16 +50,13 @@ Avisos operador (vermelho): Player 5 chama `POST /api/player-avisos` (configurar
 | `clientePlayerLogin` | `usuarios` + `clientes.senha_hash` | POST /login/ |
 | `portalPdvId` | `pdvs.id` | getPdvs, loginByToken |
 | `playerInstalacaoToken` | `tokens.token` + `pdvs.serial_instalacao` | loginByToken, 1ª instalação |
-| `controlarPlayer` etc. | `ctrl_player`, `ctrl_placa_carro`, `ctrl_playlists` | loginByToken, ping |
+| `placaCarro` / `controlarPlaylist` | `ctrl_placa_carro`, `ctrl_playlists` | loginByToken, ping (avisos) |
 | `statusPlayer` | `pdvs.status` A/I | loginByToken |
 | Programação publicada | `programas`, `playlists`, `musicas` | playlist, get_musica |
 | Publicar / disparar ATL | `atualizacao_pendente='S'` + `atualizacao_pendente_agenda='S'` | ping → refetch playlist/agendas |
 | Cronogramas (pastas) | tabela `agendas` | GET `/agendas/` |
 | Vinhetas VP/VA | playlists tipo VP/VA + `agendas` | `/vinhetas_programadas/`, `/vinhetas_agendadas/` |
 | Avisos operador (Suporte) | Neon `player_aviso_operador` (lido via cloud2) | POST `/api/player-avisos` |
-| Download reportado | tabela `atualizadas` | GET/POST `/save_atualizadas/` |
-| Ping + versão + cache no Suporte | `ping_log` + `atualizadas` → `POST /criacao/player/telemetry` | `/api/ping/` + `/save_atualizadas/` |
-| Código contato extra (ALERTACORTE/CADASTRO) | `pdvs.nome_completo_contato_extra` | loginByToken, ping |
 | Logotipo cliente (JPEG) | `clientes.logotipo_jpeg` | GET `/logotipo_cliente/` + URL em loginByToken |
 
 **Gatilhos de sync no portal:**
@@ -92,10 +89,11 @@ No portal:
 
 | Portal (cadastro PDV) | Gateway | Efeito no Player 5 |
 |----------------------|---------|-------------------|
-| Controlar player | `ctrl_player='S'` | Play/pause/next liberados |
-| Placa de carro | `ctrl_placa_carro='S'` | UI veículos |
-| Controlar playlist | `ctrl_playlists='S'` | Escolha manual de playlist |
+| Placa de carro | `ctrl_placa_carro='S'` | Aviso de veículo em **Avisos** |
+| Aviso locução | `ctrl_playlists='S'` | Vinheta por texto (TTS) em **Avisos** |
 | Status inativo | `status='I'` | Bloqueio |
+
+Transporte (play/pause/next) não depende mais do cadastro — `ctrl_player` permanece `'S'` no sync.
 
 Mapeamento: `lib/player/pdvGatewayFields.ts`
 
@@ -109,17 +107,6 @@ Mapeamento: `lib/player/pdvGatewayFields.ts`
 - **Deploy player:** definir `VITE_PLAYER_AVISOS_URL` para o endpoint do cloud2 (substitui Netlify `player4`).
 
 Código: `lib/suporte/playerAvisoService.ts`, `.cloud2-stage/webservice/playerAvisos.js`
-
----
-
-## Código contato extra (ALERTACORTE / CADASTRO)
-
-Campo opcional no cadastro PDV: `producao_pdv_cadastro.player_contato_extra_codigo` — valores `ALERTACORTE` ou `CADASTRO` (vazio = nenhum).
-
-- Sincroniza para `pdvs.nome_completo_contato_extra` no gateway.
-- Player 5 exibe aviso vermelho **somente quando** `ctrl_player=S` e `ctrl_playlists=S` (não conflita com avisos automáticos das flags `N`).
-
-Mapeamento: `lib/player/pdvGatewayFields.ts` → sync em `playerGatewaySync.ts`
 
 ---
 

@@ -1,0 +1,42 @@
+{
+  "name": "portal-ibiza",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portal Ibiza 2026 — API webservice compatível + painel (sandbox Hetzner)",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:worker": "tsx watch src/workers/index.ts",
+    "dev:worker:criacao": "tsx watch src/workers/criacao/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "build:api": "npm run build && sh scripts/copy-webservice-js.sh .",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/workers/index.js",
+    "start:worker:criacao": "node dist/workers/criacao/index.js",
+    "sync:from-portal": "bash ../portal-cobranca-contaazul/scripts/sync-cloud2-to-portal-ibiza.sh",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed-sandbox.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.750.0",
+    "@fastify/cors": "^10.0.2",
+    "@fastify/formbody": "^8.0.2",
+    "@fastify/multipart": "^9.0.3",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.34.5",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

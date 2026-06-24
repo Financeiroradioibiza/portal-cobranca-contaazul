@@ -15,11 +15,10 @@ const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 
 function isSemPing5Dias(
   telemetry: DashboardPdvTelemetry,
-  controlarPlayer: boolean,
   statusPlayer: "Ativo" | "Inativo",
   telemetriaOk: boolean,
 ): boolean {
-  if (!telemetriaOk || !controlarPlayer || statusPlayer !== "Ativo") return false;
+  if (!telemetriaOk || statusPlayer !== "Ativo") return false;
   const last = telemetry.lastPingAt;
   if (!last) return true;
   const age = Date.now() - new Date(last).getTime();
@@ -106,7 +105,6 @@ export async function getProducaoSuporte(options?: {
       });
       const semPing5Dias = isSemPing5Dias(
         pdv.telemetry,
-        pdv.controlarPlayer,
         pdv.statusPlayer,
         dash.overview.telemetriaDisponivel,
       );

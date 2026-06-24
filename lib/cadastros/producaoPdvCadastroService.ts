@@ -299,14 +299,10 @@ export async function updatePdvCadastro(
       ...(patch.razaoSocial !== undefined ? { razaoSocial: patch.razaoSocial } : {}),
       ...(patch.cnpj !== undefined ? { cnpj: patch.cnpj } : {}),
       ...(patch.placaCarro !== undefined ? { placaCarro: patch.placaCarro } : {}),
-      ...(patch.controlarPlayer !== undefined ? { controlarPlayer: patch.controlarPlayer } : {}),
       ...(patch.controlarPlaylist !== undefined ?
         { controlarPlaylist: patch.controlarPlaylist }
       : {}),
       ...(statusPlayer !== undefined ? { statusPlayer } : {}),
-      ...(patch.playerContatoExtraCodigo !== undefined ?
-        { playerContatoExtraCodigo: normalizePlayerContatoExtraCodigo(patch.playerContatoExtraCodigo) }
-      : {}),
       ...(patch.contatoLojaNome !== undefined ? { contatoLojaNome: patch.contatoLojaNome } : {}),
       ...(patch.contatoLojaEmail !== undefined ? { contatoLojaEmail: patch.contatoLojaEmail } : {}),
       ...(patch.contatoLojaTelefone !== undefined ?

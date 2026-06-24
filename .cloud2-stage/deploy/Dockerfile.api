@@ -3,9 +3,10 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci 2>/dev/null || npm install
 COPY tsconfig.json ./
+COPY scripts ./scripts
 COPY db ./db
 COPY src ./src
-RUN npm run build
+RUN npm run build:api
 
 FROM node:20-alpine
 WORKDIR /app

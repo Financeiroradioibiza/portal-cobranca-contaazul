@@ -102,11 +102,10 @@ const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 
 function isSemPing5Dias(
   telemetry: DashboardPdvTelemetry,
-  controlarPlayer: boolean,
   statusPlayer: "Ativo" | "Inativo",
   telemetriaOk: boolean,
 ): boolean {
-  if (!telemetriaOk || !controlarPlayer || statusPlayer !== "Ativo") return false;
+  if (!telemetriaOk || statusPlayer !== "Ativo") return false;
   const last = telemetry.lastPingAt;
   if (!last) return true;
   return Date.now() - new Date(last).getTime() > FIVE_DAYS_MS;
@@ -114,11 +113,9 @@ function isSemPing5Dias(
 
 function deriveOnlineStatus(
   statusPlayer: "Ativo" | "Inativo",
-  controlarPlayer: boolean,
   telemetry: DashboardPdvTelemetry,
 ): boolean | null {
   if (telemetry.isOnline != null) return telemetry.isOnline;
-  if (!controlarPlayer) return null;
   return statusPlayer === "Ativo";
 }
 
@@ -260,7 +257,7 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
       const statusPlayer = cad?.statusPlayer ?? "Ativo";
       const controlarPlayer = cad?.controlarPlayer ?? false;
       const controlarPlaylist = cad?.controlarPlaylist ?? false;
-      const online = deriveOnlineStatus(statusPlayer, controlarPlayer, telemetry);
+      const online = deriveOnlineStatus(statusPlayer, telemetry);
 
       totalPdvs += 1;
       if (online === true) {
@@ -269,7 +266,7 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
       } else if (online === false) {
         offlinePdvs += 1;
         cOffline += 1;
-      } else if (isSemPing5Dias(telemetry, controlarPlayer, statusPlayer, gatewayTelemetry.ok)) {
+      } else if (isSemPing5Dias(telemetry, statusPlayer, gatewayTelemetry.ok)) {
         semPingPdvs += 1;
       }
 

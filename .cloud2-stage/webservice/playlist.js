@@ -22,8 +22,8 @@ export async function registerPlaylistRoutes(app, prefix) {
     }
 
     const prog = await pool.query(
-      `SELECT id, nome FROM programas WHERE id = $1 LIMIT 1`,
-      [programaId],
+      `SELECT id, nome FROM programas WHERE id = $1 AND cliente_id = $2 LIMIT 1`,
+      [programaId, session.cliente_id],
     );
     if (prog.rowCount === 0) {
       return reply.send({ mensagem: 'programa_nao_encontrado' });
@@ -32,7 +32,7 @@ export async function registerPlaylistRoutes(app, prefix) {
     const playlists = await pool.query(
       `SELECT id, nome, tipo, tocar_sempre, COALESCE(selecionavel, 'N') AS selecionavel, tempo_total, tocar_cada, tipo_tocar
          FROM playlists
-        WHERE pdv_id = $1 OR (pdv_id IS NULL AND programa_id = $2)
+        WHERE programa_id = $2 AND (pdv_id IS NULL OR pdv_id = $1)
         ORDER BY id`,
       [session.pdv_id, programaId],
     );
@@ -47,7 +47,7 @@ export async function registerPlaylistRoutes(app, prefix) {
        JOIN playlist_musicas pm ON pm.playlist_id = pl.id
        JOIN musicas m ON m.id = pm.musica_id
        LEFT JOIN artistas a ON a.id = pm.artista_id
-       WHERE pl.pdv_id = $1 OR (pl.pdv_id IS NULL AND pl.programa_id = $2)
+       WHERE pl.programa_id = $2 AND (pl.pdv_id IS NULL OR pl.pdv_id = $1)
        ORDER BY pl.id, pm.ordem, pm.id`,
       [session.pdv_id, programaId],
     );

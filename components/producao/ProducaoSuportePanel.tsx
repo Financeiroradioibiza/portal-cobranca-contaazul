@@ -865,8 +865,7 @@ export function ProducaoSuportePanel() {
         ...prev,
         pdvs: prev.pdvs.map((r) => {
           if (r.rioPdvKey !== rioPdvKey) return r;
-          const semPing5Dias =
-            telemetriaOk && r.controlarPlayer && r.statusPlayer === "Ativo";
+          const semPing5Dias = telemetriaOk && r.statusPlayer === "Ativo";
           return {
             ...r,
             playerInstalacaoToken: newToken,
