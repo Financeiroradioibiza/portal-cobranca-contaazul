@@ -123,6 +123,24 @@ function documentoForPedidoPrefill(args: {
   return null;
 }
 
+/** Razão social do PDV — não herda Conta Azul/cliente, salvo linha-as-PDV ou cadastro já sincronizado. */
+function razaoSocialForPedidoPrefill(args: {
+  rioPdvId: string;
+  linhaRazaoSocial: string | null | undefined;
+  linhaNomeFantasia: string | null | undefined;
+  cadastroRazaoSocial: string | null | undefined;
+  cadastroEndereco: string | null | undefined;
+}): string {
+  const linhaAsPdv = isLinhaAsPdvKey(args.rioPdvId);
+  if (linhaAsPdv) {
+    return pick(args.cadastroRazaoSocial, args.linhaRazaoSocial, args.linhaNomeFantasia);
+  }
+
+  const cadastroRs = args.cadastroRazaoSocial?.trim() || "";
+  if (cadastroRs && args.cadastroEndereco?.trim()) return cadastroRs;
+  return "";
+}
+
 export async function getPedidoPrefillForRioPdv(
   rioLinhaId: string,
   rioPdvId: string,
@@ -152,7 +170,13 @@ export async function getPedidoPrefillForRioPdv(
     rioPdvId,
     clienteNome,
     nomeFantasia: pick(cadastro?.nome, pdv.nome),
-    razaoSocial: pick(cadastro?.razaoSocial, linha.razaoSocial, linha.nomeFantasia),
+    razaoSocial: razaoSocialForPedidoPrefill({
+      rioPdvId,
+      linhaRazaoSocial: linha.razaoSocial,
+      linhaNomeFantasia: linha.nomeFantasia,
+      cadastroRazaoSocial: cadastro?.razaoSocial,
+      cadastroEndereco: cadastro?.endereco,
+    }),
     documento: documentoForPedidoPrefill({
       rioPdvId,
       pdvDocumento: pdv.documento,

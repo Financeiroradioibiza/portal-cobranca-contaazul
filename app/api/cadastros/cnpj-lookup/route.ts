@@ -9,7 +9,11 @@ export async function GET(request: Request) {
     const cnpj = searchParams.get("cnpj") ?? "";
     const result = await lookupCnpjReceita(cnpj);
     if (!result.ok) {
-      const status = result.error === "cnpj_invalido" ? 400 : result.error === "cnpj_nao_encontrado" ? 404 : 502;
+      const status =
+        result.error === "cnpj_invalido" ? 400
+        : result.error === "cnpj_nao_encontrado" ? 404
+        : result.error === "cnpj_rate_limit" ? 429
+        : 502;
       return NextResponse.json({ ok: false, error: result.error }, { status });
     }
     return NextResponse.json({ ok: true, data: result.data });

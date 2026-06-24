@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isValidBrazilianCnpj } from "@/lib/cadastros/cnpjLookup";
+import { isValidBrazilianCnpj, lookupCnpjReceita } from "@/lib/cadastros/cnpjLookup";
 import { prospectToPedidoPrefill } from "@/lib/cadastros/prospectService";
 import type { PedidoPdvView, ProspectView } from "@/lib/cadastros/prospectTypes";
 import { onlyDigits } from "@/lib/format";
@@ -91,7 +91,8 @@ const SYNC_ERROR_LABELS: Record<string, string> = {
 const CNPJ_LOOKUP_ERRORS: Record<string, string> = {
   cnpj_invalido: "CNPJ inválido — informe os 14 dígitos do PDV (não use o CNPJ do cliente).",
   cnpj_nao_encontrado: "CNPJ não encontrado na Receita Federal.",
-  cnpj_lookup_falhou: "Não foi possível consultar a Receita agora. Tente de novo em instantes.",
+  cnpj_rate_limit: "Muitas consultas à Receita. Aguarde alguns segundos e tente de novo.",
+  cnpj_lookup_falhou: "Não foi possível consultar a Receita. Verifique sua conexão e tente de novo.",
 };
 
 export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string; prospectId?: string }) {
@@ -352,6 +353,7 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
     setClienteQuery(cliente.nome);
     setRioPdvId("");
     setDocumento("");
+    setRazaoSocial("");
     setCep("");
     setEndereco("");
     setNumero("");
@@ -399,23 +401,15 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
     setCnpjBusy(true);
     setMsg("Consultando endereço na Receita Federal…");
     try {
-      const res = await fetch(`/api/cadastros/cnpj-lookup?cnpj=${encodeURIComponent(digits)}`, {
-        credentials: "same-origin",
-      });
-      const data = (await res.json().catch(() => null)) as {
-        ok?: boolean;
-        error?: string;
-        data?: Record<string, string>;
-      } | null;
-      if (!res.ok || !data?.ok || !data.data) {
-        const err = data?.error ?? "cnpj_lookup_falhou";
-        setMsg(CNPJ_LOOKUP_ERRORS[err] ?? CNPJ_LOOKUP_ERRORS.cnpj_lookup_falhou);
+      const result = await lookupCnpjReceita(digits);
+      if (!result.ok) {
+        setMsg(CNPJ_LOOKUP_ERRORS[result.error] ?? CNPJ_LOOKUP_ERRORS.cnpj_lookup_falhou);
         return;
       }
-      const row = data.data;
+      const row = result.data;
       lastLookupDigitsRef.current = digits;
       if (row.cnpj) setDocumento(row.cnpj);
-      if (row.razaoSocial) setRazaoSocial(row.razaoSocial);
+      setRazaoSocial(row.razaoSocial ?? "");
       if (row.nomeFantasia) setNomeFantasia((prev) => prev.trim() || row.nomeFantasia);
       setCep(row.cep ?? "");
       setEndereco(row.endereco ?? "");
@@ -424,7 +418,7 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
       setBairro(row.bairro ?? "");
       setCidade(row.cidade ?? "");
       setUf(row.uf ?? "");
-      setMsg("Endereço importado da Receita Federal.");
+      setMsg("Endereço e razão social importados da Receita Federal.");
     } catch {
       setMsg(CNPJ_LOOKUP_ERRORS.cnpj_lookup_falhou);
     } finally {
@@ -648,7 +642,6 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
 
       <Section title="Dados do PDV">
         <Field label="Nome fantasia loja" value={nomeFantasia} onChange={setNomeFantasia} required />
-        <Field label="Razão social" value={razaoSocial} onChange={setRazaoSocial} required />
         <div className="sm:col-span-2">
           <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
             CNPJ do PDV *
@@ -673,11 +666,19 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
               </button>
             </div>
             <span className="mt-1 block text-[11px] font-normal text-slate-500">
-              Use o CNPJ da loja/PDV — não o do cliente matriz. Ao completar 14 dígitos, o endereço é
-              importado automaticamente.
+              CNPJ da loja/PDV (não o do cliente matriz). Ao completar 14 dígitos, importa endereço e razão
+              social da Receita.
             </span>
           </label>
         </div>
+        <Field
+          label="Razão social"
+          value={razaoSocial}
+          onChange={setRazaoSocial}
+          required
+          className="sm:col-span-2"
+          hint="Preenchida automaticamente ao buscar o CNPJ na Receita (cadastro do PDV, não do Conta Azul)."
+        />
         <Field label="CEP" value={cep} onChange={setCep} required />
         <Field label="Endereço" value={endereco} onChange={setEndereco} className="sm:col-span-2" required />
         <Field label="Número" value={numero} onChange={setNumero} />

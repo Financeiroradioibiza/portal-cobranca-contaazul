@@ -13,7 +13,11 @@ export type CnpjLookupResult = {
   uf: string;
 };
 
-export type CnpjLookupError = "cnpj_invalido" | "cnpj_nao_encontrado" | "cnpj_lookup_falhou";
+export type CnpjLookupError =
+  | "cnpj_invalido"
+  | "cnpj_nao_encontrado"
+  | "cnpj_rate_limit"
+  | "cnpj_lookup_falhou";
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -44,28 +48,7 @@ export function isValidBrazilianCnpj(raw: string): boolean {
   return digits.endsWith(`${d1}${d2}`);
 }
 
-/** Consulta cadastro na Receita via Brasil API (público). */
-export async function lookupCnpjReceita(
-  raw: string,
-): Promise<{ ok: true; data: CnpjLookupResult } | { ok: false; error: CnpjLookupError }> {
-  const digits = onlyDigits(raw);
-  if (digits.length !== 14) return { ok: false, error: "cnpj_invalido" };
-  if (!isValidBrazilianCnpj(digits)) return { ok: false, error: "cnpj_invalido" };
-
-  let res: Response;
-  try {
-    res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`, {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
-  } catch {
-    return { ok: false, error: "cnpj_lookup_falhou" };
-  }
-
-  if (res.status === 404) return { ok: false, error: "cnpj_nao_encontrado" };
-  if (!res.ok) return { ok: false, error: res.status === 400 ? "cnpj_invalido" : "cnpj_lookup_falhou" };
-
-  const data = (await res.json()) as Record<string, unknown>;
+function parseBrasilApiCnpjPayload(data: Record<string, unknown>): CnpjLookupResult | null {
   const razaoSocial = str(data.razao_social);
   const nomeFantasia = str(data.nome_fantasia) || razaoSocial;
   const cep = formatCep(str(data.cep));
@@ -75,24 +58,64 @@ export async function lookupCnpjReceita(
   const bairro = str(data.bairro);
   const cidade = str(data.municipio);
   const uf = str(data.uf).slice(0, 2).toUpperCase();
+  const cnpjDigits = onlyDigits(str(data.cnpj));
 
-  if (!razaoSocial && !endereco && !cidade) {
-    return { ok: false, error: "cnpj_nao_encontrado" };
-  }
+  if (!razaoSocial && !endereco && !cidade) return null;
 
   return {
-    ok: true,
-    data: {
-      cnpj: normalizeBrazilianTaxIdForStorage(digits) ?? digits,
-      razaoSocial,
-      nomeFantasia,
-      cep,
-      endereco,
-      numero,
-      complemento,
-      bairro,
-      cidade,
-      uf,
-    },
+    cnpj: normalizeBrazilianTaxIdForStorage(cnpjDigits) ?? cnpjDigits,
+    razaoSocial,
+    nomeFantasia,
+    cep,
+    endereco,
+    numero,
+    complemento,
+    bairro,
+    cidade,
+    uf,
   };
+}
+
+/** Consulta cadastro na Receita via Brasil API (funciona no browser e no servidor). */
+export async function lookupCnpjReceita(
+  raw: string,
+): Promise<{ ok: true; data: CnpjLookupResult } | { ok: false; error: CnpjLookupError }> {
+  const digits = onlyDigits(raw);
+  if (digits.length !== 14) return { ok: false, error: "cnpj_invalido" };
+  if (!isValidBrazilianCnpj(digits)) return { ok: false, error: "cnpj_invalido" };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+
+  let res: Response;
+  try {
+    res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch {
+    return { ok: false, error: "cnpj_lookup_falhou" };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (res.status === 404) return { ok: false, error: "cnpj_nao_encontrado" };
+  if (res.status === 429) return { ok: false, error: "cnpj_rate_limit" };
+  if (res.status === 400) return { ok: false, error: "cnpj_invalido" };
+  if (!res.ok) return { ok: false, error: "cnpj_lookup_falhou" };
+
+  let data: Record<string, unknown>;
+  try {
+    data = (await res.json()) as Record<string, unknown>;
+  } catch {
+    return { ok: false, error: "cnpj_lookup_falhou" };
+  }
+
+  const parsed = parseBrasilApiCnpjPayload({ ...data, cnpj: data.cnpj ?? digits });
+  if (!parsed) return { ok: false, error: "cnpj_nao_encontrado" };
+
+  if (!parsed.cnpj) parsed.cnpj = normalizeBrazilianTaxIdForStorage(digits) ?? digits;
+
+  return { ok: true, data: parsed };
 }
