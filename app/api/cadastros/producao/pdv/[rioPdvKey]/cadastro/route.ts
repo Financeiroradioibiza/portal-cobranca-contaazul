@@ -15,9 +15,10 @@ export async function GET(req: Request, context: Ctx) {
 
   const url = new URL(req.url);
   const refreshCobranca = url.searchParams.get("refreshCobranca") !== "0";
+  const forceCaContatos = url.searchParams.get("forceCa") === "1";
 
   try {
-    const cadastro = await getOrCreatePdvCadastro(rioPdvKey, { refreshCobranca });
+    const cadastro = await getOrCreatePdvCadastro(rioPdvKey, { refreshCobranca, forceCaContatos });
     return NextResponse.json({ ok: true, cadastro });
   } catch (e) {
     return NextResponse.json(

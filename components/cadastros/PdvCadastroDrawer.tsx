@@ -48,12 +48,16 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const load = useCallback(async (key: string, refreshCobranca: boolean) => {
+  const load = useCallback(async (key: string, refreshCobranca: boolean, forceCa = false) => {
     setBusy(true);
     setMsg("");
     try {
+      const qs = new URLSearchParams({
+        refreshCobranca: refreshCobranca ? "1" : "0",
+        ...(forceCa ? { forceCa: "1" } : {}),
+      });
       const res = await fetch(
-        `/api/cadastros/producao/pdv/${encodeURIComponent(key)}/cadastro?refreshCobranca=${refreshCobranca ? "1" : "0"}`,
+        `/api/cadastros/producao/pdv/${encodeURIComponent(key)}/cadastro?${qs.toString()}`,
       );
       const data = (await res.json()) as { ok?: boolean; cadastro?: ProducaoPdvCadastroDto; error?: string };
       if (!res.ok || !data.ok || !data.cadastro) throw new Error(data.error ?? "load_erro");
@@ -257,7 +261,9 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
               </p>
             </Field>
 
-            <p className="text-[10px] font-bold uppercase text-slate-400">Contato loja</p>
+            <p className="text-[10px] font-bold uppercase text-slate-400">
+              Contato loja {form.contatoLojaNome || form.contatoLojaTelefone ? "" : "(importa «outros contatos» do CA)"}
+            </p>
             <Field label="Nome">
               <input
                 className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
@@ -329,9 +335,9 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
                 type="button"
                 disabled={busy}
                 className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-white dark:border-slate-600"
-                onClick={() => rioPdvKey && void load(rioPdvKey, true)}
+                onClick={() => rioPdvKey && void load(rioPdvKey, true, true)}
               >
-                Atualizar cobrança da Conta Azul
+                Atualizar contatos da Conta Azul
               </button>
             : null}
           </div>

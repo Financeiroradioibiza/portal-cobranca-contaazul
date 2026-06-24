@@ -301,10 +301,20 @@ export type CaOutrosContatoBrief = {
 };
 
 function phoneFromCaRecord(raw: Record<string, unknown>): string {
-  const tel = raw.telefone ?? raw.celular ?? raw.telefone_celular ?? raw.telefoneCelular ?? raw.phone;
-  if (typeof tel === "string") return tel.trim();
-  if (Array.isArray(tel)) {
-    return tel
+  const candidates = [
+    raw.telefone_celular,
+    raw.telefoneCelular,
+    raw.celular,
+    raw.telefone_comercial,
+    raw.telefoneComercial,
+    raw.telefone,
+    raw.phone,
+  ];
+  for (const tel of candidates) {
+    if (typeof tel === "string" && tel.trim()) return tel.trim();
+  }
+  if (Array.isArray(raw.telefones)) {
+    return raw.telefones
       .map((t) => (typeof t === "string" ? t : str((t as { numero?: string }).numero)))
       .filter(Boolean)
       .join("; ");

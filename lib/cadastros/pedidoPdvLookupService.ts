@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { isLinhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
-import { fetchCobrancaContatoForLinha, fetchLojaContatoFromCaLinha } from "@/lib/cadastros/producaoPdvCadastroService";
+import { fetchContatosCaForLinha } from "@/lib/cadastros/producaoPdvCadastroService";
 
 export type RioClienteOption = {
   id: string;
@@ -145,7 +145,7 @@ export async function getPedidoPrefillForRioPdv(
   rioLinhaId: string,
   rioPdvId: string,
 ): Promise<PedidoPdvPrefill | null> {
-  const [linha, pdv, cadastro, cobranca, lojaCa] = await Promise.all([
+  const [linha, pdv, cadastro, contatosCa] = await Promise.all([
     prisma.rioCompClienteLinha.findUnique({
       where: { id: rioLinhaId },
       select: { id: true, nomeFantasia: true, razaoSocial: true, documento: true, grupoSite: true },
@@ -155,9 +155,11 @@ export async function getPedidoPrefillForRioPdv(
       select: { id: true, nome: true, documento: true },
     }),
     prisma.producaoPdvCadastro.findUnique({ where: { rioPdvKey: rioPdvId } }),
-    fetchCobrancaContatoForLinha(rioLinhaId),
-    fetchLojaContatoFromCaLinha(rioLinhaId),
+    fetchContatosCaForLinha(rioLinhaId),
   ]);
+
+  const cobranca = contatosCa.cobranca;
+  const lojaCa = contatosCa.loja;
 
   if (!linha || !pdv) return null;
 

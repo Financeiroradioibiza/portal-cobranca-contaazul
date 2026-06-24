@@ -81,28 +81,8 @@ export async function fetchCobrancaContatoForLinha(rioLinhaId: string): Promise<
   email: string;
   telefone: string;
 } | null> {
-  const token = await getValidAccessToken();
-  if (!token) return null;
-
-  const linha = await prisma.rioCompClienteLinha.findUnique({
-    where: { id: rioLinhaId },
-    select: { caPersonId: true, emailCobranca: true },
-  });
-  if (!linha || !isRioCaPersonLinked(linha.caPersonId)) return null;
-
-  try {
-    const detail = await fetchPersonDetail(token, linha.caPersonId);
-    const email = billingEmailOnlyJoined(detail) || linha.emailCobranca || "";
-    const nome = cobrancaNomeFromCa(detail);
-    const telefone = cobrancaPhonesFromCa(detail);
-    if (!nome && !email && !telefone) return null;
-    return { nome, email, telefone };
-  } catch {
-    if (linha.emailCobranca) {
-      return { nome: "", email: linha.emailCobranca, telefone: "" };
-    }
-    return null;
-  }
+  const { cobranca } = await fetchContatosCaForLinha(rioLinhaId);
+  return cobranca;
 }
 
 export async function fetchLojaContatoFromCaLinha(rioLinhaId: string): Promise<{
@@ -110,27 +90,51 @@ export async function fetchLojaContatoFromCaLinha(rioLinhaId: string): Promise<{
   email: string;
   telefone: string;
 } | null> {
+  const { loja } = await fetchContatosCaForLinha(rioLinhaId);
+  return loja;
+}
+
+export async function fetchContatosCaForLinha(rioLinhaId: string): Promise<{
+  cobranca: { nome: string; email: string; telefone: string } | null;
+  loja: { nome: string; email: string; telefone: string } | null;
+}> {
   const token = await getValidAccessToken();
-  if (!token) return null;
+  if (!token) return { cobranca: null, loja: null };
 
   const linha = await prisma.rioCompClienteLinha.findUnique({
     where: { id: rioLinhaId },
-    select: { caPersonId: true },
+    select: { caPersonId: true, emailCobranca: true },
   });
-  if (!linha || !isRioCaPersonLinked(linha.caPersonId)) return null;
+  if (!linha || !isRioCaPersonLinked(linha.caPersonId)) {
+    return { cobranca: null, loja: null };
+  }
 
   try {
     const detail = await fetchPersonDetail(token, linha.caPersonId);
-    const contato = firstOutrosContatoFromPersonDetail(detail);
-    if (!contato) return null;
-    const telefoneDigits = onlyDigits(contato.telefone);
-    return {
-      nome: contato.nome,
-      email: contato.email,
-      telefone: telefoneDigits || contato.telefone,
-    };
+    const email = billingEmailOnlyJoined(detail) || linha.emailCobranca || "";
+    const cobrancaNome = cobrancaNomeFromCa(detail);
+    const cobrancaTel = cobrancaPhonesFromCa(detail);
+    const cobranca =
+      cobrancaNome || email || cobrancaTel ?
+        { nome: cobrancaNome, email, telefone: cobrancaTel }
+      : null;
+
+    const outros = firstOutrosContatoFromPersonDetail(detail);
+    const loja =
+      outros ?
+        {
+          nome: outros.nome,
+          email: outros.email,
+          telefone: onlyDigits(outros.telefone) || outros.telefone,
+        }
+      : null;
+
+    return { cobranca, loja };
   } catch {
-    return null;
+    if (linha.emailCobranca) {
+      return { cobranca: { nome: "", email: linha.emailCobranca, telefone: "" }, loja: null };
+    }
+    return { cobranca: null, loja: null };
   }
 }
 
@@ -178,6 +182,7 @@ async function defaultSeedForKey(
   razaoSocial: string;
   rioLinhaId: string;
   cobranca: { nome: string; email: string; telefone: string } | null;
+  loja: { nome: string; email: string; telefone: string } | null;
 }> {
   if (isLinhaAsPdvKey(rioPdvKey)) {
     const realLinhaId = rioPdvKey.replace(/^linha:/, "");
@@ -190,13 +195,14 @@ async function defaultSeedForKey(
         documento: true,
       },
     });
-    const cobranca = refreshCobranca ? await fetchCobrancaContatoForLinha(realLinhaId) : null;
+    const contatos = refreshCobranca ? await fetchContatosCaForLinha(realLinhaId) : { cobranca: null, loja: null };
     return {
       nome: linha?.nomeFantasia?.trim() || "Sem nome",
       documento: linha?.documento ?? null,
       razaoSocial: linha?.razaoSocial?.trim() || linha?.nomeFantasia || "",
       rioLinhaId: linha?.id ?? realLinhaId,
-      cobranca,
+      cobranca: contatos.cobranca,
+      loja: contatos.loja,
     };
   }
 
@@ -206,22 +212,52 @@ async function defaultSeedForKey(
       cliente: { select: { id: true, nomeFantasia: true, razaoSocial: true } },
     },
   });
-  const cobranca =
+  const contatos =
     refreshCobranca && pdv?.cliente.id ?
-      await fetchCobrancaContatoForLinha(pdv.cliente.id)
-    : null;
+      await fetchContatosCaForLinha(pdv.cliente.id)
+    : { cobranca: null, loja: null };
   return {
     nome: pdv?.nome?.trim() || pdv?.cliente.nomeFantasia || "Sem nome",
     documento: pdv?.documento ?? null,
     razaoSocial: pdv?.cliente.razaoSocial || pdv?.cliente.nomeFantasia || "",
     rioLinhaId: pdv?.cliente.id ?? "",
-    cobranca,
+    cobranca: contatos.cobranca,
+    loja: contatos.loja,
   };
+}
+
+function buildCaContatoPatch(
+  row: NonNullable<Awaited<ReturnType<typeof prisma.producaoPdvCadastro.findUnique>>>,
+  seed: {
+    cobranca: { nome: string; email: string; telefone: string } | null;
+    loja: { nome: string; email: string; telefone: string } | null;
+  },
+  opts?: { forceLoja?: boolean },
+) {
+  const data: Record<string, string> = {};
+  if (seed.cobranca) {
+    data.contatoCobrancaNome = seed.cobranca.nome;
+    data.contatoCobrancaEmail = seed.cobranca.email;
+    data.contatoCobrancaTelefone = seed.cobranca.telefone;
+  }
+  if (seed.loja) {
+    const force = opts?.forceLoja === true;
+    if ((force || !row.contatoLojaNome.trim()) && seed.loja.nome) {
+      data.contatoLojaNome = seed.loja.nome;
+    }
+    if ((force || !row.contatoLojaEmail.trim()) && seed.loja.email) {
+      data.contatoLojaEmail = seed.loja.email;
+    }
+    if ((force || !row.contatoLojaTelefone.trim()) && seed.loja.telefone) {
+      data.contatoLojaTelefone = seed.loja.telefone;
+    }
+  }
+  return data;
 }
 
 export async function getOrCreatePdvCadastro(
   rioPdvKey: string,
-  opts?: { refreshCobranca?: boolean },
+  opts?: { refreshCobranca?: boolean; forceCaContatos?: boolean },
 ): Promise<ProducaoPdvCadastroDto> {
   const refreshCobranca = opts?.refreshCobranca !== false;
   let row = await prisma.producaoPdvCadastro.findUnique({ where: { rioPdvKey } });
@@ -242,23 +278,23 @@ export async function getOrCreatePdvCadastro(
         contatoCobrancaNome: seed.cobranca?.nome ?? "",
         contatoCobrancaEmail: seed.cobranca?.email ?? "",
         contatoCobrancaTelefone: seed.cobranca?.telefone ?? "",
+        contatoLojaNome: seed.loja?.nome ?? "",
+        contatoLojaEmail: seed.loja?.email ?? "",
+        contatoLojaTelefone: seed.loja?.telefone ?? "",
       },
     });
-    return rowToDto(row, Boolean(seed.cobranca));
+    return rowToDto(row, Boolean(seed.cobranca || seed.loja));
   }
 
   if (refreshCobranca) {
     const seed = await defaultSeedForKey(rioPdvKey, true);
-    if (seed.cobranca) {
+    const patch = buildCaContatoPatch(row, seed, { forceLoja: opts?.forceCaContatos === true });
+    if (Object.keys(patch).length > 0) {
       row = await prisma.producaoPdvCadastro.update({
         where: { rioPdvKey },
-        data: {
-          contatoCobrancaNome: seed.cobranca.nome,
-          contatoCobrancaEmail: seed.cobranca.email,
-          contatoCobrancaTelefone: seed.cobranca.telefone,
-        },
+        data: patch,
       });
-      return rowToDto(row, true);
+      return rowToDto(row, Boolean(seed.cobranca || seed.loja));
     }
   }
 
