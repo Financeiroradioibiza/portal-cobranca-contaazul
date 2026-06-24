@@ -2,6 +2,7 @@ import type { PedidoClientePdv, PedidoClienteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createChamado, getChamadoUserContext } from "@/lib/chamados/chamadoService";
 import type { PedidoPdvView } from "@/lib/cadastros/prospectTypes";
+import { updatePdvCadastro } from "@/lib/cadastros/producaoPdvCadastroService";
 import { createRioCompPdv } from "@/lib/rio/rioClienteCompService";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
@@ -22,6 +23,8 @@ export type PedidoUserContext = {
 export type SavePedidoPdvInput = {
   nomeFantasia: string;
   clienteNome?: string;
+  rioLinhaId?: string | null;
+  rioPdvId?: string | null;
   razaoSocial?: string;
   documento?: string;
   cep?: string;
@@ -52,6 +55,10 @@ function buildPedidoData(input: Partial<SavePedidoPdvInput>) {
     ...(input.clienteNome !== undefined ?
       { clienteNome: input.clienteNome.trim().slice(0, 200) }
     : {}),
+    ...(input.rioLinhaId !== undefined ?
+      { rioLinhaId: input.rioLinhaId?.trim() || null }
+    : {}),
+    ...(input.rioPdvId !== undefined ? { rioPdvId: input.rioPdvId?.trim() || null } : {}),
     ...(input.razaoSocial !== undefined ?
       { razaoSocial: input.razaoSocial.trim().slice(0, 8000) }
     : {}),
@@ -197,7 +204,7 @@ export async function updatePedidoCliente(
 ): Promise<PedidoPdvView> {
   const existing = await prisma.pedidoClientePdv.findUnique({ where: { id } });
   if (!existing) throw new Error("not_found");
-  if (existing.status === "importado") throw new Error("pedido_importado");
+  if (existing.status === "cancelado") throw new Error("pedido_cancelado");
 
   if (input.nomeFantasia !== undefined && !input.nomeFantasia.trim()) {
     throw new Error("nome_obrigatorio");
@@ -207,6 +214,66 @@ export async function updatePedidoCliente(
     where: { id },
     data: buildPedidoData(input),
   });
+  return pedidoToView(row);
+}
+
+function validatePedidoForProducaoSync(view: PedidoPdvView): void {
+  if (!view.rioLinhaId?.trim()) throw new Error("cliente_obrigatorio");
+  if (!view.rioPdvId?.trim()) throw new Error("pdv_obrigatorio");
+  if (!view.nomeFantasia.trim()) throw new Error("nome_obrigatorio");
+  if (!view.documento?.trim()) throw new Error("cnpj_obrigatorio");
+  if (!view.cep.trim()) throw new Error("cep_obrigatorio");
+  if (!view.endereco.trim()) throw new Error("endereco_obrigatorio");
+  if (!view.bairro.trim()) throw new Error("bairro_obrigatorio");
+  if (!view.cidade.trim()) throw new Error("cidade_obrigatorio");
+  if (!view.uf.trim()) throw new Error("uf_obrigatorio");
+  if (!view.contatoLojaNome.trim()) throw new Error("contato_loja_obrigatorio");
+  if (!view.contatoLojaWhatsapp.trim()) throw new Error("whatsapp_loja_obrigatorio");
+  if (!view.contatoLojaEmail.trim()) throw new Error("email_loja_obrigatorio");
+}
+
+export async function syncPedidoToProducaoCadastro(id: string): Promise<PedidoPdvView> {
+  const existing = await prisma.pedidoClientePdv.findUnique({ where: { id } });
+  if (!existing) throw new Error("not_found");
+  if (existing.status === "cancelado") throw new Error("pedido_cancelado");
+
+  const view = pedidoToView(existing);
+  validatePedidoForProducaoSync(view);
+
+  const pdv = await prisma.rioCompPdv.findFirst({
+    where: { id: view.rioPdvId!, clienteId: view.rioLinhaId! },
+    select: { id: true },
+  });
+  if (!pdv) throw new Error("pdv_rio_invalido");
+
+  await updatePdvCadastro(view.rioPdvId!, {
+    nome: view.nomeFantasia.trim(),
+    razaoSocial: view.razaoSocial.trim() || view.nomeFantasia.trim(),
+    cnpj: view.documento?.trim() ?? "",
+    cep: view.cep.trim(),
+    endereco: view.endereco.trim(),
+    numero: view.numero.trim(),
+    complemento: view.complemento.trim(),
+    bairro: view.bairro.trim(),
+    cidade: view.cidade.trim(),
+    estado: view.uf.trim().toUpperCase(),
+    contatoLojaNome: view.contatoLojaNome.trim(),
+    contatoLojaEmail: view.contatoLojaEmail.trim(),
+    contatoLojaTelefone: view.contatoLojaWhatsapp.trim(),
+    contatoCobrancaNome: view.contatoCobrancaNome.trim(),
+    contatoCobrancaEmail: view.contatoCobrancaEmail.trim(),
+    contatoCobrancaTelefone: view.contatoCobrancaTel.trim(),
+  });
+
+  const row = await prisma.pedidoClientePdv.update({
+    where: { id },
+    data: {
+      rioLinhaId: view.rioLinhaId,
+      rioPdvId: view.rioPdvId,
+      status: existing.status === "rascunho" ? "em_analise" : existing.status,
+    },
+  });
+
   return pedidoToView(row);
 }
 
@@ -348,6 +415,8 @@ export function parsePedidoBody(body: Record<string, unknown>): Partial<SavePedi
   return {
     nomeFantasia: str(body.nomeFantasia),
     clienteNome: str(body.clienteNome),
+    rioLinhaId: typeof body.rioLinhaId === "string" ? body.rioLinhaId : null,
+    rioPdvId: typeof body.rioPdvId === "string" ? body.rioPdvId : null,
     razaoSocial: str(body.razaoSocial),
     documento: str(body.documento),
     cep: str(body.cep),

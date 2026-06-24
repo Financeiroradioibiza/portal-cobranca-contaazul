@@ -22,7 +22,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "primeiro-ping", label: "Primeiro ping" },
       { id: "atualizacoes", label: "Atl. cadastros" },
       { id: "prospects", label: "Prospects" },
-      { id: "solicitar-pdv", label: "Solicitar PDV" },
+      { id: "solicitar-pdv", label: "Cadastrar PDV" },
     ],
   },
   {

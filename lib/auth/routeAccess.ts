@@ -34,7 +34,8 @@ export function isRouteAccessAllowed(rule: RouteAccessRule, roles: PortalRole[])
 function cadastrosApiRule(pathname: string): RouteAccessRule {
   if (
     pathname.includes("/prospects") ||
-    pathname.includes("/pedidos-cliente")
+    pathname.includes("/pedidos-cliente") ||
+    pathname.includes("/cnpj-lookup")
   ) {
     return { kind: "roles", roles: CADASTROS_RELACIONAMENTO };
   }

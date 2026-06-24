@@ -74,7 +74,7 @@ function cobrancaNomeFromCa(raw: unknown): string {
   );
 }
 
-async function fetchCobrancaFromCaLinha(rioLinhaId: string): Promise<{
+export async function fetchCobrancaContatoForLinha(rioLinhaId: string): Promise<{
   nome: string;
   email: string;
   telefone: string;
@@ -163,7 +163,7 @@ async function defaultSeedForKey(
         documento: true,
       },
     });
-    const cobranca = refreshCobranca ? await fetchCobrancaFromCaLinha(realLinhaId) : null;
+    const cobranca = refreshCobranca ? await fetchCobrancaContatoForLinha(realLinhaId) : null;
     return {
       nome: linha?.nomeFantasia?.trim() || "Sem nome",
       documento: linha?.documento ?? null,
@@ -181,7 +181,7 @@ async function defaultSeedForKey(
   });
   const cobranca =
     refreshCobranca && pdv?.cliente.id ?
-      await fetchCobrancaFromCaLinha(pdv.cliente.id)
+      await fetchCobrancaContatoForLinha(pdv.cliente.id)
     : null;
   return {
     nome: pdv?.nome?.trim() || pdv?.cliente.nomeFantasia || "Sem nome",
@@ -207,6 +207,10 @@ export async function getOrCreatePdvCadastro(
         nome: seed.nome,
         razaoSocial: seed.razaoSocial,
         cnpj: seed.documento ?? "",
+        placaCarro: false,
+        controlarPlayer: true,
+        controlarPlaylist: true,
+        statusPlayer: "Ativo",
         playerInstalacaoToken: newPlayerInstalacaoToken(),
         contatoCobrancaNome: seed.cobranca?.nome ?? "",
         contatoCobrancaEmail: seed.cobranca?.email ?? "",

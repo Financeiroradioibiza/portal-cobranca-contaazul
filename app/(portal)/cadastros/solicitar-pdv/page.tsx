@@ -8,8 +8,8 @@ export default async function SolicitarPdvPage({ searchParams }: Props) {
     <div className="portal-page">
       <header className="portal-page-header">
         <div>
-          <div className="portal-page-crumb">Cadastros / Solicitar PDV</div>
-          <h1 className="portal-page-title">Solicitar PDV</h1>
+          <div className="portal-page-crumb">Cadastros / Cadastrar PDV</div>
+          <h1 className="portal-page-title">Cadastrar PDV</h1>
         </div>
       </header>
       <div className="portal-page-body">

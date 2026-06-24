@@ -5,7 +5,7 @@ const PAGE_LABELS: Record<string, string> = {
   "/chamados": "Acessou Chamados",
   "/cadastros": "Acessou Cadastros",
   "/cadastros/prospects": "Acessou Cadastros — prospects",
-  "/cadastros/solicitar-pdv": "Acessou Cadastros — solicitar PDV",
+  "/cadastros/solicitar-pdv": "Acessou Cadastros — cadastrar PDV",
   "/cadastros/vinculos": "Acessou Cadastros — vínculos",
   "/cadastros/cliente-pdv-novo": "Acessou Cadastros — cliente PDV novo",
   "/producao": "Acessou Produção",
