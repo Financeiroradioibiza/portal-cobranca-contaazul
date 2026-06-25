@@ -206,6 +206,18 @@ function ProgramacaoEditor({
     }
   }, [id]);
 
+  /** Recarrega pastas (e metadados) sem piscar a tela inteira — usado pelo cronograma. */
+  const reloadPastasParaCronograma = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/criacao/programacoes/${id}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { programacao: ProgramacaoDetail };
+      setProg(data.programacao);
+    } catch {
+      /* silencioso */
+    }
+  }, [id]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -587,6 +599,7 @@ function ProgramacaoEditor({
         ags={ags}
         onAgendamentosChange={setAgs}
         onEdit={registrarEdicao}
+        onRefreshTargets={reloadPastasParaCronograma}
       />
 
       {addTo ?
@@ -780,15 +793,18 @@ function CronogramaSection({
   ags,
   onAgendamentosChange,
   onEdit,
+  onRefreshTargets,
 }: {
   programacaoId: string;
   pastas: { id: string; nome: string }[];
   ags: Agendamento[];
   onAgendamentosChange: (next: Agendamento[]) => void;
   onEdit?: () => void | Promise<void>;
+  onRefreshTargets?: () => void | Promise<void>;
 }) {
   const [vinhetas, setVinhetas] = useState<{ id: string; nome: string }[]>([]);
   const [open, setOpen] = useState(false);
+  const [refreshingLista, setRefreshingLista] = useState(false);
 
   // form
   const [alvo, setAlvo] = useState("");
@@ -819,6 +835,16 @@ function CronogramaSection({
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function atualizarListaAlvos() {
+    setRefreshingLista(true);
+    try {
+      await onRefreshTargets?.();
+      await load();
+    } finally {
+      setRefreshingLista(false);
+    }
+  }
 
   const alvoIsVinheta = alvo.startsWith("vinheta:");
 
@@ -888,7 +914,18 @@ function CronogramaSection({
         <div className="mb-3 rounded-xl border border-slate-300 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-semibold text-slate-500">O que toca</span>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-500">O que toca</span>
+                <button
+                  type="button"
+                  disabled={busy || refreshingLista}
+                  onClick={() => void atualizarListaAlvos()}
+                  className="rounded border border-slate-300 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Buscar pastas e vinhetas recém-criadas nesta programação"
+                >
+                  {refreshingLista ? "Atualizando…" : "Atualizar"}
+                </button>
+              </div>
               <select
                 value={alvo}
                 onChange={(e) => setAlvo(e.target.value)}
@@ -914,6 +951,11 @@ function CronogramaSection({
                   </optgroup>
                 : null}
               </select>
+              {pastas.length === 0 && vinhetas.length === 0 ?
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Criou pasta ou vinheta acima? Clique em <strong>Atualizar</strong>.
+                </p>
+              : null}
             </label>
             <div className="text-sm">
               <span className="mb-1 block text-xs font-semibold text-slate-500">Dias da semana</span>
