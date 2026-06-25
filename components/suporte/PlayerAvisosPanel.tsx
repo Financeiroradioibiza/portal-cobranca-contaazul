@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatPortalPdvIdDisplay, parsePortalPdvDisplay } from "@/lib/player/portalPlayerIds";
 import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
-import type { PlayerAvisoRow } from "@/lib/suporte/playerAvisoService";
+import type { PlayerAvisoListEntry } from "@/lib/suporte/playerAvisoService";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
+type TargetScope = "pdv" | "cliente";
 
 type SelectedPdv = {
   portalClienteId: number;
@@ -14,6 +15,20 @@ type SelectedPdv = {
   pdvNome: string;
   codigoDisplay: string;
 };
+
+type SelectedClient = {
+  portalClienteId: number;
+  clienteNome: string;
+};
+
+const AVISO_TEMPLATES = [
+  "Favor atualize o seu cadasto abaixo :)",
+  "Favor enviar contato da loja no Feedback.",
+  "Favor enviar contato do financeiro no Feedback.",
+  "Favor entrar em contato com Suporte :)",
+  "Favor entrar em contato com Financeiro :)",
+  "Favor entrar em contato com Atendimento :)",
+] as const;
 
 function parseClienteIdField(raw: string): number | null {
   const t = raw.trim();
@@ -38,28 +53,42 @@ function mapApiError(data: unknown): string {
   if (err === "unauthorized") return "Sessão expirada. Entre novamente no portal.";
   if (err === "mensagem_vazia") return "Escreva a mensagem antes de ativar.";
   if (err === "cliente_pdv_invalido") return "Informe IDs cliente e PDV válidos.";
+  if (err === "cliente_sem_pdvs") return "Este cliente não tem PDVs com ID Player.";
+  if (err === "aviso_nao_encontrado") return "Aviso não encontrado (já desativado?).";
   if (typeof err === "string" && err.trim()) return err;
   return "Operação falhou.";
 }
 
-function parseRows(data: unknown): PlayerAvisoRow[] {
+function parseEntries(data: unknown): PlayerAvisoListEntry[] {
   if (!data || typeof data !== "object" || !("rows" in data)) return [];
   const rows = (data as { rows?: unknown }).rows;
   if (!Array.isArray(rows)) return [];
 
-  const out: PlayerAvisoRow[] = [];
+  const out: PlayerAvisoListEntry[] = [];
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
     const cliente_id = parseClienteIdField(String(r.cliente_id ?? ""));
-    const pdv_id = parsePdvIdField(String(r.pdv_id ?? ""));
     const mensagem = typeof r.mensagem === "string" ? r.mensagem.trim() : "";
+    const deactivate_key =
+      typeof r.deactivate_key === "string" ? r.deactivate_key.trim() : "";
+    const scope = r.scope === "cliente" ? "cliente" : "pdv";
     const atualizado_em =
       typeof r.atualizado_em === "string" ? r.atualizado_em.trim() : "";
-    if (cliente_id == null || pdv_id == null || !mensagem) continue;
+    if (cliente_id == null || !mensagem || !deactivate_key) continue;
+
+    const pdvRaw = r.pdv_id;
+    const pdv_id =
+      pdvRaw == null || pdvRaw === "" ?
+        null
+      : parsePdvIdField(String(pdvRaw));
+
     out.push({
+      scope,
+      deactivate_key,
       cliente_id,
       pdv_id,
+      pdv_count: typeof r.pdv_count === "number" && r.pdv_count > 0 ? r.pdv_count : 1,
       mensagem,
       atualizado_em,
       cliente_nome: typeof r.cliente_nome === "string" ? r.cliente_nome : undefined,
@@ -90,12 +119,18 @@ const inputClass =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-fuchsia-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500/40";
 
 function PdvTargetPicker({
-  selected,
-  onSelect,
+  scope,
+  selectedPdv,
+  selectedClient,
+  onSelectPdv,
+  onSelectClient,
   disabled,
 }: {
-  selected: SelectedPdv | null;
-  onSelect: (target: SelectedPdv | null) => void;
+  scope: TargetScope;
+  selectedPdv: SelectedPdv | null;
+  selectedClient: SelectedClient | null;
+  onSelectPdv: (target: SelectedPdv | null) => void;
+  onSelectClient: (target: SelectedClient | null) => void;
   disabled: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -103,6 +138,8 @@ function PdvTargetPicker({
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  const selected = scope === "pdv" ? selectedPdv : selectedClient;
 
   useEffect(() => {
     if (!open) return;
@@ -139,33 +176,68 @@ function PdvTargetPicker({
   }, [query]);
 
   function pick(t: PlayerAvisoPdvTarget) {
-    onSelect({
-      portalClienteId: t.portalClienteId,
-      portalPdvId: t.portalPdvId,
-      clienteNome: t.clienteNome,
-      pdvNome: t.pdvNome,
-      codigoDisplay: t.codigoDisplay,
-    });
+    if (scope === "cliente") {
+      onSelectClient({
+        portalClienteId: t.portalClienteId,
+        clienteNome: t.clienteNome,
+      });
+    } else {
+      onSelectPdv({
+        portalClienteId: t.portalClienteId,
+        portalPdvId: t.portalPdvId,
+        clienteNome: t.clienteNome,
+        pdvNome: t.pdvNome,
+        codigoDisplay: t.codigoDisplay,
+      });
+    }
     setQuery("");
     setResults([]);
     setOpen(false);
   }
+
+  const clientResults =
+    scope === "cliente" ?
+      (() => {
+        const seen = new Set<number>();
+        const out: PlayerAvisoPdvTarget[] = [];
+        for (const t of results) {
+          if (seen.has(t.portalClienteId)) continue;
+          seen.add(t.portalClienteId);
+          out.push(t);
+        }
+        return out;
+      })()
+    : results;
 
   return (
     <div ref={wrapRef} className="space-y-2">
       {selected ?
         <div className="flex items-start justify-between gap-2 rounded-lg border border-emerald-800/50 bg-emerald-950/30 px-3 py-2">
           <div className="min-w-0 text-sm">
-            <p className="font-medium text-emerald-100">{selected.clienteNome}</p>
-            <p className="text-zinc-300">{selected.pdvNome}</p>
-            <p className="mt-1 font-mono text-[11px] text-zinc-500">
-              Cliente {selected.portalClienteId} · PDV {selected.codigoDisplay}
-            </p>
+            {scope === "pdv" && selectedPdv ?
+              <>
+                <p className="font-medium text-emerald-100">{selectedPdv.clienteNome}</p>
+                <p className="text-zinc-300">{selectedPdv.pdvNome}</p>
+                <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                  Cliente {selectedPdv.portalClienteId} · PDV {selectedPdv.codigoDisplay}
+                </p>
+              </>
+            : selectedClient ?
+              <>
+                <p className="font-medium text-emerald-100">{selectedClient.clienteNome}</p>
+                <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                  Cliente {selectedClient.portalClienteId} · todos os PDVs
+                </p>
+              </>
+            : null}
           </div>
           <button
             type="button"
             disabled={disabled}
-            onClick={() => onSelect(null)}
+            onClick={() => {
+              if (scope === "pdv") onSelectPdv(null);
+              else onSelectClient(null);
+            }}
             className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
           >
             Trocar
@@ -174,7 +246,7 @@ function PdvTargetPicker({
       : null}
 
       <label className="block text-xs text-zinc-500">
-        Buscar por nome do cliente ou PDV
+        Buscar por nome do cliente{scope === "pdv" ? " ou PDV" : ""}
         <input
           type="search"
           value={query}
@@ -184,7 +256,7 @@ function PdvTargetPicker({
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder="Ex.: Hering, shopping, 100.003…"
+          placeholder={scope === "cliente" ? "Ex.: Hering, shopping…" : "Ex.: Hering, shopping, 100.003…"}
           className={inputClass + " mt-1"}
         />
       </label>
@@ -193,20 +265,24 @@ function PdvTargetPicker({
         <div className="max-h-52 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 shadow-lg">
           {searching ?
             <p className="px-3 py-2 text-xs text-zinc-500">Buscando…</p>
-          : results.length === 0 ?
-            <p className="px-3 py-2 text-xs text-zinc-500">Nenhum PDV com ID Player encontrado.</p>
-          : results.map((t) => (
+          : clientResults.length === 0 ?
+            <p className="px-3 py-2 text-xs text-zinc-500">Nenhum resultado com ID Player.</p>
+          : clientResults.map((t) => (
               <button
-                key={t.portalPdvId}
+                key={scope === "cliente" ? `c-${t.portalClienteId}` : t.portalPdvId}
                 type="button"
                 className="block w-full border-b border-zinc-800 px-3 py-2 text-left text-sm last:border-0 hover:bg-zinc-900"
                 onClick={() => pick(t)}
               >
                 <span className="font-medium text-zinc-100">{t.clienteNome}</span>
-                <span className="text-zinc-400"> — {t.pdvNome}</span>
-                <span className="mt-0.5 block font-mono text-[10px] text-zinc-500">
-                  {t.codigoDisplay} (c{t.portalClienteId})
-                </span>
+                {scope === "pdv" ?
+                  <>
+                    <span className="text-zinc-400"> — {t.pdvNome}</span>
+                    <span className="mt-0.5 block font-mono text-[10px] text-zinc-500">
+                      {t.codigoDisplay} (c{t.portalClienteId})
+                    </span>
+                  </>
+                : <span className="mt-0.5 block text-[10px] text-zinc-500">Todos os PDVs · c{t.portalClienteId}</span>}
               </button>
             ))
           }
@@ -215,7 +291,9 @@ function PdvTargetPicker({
 
       {!selected ?
         <p className="text-[11px] text-zinc-600">
-          Ou informe os IDs manualmente abaixo (aceita código <strong>100.001</strong> no PDV).
+          {scope === "cliente" ?
+            "Ou informe só o ID cliente abaixo."
+          : "Ou informe os IDs manualmente abaixo (aceita código 100.001 no PDV)."}
         </p>
       : null}
     </div>
@@ -223,34 +301,49 @@ function PdvTargetPicker({
 }
 
 export function PlayerAvisosPanel() {
-  const [selected, setSelected] = useState<SelectedPdv | null>(null);
+  const [scope, setScope] = useState<TargetScope>("pdv");
+  const [selectedPdv, setSelectedPdv] = useState<SelectedPdv | null>(null);
+  const [selectedClient, setSelectedClient] = useState<SelectedClient | null>(null);
   const [clienteId, setClienteId] = useState("");
   const [pdvId, setPdvId] = useState("");
   const [mensagem, setMensagem] = useState("");
-  const [rows, setRows] = useState<PlayerAvisoRow[]>([]);
+  const [entries, setEntries] = useState<PlayerAvisoListEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<Status>(null);
 
-  const resolveIds = useCallback((): { cid: number; pid: number } | null => {
-    if (selected) {
-      return { cid: selected.portalClienteId, pid: selected.portalPdvId };
+  const resolveClienteId = useCallback((): number | null => {
+    if (scope === "cliente" && selectedClient) return selectedClient.portalClienteId;
+    if (scope === "pdv" && selectedPdv) return selectedPdv.portalClienteId;
+    return parseClienteIdField(clienteId);
+  }, [scope, selectedClient, selectedPdv, clienteId]);
+
+  const resolvePdvIds = useCallback((): { cid: number; pid: number } | null => {
+    if (selectedPdv) {
+      return { cid: selectedPdv.portalClienteId, pid: selectedPdv.portalPdvId };
     }
     const cid = parseClienteIdField(clienteId);
     const pid = parsePdvIdField(pdvId);
     if (cid == null || pid == null) return null;
     return { cid, pid };
-  }, [selected, clienteId, pdvId]);
+  }, [selectedPdv, clienteId, pdvId]);
 
   useEffect(() => {
-    if (selected) {
-      setClienteId(String(selected.portalClienteId));
-      setPdvId(selected.codigoDisplay);
+    if (selectedPdv) {
+      setClienteId(String(selectedPdv.portalClienteId));
+      setPdvId(selectedPdv.codigoDisplay);
     }
-  }, [selected]);
+  }, [selectedPdv]);
+
+  useEffect(() => {
+    if (selectedClient) {
+      setClienteId(String(selectedClient.portalClienteId));
+      setPdvId("");
+    }
+  }, [selectedClient]);
 
   const applyListResponse = useCallback((data: unknown) => {
-    setRows(parseRows(data));
+    setEntries(parseEntries(data));
   }, []);
 
   const refreshList = useCallback(async () => {
@@ -276,15 +369,7 @@ export function PlayerAvisosPanel() {
 
   async function onAtivar(e: React.FormEvent) {
     e.preventDefault();
-    const ids = resolveIds();
     const msg = mensagem.trim();
-    if (!ids) {
-      setStatus({
-        kind: "err",
-        text: "Escolha um PDV na busca ou informe ID cliente e ID PDV válidos.",
-      });
-      return;
-    }
     if (!msg) {
       setStatus({ kind: "err", text: "Escreva a mensagem antes de ativar." });
       return;
@@ -293,6 +378,42 @@ export function PlayerAvisosPanel() {
     setBusy(true);
     setStatus(null);
     try {
+      if (scope === "cliente") {
+        const cid = resolveClienteId();
+        if (cid == null) {
+          setStatus({
+            kind: "err",
+            text: "Escolha o cliente na busca ou informe o ID cliente válido.",
+          });
+          return;
+        }
+        const { res, data } = await postAvisos({
+          action: "ativar_cliente",
+          cliente_id: cid,
+          mensagem: msg,
+        });
+        if (!res.ok || !data || typeof data !== "object" || !(data as { ok?: boolean }).ok) {
+          setStatus({ kind: "err", text: mapApiError(data) });
+          return;
+        }
+        applyListResponse(data);
+        setMensagem("");
+        setStatus({
+          kind: "ok",
+          text: "Mensagem publicada para todos os PDVs do cliente — o Player 5 busca no próximo ping.",
+        });
+        return;
+      }
+
+      const ids = resolvePdvIds();
+      if (!ids) {
+        setStatus({
+          kind: "err",
+          text: "Escolha um PDV na busca ou informe ID cliente e ID PDV válidos.",
+        });
+        return;
+      }
+
       const { res, data } = await postAvisos({
         action: "ativar",
         cliente_id: ids.cid,
@@ -305,14 +426,17 @@ export function PlayerAvisosPanel() {
       }
       applyListResponse(data);
       setMensagem("");
-      setStatus({ kind: "ok", text: "Mensagem publicada — o Player 5 busca no próximo ping (~60 min ou ao reabrir)." });
+      setStatus({
+        kind: "ok",
+        text: "Mensagem publicada — o Player 5 busca no próximo ping (~60 min ou ao reabrir).",
+      });
     } finally {
       setBusy(false);
     }
   }
 
   async function onApagar() {
-    const ids = resolveIds();
+    const ids = resolvePdvIds();
     if (!ids) {
       setStatus({ kind: "err", text: "Escolha o PDV ou informe IDs para apagar." });
       return;
@@ -332,6 +456,31 @@ export function PlayerAvisosPanel() {
       }
       applyListResponse(data);
       setStatus({ kind: "ok", text: "Mensagens desse cliente/PDV removidas." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDesativar(entry: PlayerAvisoListEntry) {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const { res, data } = await postAvisos({
+        action: "desativar",
+        deactivate_key: entry.deactivate_key,
+      });
+      if (!res.ok || !data || typeof data !== "object" || !(data as { ok?: boolean }).ok) {
+        setStatus({ kind: "err", text: mapApiError(data) });
+        return;
+      }
+      applyListResponse(data);
+      setStatus({
+        kind: "ok",
+        text:
+          entry.scope === "cliente" ?
+            "Aviso desativado em todos os PDVs do cliente."
+          : "Aviso desativado.",
+      });
     } finally {
       setBusy(false);
     }
@@ -374,7 +523,7 @@ export function PlayerAvisosPanel() {
           onSubmit={onAtivar}
           className="mt-6 space-y-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-4"
         >
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Nova mensagem</p>
             <button
               type="button"
@@ -386,31 +535,103 @@ export function PlayerAvisosPanel() {
             </button>
           </div>
 
-          <PdvTargetPicker selected={selected} onSelect={setSelected} disabled={busy} />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setScope("pdv");
+                setSelectedClient(null);
+              }}
+              className={
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition " +
+                (scope === "pdv" ?
+                  "bg-fuchsia-900/50 text-fuchsia-100 ring-1 ring-fuchsia-500/40"
+                : "border border-zinc-700 text-zinc-400 hover:text-zinc-200")
+              }
+            >
+              Um PDV
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setScope("cliente");
+                setSelectedPdv(null);
+                setPdvId("");
+              }}
+              className={
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition " +
+                (scope === "cliente" ?
+                  "bg-fuchsia-900/50 text-fuchsia-100 ring-1 ring-fuchsia-500/40"
+                : "border border-zinc-700 text-zinc-400 hover:text-zinc-200")
+              }
+            >
+              Todos PDVs do cliente
+            </button>
+          </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <PdvTargetPicker
+            scope={scope}
+            selectedPdv={selectedPdv}
+            selectedClient={selectedClient}
+            onSelectPdv={(t) => {
+              setSelectedPdv(t);
+              setSelectedClient(null);
+            }}
+            onSelectClient={(t) => {
+              setSelectedClient(t);
+              setSelectedPdv(null);
+            }}
+            disabled={busy}
+          />
+
+          <div className={scope === "cliente" ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2"}>
             <input
               inputMode="numeric"
               value={clienteId}
               onChange={(e) => {
-                setSelected(null);
+                setSelectedPdv(null);
+                setSelectedClient(null);
                 setClienteId(e.target.value);
               }}
               placeholder="ID cliente (100…)"
               className={inputClass}
-              disabled={selected != null}
+              disabled={selectedPdv != null || selectedClient != null}
             />
-            <input
-              value={pdvId}
-              onChange={(e) => {
-                setSelected(null);
-                setPdvId(e.target.value);
-              }}
-              placeholder="ID PDV (100.001…)"
-              className={inputClass}
-              disabled={selected != null}
-            />
+            {scope === "pdv" ?
+              <input
+                value={pdvId}
+                onChange={(e) => {
+                  setSelectedPdv(null);
+                  setPdvId(e.target.value);
+                }}
+                placeholder="ID PDV (100.001…)"
+                className={inputClass}
+                disabled={selectedPdv != null}
+              />
+            : null}
           </div>
+
+          <div>
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              Modelos (clique para usar)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {AVISO_TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setMensagem(tpl)}
+                  className="rounded-lg border border-zinc-700/80 bg-zinc-900/80 px-2.5 py-1.5 text-left text-[11px] leading-snug text-zinc-300 transition hover:border-fuchsia-500/40 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+                >
+                  {tpl}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <textarea
             value={mensagem}
             onChange={(e) => setMensagem(e.target.value)}
@@ -427,37 +648,65 @@ export function PlayerAvisosPanel() {
             >
               Ativar
             </button>
-            <button
-              type="button"
-              disabled={busy || !loaded}
-              onClick={() => void onApagar()}
-              className="rounded-lg border border-zinc-600 bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
-            >
-              Apagar mensagens deste par
-            </button>
+            {scope === "pdv" ?
+              <button
+                type="button"
+                disabled={busy || !loaded}
+                onClick={() => void onApagar()}
+                className="rounded-lg border border-zinc-600 bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
+              >
+                Apagar mensagens deste par
+              </button>
+            : null}
           </div>
         </form>
 
-        {loaded && rows.length > 0 ?
+        {loaded && entries.length > 0 ?
           <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-900/50 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Ativas ({rows.length})
+              Ativas ({entries.length})
             </p>
             <ul className="mt-3 max-h-[min(50vh,420px)] space-y-2 overflow-y-auto text-sm">
-              {rows.map((row, i) => (
-                <li key={`${row.cliente_id}-${row.pdv_id}-${row.atualizado_em}-${i}`} className="rounded-lg bg-black/25 px-3 py-2">
-                  {row.cliente_nome || row.pdv_nome ?
-                    <p className="text-zinc-200">
-                      {row.cliente_nome ?? "Cliente"} — {row.pdv_nome ?? "PDV"}
-                    </p>
-                  : null}
-                  <span className="font-mono text-xs text-zinc-500">
-                    c{row.cliente_id} · {row.codigo_display ?? formatPortalPdvIdDisplay(row.pdv_id)}
-                  </span>
-                  <p className="mt-1 text-zinc-200">{row.mensagem}</p>
-                  {row.atualizado_em ?
-                    <p className="mt-1 text-[10px] text-zinc-600">{row.atualizado_em}</p>
-                  : null}
+              {entries.map((entry) => (
+                <li
+                  key={entry.deactivate_key}
+                  className="flex items-start justify-between gap-3 rounded-lg bg-black/25 px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    {entry.scope === "cliente" ?
+                      <p className="text-zinc-200">
+                        <span className="font-medium">{entry.cliente_nome ?? "Cliente"}</span>
+                        <span className="text-zinc-500"> · todos os PDVs</span>
+                        {entry.pdv_count > 1 ?
+                          <span className="text-zinc-500"> ({entry.pdv_count})</span>
+                        : null}
+                      </p>
+                    : entry.cliente_nome || entry.pdv_nome ?
+                      <p className="text-zinc-200">
+                        {entry.cliente_nome ?? "Cliente"} — {entry.pdv_nome ?? "PDV"}
+                      </p>
+                    : null}
+                    <span className="font-mono text-xs text-zinc-500">
+                      c{entry.cliente_id}
+                      {entry.scope === "pdv" && entry.pdv_id != null ?
+                        <> · {entry.codigo_display ?? formatPortalPdvIdDisplay(entry.pdv_id)}</>
+                      : null}
+                    </span>
+                    <p className="mt-1 text-zinc-200">{entry.mensagem}</p>
+                    {entry.atualizado_em ?
+                      <p className="mt-1 text-[10px] text-zinc-600">
+                        {new Date(entry.atualizado_em).toLocaleString("pt-BR")}
+                      </p>
+                    : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void onDesativar(entry)}
+                    className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-800 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
+                  >
+                    Desativar
+                  </button>
                 </li>
               ))}
             </ul>

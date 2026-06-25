@@ -35,7 +35,7 @@ export function AtualizacoesCadastroPanel() {
   const [rows, setRows] = useState<IngestRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [producao, setProducao] = useState<ProducaoDto | null>(null);
-  const [linkKey, setLinkKey] = useState("");
+  const [suggestedRioPdvKey, setSuggestedRioPdvKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -50,7 +50,13 @@ export function AtualizacoesCadastroPanel() {
       const data = (await res.json()) as { rows?: IngestRow[] };
       const nextRows = data.rows ?? [];
       setRows(nextRows);
-      setSelectedId((prev) => prev ?? nextRows[0]?.id ?? null);
+      setSelectedId((prev) => {
+        if (prev && nextRows.some((r) => r.id === prev)) return prev;
+        return nextRows[0]?.id ?? null;
+      });
+      window.dispatchEvent(
+        new CustomEvent("atl-cadastros-pending-changed", { detail: { count: nextRows.length } }),
+      );
     } catch {
       setMsg("Não foi possível carregar atualizações pendentes.");
     } finally {
@@ -62,11 +68,16 @@ export function AtualizacoesCadastroPanel() {
     try {
       const res = await fetch(`/api/cadastros/atualizacoes?id=${encodeURIComponent(id)}`);
       if (!res.ok) return;
-      const data = (await res.json()) as { row?: IngestRow; producao?: ProducaoDto | null };
-      if (data.row) setLinkKey(data.row.rioPdvKey ?? "");
+      const data = (await res.json()) as {
+        row?: IngestRow;
+        producao?: ProducaoDto | null;
+        suggestedRioPdvKey?: string | null;
+      };
+      setSuggestedRioPdvKey(data.suggestedRioPdvKey ?? data.row?.rioPdvKey ?? null);
       setProducao(data.producao ?? null);
     } catch {
       setProducao(null);
+      setSuggestedRioPdvKey(null);
     }
   }, []);
 
@@ -79,26 +90,6 @@ export function AtualizacoesCadastroPanel() {
   }, [selectedId, loadDetail]);
 
   async function vincularPdv() {
-    if (!selectedId || !linkKey.trim()) return;
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/cadastros/atualizacoes", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selectedId, action: "link", rioPdvKey: linkKey.trim() }),
-      });
-      if (!res.ok) throw new Error("link_failed");
-      await loadDetail(selectedId);
-      setMsg("PDV de produção vinculado.");
-    } catch {
-      setMsg("Falha ao vincular PDV.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function conciliar() {
     if (!selectedId) return;
     if (
       !window.confirm(
@@ -117,16 +108,16 @@ export function AtualizacoesCadastroPanel() {
       });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(data?.error ?? "conciliar_failed");
-      setMsg("Contatos da loja conciliados no cadastro.");
+      setMsg("Cadastro vinculado e contatos da loja atualizados.");
       await loadList();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Falha ao conciliar.");
+      setMsg(e instanceof Error ? e.message : "Falha ao vincular PDV.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function arquivar() {
+  async function cancelarConciliar() {
     if (!selectedId) return;
     if (
       !window.confirm(
@@ -145,16 +136,17 @@ export function AtualizacoesCadastroPanel() {
       });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(data?.error ?? "arquivar_failed");
-      setMsg("Atualização arquivada (cadastro mantido).");
+      setMsg("Atualização descartada (cadastro mantido).");
       await loadList();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Falha ao arquivar.");
+      setMsg(e instanceof Error ? e.message : "Falha ao cancelar.");
     } finally {
       setBusy(false);
     }
   }
 
   const enviado = selected ? lojaPayloadEntries(selected.payload) : [];
+  const cadastroEncontrado = Boolean(producao && suggestedRioPdvKey);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -163,8 +155,8 @@ export function AtualizacoesCadastroPanel() {
       </div>
       <h1 className="mt-1 text-2xl font-bold tracking-tight">Atualizações de cadastro</h1>
       <p className="mt-2 max-w-2xl text-sm text-slate-500">
-        Dados da loja enviados pelo Player 5 na instalação — compare com o cadastro atual, concilie ou
-        arquive se já estiver correto.
+        Dados da loja enviados pelo Player 5 na instalação — compare com o cadastro atual, vincule ou
+        descarte se já estiver correto.
       </p>
 
       {msg ?
@@ -219,6 +211,11 @@ export function AtualizacoesCadastroPanel() {
                 {selected.pdvGatewayId != null ? ` · PDV ${selected.pdvGatewayId}` : ""}
                 {selected.portalPdvId != null ? ` · portal ${selected.portalPdvId}` : ""}
               </p>
+              {suggestedRioPdvKey ?
+                <p className="mt-1 text-[10px] font-medium text-slate-500">
+                  Cadastro produção: <span className="font-mono">{suggestedRioPdvKey}</span>
+                </p>
+              : null}
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr]">
@@ -241,53 +238,38 @@ export function AtualizacoesCadastroPanel() {
               </section>
 
               <div className="flex flex-col items-center justify-center gap-2 px-1">
-                {!selected.rioPdvKey ?
-                  <>
-                    <input
-                      type="text"
-                      value={linkKey}
-                      onChange={(e) => setLinkKey(e.target.value)}
-                      placeholder="rio_pdv_key"
-                      className="w-full min-w-[120px] rounded-lg border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-950"
-                    />
-                    <button
-                      type="button"
-                      disabled={busy || !linkKey.trim()}
-                      onClick={() => void vincularPdv()}
-                      className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white disabled:opacity-40 dark:bg-slate-200 dark:text-slate-900"
-                    >
-                      Vincular PDV
-                    </button>
-                  </>
-                : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={busy || enviado.length === 0}
-                      onClick={() => void conciliar()}
-                      className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-40"
-                    >
-                      Conciliar →
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void arquivar()}
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300"
-                    >
-                      Cancelar / manter cadastro
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button"
+                  disabled={busy || !cadastroEncontrado || enviado.length === 0}
+                  onClick={() => void vincularPdv()}
+                  className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-lg disabled:opacity-40"
+                  title={
+                    !cadastroEncontrado ?
+                      "Cadastro de produção não encontrado para este cliente/PDV."
+                    : enviado.length === 0 ?
+                      "Nenhum contato da loja no envio."
+                    : "Aplicar contatos da loja ao cadastro"
+                  }
+                >
+                  Vincular PDV
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void cancelarConciliar()}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300"
+                >
+                  Cancelar conciliar
+                </button>
               </div>
 
               <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                 <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">
                   Cadastro atual (produção)
                 </h2>
-                {!selected.rioPdvKey ?
-                  <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">
-                    Vincule um PDV de produção para ver o cadastro atual.
+                {!cadastroEncontrado ?
+                  <p className="mt-3 text-sm text-slate-500">
+                    Não foi possível localizar o cadastro de produção para este cliente/PDV.
                   </p>
                 : (
                   <dl className="mt-3 space-y-3 text-sm">

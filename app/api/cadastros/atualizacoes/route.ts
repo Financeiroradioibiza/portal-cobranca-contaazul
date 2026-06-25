@@ -7,6 +7,7 @@ import {
   getPlayerIngest,
   linkPlayerIngestRioPdvKey,
   listPlayerIngest,
+  resolveRioPdvKeyForPlayerIngest,
 } from "@/lib/player/playerIngestService";
 import { getOrCreatePdvCadastro } from "@/lib/cadastros/producaoPdvCadastroService";
 
@@ -18,15 +19,17 @@ export async function GET(request: Request) {
     if (id) {
       const row = await getPlayerIngest(id);
       if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
+      const suggestedRioPdvKey = await resolveRioPdvKeyForPlayerIngest(row);
+      const effectiveRioPdvKey = row.rioPdvKey ?? suggestedRioPdvKey;
       let producao = null;
-      if (row.rioPdvKey) {
+      if (effectiveRioPdvKey) {
         try {
-          producao = await getOrCreatePdvCadastro(row.rioPdvKey, { refreshCobranca: false });
+          producao = await getOrCreatePdvCadastro(effectiveRioPdvKey, { refreshCobranca: false });
         } catch {
           producao = null;
         }
       }
-      return NextResponse.json({ ok: true, row, producao });
+      return NextResponse.json({ ok: true, row, producao, suggestedRioPdvKey });
     }
 
     const tipo = url.searchParams.get("tipo") === "feedback" ? "feedback" : "cadastro";

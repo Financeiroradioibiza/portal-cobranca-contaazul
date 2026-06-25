@@ -25,6 +25,7 @@ export function PortalSidebar() {
     null,
   );
   const [loggingOut, setLoggingOut] = useState(false);
+  const [atlCadastrosPendentes, setAtlCadastrosPendentes] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +44,33 @@ export function PortalSidebar() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    if (moduleId !== "cadastros") return;
+    let cancelled = false;
+    fetch("/api/cadastros/atualizacoes/count", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.count === "number") {
+          setAtlCadastrosPendentes(Math.max(0, data.count));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [moduleId, pathname]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ count?: number }>).detail;
+      if (typeof detail?.count === "number") {
+        setAtlCadastrosPendentes(Math.max(0, detail.count));
+      }
+    };
+    window.addEventListener("atl-cadastros-pending-changed", handler);
+    return () => window.removeEventListener("atl-cadastros-pending-changed", handler);
   }, []);
 
   const onLogout = useCallback(async () => {
@@ -83,7 +111,12 @@ export function PortalSidebar() {
               <span className="portal-sidebar-icon" aria-hidden>
                 {item.icon}
               </span>
-              {item.label}
+              <span className="portal-sidebar-item-label">{item.label}</span>
+              {item.href === "/cadastros/atualizacoes" && atlCadastrosPendentes > 0 ?
+                <span className="portal-sidebar-item-badge" aria-label={`${atlCadastrosPendentes} pendente(s)`}>
+                  {atlCadastrosPendentes > 99 ? "99+" : atlCadastrosPendentes}
+                </span>
+              : null}
             </Link>
           );
         })}

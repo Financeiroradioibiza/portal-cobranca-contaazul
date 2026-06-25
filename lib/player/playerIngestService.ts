@@ -1,5 +1,8 @@
 import crypto from "node:crypto";
 import type { PlayerIngestStatus, PlayerIngestTipo } from "@prisma/client";
+import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
+import { loadMergedProducaoPlayerContext, type ProducaoPlayerBucket } from "@/lib/player/producaoPlayerBuckets";
+import { proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import { prisma } from "@/lib/prisma";
 import { serializeStringArray } from "@/lib/chamados/chamadoService";
 
@@ -87,6 +90,109 @@ async function resolvePortalPdvIdFromGateway(pdvGatewayId: number | null): Promi
     select: { rioCompPdv: { select: { portalPdvId: true } } },
   });
   return link?.rioCompPdv?.portalPdvId ?? pdvGatewayId;
+}
+
+function normalizeIngestMatchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchPdvInBucket(
+  bucket: ProducaoPlayerBucket,
+  pdvNome: string,
+  pdvGatewayId: number | null,
+  pdvPortalIds: Map<string, number>,
+): string | null {
+  const normPdv = normalizeIngestMatchText(pdvNome);
+  const pdvs = bucket.pdvs.filter((p) => !p.isLinhaProxy);
+
+  if (pdvGatewayId != null && pdvGatewayId > 0) {
+    for (const pdv of pdvs) {
+      const portalId = pdvPortalIds.get(pdv.rioPdvId);
+      if (portalId === pdvGatewayId) return pdv.rioPdvId;
+    }
+    if (bucket.portalClienteId != null && pdvGatewayId === proxyPortalPdvId(bucket.portalClienteId)) {
+      const proxies = bucket.pdvs.filter((p) => p.isLinhaProxy);
+      if (proxies.length === 1) return proxies[0]!.rioPdvId;
+    }
+  }
+
+  if (normPdv) {
+    const exact = pdvs.find((p) => normalizeIngestMatchText(p.nome) === normPdv);
+    if (exact) return exact.rioPdvId;
+    const partial = pdvs.find((p) => {
+      const nome = normalizeIngestMatchText(p.nome);
+      return nome.includes(normPdv) || normPdv.includes(nome);
+    });
+    if (partial) return partial.rioPdvId;
+  }
+
+  if (pdvs.length === 1) return pdvs[0]!.rioPdvId;
+  return null;
+}
+
+/** Tenta achar o `rioPdvKey` de produção a partir dos metadados do envio do player. */
+export async function resolveRioPdvKeyForPlayerIngest(input: {
+  rioPdvKey: string | null;
+  portalPdvId: number | null;
+  pdvGatewayId: number | null;
+  clienteGatewayId: number | null;
+  clienteNome: string;
+  pdvNome: string;
+}): Promise<string | null> {
+  const existing = input.rioPdvKey?.trim();
+  if (existing) return existing;
+
+  if (input.portalPdvId != null && input.portalPdvId > 0) {
+    const fromPortal = await resolveRioPdvKeyFromPortalPdvId(input.portalPdvId);
+    if (fromPortal) return fromPortal;
+  }
+
+  if (input.pdvGatewayId != null && input.pdvGatewayId > 0) {
+    const portalPdvId = await resolvePortalPdvIdFromGateway(input.pdvGatewayId);
+    if (portalPdvId != null) {
+      const fromGateway = await resolveRioPdvKeyFromPortalPdvId(portalPdvId);
+      if (fromGateway) return fromGateway;
+
+      const layout = await getProducaoCatalogLayout();
+      for (const [key, id] of Object.entries(layout.portalPdvIdsByRioPdvKey)) {
+        if (Number(id) === input.pdvGatewayId || Number(id) === portalPdvId) return key;
+      }
+    }
+  }
+
+  const ctx = await loadMergedProducaoPlayerContext();
+
+  if (input.clienteGatewayId != null && input.clienteGatewayId > 0) {
+    const bucket = ctx.buckets.find((b) => b.portalClienteId === input.clienteGatewayId);
+    if (bucket) {
+      const matched = matchPdvInBucket(bucket, input.pdvNome, input.pdvGatewayId, ctx.pdvPortalIds);
+      if (matched) return matched;
+    }
+  }
+
+  const normCliente = normalizeIngestMatchText(input.clienteNome);
+  if (normCliente) {
+    for (const bucket of ctx.buckets) {
+      const bucketNome = normalizeIngestMatchText(bucket.nome);
+      if (bucketNome === normCliente || bucketNome.includes(normCliente) || normCliente.includes(bucketNome)) {
+        const matched = matchPdvInBucket(bucket, input.pdvNome, input.pdvGatewayId, ctx.pdvPortalIds);
+        if (matched) return matched;
+      }
+    }
+  }
+
+  return null;
+}
+
+export async function countPendingPlayerIngestCadastro(): Promise<number> {
+  return prisma.playerIngest.count({
+    where: { tipo: "cadastro", status: "pendente" },
+  });
 }
 
 async function createChamadoForFeedback(input: {
@@ -301,7 +407,16 @@ export async function conciliarPlayerCadastro(
   if (ingest.tipo !== "cadastro") throw new Error("tipo_invalido");
   if (ingest.status === "conciliado") throw new Error("ja_conciliado");
 
-  const rioPdvKey = ingest.rioPdvKey?.trim();
+  const rioPdvKey =
+    ingest.rioPdvKey?.trim() ||
+    (await resolveRioPdvKeyForPlayerIngest({
+      rioPdvKey: ingest.rioPdvKey,
+      portalPdvId: ingest.portalPdvId,
+      pdvGatewayId: ingest.pdvGatewayId,
+      clienteGatewayId: ingest.clienteGatewayId,
+      clienteNome: ingest.clienteNome,
+      pdvNome: ingest.pdvNome,
+    }));
   if (!rioPdvKey) throw new Error("pdv_nao_vinculado");
 
   const payload = parsePayload(ingest.payloadJson);
@@ -322,6 +437,7 @@ export async function conciliarPlayerCadastro(
     where: { id: ingestId },
     data: {
       status: "conciliado",
+      rioPdvKey,
       conciliadoPorEmail: ctx.email,
       conciliadoPorNome: ctx.displayName,
       conciliadoEm: new Date(),
