@@ -49,3 +49,5 @@ next-env.d.ts
 
 /.rio-marca-layout.run.cjs
 /.rio-revert-sync.run.cjs
+/.e2e-setup-teste-portal.run.cjs
+/scripts/e2e-setup-teste-portal.ts
