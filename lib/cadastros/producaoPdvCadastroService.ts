@@ -6,8 +6,13 @@ import {
   fetchPersonDetail,
   firstOutrosContatoFromPersonDetail,
 } from "@/lib/contaazul/personBilling";
-import { isLinhaAsPdvKey, linhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
+import {
+  isLinhaAsPdvKey,
+  linhaAsPdvKey,
+  linhaIdFromAsPdvKey,
+} from "@/lib/cadastros/producaoHierarchy";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
+import { patchRioCompPdv } from "@/lib/rio/rioClienteCompService";
 import { onlyDigits } from "@/lib/format";
 import type { ProducaoPlayerStatus } from "@prisma/client";
 import { newPlayerInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
@@ -252,6 +257,7 @@ export async function getOrCreatePdvCadastro(
         contatoCobrancaTelefone: seed.cobranca?.telefone ?? "",
       },
     });
+    await syncCadastroPdvNomeToRio(rioPdvKey, row.nome);
     return rowToDto(row, Boolean(seed.cobranca));
   }
 
@@ -263,11 +269,43 @@ export async function getOrCreatePdvCadastro(
         where: { rioPdvKey },
         data: patch,
       });
+      await syncCadastroPdvNomeToRio(rioPdvKey, row.nome);
       return rowToDto(row, Boolean(seed.cobranca));
     }
   }
 
+  await syncCadastroPdvNomeToRio(rioPdvKey, row.nome);
   return rowToDto(row, false);
+}
+
+/** Cadastro de produção é a fonte da verdade — nome alterado aqui reflete na Planilha Rio. */
+async function syncCadastroPdvNomeToRio(rioPdvKey: string, nome: string): Promise<void> {
+  const trimmed = nome.trim();
+  if (!trimmed) return;
+
+  if (isLinhaAsPdvKey(rioPdvKey)) {
+    const linhaId = linhaIdFromAsPdvKey(rioPdvKey);
+    if (!linhaId) return;
+    const linha = await prisma.rioCompClienteLinha.findUnique({
+      where: { id: linhaId },
+      select: { nomeFantasia: true },
+    });
+    if ((linha?.nomeFantasia ?? "").trim() === trimmed) return;
+    await prisma.rioCompClienteLinha.updateMany({
+      where: { id: linhaId },
+      data: { nomeFantasia: trimmed.slice(0, 500) },
+    });
+    return;
+  }
+
+  const pdv = await prisma.rioCompPdv.findUnique({
+    where: { id: rioPdvKey },
+    select: { nome: true },
+  });
+  if (!pdv) return;
+  if (pdv.nome.trim() === trimmed) return;
+
+  await patchRioCompPdv(rioPdvKey, { nome: trimmed.slice(0, 500) });
 }
 
 export async function updatePdvCadastro(
@@ -319,6 +357,10 @@ export async function updatePdvCadastro(
       : {}),
     },
   });
+
+  if (patch.nome !== undefined) {
+    await syncCadastroPdvNomeToRio(rioPdvKey, patch.nome);
+  }
 
   return rowToDto(row, false);
 }

@@ -210,6 +210,62 @@ export async function getPlayerIngest(id: string): Promise<PlayerIngestView | nu
   return row ? rowToView(row) : null;
 }
 
+const LOJA_PAYLOAD_ALIASES: Record<string, keyof import("@prisma/client").ProducaoPdvCadastro> = {
+  contatoLojaNome: "contatoLojaNome",
+  contato_loja_nome: "contatoLojaNome",
+  gerente_loja: "contatoLojaNome",
+  nome_gerente: "contatoLojaNome",
+  nomeGerente: "contatoLojaNome",
+  contatoLojaTelefone: "contatoLojaTelefone",
+  contato_loja_telefone: "contatoLojaTelefone",
+  whatsapp_loja: "contatoLojaTelefone",
+  whatsappLoja: "contatoLojaTelefone",
+  contatoLojaEmail: "contatoLojaEmail",
+  contato_loja_email: "contatoLojaEmail",
+  email_loja: "contatoLojaEmail",
+  emailLoja: "contatoLojaEmail",
+};
+
+export const LOJA_CADASTRO_FIELDS = [
+  "contatoLojaNome",
+  "contatoLojaTelefone",
+  "contatoLojaEmail",
+] as const;
+
+export type LojaCadastroField = (typeof LOJA_CADASTRO_FIELDS)[number];
+
+export const LOJA_FIELD_LABELS: Record<LojaCadastroField, string> = {
+  contatoLojaNome: "Nome do gerente da loja",
+  contatoLojaTelefone: "WhatsApp da loja",
+  contatoLojaEmail: "E-mail da loja",
+};
+
+/** Extrai só os 3 campos de contato da loja enviados pelo Player 5. */
+export function extractLojaCadastroFromPayload(
+  payload: Record<string, unknown>,
+): Partial<Record<LojaCadastroField, string>> {
+  const patch: Partial<Record<LojaCadastroField, string>> = {};
+  for (const [srcKey, dbKey] of Object.entries(LOJA_PAYLOAD_ALIASES)) {
+    const v = payload[srcKey];
+    if (typeof v !== "string" || !v.trim()) continue;
+    if (LOJA_CADASTRO_FIELDS.includes(dbKey as LojaCadastroField)) {
+      patch[dbKey as LojaCadastroField] = v.trim();
+    }
+  }
+  return patch;
+}
+
+export function lojaPayloadEntries(
+  payload: Record<string, unknown>,
+): Array<{ field: LojaCadastroField; label: string; value: string }> {
+  const patch = extractLojaCadastroFromPayload(payload);
+  return LOJA_CADASTRO_FIELDS.filter((f) => patch[f]?.trim()).map((field) => ({
+    field,
+    label: LOJA_FIELD_LABELS[field],
+    value: patch[field]!.trim(),
+  }));
+}
+
 const CADASTRO_FIELD_MAP: Record<string, keyof import("@prisma/client").ProducaoPdvCadastro> = {
   nome: "nome",
   cep: "cep",
@@ -249,19 +305,12 @@ export async function conciliarPlayerCadastro(
   if (!rioPdvKey) throw new Error("pdv_nao_vinculado");
 
   const payload = parsePayload(ingest.payloadJson);
-  const patch: Record<string, string> = {};
-  for (const [srcKey, dbKey] of Object.entries(CADASTRO_FIELD_MAP)) {
-    const v = payload[srcKey];
-    if (typeof v === "string" && v.trim()) patch[dbKey as string] = v.trim();
-  }
+  const lojaPatch = extractLojaCadastroFromPayload(payload);
 
-  if (Object.keys(patch).length === 0) throw new Error("payload_vazio");
+  if (Object.keys(lojaPatch).length === 0) throw new Error("payload_vazio");
 
-  await prisma.producaoPdvCadastro.upsert({
-    where: { rioPdvKey },
-    create: { rioPdvKey, ...patch },
-    update: patch,
-  });
+  const { updatePdvCadastro } = await import("@/lib/cadastros/producaoPdvCadastroService");
+  await updatePdvCadastro(rioPdvKey, lojaPatch);
 
   const { cloud2Enabled } = await import("@/lib/criacao/cloud2Client");
   if (cloud2Enabled()) {
@@ -273,6 +322,29 @@ export async function conciliarPlayerCadastro(
     where: { id: ingestId },
     data: {
       status: "conciliado",
+      conciliadoPorEmail: ctx.email,
+      conciliadoPorNome: ctx.displayName,
+      conciliadoEm: new Date(),
+    },
+  });
+
+  return rowToView(updated);
+}
+
+/** Descarta atualização quando o cadastro atual já está correto. */
+export async function arquivarPlayerIngest(
+  ingestId: string,
+  ctx: { email: string; displayName: string },
+): Promise<PlayerIngestView> {
+  const ingest = await prisma.playerIngest.findUnique({ where: { id: ingestId } });
+  if (!ingest) throw new Error("not_found");
+  if (ingest.status === "conciliado") throw new Error("ja_conciliado");
+  if (ingest.status === "arquivado") throw new Error("ja_arquivado");
+
+  const updated = await prisma.playerIngest.update({
+    where: { id: ingestId },
+    data: {
+      status: "arquivado",
       conciliadoPorEmail: ctx.email,
       conciliadoPorNome: ctx.displayName,
       conciliadoEm: new Date(),

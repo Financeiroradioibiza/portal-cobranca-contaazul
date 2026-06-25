@@ -12,6 +12,12 @@ export type SuportePdvRow = {
   portalPdvId: number | null;
   /** ID do cliente no Player (100, 101, …). */
   portalClienteId: number | null;
+  /** E-mail de login no Player 5 (cliente). */
+  clienteLoginEmail: string | null;
+  /** Senha de login no Player 5 (cliente). */
+  clienteLoginPassword: string | null;
+  /** Login ainda não gerado no portal. */
+  clienteLoginPending: boolean;
   /** Chave serial de instalação (suporte). */
   playerInstalacaoToken: string | null;
   programacaoMusical: string;

@@ -91,6 +91,7 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
       where: { rioPdvKey: { in: rioKeys } },
       select: {
         rioPdvKey: true,
+        nome: true,
         programacaoId: true,
         programacaoMusical: true,
         programacao: { select: { id: true, nome: true, clienteRef: true } },
@@ -104,7 +105,12 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
   ]);
 
   const cadByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
-  const sorted = sortRioPdvsByNome(bucket.pdvs.map((p) => ({ id: p.rioPdvId, nome: p.nome })));
+  const sorted = sortRioPdvsByNome(
+    bucket.pdvs.map((p) => {
+      const cad = cadByKey.get(p.rioPdvId);
+      return { id: p.rioPdvId, nome: cad?.nome?.trim() || p.nome };
+    }),
+  );
 
   const pdvs: PdvProgramacaoRow[] = sorted.map((s) => {
     const p = bucket.pdvs.find((x) => x.rioPdvId === s.id)!;
@@ -122,7 +128,7 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
 
     return {
       rioPdvKey: p.rioPdvId,
-      nome: p.nome.trim() || bucket.nome,
+      nome: cad?.nome?.trim() || p.nome.trim() || bucket.nome,
       portalPdvId,
       codigoDisplay: portalPdvId != null ? formatPortalPdvIdDisplay(portalPdvId) : "—",
       programacaoId,

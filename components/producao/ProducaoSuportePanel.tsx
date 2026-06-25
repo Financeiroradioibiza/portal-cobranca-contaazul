@@ -28,6 +28,9 @@ type SuporteClienteOption = {
   nome: string;
   tagCobranca: SuportePdvRow["tagCobranca"];
   portalClienteId: number | null;
+  clienteLoginEmail: string | null;
+  clienteLoginPassword: string | null;
+  clienteLoginPending: boolean;
   pdvCount: number;
   semPingCount: number;
 };
@@ -37,7 +40,7 @@ function suporteColCount(
   showContatos: boolean,
   clienteMode: boolean,
 ): number {
-  const identCols = clienteMode ? 4 : 5;
+  const identCols = clienteMode ? 4 : 7;
   const playerCols = showPlayer ? (clienteMode ? 5 : 6) : 0;
   return identCols + playerCols + (showContatos ? 4 : 0);
 }
@@ -71,6 +74,9 @@ function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
         nome: row.clienteNome,
         tagCobranca: row.clienteTagCobranca,
         portalClienteId: row.portalClienteId,
+        clienteLoginEmail: row.clienteLoginEmail,
+        clienteLoginPassword: row.clienteLoginPassword,
+        clienteLoginPending: row.clienteLoginPending,
         pdvCount: 0,
         semPingCount: 0,
       };
@@ -81,8 +87,68 @@ function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
     if (row.portalClienteId != null && opt.portalClienteId == null) {
       opt.portalClienteId = row.portalClienteId;
     }
+    if (!opt.clienteLoginEmail && row.clienteLoginEmail) {
+      opt.clienteLoginEmail = row.clienteLoginEmail;
+      opt.clienteLoginPassword = row.clienteLoginPassword;
+      opt.clienteLoginPending = row.clienteLoginPending;
+    }
   }
   return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+function ClienteLoginInfo({
+  email,
+  password,
+  pending,
+  compact = false,
+  field = "both",
+}: {
+  email: string | null;
+  password: string | null;
+  pending: boolean;
+  compact?: boolean;
+  field?: "login" | "senha" | "both";
+}) {
+  if (pending) {
+    if (field === "senha") return <span className="text-slate-400">—</span>;
+    return (
+      <span
+        className="text-[10px] font-semibold text-amber-700 dark:text-amber-400"
+        title="Gere o login em Suporte → Logins clientes ou na produção (Login Player)"
+      >
+        sem login
+      </span>
+    );
+  }
+  if (field === "login") {
+    return email ?
+        <CopyableCell text={email} label="Copiar login do cliente" mono />
+      : <span className="text-slate-400">—</span>;
+  }
+  if (field === "senha") {
+    return password ?
+        <CopyableCell text={password} label="Copiar senha do cliente" mono />
+      : <span className="text-slate-400">—</span>;
+  }
+  if (!email && !password) {
+    return <span className="text-slate-400">—</span>;
+  }
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+        <CopyableCell text={email ?? ""} label="Copiar login do cliente" mono />
+        <CopyableCell text={password ?? ""} label="Copiar senha do cliente" mono />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <CopyableCell text={email ?? ""} label="Copiar login do cliente" mono />
+      <CopyableCell text={password ?? ""} label="Copiar senha do cliente" mono />
+    </>
+  );
 }
 
 function ViewModePicker({
@@ -258,6 +324,14 @@ function ClienteFocusHeader({
             </span>
           : null}
         </p>
+        <div className="mt-1">
+          <ClienteLoginInfo
+            email={cliente.clienteLoginEmail}
+            password={cliente.clienteLoginPassword}
+            pending={cliente.clienteLoginPending}
+            compact
+          />
+        </div>
       </div>
       <button
         type="button"
@@ -703,6 +777,22 @@ function PdvRow({
           <td className="min-w-[8rem] max-w-[12rem] px-2 py-2 align-top">
             <RioTagCobrancaNome nome={row.clienteNome} tag={row.clienteTagCobranca} />
           </td>
+          <td className="min-w-[9rem] max-w-[14rem] px-2 py-2 align-top">
+            <ClienteLoginInfo
+              email={row.clienteLoginEmail}
+              password={row.clienteLoginPassword}
+              pending={row.clienteLoginPending}
+              field="login"
+            />
+          </td>
+          <td className="min-w-[5.5rem] max-w-[8rem] px-2 py-2 align-top">
+            <ClienteLoginInfo
+              email={row.clienteLoginEmail}
+              password={row.clienteLoginPassword}
+              pending={row.clienteLoginPending}
+              field="senha"
+            />
+          </td>
         </>
       : null}
       {showPlayerBlock ?
@@ -784,7 +874,7 @@ export function ProducaoSuportePanel() {
 
   const clienteMode = viewMode === "cliente" && Boolean(selectedClienteKey);
   const colCount = suporteColCount(showPlayerBlock, showContatosBlock, clienteMode);
-  const identColSpan = clienteMode ? 4 : 5;
+  const identColSpan = clienteMode ? 4 : 7;
   const playerColSpan = clienteMode ? 5 : 6;
   const hasExtraColumns = showPlayerBlock || showContatosBlock;
 
@@ -1126,6 +1216,12 @@ export function ProducaoSuportePanel() {
                       ID cli.
                     </th>
                     <th className="min-w-[8rem] px-2 py-2">Cliente</th>
+                    <th className="min-w-[9rem] px-2 py-2" title="E-mail de login no Player 5">
+                      Login
+                    </th>
+                    <th className="min-w-[5.5rem] px-2 py-2" title="Senha de login no Player 5">
+                      Senha
+                    </th>
                   </>
                 : null}
                 {showPlayerBlock ?

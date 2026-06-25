@@ -3,6 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { getChamadoUserContext } from "@/lib/chamados/chamadoService";
 import {
   conciliarPlayerCadastro,
+  arquivarPlayerIngest,
   getPlayerIngest,
   linkPlayerIngestRioPdvKey,
   listPlayerIngest,
@@ -67,12 +68,17 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ ok: true, row });
     }
 
+    if (action === "arquivar") {
+      const row = await arquivarPlayerIngest(id, ctx);
+      return NextResponse.json({ ok: true, row });
+    }
+
     return NextResponse.json({ error: "acao_invalida" }, { status: 400 });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "not_found") return NextResponse.json({ error: msg }, { status: 404 });
-    if (["tipo_invalido", "ja_conciliado", "pdv_nao_vinculado", "payload_vazio", "rio_pdv_key_obrigatorio"].includes(msg)) {
+    if (["tipo_invalido", "ja_conciliado", "ja_arquivado", "pdv_nao_vinculado", "payload_vazio", "rio_pdv_key_obrigatorio"].includes(msg)) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
     console.error("[cadastros/atualizacoes PATCH]", e);

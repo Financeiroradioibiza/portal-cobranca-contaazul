@@ -6,6 +6,7 @@ import {
   type DashboardPdvTelemetry,
 } from "@/lib/cadastros/producaoDashboardService";
 import { loadPortalPlayerIdMaps } from "@/lib/player/loadPortalPlayerIdMaps";
+import { clientePlayerPasswordForCliente } from "@/lib/player/clientePlayerLoginService";
 import type {
   ProducaoSuportePayload,
   SuportePdvRow,
@@ -49,8 +50,19 @@ export async function getProducaoSuporte(options?: {
   }
 
   const clienteKeys = [...new Set(dash.clientes.map((c) => c.key))];
+  const portalMaps = await loadPortalPlayerIdMaps(pdvKeys);
+  const linkByKey = portalMaps.byRioPdvKey;
+  const portalClienteIds = [
+    ...new Set(
+      dash.clientes.flatMap((c) =>
+        c.pdvs
+          .map((p) => linkByKey.get(p.rioPdvKey)?.portalClienteId)
+          .filter((id): id is number => id != null),
+      ),
+    ),
+  ];
 
-  const [cadastros, rioPdvs, portalMaps, programacoesPorCliente] = await Promise.all([
+  const [cadastros, rioPdvs, playerLogins, programacoesPorCliente] = await Promise.all([
     prisma.producaoPdvCadastro.findMany({
       where: { rioPdvKey: { in: pdvKeys } },
       select: {
@@ -71,7 +83,17 @@ export async function getProducaoSuporte(options?: {
       where: { id: { in: pdvKeys.filter((k) => !k.startsWith("linha:")) } },
       select: { id: true, createdAt: true },
     }),
-    loadPortalPlayerIdMaps(pdvKeys),
+    portalClienteIds.length > 0 ?
+      prisma.clientePlayerLogin.findMany({
+        where: { portalClienteId: { in: portalClienteIds } },
+        select: {
+          portalClienteId: true,
+          email: true,
+          passwordPlain: true,
+          active: true,
+        },
+      })
+    : Promise.resolve([]),
     prisma.programacao.findMany({
       where: { clienteRef: { in: clienteKeys } },
       select: { id: true, nome: true, clienteRef: true },
@@ -88,7 +110,31 @@ export async function getProducaoSuporte(options?: {
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
   const rioCreatedByKey = new Map(rioPdvs.map((p) => [p.id, p.createdAt]));
-  const linkByKey = portalMaps.byRioPdvKey;
+  const loginByPortalId = new Map(playerLogins.map((l) => [l.portalClienteId, l]));
+
+  function resolveClienteLogin(
+    portalClienteId: number | null,
+    clienteNome: string,
+  ): Pick<SuportePdvRow, "clienteLoginEmail" | "clienteLoginPassword" | "clienteLoginPending"> {
+    if (portalClienteId == null) {
+      return { clienteLoginEmail: null, clienteLoginPassword: null, clienteLoginPending: false };
+    }
+    const login = loginByPortalId.get(portalClienteId);
+    if (login?.active && login.email.trim()) {
+      return {
+        clienteLoginEmail: login.email.trim(),
+        clienteLoginPassword:
+          login.passwordPlain.trim() ||
+          clientePlayerPasswordForCliente(clienteNome, portalClienteId),
+        clienteLoginPending: false,
+      };
+    }
+    return {
+      clienteLoginEmail: null,
+      clienteLoginPassword: null,
+      clienteLoginPending: true,
+    };
+  }
 
   const rows: SuportePdvRow[] = [];
 
@@ -113,6 +159,8 @@ export async function getProducaoSuporte(options?: {
         cliente.key,
         programacoesByClienteRef.get(cliente.key) ?? [],
       );
+      const portalClienteId = link?.portalClienteId ?? null;
+      const clienteLogin = resolveClienteLogin(portalClienteId, cliente.nome);
 
       rows.push({
         rioPdvKey: pdv.rioPdvKey,
@@ -123,7 +171,8 @@ export async function getProducaoSuporte(options?: {
         clienteTagCobranca: cliente.tagCobranca,
         clienteKey: cliente.key,
         portalPdvId: link?.portalPdvId ?? null,
-        portalClienteId: link?.portalClienteId ?? null,
+        portalClienteId,
+        ...clienteLogin,
         playerInstalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
         programacaoMusical: pdv.programacaoMusical,
         programacaoCriacaoNome,
