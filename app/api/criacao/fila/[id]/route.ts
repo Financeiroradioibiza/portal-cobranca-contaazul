@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { cancelJob, getJobDetail } from "@/lib/criacao/filaService";
+import { approveJob, cancelJob, getJobDetail } from "@/lib/criacao/filaService";
+import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -31,6 +33,19 @@ export async function PATCH(request: Request, ctx: Ctx) {
     if (body.action === "cancel") {
       const ok = await cancelJob(id);
       return NextResponse.json({ ok });
+    }
+    if (body.action === "approve") {
+      const result = await approveJob(id);
+      if (!result.ok) {
+        return NextResponse.json({ ok: false, reason: result.reason }, { status: 400 });
+      }
+      try {
+        await applyPendingUploadTags(200);
+        await applyPendingPastaUploads(200);
+      } catch (e) {
+        console.error("[criacao/fila/:id approve sync]", e);
+      }
+      return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: "unknown_action" }, { status: 400 });
   } catch (e) {

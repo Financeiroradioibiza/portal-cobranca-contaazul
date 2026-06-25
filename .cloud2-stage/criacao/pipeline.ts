@@ -131,21 +131,26 @@ async function finishItemErro(item: ClaimedItem, msg: string): Promise<void> {
 }
 
 async function maybeFinishJob(jobId: string): Promise<void> {
-  const r = await portalQuery<{ pending: number; erros: number }>(
+  const r = await portalQuery<{ pending: number; erros: number; tipo: string }>(
     `SELECT
        count(*) FILTER (WHERE status IN ('aguardando', 'processando'))::int AS pending,
-       count(*) FILTER (WHERE status = 'erro')::int AS erros
+       count(*) FILTER (WHERE status = 'erro')::int AS erros,
+       (SELECT tipo::text FROM processamento_job WHERE id = $1) AS tipo
        FROM processamento_item
       WHERE job_id = $1`,
     [jobId],
   );
   const row = r.rows[0];
   if ((row?.pending ?? 0) > 0) return;
-  const status = (row?.erros ?? 0) > 0 ? 'erro' : 'concluido';
+  const status =
+    (row?.erros ?? 0) > 0 ? 'erro'
+    : row?.tipo === 'upload_pasta' ? 'revisao'
+    : 'concluido';
   await portalQuery(
     `UPDATE processamento_job
         SET status = $2::"JobStatus", etapa_atual = 'armazenamento',
-            finished_at = now(), updated_at = now()
+            finished_at = CASE WHEN $2::text = 'concluido' THEN now() ELSE finished_at END,
+            updated_at = now()
       WHERE id = $1`,
     [jobId, status],
   );

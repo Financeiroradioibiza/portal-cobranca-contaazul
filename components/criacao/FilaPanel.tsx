@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FilaJobKanban } from "@/components/criacao/FilaJobKanban";
+import { FilaRevisaoWorkflow } from "@/components/criacao/FilaRevisaoWorkflow";
 import { ETAPA_LABEL } from "@/lib/criacao/filaKanban";
 
 type JobRow = {
@@ -62,6 +63,14 @@ function formatWhen(iso: string): string {
   });
 }
 
+type JobDetailMeta = {
+  titulo: string;
+  clienteNome: string;
+  uploadTagNome: string;
+  pastaNome: string;
+  programacaoNome: string;
+};
+
 export function FilaPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +79,7 @@ export function FilaPanel() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [items, setItems] = useState<Record<string, JobItem[]>>({});
+  const [jobMeta, setJobMeta] = useState<Record<string, JobDetailMeta>>({});
   const [itemView, setItemView] = useState<"kanban" | "lista">("kanban");
   const lastSyncPendingAt = useRef(0);
 
@@ -104,8 +114,27 @@ export function FilaPanel() {
     try {
       const res = await fetch(`/api/criacao/fila/${id}`);
       if (!res.ok) return;
-      const data = (await res.json()) as { job: { itens: JobItem[] } };
+      const data = (await res.json()) as {
+        job: {
+          itens: JobItem[];
+          titulo: string;
+          clienteNome: string;
+          uploadTagNome: string;
+          pastaNome: string;
+          programacaoNome: string;
+        };
+      };
       setItems((prev) => ({ ...prev, [id]: data.job.itens }));
+      setJobMeta((prev) => ({
+        ...prev,
+        [id]: {
+          titulo: data.job.titulo,
+          clienteNome: data.job.clienteNome,
+          uploadTagNome: data.job.uploadTagNome,
+          pastaNome: data.job.pastaNome,
+          programacaoNome: data.job.programacaoNome,
+        },
+      }));
     } catch {
       /* ignore */
     }
@@ -167,8 +196,8 @@ export function FilaPanel() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Fila de processamento</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Fila separada da fila do player. Cada job passa por dedupe, ponto de mix, normalização e
-            tags. Duplicatas aguardam sua decisão.
+            Cada pasta ou tag vira um job na fila. Após o processamento automático, revise duplicatas,
+            mix/trim e tags antes de aprovar e publicar.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -264,6 +293,22 @@ export function FilaPanel() {
 
                 {open ?
                   <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                    {j.status === "revisao" && items[j.id] && jobMeta[j.id] ?
+                      <FilaRevisaoWorkflow
+                        jobId={j.id}
+                        items={items[j.id]!}
+                        jobMeta={jobMeta[j.id]!}
+                        onResolveDuplicata={async (itemId, decision) => {
+                          await resolve(j.id, itemId, decision);
+                        }}
+                        onApproved={() => {
+                          lastSyncPendingAt.current = 0;
+                          void syncPending();
+                          void load();
+                          void loadItems(j.id);
+                        }}
+                      />
+                    : <>
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap gap-1.5">
                         {Object.entries(ETAPA_LABEL_UI).map(([key, label]) => (
@@ -348,6 +393,8 @@ export function FilaPanel() {
                           </li>
                         ))}
                       </ul>
+                    }
+                    </>
                     }
                   </div>
                 : null}

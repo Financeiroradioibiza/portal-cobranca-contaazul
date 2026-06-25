@@ -25,6 +25,7 @@ export async function applyPendingUploadTags(limit = 80): Promise<number> {
      WHERE pi.status = 'concluido'
        AND pi.musica_id IS NOT NULL
        AND j.upload_tag_nome <> ''
+       AND j.status = 'concluido'
        AND NOT EXISTS (
          SELECT 1
            FROM musica_tag_manual mtm

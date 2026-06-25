@@ -31,18 +31,23 @@ export async function listFaixasEdicao(opts: {
   search?: string;
   tagId?: string;
   pastaId?: string;
+  musicaIds?: string[];
   limit?: number;
 }): Promise<FaixaEdicaoRow[]> {
   const where: Prisma.MusicaBibliotecaWhereInput = { status: "pronta" };
   const q = opts.search?.trim();
-  if (q) {
-    where.OR = buildBibliotecaSearchOr(q);
-  }
-  if (opts.tagId) {
-    where.tagsManuais = { some: { tagId: opts.tagId } };
-  }
-  if (opts.pastaId) {
-    where.pastas = { some: { pastaId: opts.pastaId } };
+  if (opts.musicaIds?.length) {
+    where.id = { in: opts.musicaIds.slice(0, 300) };
+  } else {
+    if (q) {
+      where.OR = buildBibliotecaSearchOr(q);
+    }
+    if (opts.tagId) {
+      where.tagsManuais = { some: { tagId: opts.tagId } };
+    }
+    if (opts.pastaId) {
+      where.pastas = { some: { pastaId: opts.pastaId } };
+    }
   }
 
   const items = await prisma.musicaBiblioteca.findMany({

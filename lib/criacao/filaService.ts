@@ -15,6 +15,12 @@ export type CreateUploadJobInput = {
   arquivos: UploadArquivo[];
 };
 
+/** Um lote = um job na fila (uma pasta ou tag de biblioteca). */
+export type UploadLoteInput = CreateUploadJobInput & {
+  /** pasta = programação do cliente; biblioteca = só tag no acervo */
+  destinoTipo?: "pasta" | "biblioteca";
+};
+
 const ETAPAS = ["upload", "deduplicacao", "ponto_mix", "normalizacao", "tags", "armazenamento"] as const;
 export const ETAPA_LABEL: Record<string, string> = {
   upload: "Upload",
@@ -55,6 +61,24 @@ export async function createUploadJob(input: CreateUploadJobInput) {
   });
 
   return job;
+}
+
+/** Cria vários jobs de upload em um único disparo (multi-pasta / multi-cliente). */
+export async function createUploadJobsBatch(
+  lotes: UploadLoteInput[],
+  defaults: { criativoNome?: string; criativoUserId?: string },
+) {
+  const jobs: Awaited<ReturnType<typeof createUploadJob>>[] = [];
+  for (const lote of lotes) {
+    if (!lote.arquivos?.length) continue;
+    const job = await createUploadJob({
+      ...lote,
+      criativoNome: lote.criativoNome ?? defaults.criativoNome,
+      criativoUserId: lote.criativoUserId ?? defaults.criativoUserId,
+    });
+    jobs.push(job);
+  }
+  return jobs;
 }
 
 export type JobListRow = {
@@ -116,17 +140,37 @@ export async function listJobs(opts: { status?: string; limit?: number }): Promi
 export async function getJobDetail(id: string) {
   const job = await prisma.processamentoJob.findUnique({
     where: { id },
-    include: { itens: { orderBy: { createdAt: "asc" } } },
+    include: {
+      itens: { orderBy: { createdAt: "asc" } },
+    },
   });
   if (!job) return null;
+
+  let pastaNome = "";
+  let programacaoNome = "";
+  if (job.pastaId) {
+    const pasta = await prisma.pasta.findUnique({
+      where: { id: job.pastaId },
+      select: { nome: true, programacao: { select: { nome: true } } },
+    });
+    pastaNome = pasta?.nome ?? "";
+    programacaoNome = pasta?.programacao?.nome ?? "";
+  }
+
   return {
     id: job.id,
     tipo: job.tipo,
     status: job.status,
     etapaAtual: job.etapaAtual,
     titulo: job.titulo,
+    clienteRef: job.clienteRef,
     clienteNome: job.clienteNome,
     criativoNome: job.criativoNome,
+    uploadTagNome: job.uploadTagNome,
+    programacaoId: job.programacaoId,
+    pastaId: job.pastaId,
+    pastaNome,
+    programacaoNome,
     totalItens: job.totalItens,
     itensFeitos: job.itensFeitos,
     erroMsg: job.erroMsg,
@@ -154,6 +198,32 @@ export async function cancelJob(id: string): Promise<boolean> {
     data: { status: "cancelado", finishedAt: new Date() },
   });
   return true;
+}
+
+/** Aprova lote após revisão humana — libera tag na biblioteca e faixas na pasta. */
+export async function approveJob(id: string): Promise<{ ok: boolean; reason?: string }> {
+  const job = await prisma.processamentoJob.findUnique({
+    where: { id },
+    select: { status: true, tipo: true },
+  });
+  if (!job) return { ok: false, reason: "not_found" };
+  if (job.status !== "revisao") return { ok: false, reason: "not_in_revisao" };
+
+  const dupes = await prisma.processamentoItem.count({
+    where: { jobId: id, status: "duplicata" },
+  });
+  if (dupes > 0) return { ok: false, reason: "duplicatas_pendentes" };
+
+  const pendentes = await prisma.processamentoItem.count({
+    where: { jobId: id, status: { in: ["aguardando", "processando"] } },
+  });
+  if (pendentes > 0) return { ok: false, reason: "processamento_pendente" };
+
+  await prisma.processamentoJob.update({
+    where: { id },
+    data: { status: "concluido", finishedAt: new Date(), etapaAtual: "armazenamento" },
+  });
+  return { ok: true };
 }
 
 /** Resolução manual de duplicata: "nova" mantém como faixa nova; "existente" descarta o item. */

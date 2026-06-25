@@ -14,6 +14,7 @@ export async function applyPendingPastaUploads(limit = 80): Promise<number> {
      WHERE pi.status = 'concluido'
        AND pi.musica_id IS NOT NULL
        AND j.pasta_id IS NOT NULL
+       AND j.status = 'concluido'
        AND NOT EXISTS (
          SELECT 1 FROM pasta_musica pm
           WHERE pm.pasta_id = j.pasta_id
