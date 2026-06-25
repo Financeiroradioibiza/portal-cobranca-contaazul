@@ -107,7 +107,18 @@ export function AtualizacoesCadastroPanel() {
         body: JSON.stringify({ id: selectedId, action: "conciliar" }),
       });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) throw new Error(data?.error ?? "conciliar_failed");
+      if (!res.ok) {
+        const err = data?.error;
+        const text =
+          err === "pdv_nao_vinculado" ?
+            "Não foi possível localizar o PDV de produção."
+          : err === "payload_vazio" ?
+            "O envio do player não contém contatos da loja."
+          : err === "server_error" ?
+            "Erro no servidor ao conciliar. Tente de novo em instantes."
+          : err ?? "conciliar_failed";
+        throw new Error(text);
+      }
       setMsg("Cadastro vinculado e contatos da loja atualizados.");
       await loadList();
     } catch (e) {

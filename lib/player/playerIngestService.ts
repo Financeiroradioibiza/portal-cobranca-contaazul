@@ -427,12 +427,6 @@ export async function conciliarPlayerCadastro(
   const { updatePdvCadastro } = await import("@/lib/cadastros/producaoPdvCadastroService");
   await updatePdvCadastro(rioPdvKey, lojaPatch);
 
-  const { cloud2Enabled } = await import("@/lib/criacao/cloud2Client");
-  if (cloud2Enabled()) {
-    const { syncPlayerGatewayRegistry } = await import("@/lib/player/playerGatewaySync");
-    await syncPlayerGatewayRegistry().catch(() => null);
-  }
-
   const updated = await prisma.playerIngest.update({
     where: { id: ingestId },
     data: {
@@ -444,7 +438,26 @@ export async function conciliarPlayerCadastro(
     },
   });
 
+  // Sync pontual no gateway — não bloqueia a conciliação (evita timeout no Netlify).
+  void syncPlayerGatewayAfterConciliar(ingest).catch((e) => {
+    console.error("[conciliarPlayerCadastro] gateway sync", e);
+  });
+
   return rowToView(updated);
+}
+
+async function syncPlayerGatewayAfterConciliar(ingest: {
+  portalPdvId: number | null;
+  pdvGatewayId: number | null;
+}): Promise<void> {
+  const { cloud2Enabled } = await import("@/lib/criacao/cloud2Client");
+  if (!cloud2Enabled()) return;
+
+  const pdvId = ingest.portalPdvId ?? ingest.pdvGatewayId;
+  if (pdvId == null || pdvId <= 0) return;
+
+  const { syncPlayerGatewayRegistryForPdvIds } = await import("@/lib/player/playerGatewaySync");
+  await syncPlayerGatewayRegistryForPdvIds([pdvId]);
 }
 
 /** Descarta atualização quando o cadastro atual já está correto. */
