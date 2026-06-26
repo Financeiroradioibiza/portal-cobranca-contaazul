@@ -417,20 +417,7 @@ function LoteCard({
       </div>
 
       {lote.destinoTipo === "biblioteca" ?
-        <div className="mb-3 space-y-0">
-          <CriativoTagSelect
-            value={lote.tagCriativoUserId}
-            onChange={(v) => onUpdate({ tagCriativoUserId: v })}
-            onSelected={(c) => onUpdate({ tagCriativoIniciais: c?.tagIniciais ?? "" })}
-            help="Quem define iniciais e cor da tag neste lote."
-          />
-          <TagCriativaField
-            value={lote.uploadTag}
-            tagCriativoIniciais={lote.tagCriativoIniciais}
-            onChange={(v) => onUpdate({ uploadTag: v })}
-            hint="As faixas entram só na biblioteca com esta tag."
-          />
-        </div>
+        null
       : <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="text-sm sm:col-span-2">
             <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente</span>
@@ -516,22 +503,31 @@ function LoteCard({
               </label>
             </>
           : null}
-          <div className="sm:col-span-2 space-y-0">
-            <CriativoTagSelect
-              value={lote.tagCriativoUserId}
-              onChange={(v) => onUpdate({ tagCriativoUserId: v })}
-              onSelected={(c) => onUpdate({ tagCriativoIniciais: c?.tagIniciais ?? "" })}
-              help="Quem define iniciais e cor da tag neste lote (pode ser diferente em cada pasta)."
-            />
-            <TagCriativaField
-              value={lote.uploadTag}
-              tagCriativoIniciais={lote.tagCriativoIniciais}
-              onChange={(v) => onUpdate({ uploadTag: v })}
-              hint="Obrigatória — após processar, as faixas vão para a pasta do cliente e para a biblioteca com esta tag."
-            />
-          </div>
         </div>
       }
+
+      <div className="mb-3 space-y-0">
+        <CriativoTagSelect
+          value={lote.tagCriativoUserId}
+          onChange={(v) => onUpdate({ tagCriativoUserId: v })}
+          onSelected={(c) => onUpdate({ tagCriativoIniciais: c?.tagIniciais ?? "" })}
+          help={
+            lote.destinoTipo === "biblioteca" ?
+              "Quem define iniciais e cor da tag neste lote."
+            : "Quem define iniciais e cor da tag neste lote (pode ser diferente em cada pasta)."
+          }
+        />
+        <TagCriativaField
+          value={lote.uploadTag}
+          tagCriativoIniciais={lote.tagCriativoIniciais}
+          onChange={(v) => onUpdate({ uploadTag: v })}
+          hint={
+            lote.destinoTipo === "biblioteca" ?
+              "As faixas entram só na biblioteca com esta tag."
+            : "Obrigatória — após processar, as faixas vão para a pasta do cliente e para a biblioteca com esta tag."
+          }
+        />
+      </div>
 
       <div
         onDragOver={(e) => {

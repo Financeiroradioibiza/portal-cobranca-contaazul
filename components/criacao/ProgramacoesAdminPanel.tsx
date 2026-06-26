@@ -16,7 +16,7 @@ import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 type Cliente = CriacaoClienteRow & { pdvCount: number; tagCobranca?: RioTagCobranca };
 
-type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
+type ArvorePasta = { id: string; nome: string; velocidade: string; selecionavel: boolean; musicasCount: number };
 type ArvoreVinheta = {
   id: string;
   nome: string;
@@ -446,9 +446,16 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                         <ul className="ms-6 mt-1 space-y-0.5 border-s border-slate-200 ps-3 dark:border-slate-700">
                           {prog.pastas.map((pasta) => (
                             <li key={pasta.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                              <span className="text-slate-400">📁</span>
+                              {pasta.selecionavel ?
+                                <span className="shrink-0 text-base" title="Pasta selecionável no player">
+                                  ✋
+                                </span>
+                              : <span className="shrink-0 text-slate-400">📁</span>}
                               <span className="min-w-0 flex-1 truncate font-medium text-slate-800 dark:text-slate-200">
                                 {pasta.nome}
+                                {pasta.selecionavel ?
+                                  <span className="ml-1 font-semibold text-orange-600 dark:text-orange-400">(sel)</span>
+                                : null}
                               </span>
                               <span className="shrink-0 text-[10px] text-slate-400">
                                 {VELOCIDADE_LABEL[pasta.velocidade] ?? pasta.velocidade}

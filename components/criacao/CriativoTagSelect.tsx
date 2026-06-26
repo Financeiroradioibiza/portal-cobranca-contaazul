@@ -28,7 +28,9 @@ export function CriativoTagSelect({
 }: Props) {
   const [criativos, setCriativos] = useState<Criativo[]>([]);
   const [loading, setLoading] = useState(true);
-  const didInit = useRef(false);
+  const [defaultEmail, setDefaultEmail] = useState("");
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   useEffect(() => {
     let cancelled = false;
@@ -36,12 +38,8 @@ export function CriativoTagSelect({
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (cancelled || !d?.criativos) return;
-        const list = d.criativos as Criativo[];
-        setCriativos(list);
-        if (!didInit.current && d.currentUserEmail) {
-          didInit.current = true;
-          onChange(String(d.currentUserEmail));
-        }
+        setCriativos(d.criativos as Criativo[]);
+        setDefaultEmail(String(d.currentUserEmail ?? "").trim());
       })
       .catch(() => {})
       .finally(() => {
@@ -50,7 +48,12 @@ export function CriativoTagSelect({
     return () => {
       cancelled = true;
     };
-  }, [onChange]);
+  }, []);
+
+  useEffect(() => {
+    if (value.trim() || !defaultEmail) return;
+    onChangeRef.current(defaultEmail);
+  }, [value, defaultEmail]);
 
   const selected = useMemo(
     () => criativos.find((c) => c.email === value) ?? null,
