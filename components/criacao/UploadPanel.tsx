@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
+import {
+  FilaBrowserGuidance,
+  FilaBrowserGuidanceOverview,
+} from "@/components/criacao/FilaBrowserGuidance";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
@@ -243,9 +247,13 @@ export function UploadPanel() {
         <h1 className="text-2xl font-bold tracking-tight">Upload de músicas 192k</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
           Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um
-          clique. Cada lote vira uma linha separada na fila. Os MP3 vão direto ao servidor de áudio; o processamento
-          roda em segundo plano.
+          clique. Cada lote vira uma linha separada na fila.
         </p>
+      </div>
+
+      <div className="mb-5 space-y-3">
+        <FilaBrowserGuidanceOverview />
+        <FilaBrowserGuidance phase={submitting ? "upload-enviando" : "upload-preparando"} />
       </div>
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">

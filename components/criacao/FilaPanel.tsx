@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FilaJobKanban } from "@/components/criacao/FilaJobKanban";
 import { FilaRevisaoWorkflow } from "@/components/criacao/FilaRevisaoWorkflow";
+import {
+  FilaBrowserGuidance,
+  FilaBrowserGuidanceOverview,
+  filaPhaseFromJobStatus,
+} from "@/components/criacao/FilaBrowserGuidance";
 import { ETAPA_LABEL } from "@/lib/criacao/filaKanban";
 
 type JobRow = {
@@ -228,6 +233,10 @@ export function FilaPanel() {
         </div>
       </div>
 
+      <div className="mb-5">
+        <FilaBrowserGuidanceOverview compact />
+      </div>
+
       {loading ?
         <div className="py-10 text-sm text-slate-500">Carregando…</div>
       : error ?
@@ -293,6 +302,9 @@ export function FilaPanel() {
 
                 {open ?
                   <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                    <div className="mb-3">
+                      <FilaBrowserGuidance phase={filaPhaseFromJobStatus(j.status)} />
+                    </div>
                     {j.status === "revisao" && items[j.id] && jobMeta[j.id] ?
                       <FilaRevisaoWorkflow
                         jobId={j.id}
