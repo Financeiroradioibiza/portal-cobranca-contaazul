@@ -1,12 +1,14 @@
 import { cloud2Enabled, cloud2FetchWithTimeout, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 
 export type PrimeiroPingRow = {
+  rowId: string;
   pdvId: number;
   pdvNome: string;
   codigoDisplay: string | null;
   clienteId: number;
   clienteNome: string;
   firstPingAt: string;
+  ativo?: boolean;
 };
 
 export async function listPrimeiroPingRows(): Promise<{

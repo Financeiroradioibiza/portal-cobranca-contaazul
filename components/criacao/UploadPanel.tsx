@@ -54,7 +54,7 @@ function loteLabel(l: UploadLote): string {
   if (!l.clienteSel) return "Pasta — escolha o cliente";
   const prog = l.arvore.find((p) => p.id === l.progSel);
   const pasta = prog?.pastas.find((p) => p.id === l.pastaSel);
-  if (pasta) return `${l.clienteSel.nome} · ${prog?.nome ?? ""} / ${pasta.nome}`;
+  if (pasta) return `${l.clienteSel!.nome} · ${prog?.nome ?? ""} / ${pasta.nome}${l.uploadTag.trim() ? ` · ${l.uploadTag.trim()}` : ""}`;
   if (prog) return `${l.clienteSel.nome} · ${prog.nome} — escolha a pasta`;
   return `${l.clienteSel.nome} — escolha programação e pasta`;
 }
@@ -127,6 +127,9 @@ export function UploadPanel() {
       }
       if (!l.clienteSel) return "Escolha o cliente em cada lote com arquivos.";
       if (!l.progSel || !l.pastaSel) return `Escolha programação e pasta em «${loteLabel(l)}».`;
+      if (!l.uploadTag.trim()) {
+        return `Defina a tag criativa em «${loteLabel(l)}» — as faixas vão para a biblioteca e ficam difíceis de achar sem tag.`;
+      }
     }
     const withFiles = lotes.filter((l) => l.files.length > 0);
     if (withFiles.length === 0) return "Nenhum lote com arquivos.";
@@ -385,7 +388,7 @@ function LoteCard({
       <div className="mb-3 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => onUpdate({ destinoTipo: "pasta", uploadTag: "" })}
+          onClick={() => onUpdate({ destinoTipo: "pasta" })}
           className={
             "rounded-lg px-3 py-1.5 text-xs font-semibold " +
             (lote.destinoTipo === "pasta" ?
@@ -407,20 +410,17 @@ function LoteCard({
             : "border border-slate-200 text-slate-500 dark:border-slate-700")
           }
         >
-          Tag na biblioteca
+          Tag na biblioteca (sem pasta)
         </button>
       </div>
 
       {lote.destinoTipo === "biblioteca" ?
-        <label className="mb-3 block text-sm">
-          <span className="mb-1 block text-xs font-semibold text-slate-500">Tag criativa (ex.: HIPHOP)</span>
-          <input
-            value={lote.uploadTag}
-            onChange={(e) => onUpdate({ uploadTag: e.target.value })}
-            placeholder={formatTagChipPreview(tagCriativoIniciais, "HIPHOP")}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
+        <TagCriativaField
+          value={lote.uploadTag}
+          tagCriativoIniciais={tagCriativoIniciais}
+          onChange={(v) => onUpdate({ uploadTag: v })}
+          hint="As faixas entram só na biblioteca com esta tag."
+        />
       : <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="text-sm sm:col-span-2">
             <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente</span>
@@ -490,6 +490,14 @@ function LoteCard({
               </label>
             </>
           : null}
+          <div className="sm:col-span-2">
+            <TagCriativaField
+              value={lote.uploadTag}
+              tagCriativoIniciais={tagCriativoIniciais}
+              onChange={(v) => onUpdate({ uploadTag: v })}
+              hint="Obrigatória — após processar, as faixas vão para a pasta do cliente e para a biblioteca com esta tag."
+            />
+          </div>
         </div>
       }
 
@@ -539,5 +547,32 @@ function LoteCard({
         </ul>
       : null}
     </div>
+  );
+}
+
+function TagCriativaField({
+  value,
+  tagCriativoIniciais,
+  onChange,
+  hint,
+}: {
+  value: string;
+  tagCriativoIniciais: string;
+  onChange: (v: string) => void;
+  hint?: string;
+}) {
+  return (
+    <label className="mb-3 block text-sm">
+      <span className="mb-1 block text-xs font-semibold text-slate-500">Tag criativa (ex.: VOGUE, POP 90s)</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={formatTagChipPreview(tagCriativoIniciais, value.trim() || "VOGUE")}
+        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+      />
+      {hint ?
+        <p className="mt-1 text-[10px] text-slate-400">{hint}</p>
+      : null}
+    </label>
   );
 }

@@ -53,12 +53,14 @@ export function PrimeiroPingPanel() {
     if (!q) return rows;
     return rows.filter((r) => {
       const hay = [
+        r.rowId,
         r.pdvNome,
         r.codigoDisplay ?? "",
         String(r.pdvId),
         r.clienteNome,
         String(r.clienteId),
         fmtPrimeiroPing(r.firstPingAt),
+        r.ativo ? "instalação atual" : "instalação anterior",
       ]
         .join(" ")
         .toLowerCase();
@@ -69,8 +71,9 @@ export function PrimeiroPingPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        PDVs que já enviaram o primeiro ping ao Player 5. A data e hora correspondem ao registro
-        inicial em <code className="text-xs">ping_log</code> no gateway.
+        Histórico de primeiros pings do Player 5 por instalação. Ao regerar a chave do PDV, o ping
+        anterior permanece na lista — assim dá para ver quando aquele ponto foi instalado pela
+        primeira vez, não só a reinstalação mais recente.
       </p>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -78,7 +81,7 @@ export function PrimeiroPingPanel() {
           type="search"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar PDV, cliente ou data…"
+          placeholder="Buscar PDV, cliente, ID ou data…"
           className="portal-input min-w-[14rem] flex-1"
         />
         <button type="button" className="portal-btn portal-btn--secondary" disabled={loading} onClick={() => void load()}>
@@ -119,8 +122,15 @@ export function PrimeiroPingPanel() {
                   : "Nenhum resultado para a busca."}
                 </td>
               </tr>
-            : filtrados.map((row) => (
-                <tr key={row.pdvId}>
+            : filtrados.map((row, index) => (
+                <tr
+                  key={row.rowId || `${row.pdvId}-${row.firstPingAt}`}
+                  className={
+                    index % 2 === 1 ?
+                      "bg-slate-50 dark:bg-slate-800/45"
+                    : "bg-white dark:bg-slate-900"
+                  }
+                >
                   <td className="px-4 py-2 align-top">
                     <div className="font-medium text-slate-800 dark:text-slate-100">{pdvLabel(row)}</div>
                     <div className="text-xs text-slate-500">ID Player {row.pdvId}</div>
@@ -130,7 +140,12 @@ export function PrimeiroPingPanel() {
                     <div className="text-xs text-slate-500">ID {row.clienteId}</div>
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 align-top text-slate-700 dark:text-slate-200">
-                    {fmtPrimeiroPing(row.firstPingAt)}
+                    <div>{fmtPrimeiroPing(row.firstPingAt)}</div>
+                    {row.ativo ?
+                      <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                        Instalação atual
+                      </div>
+                    : null}
                   </td>
                 </tr>
               ))

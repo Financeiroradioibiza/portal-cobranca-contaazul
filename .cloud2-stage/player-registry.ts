@@ -45,6 +45,68 @@ type SyncBody = {
   }>;
 };
 
+type SqlPool = {
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+};
+
+async function ensurePingLogTable(pool: SqlPool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ping_log (
+      id BIGSERIAL PRIMARY KEY,
+      pdv_id INT NOT NULL,
+      ma TEXT,
+      ip TEXT,
+      versao_player TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => null);
+}
+
+/** Histórico imutável de primeiros pings — preservado ao regerar chave. */
+async function ensurePrimeiroPingHistoryTable(pool: SqlPool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdv_primeiro_ping (
+      id BIGSERIAL PRIMARY KEY,
+      pdv_id INT NOT NULL,
+      pdv_nome TEXT NOT NULL DEFAULT '',
+      codigo_display TEXT,
+      cliente_id INT NOT NULL,
+      cliente_nome TEXT NOT NULL DEFAULT '',
+      first_ping_at TIMESTAMPTZ NOT NULL,
+      archived_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `).catch(() => null);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_pdv_primeiro_ping_first_ping
+      ON pdv_primeiro_ping (first_ping_at DESC)
+  `).catch(() => null);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_pdv_primeiro_ping_pdv
+      ON pdv_primeiro_ping (pdv_id)
+  `).catch(() => null);
+}
+
+async function archivePrimeiroPingBeforeReset(pool: SqlPool, pdvId: number): Promise<void> {
+  await ensurePrimeiroPingHistoryTable(pool);
+  await pool.query(
+    `INSERT INTO pdv_primeiro_ping (pdv_id, pdv_nome, codigo_display, cliente_id, cliente_nome, first_ping_at, archived_at)
+     SELECT
+       p.id,
+       p.nome,
+       p.codigo_display,
+       c.id,
+       c.nome,
+       MIN(pl.created_at),
+       now()
+     FROM ping_log pl
+     INNER JOIN pdvs p ON p.id = pl.pdv_id
+     INNER JOIN clientes c ON c.id = p.cliente_id
+     WHERE pl.pdv_id = $1
+     GROUP BY p.id, p.nome, p.codigo_display, c.id, c.nome`,
+    [pdvId],
+  ).catch(() => null);
+}
+
 async function resolveGatewayProgramaId(
   conn: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<{ id: number }> }> },
   clienteId: number,
@@ -383,16 +445,7 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
 
     const pool = getPool();
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ping_log (
-        id BIGSERIAL PRIMARY KEY,
-        pdv_id INT NOT NULL,
-        ma TEXT,
-        ip TEXT,
-        versao_player TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `).catch(() => null);
+    await ensurePingLogTable(pool);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS atualizadas (
@@ -500,6 +553,8 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
     }
 
     const pool = getPool();
+    await ensurePingLogTable(pool);
+    await archivePrimeiroPingBeforeReset(pool, pdvId);
     await pool.query(`DELETE FROM ping_log WHERE pdv_id = $1`, [pdvId]).catch(() => null);
     await pool.query(`DELETE FROM atualizadas WHERE pdv_id = $1`, [pdvId]).catch(() => null);
     await pool.query(`UPDATE pdvs SET instalado = 'N' WHERE id = $1`, [pdvId]).catch(() => null);
@@ -590,55 +645,69 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
 
     const pool = getPool();
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ping_log (
-        id BIGSERIAL PRIMARY KEY,
-        pdv_id INT NOT NULL,
-        ma TEXT,
-        ip TEXT,
-        versao_player TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `).catch(() => null);
+    await ensurePingLogTable(pool);
+    await ensurePrimeiroPingHistoryTable(pool);
 
     const rows = await pool.query<{
+      row_id: string;
       pdv_id: number;
       pdv_nome: string;
       codigo_display: string | null;
       cliente_id: number;
       cliente_nome: string;
       first_ping_at: Date;
+      ativo: boolean;
     }>(
-      `SELECT
-         p.id AS pdv_id,
-         p.nome AS pdv_nome,
-         p.codigo_display,
-         c.id AS cliente_id,
-         c.nome AS cliente_nome,
-         MIN(pl.created_at) AS first_ping_at
-       FROM ping_log pl
-       INNER JOIN pdvs p ON p.id = pl.pdv_id
-       INNER JOIN clientes c ON c.id = p.cliente_id
-       GROUP BY p.id, p.nome, p.codigo_display, c.id, c.nome
+      `SELECT row_id, pdv_id, pdv_nome, codigo_display, cliente_id, cliente_nome, first_ping_at, ativo
+       FROM (
+         SELECT
+           ('hist-' || h.id::text) AS row_id,
+           h.pdv_id,
+           h.pdv_nome,
+           h.codigo_display,
+           h.cliente_id,
+           h.cliente_nome,
+           h.first_ping_at,
+           false AS ativo
+         FROM pdv_primeiro_ping h
+         UNION ALL
+         SELECT
+           ('live-' || p.id::text) AS row_id,
+           p.id AS pdv_id,
+           p.nome AS pdv_nome,
+           p.codigo_display,
+           c.id AS cliente_id,
+           c.nome AS cliente_nome,
+           MIN(pl.created_at) AS first_ping_at,
+           true AS ativo
+         FROM ping_log pl
+         INNER JOIN pdvs p ON p.id = pl.pdv_id
+         INNER JOIN clientes c ON c.id = p.cliente_id
+         GROUP BY p.id, p.nome, p.codigo_display, c.id, c.nome
+       ) combined
        ORDER BY first_ping_at DESC`,
     ).catch(() => ({ rows: [] as Array<{
+      row_id: string;
       pdv_id: number;
       pdv_nome: string;
       codigo_display: string | null;
       cliente_id: number;
       cliente_nome: string;
       first_ping_at: Date;
+      ativo: boolean;
     }> }));
 
     return reply.send({
       ok: true,
       rows: rows.rows.map((r) => ({
+        rowId: r.row_id,
         pdvId: r.pdv_id,
         pdvNome: r.pdv_nome,
         codigoDisplay: r.codigo_display,
         clienteId: r.cliente_id,
         clienteNome: r.cliente_nome,
         firstPingAt: r.first_ping_at.toISOString(),
+        ativo: r.ativo,
       })),
     });
   });
