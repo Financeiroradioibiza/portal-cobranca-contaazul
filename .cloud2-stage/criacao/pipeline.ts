@@ -303,7 +303,7 @@ export async function processClaimedItem(item: ClaimedItem): Promise<void> {
   try {
     const musicaOrDup = await stepDedupe(item, inputPath);
     if (musicaOrDup === 'duplicata') {
-      await fsp.unlink(inputPath).catch(() => {});
+      // Mantém o upload bruto para preview na revisão (GET /criacao/upload-audio).
       return;
     }
     musicaId = musicaOrDup;
