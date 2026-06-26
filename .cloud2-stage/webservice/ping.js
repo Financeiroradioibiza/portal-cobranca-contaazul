@@ -41,7 +41,7 @@ export async function registerPingRoutes(app, prefix) {
     }
 
     /** Cancelado / bloqueio financeiro / inativo no cadastro — informa status I sem deslogar. */
-    if (row.pdv_status === 'I') {
+    if (row.pdv_status === 'I' || row.cliente_status === 'I') {
       return reply.send({
         pdv: buildPingPdvPayload({ ...row, pdv_status: 'I' }),
         cliente: buildPingClientePayload(row),

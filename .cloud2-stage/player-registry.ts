@@ -356,6 +356,28 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
     }
   });
 
+  /** Atualiza só pdvs.status (tag Rio cancelado / bloqueio financeiro). */
+  app.post<{ Body: { pdvs?: Array<{ id?: number; status?: string }> } }>(
+    `${PLAYER_PREFIX}/patch-pdv-status`,
+    async (req, reply) => {
+      if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+      const raw = Array.isArray(req.body?.pdvs) ? req.body.pdvs : [];
+      const pool = getPool();
+      let updated = 0;
+      for (const row of raw) {
+        const id = Number(row?.id);
+        const status = row?.status === "I" ? "I" : "A";
+        if (!Number.isFinite(id) || id <= 0) continue;
+        const r = await pool.query(`UPDATE pdvs SET status = $1, updated_at = now() WHERE id = $2`, [
+          status,
+          id,
+        ]);
+        updated += r.rowCount ?? 0;
+      }
+      return reply.send({ ok: true, updated });
+    },
+  );
+
   /** Após publicar programação — Player 5 lê atualizacao_pendente no ping e refaz /playlist/. */
   app.post<{ Body: { clienteId?: number; pdvIds?: number[] } }>(`${PLAYER_PREFIX}/signal-atualizacao`, async (req, reply) => {
     if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });

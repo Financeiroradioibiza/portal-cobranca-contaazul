@@ -6,6 +6,8 @@ import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
 import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vinhetaUploadClient";
 import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
+import { CronogramaAlvoBadges, DOW, diasLabel } from "@/components/criacao/CronogramaAlvoBadges";
+import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -50,93 +52,6 @@ function formatDuration(ms: number | null): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-const DOW = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-
-type Agendamento = {
-  id: string;
-  alvoTipo: string;
-  alvoId: string;
-  alvoNome: string;
-  diasSemana: string;
-  horaInicio: string;
-  horaFim: string;
-  dataInicio: string | null;
-  dataFim: string | null;
-  frequenciaMin: number | null;
-  frequenciaMusicas: number | null;
-  prioridade: number;
-  ativo: boolean;
-};
-
-function diasLabel(csv: string): string {
-  if (!csv.trim()) return "todos os dias";
-  const ds = csv.split(",").map((n) => DOW[Number(n)] ?? "").filter(Boolean);
-  return ds.join(", ");
-}
-
-function resumoAgendamento(a: Agendamento): string {
-  const parts = [diasLabel(a.diasSemana), `${a.horaInicio}–${a.horaFim}`];
-  if (a.dataInicio || a.dataFim) parts.push(`${a.dataInicio ?? "…"} → ${a.dataFim ?? "…"}`);
-  if (a.frequenciaMin) parts.push(`a cada ${a.frequenciaMin} min`);
-  if (a.frequenciaMusicas) {
-    parts.push(`a cada ${a.frequenciaMusicas} música${a.frequenciaMusicas === 1 ? "" : "s"}`);
-  }
-  return parts.join(" · ");
-}
-
-function agendamentosDoAlvo(ags: Agendamento[], alvoTipo: "pasta" | "vinheta", alvoId: string): Agendamento[] {
-  return ags.filter((a) => a.alvoTipo === alvoTipo && a.alvoId === alvoId);
-}
-
-/** Badge ao lado da pasta/vinheta — «Tocar sempre» ou resumo do cronograma. */
-function CronogramaAlvoBadges({
-  ags,
-  alvoTipo,
-  alvoId,
-}: {
-  ags: Agendamento[];
-  alvoTipo: "pasta" | "vinheta";
-  alvoId: string;
-}) {
-  const rules = agendamentosDoAlvo(ags, alvoTipo, alvoId);
-  const active = rules.filter((a) => a.ativo);
-  const paused = rules.filter((a) => !a.ativo);
-
-  if (rules.length === 0) {
-    return (
-      <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-500/35 dark:bg-emerald-500/15 dark:text-emerald-200">
-        TOCAR SEMPRE
-      </span>
-    );
-  }
-
-  if (active.length === 0) {
-    return (
-      <span className="rounded-md bg-slate-400/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-slate-400/30 dark:text-slate-300">
-        Cronograma pausado
-      </span>
-    );
-  }
-
-  const chipClass =
-    alvoTipo === "vinheta" ?
-      "rounded-md bg-fuchsia-500/15 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-900 ring-1 ring-fuchsia-500/30 dark:text-fuchsia-200"
-    : "rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-900 ring-1 ring-sky-500/30 dark:text-sky-200";
-
-  return (
-    <span className="flex flex-wrap items-center gap-1">
-      {active.map((a) => (
-        <span key={a.id} className={chipClass} title={resumoAgendamento(a)}>
-          {resumoAgendamento(a)}
-        </span>
-      ))}
-      {paused.length > 0 ?
-        <span className="text-[10px] text-slate-400">+{paused.length} pausada{paused.length === 1 ? "" : "s"}</span>
-      : null}
-    </span>
-  );
-}
-
 export function ProgramacoesPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -160,7 +75,7 @@ function ProgramacaoEditor({
   onBack: () => void;
 }) {
   const [prog, setProg] = useState<ProgramacaoDetail | null>(null);
-  const [ags, setAgs] = useState<Agendamento[]>([]);
+  const [ags, setAgs] = useState<AgendamentoRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [novaPasta, setNovaPasta] = useState("");
@@ -186,7 +101,7 @@ function ProgramacaoEditor({
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { programacao: ProgramacaoDetail };
       setProg(data.programacao);
-      if (ra.ok) setAgs(((await ra.json()) as { agendamentos: Agendamento[] }).agendamentos);
+      if (ra.ok) setAgs(((await ra.json()) as { agendamentos: AgendamentoRow[] }).agendamentos);
       else setAgs([]);
       setSelectedByPasta((prev) => {
         const next: Record<string, Set<string>> = {};
@@ -634,7 +549,7 @@ function VinhetasSection({
   onEdit,
 }: {
   programacaoId: string;
-  ags: Agendamento[];
+  ags: AgendamentoRow[];
   onEdit?: () => void | Promise<void>;
 }) {
   const [vinhetas, setVinhetas] = useState<Vinheta[]>([]);
@@ -797,8 +712,8 @@ function CronogramaSection({
 }: {
   programacaoId: string;
   pastas: { id: string; nome: string }[];
-  ags: Agendamento[];
-  onAgendamentosChange: (next: Agendamento[]) => void;
+  ags: AgendamentoRow[];
+  onAgendamentosChange: (next: AgendamentoRow[]) => void;
   onEdit?: () => void | Promise<void>;
   onRefreshTargets?: () => void | Promise<void>;
 }) {
@@ -824,7 +739,7 @@ function CronogramaSection({
         fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`),
       ]);
       if (ra.ok) {
-        onAgendamentosChange(((await ra.json()) as { agendamentos: Agendamento[] }).agendamentos);
+        onAgendamentosChange(((await ra.json()) as { agendamentos: AgendamentoRow[] }).agendamentos);
       }
       if (rv.ok) setVinhetas(((await rv.json()) as { vinhetas: { id: string; nome: string }[] }).vinhetas);
     } catch {
@@ -887,7 +802,7 @@ function CronogramaSection({
     await load();
   }
 
-  async function toggleAtivo(a: Agendamento) {
+  async function toggleAtivo(a: AgendamentoRow) {
     await onEdit?.();
     await fetch(`/api/criacao/agendamentos/${a.id}`, {
       method: "PATCH",

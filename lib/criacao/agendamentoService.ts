@@ -48,34 +48,89 @@ function normalizeFreqInt(v: unknown): number | null {
   return Math.max(1, Math.round(Number(v)));
 }
 
-export async function listAgendamentos(programacaoId: string): Promise<AgendamentoRow[]> {
+function mapAgendamentoRows(
+  ags: {
+    id: string;
+    programacaoId: string;
+    alvoTipo: string;
+    alvoId: string;
+    diasSemana: string;
+    horaInicio: string;
+    horaFim: string;
+    dataInicio: Date | null;
+    dataFim: Date | null;
+    frequenciaMin: number | null;
+    frequenciaMusicas: number | null;
+    prioridade: number;
+    ativo: boolean;
+  }[],
+  nomeByProg: Map<string, Map<string, string>>,
+): Map<string, AgendamentoRow[]> {
+  const result = new Map<string, AgendamentoRow[]>();
+  for (const progId of nomeByProg.keys()) {
+    result.set(progId, []);
+  }
+  for (const a of ags) {
+    const nomes = nomeByProg.get(a.programacaoId);
+    if (!nomes) continue;
+    result.get(a.programacaoId)!.push({
+      id: a.id,
+      alvoTipo: a.alvoTipo,
+      alvoId: a.alvoId,
+      alvoNome: nomes.get(a.alvoTipo + ":" + a.alvoId) ?? "(removido)",
+      diasSemana: a.diasSemana,
+      horaInicio: a.horaInicio,
+      horaFim: a.horaFim,
+      dataInicio: a.dataInicio ? a.dataInicio.toISOString().slice(0, 10) : null,
+      dataFim: a.dataFim ? a.dataFim.toISOString().slice(0, 10) : null,
+      frequenciaMin: a.frequenciaMin,
+      frequenciaMusicas: a.frequenciaMusicas,
+      prioridade: a.prioridade,
+      ativo: a.ativo,
+    });
+  }
+  return result;
+}
+
+export async function listAgendamentosByProgramacaoIds(
+  programacaoIds: string[],
+): Promise<Map<string, AgendamentoRow[]>> {
+  const ids = [...new Set(programacaoIds.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+
   const [ags, pastas, vinhetas] = await Promise.all([
     prisma.agendamento.findMany({
-      where: { programacaoId },
-      orderBy: [{ alvoTipo: "asc" }, { horaInicio: "asc" }],
+      where: { programacaoId: { in: ids } },
+      orderBy: [{ programacaoId: "asc" }, { alvoTipo: "asc" }, { horaInicio: "asc" }],
     }),
-    prisma.pasta.findMany({ where: { programacaoId }, select: { id: true, nome: true } }),
-    prisma.vinheta.findMany({ where: { programacaoId }, select: { id: true, nome: true } }),
+    prisma.pasta.findMany({
+      where: { programacaoId: { in: ids } },
+      select: { id: true, nome: true, programacaoId: true },
+    }),
+    prisma.vinheta.findMany({
+      where: { programacaoId: { in: ids } },
+      select: { id: true, nome: true, programacaoId: true },
+    }),
   ]);
-  const nome = new Map<string, string>();
-  for (const p of pastas) nome.set("pasta:" + p.id, p.nome);
-  for (const v of vinhetas) nome.set("vinheta:" + v.id, v.nome);
 
-  return ags.map((a) => ({
-    id: a.id,
-    alvoTipo: a.alvoTipo,
-    alvoId: a.alvoId,
-    alvoNome: nome.get(a.alvoTipo + ":" + a.alvoId) ?? "(removido)",
-    diasSemana: a.diasSemana,
-    horaInicio: a.horaInicio,
-    horaFim: a.horaFim,
-    dataInicio: a.dataInicio ? a.dataInicio.toISOString().slice(0, 10) : null,
-    dataFim: a.dataFim ? a.dataFim.toISOString().slice(0, 10) : null,
-    frequenciaMin: a.frequenciaMin,
-    frequenciaMusicas: a.frequenciaMusicas,
-    prioridade: a.prioridade,
-    ativo: a.ativo,
-  }));
+  const nomeByProg = new Map<string, Map<string, string>>();
+  for (const progId of ids) nomeByProg.set(progId, new Map());
+  for (const p of pastas) {
+    const m = nomeByProg.get(p.programacaoId);
+    if (m) m.set("pasta:" + p.id, p.nome);
+  }
+  for (const v of vinhetas) {
+    if (!v.programacaoId) continue;
+    const m = nomeByProg.get(v.programacaoId);
+    if (m) m.set("vinheta:" + v.id, v.nome);
+  }
+
+  return mapAgendamentoRows(ags, nomeByProg);
+}
+
+export async function listAgendamentos(programacaoId: string): Promise<AgendamentoRow[]> {
+  const map = await listAgendamentosByProgramacaoIds([programacaoId]);
+  return map.get(programacaoId) ?? [];
 }
 
 export async function createAgendamento(

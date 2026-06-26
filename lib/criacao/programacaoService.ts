@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
+import { listAgendamentosByProgramacaoIds, type AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { buildVinhetaPreviewUrl } from "@/lib/criacao/vinhetaSign";
 
@@ -62,6 +63,7 @@ export type ArvoreProgramacaoNode = {
   atualizacaoAberta: boolean;
   pastas: ArvorePastaNode[];
   vinhetas: ArvoreVinhetaNode[];
+  agendamentos: AgendamentoRow[];
 };
 
 export async function getClienteProgramacaoArvore(clienteRef: string): Promise<ArvoreProgramacaoNode[]> {
@@ -105,6 +107,8 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
         },
       });
 
+  const agendamentosByProg = await listAgendamentosByProgramacaoIds(items.map((p) => p.id));
+
   return items.map((p) => ({
     id: p.id,
     nome: p.nome,
@@ -125,6 +129,7 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
       temAudio: Boolean(v.storageKey),
       previewUrl: v.storageKey ? buildVinhetaPreviewUrl(v.id) : null,
     })),
+    agendamentos: agendamentosByProg.get(p.id) ?? [],
   }));
 }
 

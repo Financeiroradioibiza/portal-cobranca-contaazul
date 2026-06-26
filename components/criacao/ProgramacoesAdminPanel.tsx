@@ -12,6 +12,8 @@ import {
   criacaoClienteRowClass,
   type CriacaoClienteRow,
 } from "@/components/criacao/CriacaoClienteTag";
+import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
+import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 type Cliente = CriacaoClienteRow & { pdvCount: number; tagCobranca?: RioTagCobranca };
@@ -32,6 +34,7 @@ type ArvoreProg = {
   atualizacaoAberta: boolean;
   pastas: ArvorePasta[];
   vinhetas: ArvoreVinheta[];
+  agendamentos: AgendamentoRow[];
 };
 
 type AtualizacaoAbertaRow = {
@@ -445,18 +448,22 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                       {expanded.has(prog.id) ?
                         <ul className="ms-6 mt-1 space-y-0.5 border-s border-slate-200 ps-3 dark:border-slate-700">
                           {prog.pastas.map((pasta) => (
-                            <li key={pasta.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                            <li
+                              key={pasta.id}
+                              className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                            >
                               {pasta.selecionavel ?
                                 <span className="shrink-0 text-base" title="Pasta selecionável no player">
                                   ✋
                                 </span>
                               : <span className="shrink-0 text-slate-400">📁</span>}
-                              <span className="min-w-0 flex-1 truncate font-medium text-slate-800 dark:text-slate-200">
+                              <span className="min-w-0 shrink font-medium text-slate-800 dark:text-slate-200">
                                 {pasta.nome}
                                 {pasta.selecionavel ?
                                   <span className="ml-1 font-semibold text-orange-600 dark:text-orange-400">(sel)</span>
                                 : null}
                               </span>
+                              <CronogramaAlvoBadges ags={prog.agendamentos} alvoTipo="pasta" alvoId={pasta.id} />
                               <span className="shrink-0 text-[10px] text-slate-400">
                                 {VELOCIDADE_LABEL[pasta.velocidade] ?? pasta.velocidade}
                               </span>
@@ -473,9 +480,10 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                             </li>
                           ))}
                           {prog.vinhetas.map((v) => (
-                            <li key={v.id} className="flex flex-wrap items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                              <span className="text-slate-400">{v.tipo === "audio" ? "🔊" : "🗣"}</span>
-                              <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{v.nome}</span>
+                            <li key={v.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                              <span className="shrink-0 text-slate-400">{v.tipo === "audio" ? "🔊" : "🗣"}</span>
+                              <span className="min-w-0 shrink truncate text-slate-700 dark:text-slate-300">{v.nome}</span>
+                              <CronogramaAlvoBadges ags={prog.agendamentos} alvoTipo="vinheta" alvoId={v.id} />
                               <span className="shrink-0 text-[10px] uppercase text-slate-400">{v.tipo}</span>
                               {v.tipo === "audio" ?
                                 <span
