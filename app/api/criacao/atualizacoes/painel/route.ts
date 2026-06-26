@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import {
-  competenciaFromDate,
-  listCompetenciasRecentes,
-  parseCompetencia,
-} from "@/lib/criacao/competencia";
+import { competenciaFromDate } from "@/lib/criacao/competencia";
 import { listPainelCompetencia } from "@/lib/criacao/atualizacaoPainelService";
 import { hasAtualizacaoPainelTable } from "@/lib/criacao/atualizacaoPainelSchemaCompat";
 
@@ -13,14 +9,12 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     requirePortalSession(await getPortalSession());
-    const url = new URL(request.url);
-    const competencia =
-      parseCompetencia(url.searchParams.get("competencia")) ?? competenciaFromDate();
+    // Por enquanto só o mês corrente (vira Julho, Ago… automaticamente no fuso BR).
+    const competencia = competenciaFromDate();
     const migrationPendente = !(await hasAtualizacaoPainelTable());
     const rows = await listPainelCompetencia(competencia);
     return NextResponse.json({
       competencia,
-      competencias: listCompetenciasRecentes(18),
       rows,
       migrationPendente,
     });
@@ -40,7 +34,7 @@ export async function PATCH(request: Request) {
       criativoEntregue?: boolean;
     };
     const programacaoId = (body.programacaoId ?? "").trim();
-    const competencia = parseCompetencia(body.competencia) ?? competenciaFromDate();
+    const competencia = competenciaFromDate();
     if (!programacaoId) {
       return NextResponse.json({ error: "programacao_obrigatoria" }, { status: 400 });
     }

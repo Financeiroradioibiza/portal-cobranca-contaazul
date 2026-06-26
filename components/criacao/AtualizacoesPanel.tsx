@@ -93,27 +93,23 @@ function FechamentoBadges({ items }: { items: FechamentoPainelItem[] }) {
 export function AtualizacoesPanel() {
   const { map: donoMap } = useProgramacaoDonoMap();
   const [competencia, setCompetencia] = useState("");
-  const [competencias, setCompetencias] = useState<string[]>([]);
   const [rows, setRows] = useState<PainelRow[]>([]);
   const [migrationPendente, setMigrationPendente] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const load = useCallback(async (comp?: string) => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const q = comp ? `?competencia=${encodeURIComponent(comp)}` : "";
-      const res = await fetch(`/api/criacao/atualizacoes/painel${q}`);
+      const res = await fetch("/api/criacao/atualizacoes/painel");
       if (!res.ok) throw new Error();
       const data = (await res.json()) as {
         competencia?: string;
-        competencias?: string[];
         rows?: PainelRow[];
         migrationPendente?: boolean;
       };
       if (data.competencia) setCompetencia(data.competencia);
-      if (data.competencias) setCompetencias(data.competencias);
       setMigrationPendente(Boolean(data.migrationPendente));
       setRows(data.rows ?? []);
     } catch {
@@ -194,27 +190,10 @@ export function AtualizacoesPanel() {
         </div>
       : null}
 
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="flex flex-1 gap-1 overflow-x-auto pb-0.5">
-          {competencias.map((c) => {
-            const on = c === competencia;
-            return (
-              <button
-                key={c}
-                type="button"
-                onClick={() => void load(c)}
-                className={
-                  "shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold transition " +
-                  (on ?
-                    "bg-slate-900 text-white dark:bg-orange-600"
-                  : "border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300")
-                }
-              >
-                {competenciaLabel(c)}
-              </button>
-            );
-          })}
-        </div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+          Competência: {competencia ? competenciaLabel(competencia) : "…"}
+        </p>
         <input
           type="search"
           value={busca}
