@@ -35,18 +35,28 @@ function disparoErrorResponse(msg: string): NextResponse {
   return NextResponse.json({ error: msg }, { status: 500 });
 }
 
-export async function POST(_request: Request, ctx: Ctx) {
+export async function POST(request: Request, ctx: Ctx) {
   try {
     const session = requirePortalSession(await getPortalSession());
     if (!cloud2Enabled()) {
       return NextResponse.json({ error: "cloud2_desabilitado" }, { status: 503 });
     }
     const { id } = await ctx.params;
-    const resultado = await dispararAtualizacao(id, session.displayName ?? session.email);
+    const body = (await request.json().catch(() => ({}))) as {
+      tipoSubida?: "atl" | "especial";
+      especialNome?: string;
+    };
+    const resultado = await dispararAtualizacao(id, session.displayName ?? session.email, {
+      tipoSubida: body.tipoSubida,
+      especialNome: body.especialNome,
+    });
     return NextResponse.json(resultado);
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
+    if (msg === "especial_nome_obrigatorio") {
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
     console.error("[criacao/programacoes/:id/disparar-atualizacao POST]", e);
     return disparoErrorResponse(msg);
   }

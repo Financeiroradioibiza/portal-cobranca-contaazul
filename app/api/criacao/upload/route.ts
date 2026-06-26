@@ -7,6 +7,7 @@ import {
   type UploadArquivo,
   type UploadLoteInput,
 } from "@/lib/criacao/filaService";
+import { markSubidaFilaPainel } from "@/lib/criacao/atualizacaoPainelService";
 import { CRIACAO_INGEST_URL, ingestEnabled, signTicket } from "@/lib/criacao/ingestTicket";
 
 export const runtime = "nodejs";
@@ -91,6 +92,11 @@ export async function POST(request: Request) {
         criativoNome: uploaderNome,
         criativoUserId: tagCriativoDefault.email,
       });
+      for (const job of jobs) {
+        if (job.programacaoId) {
+          await markSubidaFilaPainel(job.programacaoId, job.id, uploaderNome);
+        }
+      }
       return NextResponse.json({
         ok: true,
         ingestUrl: CRIACAO_INGEST_URL,
@@ -123,6 +129,10 @@ export async function POST(request: Request) {
       pastaId: body.pastaId,
       arquivos,
     });
+
+    if (job.programacaoId) {
+      await markSubidaFilaPainel(job.programacaoId, job.id, uploaderNome);
+    }
 
     return NextResponse.json({
       ok: true,

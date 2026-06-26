@@ -1067,6 +1067,7 @@ const DISPARO_ERROR: Record<string, string> = {
   sync_registry_timeout: "Sync no gateway demorou demais — tente de novo.",
   pdv_programa_nao_amarrado:
     "A programação foi publicada, mas o PDV não foi amarrado no gateway — tente de novo ou contate suporte.",
+  especial_nome_obrigatorio: "Informe o nome do especial (ex.: PASCOA, NATAL).",
   server_error: "Erro interno ao disparar. Veja o log do portal ou tente de novo.",
   disparo_falhou: "Falha ao disparar a atualização.",
 };
@@ -1086,20 +1087,31 @@ function FecharAtualizacaoModal({
   onClose: () => void;
   onDone: () => void | Promise<void>;
 }) {
-  const [pdvsAmarrados, setPdvsAmarrados] = useState(0);
+  const [info, setInfo] = useState<{
+    isInstall: boolean;
+    atlSugerido: string;
+    pdvsAmarrados: number;
+    pdvsNomes: string[];
+  } | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
+  const [tipoSubida, setTipoSubida] = useState<"atl" | "especial">("atl");
+  const [especialNome, setEspecialNome] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/criacao/clientes/${encodeURIComponent(clienteRef)}/pdv-programacoes`)
+    fetch(`/api/criacao/programacoes/${programacaoId}/fechar-info`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (cancelled || !d?.pdvs) return;
-        const n = (d.pdvs as PdvProgramacaoRow[]).filter((p) => p.programacaoId === programacaoId).length;
-        setPdvsAmarrados(n);
+        if (cancelled || !d) return;
+        setInfo({
+          isInstall: Boolean(d.isInstall),
+          atlSugerido: String(d.atlSugerido ?? "ATL"),
+          pdvsAmarrados: Number(d.pdvsAmarrados ?? 0),
+          pdvsNomes: Array.isArray(d.pdvsNomes) ? (d.pdvsNomes as string[]) : [],
+        });
       })
       .finally(() => {
         if (!cancelled) setLoadingInfo(false);
@@ -1107,36 +1119,47 @@ function FecharAtualizacaoModal({
     return () => {
       cancelled = true;
     };
-  }, [clienteRef, programacaoId]);
+  }, [programacaoId]);
 
   async function disparar() {
-    if (busy || pdvsAmarrados === 0) return;
+    if (busy || !info || info.pdvsAmarrados === 0) return;
+    if (!info.isInstall && tipoSubida === "especial" && !especialNome.trim()) {
+      setError(DISPARO_ERROR.especial_nome_obrigatorio);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/criacao/programacoes/${programacaoId}/disparar-atualizacao`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(
+          info.isInstall ?
+            {}
+          : {
+              tipoSubida,
+              especialNome: tipoSubida === "especial" ? especialNome.trim() : undefined,
+            },
+        ),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
+        rotuloLog?: string;
         codigo?: string;
+        logResumo?: string;
         revision?: number;
         diff?: { entraram?: FaixaDiff[]; sairam?: FaixaDiff[] };
         musicas?: number;
         playlists?: number;
         semArquivo?: number;
-        clienteGatewayNome?: string;
         pdvsDisparados?: number;
       };
       if (!res.ok) throw new Error(data.error ?? "disparo_falhou");
       const ent = data.diff?.entraram?.length ?? 0;
       const sai = data.diff?.sairam?.length ?? 0;
       setResultado(
-        `${data.codigo ?? "Atualização"} — rev. ${data.revision ?? "?"} enviada para ${data.clienteGatewayNome ?? clienteNome}: ` +
-          `${data.pdvsDisparados ?? pdvsAmarrados} PDV(s), ${data.playlists ?? 0} pasta(s), ${data.musicas ?? 0} faixa(s). ` +
-          `Entraram ${ent}, saíram ${sai}.` +
+        (data.logResumo ?? data.rotuloLog ?? data.codigo ?? "Atualização") +
+          ` — rev. ${data.revision ?? "?"} · +${ent} / −${sai} faixa(s) · ${data.pdvsDisparados ?? info.pdvsAmarrados} PDV(s).` +
           (data.semArquivo ? ` (${data.semArquivo} sem áudio)` : ""),
       );
       await onDone();
@@ -1154,6 +1177,12 @@ function FecharAtualizacaoModal({
     }
   }
 
+  const rotuloPreview =
+    info?.isInstall ? "INSTALL"
+    : tipoSubida === "especial" && especialNome.trim() ?
+      `ESPECIAL ${especialNome.trim().toUpperCase()}`
+    : info?.atlSugerido ?? "ATL";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
@@ -1169,20 +1198,59 @@ function FecharAtualizacaoModal({
         <div className="p-4">
           <p className="mb-1 text-xs font-semibold text-slate-700 dark:text-slate-200">{programacaoNome}</p>
           <p className="mb-1 text-[10px] text-slate-500">Cliente: {clienteNome}</p>
-          <p className="mb-3 text-xs text-slate-500">
-            Envia ao Player 5 o estado atual desta programação nos PDVs amarrados e encerra o ciclo de edição. O log
-            registra o que entrou e saiu desde o último fechamento.
-          </p>
           {loadingInfo ?
-            <div className="mb-3 py-2 text-center text-sm text-slate-400">Verificando PDVs amarrados…</div>
-          : pdvsAmarrados === 0 ?
+            <div className="mb-3 py-2 text-center text-sm text-slate-400">Carregando…</div>
+          : info?.pdvsAmarrados === 0 ?
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-              Nenhum PDV amarrado a esta programação. Volte à coluna <strong>PDVs</strong> e escolha as lojas antes
-              de fechar.
+              Nenhum PDV amarrado. Escolha as lojas na coluna <strong>PDVs</strong> antes de fechar.
             </div>
-          : <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
-              {pdvsAmarrados} PDV{pdvsAmarrados === 1 ? "" : "s"} receberão esta atualização ao fechar.
-            </div>
+          : <>
+              <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
+                {info?.pdvsAmarrados} PDV(s): {info?.pdvsNomes.join(", ") || "—"}
+              </div>
+              <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Tipo de subida</p>
+                {info?.isInstall ?
+                  <p className="mt-1 text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                    INSTALL — primeira publicação desta programação
+                  </p>
+                : <div className="mt-2 space-y-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="tipo-subida"
+                        checked={tipoSubida === "atl"}
+                        onChange={() => setTipoSubida("atl")}
+                      />
+                      <span>
+                        <strong>{info?.atlSugerido}</strong> — atualização mensal
+                      </span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="tipo-subida"
+                        checked={tipoSubida === "especial"}
+                        onChange={() => setTipoSubida("especial")}
+                      />
+                      <span>Especial — PASCOA, NATAL, vinheta…</span>
+                    </label>
+                    {tipoSubida === "especial" ?
+                      <input
+                        value={especialNome}
+                        onChange={(e) => setEspecialNome(e.target.value)}
+                        placeholder="Nome do especial (ex.: PASCOA)"
+                        className="w-full rounded-lg border border-violet-300 px-3 py-2 text-sm uppercase dark:border-violet-700 dark:bg-slate-950"
+                      />
+                    : null}
+                  </div>
+                }
+                <p className="mt-2 text-[11px] text-slate-500">
+                  Registro: <strong className="text-slate-700 dark:text-slate-200">{rotuloPreview}</strong> ·{" "}
+                  {clienteNome} · {programacaoNome}
+                </p>
+              </div>
+            </>
           }
           {error ?
             <div className="mb-2 text-sm text-red-600">{error}</div>
@@ -1195,10 +1263,10 @@ function FecharAtualizacaoModal({
           <button
             type="button"
             onClick={() => void disparar()}
-            disabled={busy || loadingInfo || pdvsAmarrados === 0 || !!resultado}
+            disabled={busy || loadingInfo || !info || info.pdvsAmarrados === 0 || !!resultado}
             className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
           >
-            {busy ? "Fechando…" : "Fechar agora"}
+            {busy ? "Fechando…" : info?.isInstall ? "Fechar INSTALL" : "Fechar atualização"}
           </button>
         </div>
       </div>
@@ -1209,6 +1277,11 @@ function FecharAtualizacaoModal({
 type AtualizacaoLogItem = {
   id: string;
   codigo: string;
+  rotuloLog?: string;
+  tipoSubida?: string;
+  clienteNomeLog?: string;
+  programacaoNomeLog?: string;
+  pdvsLog?: string;
   revision: number;
   disparadaEm: string;
   disparadaPor: string;
@@ -1279,13 +1352,14 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
               className="flex w-full items-center gap-2 text-left font-semibold text-slate-700 hover:text-slate-900 dark:text-slate-300"
             >
               <span>{aberto ? "▾" : "▸"}</span>
-              <span className="font-mono text-emerald-700 dark:text-emerald-400">{r.codigo}</span>
+              <span className="font-mono text-emerald-700 dark:text-emerald-400">{r.rotuloLog ?? r.codigo}</span>
               <span className="font-normal text-slate-400">· rev. {r.revision}</span>
               <span className="ml-auto font-normal text-slate-400">{fmtData(r.disparadaEm)}</span>
             </button>
             <p className="ml-4 text-slate-500">
-              {r.disparadaPor} · +{ent.length} / −{sai.length} · {r.playlistsPublicadas} pasta(s), {r.musicasPublicadas}{" "}
-              faixa(s)
+              {r.clienteNomeLog ? `${r.clienteNomeLog} · ` : ""}
+              {r.pdvsLog ? `PDV: ${r.pdvsLog} · ` : ""}
+              {r.programacaoNomeLog ?? ""} · {r.disparadaPor} · +{ent.length} / −{sai.length}
             </p>
             {aberto ?
               <div className="ml-4 mt-1 grid gap-2 sm:grid-cols-2">

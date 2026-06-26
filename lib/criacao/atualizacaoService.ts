@@ -1,8 +1,10 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, TipoSubidaAtualizacao } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { publicarProgramacao } from "@/lib/criacao/publicarService";
-import { prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
+import { getClientePdvProgramacoes, prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
+import { appendFechamentoPainel } from "@/lib/criacao/atualizacaoPainelService";
+import { competenciaFromDate, mesNomeCurtoFromDate } from "@/lib/criacao/competencia";
 
 export type FaixaLogItem = {
   musicaId: string;
@@ -23,6 +25,13 @@ export type ProgramacaoSnapshot = {
 export type AtualizacaoLogRow = {
   id: string;
   codigo: string;
+  rotuloLog: string;
+  tipoSubida: TipoSubidaAtualizacao;
+  especialNome: string;
+  competencia: string;
+  clienteNomeLog: string;
+  programacaoNomeLog: string;
+  pdvsLog: string;
   revision: number;
   disparadaEm: string;
   disparadaPor: string;
@@ -31,51 +40,73 @@ export type AtualizacaoLogRow = {
   playlistsPublicadas: number;
 };
 
-const MESES_PT = [
-  "Janeiro",
-  "Fevereiro",
-  "Marco",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-] as const;
+export type DispararAtualizacaoOpts = {
+  tipoSubida?: "atl" | "especial";
+  especialNome?: string;
+};
 
-function slugCliente(nome: string): string {
-  const s = nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .slice(0, 32);
-  return s || "Cliente";
+export type FecharAtualizacaoInfo = {
+  revisionAtual: number;
+  isInstall: boolean;
+  atlSugerido: string;
+  programacaoNome: string;
+  clienteNome: string;
+  pdvsAmarrados: number;
+  pdvsNomes: string[];
+};
+
+async function pdvsLogForProgramacao(programacaoId: string, clienteRef: string): Promise<string> {
+  const payload = await getClientePdvProgramacoes(clienteRef);
+  const nomes = payload.pdvs
+    .filter((p) => p.programacaoId === programacaoId)
+    .map((p) => p.nome.trim() || p.codigoDisplay)
+    .filter(Boolean);
+  return nomes.join(", ");
 }
 
-function brazilMonthYear(d: Date): { mes: string; yy: string } {
-  const br = new Date(d.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-  const mes = MESES_PT[br.getMonth()] ?? "Mes";
-  const yy = String(br.getFullYear()).slice(-2);
-  return { mes, yy };
+async function pdvsNomesForProgramacao(programacaoId: string, clienteRef: string): Promise<string[]> {
+  const payload = await getClientePdvProgramacoes(clienteRef);
+  return payload.pdvs
+    .filter((p) => p.programacaoId === programacaoId)
+    .map((p) => p.nome.trim() || p.codigoDisplay)
+    .filter(Boolean);
 }
 
-/** Gera código tipo Radiolbiza-ATL-Junho-26.01 (sequência por cliente+mês). */
-export async function gerarCodigoAtualizacao(
-  programacaoId: string,
-  clienteNome: string,
-  when = new Date(),
-): Promise<string> {
-  const { mes, yy } = brazilMonthYear(when);
-  const prefix = `${slugCliente(clienteNome)}-ATL-${mes}-${yy}.`;
-  const existentes = await prisma.programacaoAtualizacao.findMany({
-    where: { programacaoId, codigo: { startsWith: prefix } },
-    select: { codigo: true },
+/** Próximo rótulo ATL do mês: ATL Junho 1, ATL Junho 2… */
+export async function previewRotuloAtl(programacaoId: string, when = new Date()): Promise<string> {
+  const mes = mesNomeCurtoFromDate(when);
+  const competencia = competenciaFromDate(when);
+  const count = await prisma.programacaoAtualizacao.count({
+    where: { programacaoId, competencia, tipoSubida: "atl" },
   });
-  const seq = existentes.length + 1;
-  return `${prefix}${String(seq).padStart(2, "0")}`;
+  return `ATL ${mes} ${count + 1}`;
+}
+
+export async function getFecharAtualizacaoInfo(programacaoId: string): Promise<FecharAtualizacaoInfo> {
+  const prog = await prisma.programacao.findUnique({
+    where: { id: programacaoId },
+    select: {
+      id: true,
+      nome: true,
+      clienteRef: true,
+      clienteNome: true,
+      revisionAtual: true,
+    },
+  });
+  if (!prog) throw new Error("programacao_nao_encontrada");
+
+  const pdvsNomes = await pdvsNomesForProgramacao(programacaoId, prog.clienteRef);
+  const isInstall = prog.revisionAtual === 0;
+
+  return {
+    revisionAtual: prog.revisionAtual,
+    isInstall,
+    atlSugerido: isInstall ? "INSTALL" : await previewRotuloAtl(programacaoId),
+    programacaoNome: prog.nome,
+    clienteNome: prog.clienteNome,
+    pdvsAmarrados: pdvsNomes.length,
+    pdvsNomes,
+  };
 }
 
 export async function buildProgramacaoSnapshot(programacaoId: string): Promise<ProgramacaoSnapshot> {
@@ -144,6 +175,27 @@ export function computeAtualizacaoDiff(
   return { entraram, sairam };
 }
 
+function resolveSubida(
+  revisionAtual: number,
+  opts: DispararAtualizacaoOpts | undefined,
+  programacaoId: string,
+  when: Date,
+): Promise<{ tipo: TipoSubidaAtualizacao; rotulo: string; especialNome: string }> {
+  if (revisionAtual === 0) {
+    return Promise.resolve({ tipo: "install", rotulo: "INSTALL", especialNome: "" });
+  }
+  if (opts?.tipoSubida === "especial") {
+    const nome = (opts.especialNome ?? "").trim().toUpperCase();
+    if (!nome) return Promise.reject(new Error("especial_nome_obrigatorio"));
+    return Promise.resolve({ tipo: "especial", rotulo: `ESPECIAL ${nome}`, especialNome: nome });
+  }
+  return previewRotuloAtl(programacaoId, when).then((rotulo) => ({
+    tipo: "atl" as const,
+    rotulo,
+    especialNome: "",
+  }));
+}
+
 export async function listAtualizacoesLog(programacaoId: string): Promise<AtualizacaoLogRow[]> {
   const rows = await prisma.programacaoAtualizacao.findMany({
     where: { programacaoId },
@@ -156,6 +208,13 @@ export async function listAtualizacoesLog(programacaoId: string): Promise<Atuali
     return {
       id: r.id,
       codigo: r.codigo,
+      rotuloLog: r.rotuloLog || r.codigo,
+      tipoSubida: r.tipoSubida,
+      especialNome: r.especialNome,
+      competencia: r.competencia,
+      clienteNomeLog: r.clienteNomeLog,
+      programacaoNomeLog: r.programacaoNomeLog,
+      pdvsLog: r.pdvsLog,
       revision: r.revision,
       disparadaEm: r.disparadaEm.toISOString(),
       disparadaPor: r.disparadaPor,
@@ -172,6 +231,8 @@ export async function listAtualizacoesLog(programacaoId: string): Promise<Atuali
 export type DispararAtualizacaoResult = {
   ok: true;
   codigo: string;
+  rotuloLog: string;
+  tipoSubida: TipoSubidaAtualizacao;
   revision: number;
   diff: AtualizacaoDiff;
   playlists: number;
@@ -179,18 +240,22 @@ export type DispararAtualizacaoResult = {
   semArquivo: number;
   clienteGatewayNome: string;
   pdvsDisparados: number;
+  logResumo: string;
 };
 
 export async function dispararAtualizacao(
   programacaoId: string,
   disparadaPor: string,
+  opts?: DispararAtualizacaoOpts,
 ): Promise<DispararAtualizacaoResult> {
+  const when = new Date();
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
     select: {
       id: true,
       clienteRef: true,
       clienteNome: true,
+      nome: true,
       revisionAtual: true,
       snapshotAtual: true,
     },
@@ -199,6 +264,9 @@ export async function dispararAtualizacao(
 
   const { portalClienteId, portalPdvIds } = await prepareDisparoProgramacao(programacaoId);
   const gatewayId = portalClienteId;
+  const pdvsLog = await pdvsLogForProgramacao(programacaoId, prog.clienteRef);
+  const { tipo, rotulo, especialNome } = await resolveSubida(prog.revisionAtual, opts, programacaoId, when);
+  const competencia = competenciaFromDate(when);
 
   const snapshotAtual = await buildProgramacaoSnapshot(programacaoId);
   const snapshotAnterior = parseSnapshot(prog.snapshotAtual);
@@ -207,16 +275,31 @@ export async function dispararAtualizacao(
     snapshotAtual,
   );
 
-  const codigo = await gerarCodigoAtualizacao(programacaoId, prog.clienteNome);
+  const codigo = rotulo;
   const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds);
   const revision = prog.revisionAtual + 1;
   const hasAberta = await hasAtualizacaoAbertaColumn();
 
-  await prisma.$transaction([
-    prisma.programacaoAtualizacao.create({
+  const logResumo = [
+    rotulo,
+    prog.clienteNome || prog.clienteRef,
+    pdvsLog ? `PDV: ${pdvsLog}` : "PDV: —",
+    prog.nome,
+    when.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+  ].join(" · ");
+
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.programacaoAtualizacao.create({
       data: {
         programacaoId,
         codigo,
+        rotuloLog: rotulo,
+        tipoSubida: tipo,
+        especialNome,
+        competencia,
+        clienteNomeLog: prog.clienteNome,
+        programacaoNomeLog: prog.nome,
+        pdvsLog,
         revision,
         disparadaPor: disparadaPor.slice(0, 200),
         diffJson: diff as unknown as Prisma.InputJsonValue,
@@ -224,25 +307,37 @@ export async function dispararAtualizacao(
         musicasPublicadas: pub.musicas,
         playlistsPublicadas: pub.playlists,
       },
-    }),
-    prisma.programacao.update({
+    });
+    await tx.programacao.update({
       where: { id: programacaoId },
       data: {
         revisionAtual: revision,
         clienteGatewayId: gatewayId,
         snapshotAtual: snapshotAtual as unknown as Prisma.InputJsonValue,
         publicada: true,
-        publishedAt: new Date(),
+        publishedAt: when,
         ...(hasAberta ?
           { atualizacaoAbertaEm: null, atualizacaoAbertaPor: "" }
         : {}),
       },
-    }),
-  ]);
+    });
+    return row;
+  });
+
+  await appendFechamentoPainel({
+    programacaoId,
+    competencia,
+    atualizacaoId: created.id,
+    rotulo,
+    tipo,
+    when,
+  });
 
   return {
     ok: true,
     codigo,
+    rotuloLog: rotulo,
+    tipoSubida: tipo,
     revision,
     diff,
     playlists: pub.playlists,
@@ -250,6 +345,7 @@ export async function dispararAtualizacao(
     semArquivo: pub.semArquivo,
     clienteGatewayNome: pub.clienteGatewayNome,
     pdvsDisparados: portalPdvIds.length,
+    logResumo,
   };
 }
 
@@ -317,4 +413,13 @@ export async function listAtualizacoesAbertas(): Promise<AtualizacaoAbertaRow[]>
       abertaPor: r.atualizacaoAbertaPor,
       publicada: r.publicada,
     }));
+}
+
+/** @deprecated use previewRotuloAtl */
+export async function gerarCodigoAtualizacao(
+  programacaoId: string,
+  _clienteNome: string,
+  when = new Date(),
+): Promise<string> {
+  return previewRotuloAtl(programacaoId, when);
 }

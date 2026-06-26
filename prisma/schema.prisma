@@ -902,32 +902,70 @@ model Programacao {
   pastas       Pasta[]
   vinhetas     Vinheta[]
   agendamentos Agendamento[]
-  atualizacoes ProgramacaoAtualizacao[]
-  pdvCadastros ProducaoPdvCadastro[]
+  atualizacoes     ProgramacaoAtualizacao[]
+  pdvCadastros     ProducaoPdvCadastro[]
+  painelAtualizacao CriacaoAtualizacaoPainel[]
 
   @@index([clienteRef])
   @@map("programacao")
 }
 
+enum TipoSubidaAtualizacao {
+  install
+  atl
+  especial
+}
+
 /// Registro de cada disparo de atualização (log + diff entraram/saíram).
 model ProgramacaoAtualizacao {
-  id                  String   @id @default(cuid())
-  programacaoId       String   @map("programacao_id")
-  /// Ex.: Radiolbiza-ATL-Junho-26.01
-  codigo              String   @db.VarChar(80)
+  id                  String                 @id @default(cuid())
+  programacaoId       String                 @map("programacao_id")
+  /// Rótulo legível: INSTALL, ATL Junho 1, ESPECIAL PASCOA…
+  codigo              String                 @db.VarChar(80)
+  tipoSubida          TipoSubidaAtualizacao  @default(atl) @map("tipo_subida")
+  especialNome        String                 @default("") @map("especial_nome") @db.VarChar(80)
+  competencia         String                 @default("") @map("competencia") @db.VarChar(7)
+  rotuloLog           String                 @default("") @map("rotulo_log") @db.VarChar(120)
+  clienteNomeLog      String                 @default("") @map("cliente_nome_log") @db.VarChar(200)
+  programacaoNomeLog  String                 @default("") @map("programacao_nome_log") @db.VarChar(120)
+  pdvsLog             String                 @default("") @map("pdvs_log") @db.VarChar(500)
   revision            Int
-  disparadaEm         DateTime @default(now()) @map("disparada_em")
-  disparadaPor        String   @default("") @map("disparada_por") @db.VarChar(200)
+  disparadaEm         DateTime               @default(now()) @map("disparada_em")
+  disparadaPor        String                 @default("") @map("disparada_por") @db.VarChar(200)
   /// { entraram: FaixaLog[], sairam: FaixaLog[] }
-  diffJson            Json     @map("diff_json")
-  snapshotJson        Json     @map("snapshot_json")
-  musicasPublicadas   Int      @default(0) @map("musicas_publicadas")
-  playlistsPublicadas Int      @default(0) @map("playlists_publicadas")
+  diffJson            Json                   @map("diff_json")
+  snapshotJson        Json                   @map("snapshot_json")
+  musicasPublicadas   Int                    @default(0) @map("musicas_publicadas")
+  playlistsPublicadas Int                    @default(0) @map("playlists_publicadas")
 
   programacao Programacao @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
 
   @@index([programacaoId, disparadaEm])
+  @@index([programacaoId, competencia])
   @@map("programacao_atualizacao")
+}
+
+/// Painel mensal de acompanhamento (Renato / produção) por programação.
+model CriacaoAtualizacaoPainel {
+  id                 String    @id @default(cuid())
+  competencia        String    @db.VarChar(7)
+  programacaoId      String    @map("programacao_id")
+  clienteRef         String    @map("cliente_ref") @db.VarChar(120)
+  clienteNome        String    @default("") @map("cliente_nome") @db.VarChar(200)
+  programacaoNome    String    @default("") @map("programacao_nome") @db.VarChar(120)
+  criativoEntregueEm DateTime? @map("criativo_entregue_em")
+  criativoEntreguePor String   @default("") @map("criativo_entregue_por") @db.VarChar(200)
+  subidaFilaEm       DateTime? @map("subida_fila_em")
+  subidaFilaPor      String    @default("") @map("subida_fila_por") @db.VarChar(200)
+  subidaFilaJobId    String?   @map("subida_fila_job_id")
+  /// [{ rotulo, tipo, em, atualizacaoId }]
+  fechamentosJson    Json      @default("[]") @map("fechamentos_json")
+
+  programacao Programacao @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
+
+  @@unique([competencia, programacaoId])
+  @@index([competencia])
+  @@map("criacao_atualizacao_painel")
 }
 
 enum AgendamentoAlvo {
