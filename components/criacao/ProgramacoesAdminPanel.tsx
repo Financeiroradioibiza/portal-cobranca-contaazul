@@ -13,6 +13,7 @@ import {
   type CriacaoClienteRow,
 } from "@/components/criacao/CriacaoClienteTag";
 import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
+import { ProgramacaoDonoInlineSelect } from "@/components/criacao/ProgramacaoDonoInlineSelect";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
@@ -68,6 +69,10 @@ function progEncerrada(prog: Pick<ArvoreProg, "publicada" | "atualizacaoAberta">
 
 export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (programacaoId: string) => void }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [criativos, setCriativos] = useState<
+    Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>
+  >([]);
+  const [loadingCriativos, setLoadingCriativos] = useState(true);
   const [clienteBusca, setClienteBusca] = useState("");
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null);
   const [arvore, setArvore] = useState<ArvoreProg[]>([]);
@@ -87,6 +92,19 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
         if (d?.clientes) setClientes(d.clientes as Cliente[]);
       })
       .finally(() => setLoadingClientes(false));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/criacao/criativos")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.criativos) {
+          setCriativos(
+            d.criativos as Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>,
+          );
+        }
+      })
+      .finally(() => setLoadingCriativos(false));
   }, []);
 
   const loadAtualizacoesAbertas = useCallback(async () => {
@@ -396,6 +414,12 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                             <span className="text-[10px] text-slate-400">
                               {FORMATO_LABEL[prog.formatoPadrao as keyof typeof FORMATO_LABEL] ?? prog.formatoPadrao}
                             </span>
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600">·</span>
+                            <ProgramacaoDonoInlineSelect
+                              programacaoId={prog.id}
+                              criativos={criativos}
+                              loading={loadingCriativos}
+                            />
                           </div>
                           <div className="mt-1 flex flex-wrap gap-1">
                             <button
