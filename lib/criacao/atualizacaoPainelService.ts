@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { competenciaFromDate } from "@/lib/criacao/competencia";
+import { hasAtualizacaoPainelTable } from "@/lib/criacao/atualizacaoPainelSchemaCompat";
 
 export type FechamentoPainelItem = {
   rotulo: string;
@@ -75,6 +76,24 @@ export async function listPainelCompetencia(competencia: string): Promise<Painel
     },
   });
 
+  const emptyRow = (p: (typeof programacoes)[number]): PainelRow => ({
+    programacaoId: p.id,
+    programacaoNome: p.nome,
+    clienteRef: p.clienteRef,
+    clienteNome: p.clienteNome,
+    criativoEntregue: false,
+    criativoEntregueEm: null,
+    criativoEntreguePor: "",
+    subidaFila: false,
+    subidaFilaEm: null,
+    subidaFilaPor: "",
+    fechamentos: [],
+  });
+
+  if (!(await hasAtualizacaoPainelTable())) {
+    return programacoes.map(emptyRow);
+  }
+
   const painelRows = await prisma.criacaoAtualizacaoPainel.findMany({
     where: { competencia },
   });
@@ -105,6 +124,10 @@ export async function toggleCriativoEntregue(
   por: string,
   entregue: boolean,
 ): Promise<PainelRow> {
+  if (!(await hasAtualizacaoPainelTable())) {
+    throw new Error("migration_pendente");
+  }
+
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
     select: { id: true, nome: true, clienteRef: true, clienteNome: true },
@@ -140,6 +163,8 @@ export async function markSubidaFilaPainel(
   por: string,
   when = new Date(),
 ): Promise<void> {
+  if (!(await hasAtualizacaoPainelTable())) return;
+
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
     select: { id: true, nome: true, clienteRef: true, clienteNome: true },
@@ -168,6 +193,8 @@ export async function appendFechamentoPainel(input: {
   tipo: "install" | "atl" | "especial";
   when?: Date;
 }): Promise<void> {
+  if (!(await hasAtualizacaoPainelTable())) return;
+
   const prog = await prisma.programacao.findUnique({
     where: { id: input.programacaoId },
     select: { id: true, nome: true, clienteRef: true, clienteNome: true },

@@ -65,6 +65,7 @@ export function AtualizacoesPanel() {
   const [competencia, setCompetencia] = useState("");
   const [competencias, setCompetencias] = useState<string[]>([]);
   const [rows, setRows] = useState<PainelRow[]>([]);
+  const [migrationPendente, setMigrationPendente] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -79,9 +80,11 @@ export function AtualizacoesPanel() {
         competencia?: string;
         competencias?: string[];
         rows?: PainelRow[];
+        migrationPendente?: boolean;
       };
       if (data.competencia) setCompetencia(data.competencia);
       if (data.competencias) setCompetencias(data.competencias);
+      setMigrationPendente(Boolean(data.migrationPendente));
       setRows(data.rows ?? []);
     } catch {
       setRows([]);
@@ -159,6 +162,13 @@ export function AtualizacoesPanel() {
           Acompanhe por competência: entrega do criativo, subida na fila e fechamentos (INSTALL, ATL, ESPECIAL).
         </p>
       </header>
+
+      {migrationPendente ?
+        <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          Migration do painel ainda não aplicada no banco. Peça para rodar{" "}
+          <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">npx prisma migrate deploy</code> no Neon.
+        </div>
+      : null}
 
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
         {competencias.map((c) => {

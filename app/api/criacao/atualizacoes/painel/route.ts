@@ -6,6 +6,7 @@ import {
   parseCompetencia,
 } from "@/lib/criacao/competencia";
 import { listPainelCompetencia } from "@/lib/criacao/atualizacaoPainelService";
+import { hasAtualizacaoPainelTable } from "@/lib/criacao/atualizacaoPainelSchemaCompat";
 
 export const runtime = "nodejs";
 
@@ -15,11 +16,13 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const competencia =
       parseCompetencia(url.searchParams.get("competencia")) ?? competenciaFromDate();
+    const migrationPendente = !(await hasAtualizacaoPainelTable());
     const rows = await listPainelCompetencia(competencia);
     return NextResponse.json({
       competencia,
       competencias: listCompetenciasRecentes(18),
       rows,
+      migrationPendente,
     });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -54,6 +57,9 @@ export async function PATCH(request: Request) {
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "programacao_nao_encontrada") {
       return NextResponse.json({ error: msg }, { status: 404 });
+    }
+    if (msg === "migration_pendente") {
+      return NextResponse.json({ error: msg }, { status: 503 });
     }
     console.error("[criacao/atualizacoes/painel PATCH]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
