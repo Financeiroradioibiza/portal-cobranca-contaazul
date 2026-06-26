@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { competenciaLabel } from "@/lib/criacao/competencia";
 import type { FechamentoPainelItem, PainelRow } from "@/lib/criacao/atualizacaoPainelService";
+import type { ProgramacaoDono } from "@/lib/criacao/programacaoDonoLocal";
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
+
+const SEM_DONO_KEY = "__sem_dono__";
 
 function fmtWhen(iso: string | null): string {
   if (!iso) return "—";
@@ -20,43 +23,70 @@ function fmtWhen(iso: string | null): string {
   }
 }
 
-function FechamentoBadges({ items }: { items: FechamentoPainelItem[] }) {
-  if (items.length === 0) {
-    return <span className="text-xs text-slate-400">—</span>;
+type DonoGroup = {
+  key: string;
+  iniciais: string;
+  nome: string;
+  cor: string;
+  rows: PainelRow[];
+};
+
+function buildDonoGroups(rows: PainelRow[], donoMap: Record<string, ProgramacaoDono>): DonoGroup[] {
+  const map = new Map<string, DonoGroup>();
+
+  for (const row of rows) {
+    const dono = donoMap[row.programacaoId];
+    const key = dono?.criativoEmail ?? SEM_DONO_KEY;
+    let group = map.get(key);
+    if (!group) {
+      group = {
+        key,
+        iniciais: dono?.criativoIniciais?.trim().toUpperCase() || "?",
+        nome: dono?.criativoNome ?? "Sem dono",
+        cor: dono?.criativoCor ?? "#94a3b8",
+        rows: [],
+      };
+      map.set(key, group);
+    }
+    group.rows.push(row);
   }
+
+  for (const g of map.values()) {
+    g.rows.sort(
+      (a, b) =>
+        (a.clienteNome || a.clienteRef).localeCompare(b.clienteNome || b.clienteRef, "pt-BR") ||
+        a.programacaoNome.localeCompare(b.programacaoNome, "pt-BR"),
+    );
+  }
+
+  return [...map.values()].sort((a, b) => {
+    if (a.key === SEM_DONO_KEY) return 1;
+    if (b.key === SEM_DONO_KEY) return -1;
+    return a.nome.localeCompare(b.nome, "pt-BR");
+  });
+}
+
+function FechamentoBadges({ items }: { items: FechamentoPainelItem[] }) {
+  if (items.length === 0) return <span className="text-slate-400">—</span>;
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-0.5">
       {items.map((f) => (
         <span
           key={f.atualizacaoId}
-          title={fmtWhen(f.em)}
+          title={`${f.rotulo} · ${fmtWhen(f.em)}`}
           className={
-            "rounded px-1.5 py-0.5 text-[10px] font-bold " +
+            "rounded px-1 py-px text-[10px] font-bold leading-tight " +
             (f.tipo === "install" ?
               "bg-emerald-600 text-white"
             : f.tipo === "especial" ?
               "bg-violet-600 text-white"
-            : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200")
+            : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100")
           }
         >
           {f.rotulo}
         </span>
       ))}
     </div>
-  );
-}
-
-function DonoChip({ programacaoId, map }: { programacaoId: string; map: Record<string, { criativoIniciais: string; criativoCor: string; criativoNome: string }> }) {
-  const dono = map[programacaoId];
-  if (!dono) return <span className="text-xs text-slate-400">—</span>;
-  return (
-    <span
-      className="inline-flex h-6 min-w-[2rem] items-center justify-center rounded px-1 text-[10px] font-bold text-white"
-      style={{ backgroundColor: dono.criativoCor || "#6366f1" }}
-      title={dono.criativoNome}
-    >
-      {dono.criativoIniciais || "?"}
-    </span>
   );
 }
 
@@ -108,16 +138,7 @@ export function AtualizacoesPanel() {
     );
   }, [rows, busca]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, PainelRow[]>();
-    for (const row of filtered) {
-      const key = row.clienteNome.trim() || row.clienteRef;
-      const list = map.get(key) ?? [];
-      list.push(row);
-      map.set(key, list);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b, "pt-BR"));
-  }, [filtered]);
+  const donoGroups = useMemo(() => buildDonoGroups(filtered, donoMap), [filtered, donoMap]);
 
   const stats = useMemo(() => {
     let entregues = 0;
@@ -154,144 +175,143 @@ export function AtualizacoesPanel() {
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] px-3 py-6 sm:px-4">
-      <header className="mb-6">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Atualizações</div>
-        <h1 className="text-2xl font-bold tracking-tight">Painel de atualizações</h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          Acompanhe por competência: entrega do criativo, subida na fila e fechamentos (INSTALL, ATL, ESPECIAL).
-        </p>
+    <div className="mx-auto w-full max-w-[1600px] px-2 py-3 sm:px-3">
+      <header className="mb-2 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Criação / Atualizações</div>
+          <h1 className="text-lg font-bold leading-tight">Painel · {competencia ? competenciaLabel(competencia) : "…"}</h1>
+        </div>
+        {!loading ?
+          <p className="text-xs text-slate-500">
+            {stats.total} prog · {stats.entregues} entregues · {stats.fila} na fila · {stats.fechados} fechadas
+          </p>
+        : null}
       </header>
 
       {migrationPendente ?
-        <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          Migration do painel ainda não aplicada no banco. Peça para rodar{" "}
-          <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">npx prisma migrate deploy</code> no Neon.
+        <div className="mb-2 rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          Migration pendente — rode <code className="rounded bg-amber-100 px-0.5 dark:bg-amber-900">npx prisma migrate deploy</code>
         </div>
       : null}
 
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-        {competencias.map((c) => {
-          const on = c === competencia;
-          return (
-            <button
-              key={c}
-              type="button"
-              onClick={() => void load(c)}
-              className={
-                "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition " +
-                (on ?
-                  "bg-slate-900 text-white shadow-md dark:bg-orange-600"
-                : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")
-              }
-            >
-              {competenciaLabel(c)}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: "Programações", value: stats.total, tone: "text-slate-900 dark:text-slate-100" },
-          { label: "Criativo entregou", value: stats.entregues, tone: "text-amber-600" },
-          { label: "Subida na fila", value: stats.fila, tone: "text-sky-600" },
-          { label: "Atualizadas", value: stats.fechados, tone: "text-emerald-600" },
-        ].map((s) => (
-          <div
-            key={s.label}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{s.label}</p>
-            <p className={`text-2xl font-bold ${s.tone}`}>{loading ? "…" : s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="mb-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className="flex flex-1 gap-1 overflow-x-auto pb-0.5">
+          {competencias.map((c) => {
+            const on = c === competencia;
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => void load(c)}
+                className={
+                  "shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold transition " +
+                  (on ?
+                    "bg-slate-900 text-white dark:bg-orange-600"
+                  : "border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300")
+                }
+              >
+                {competenciaLabel(c)}
+              </button>
+            );
+          })}
+        </div>
         <input
           type="search"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar cliente ou programação…"
-          className="w-full max-w-md rounded-xl border border-slate-200 px-4 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+          placeholder="Buscar…"
+          className="w-full max-w-[200px] rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
         />
       </div>
 
       {loading ?
-        <p className="py-12 text-center text-sm text-slate-500">Carregando painel…</p>
-      : grouped.length === 0 ?
-        <p className="rounded-xl border border-dashed border-slate-300 py-12 text-center text-sm text-slate-500 dark:border-slate-700">
-          Nenhuma programação encontrada.
+        <p className="py-8 text-center text-xs text-slate-500">Carregando…</p>
+      : donoGroups.length === 0 ?
+        <p className="rounded border border-dashed border-slate-300 py-8 text-center text-xs text-slate-500 dark:border-slate-700">
+          Nenhuma programação.
         </p>
-      : <div className="space-y-4">
-          {grouped.map(([clienteLabel, progs]) => (
+      : <div className="space-y-2">
+          {donoGroups.map((group) => (
             <section
-              key={clienteLabel}
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
+              key={group.key}
+              className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
             >
-              <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-orange-50/40 px-4 py-3 dark:border-slate-800 dark:from-slate-900 dark:to-orange-950/20">
-                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">{clienteLabel}</h2>
-                <p className="text-[10px] text-slate-500">{progs.length} programação(ões)</p>
+              <div
+                className="flex items-center gap-2 border-b border-slate-100 px-2 py-1 dark:border-slate-800"
+                style={{ backgroundColor: `${group.cor}18` }}
+              >
+                <span
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white"
+                  style={{ backgroundColor: group.cor }}
+                >
+                  {group.iniciais}
+                </span>
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{group.nome}</span>
+                <span className="text-[10px] text-slate-500">{group.rows.length} linha(s)</span>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/80 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/50">
-                      <th className="px-4 py-2.5">Programação</th>
-                      <th className="px-3 py-2.5">Dono</th>
-                      <th className="px-3 py-2.5">1 · Criativo entregou</th>
-                      <th className="px-3 py-2.5">2 · Subida fila</th>
-                      <th className="px-3 py-2.5">3 · Atualizado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {progs.map((row) => (
-                      <tr key={row.programacaoId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                        <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
-                          {row.programacaoNome}
-                        </td>
-                        <td className="px-3 py-3">
-                          <DonoChip programacaoId={row.programacaoId} map={donoMap} />
-                        </td>
-                        <td className="px-3 py-3">
-                          <button
-                            type="button"
-                            disabled={savingId === row.programacaoId}
-                            onClick={() => void toggleEntregue(row)}
-                            title={
-                              row.criativoEntregue ?
-                                `${row.criativoEntreguePor} · ${fmtWhen(row.criativoEntregueEm)}`
-                              : "Marcar entrega do criativo"
-                            }
-                            className={
-                              "inline-flex h-9 min-w-[9rem] items-center justify-center gap-2 rounded-lg border-2 px-3 text-xs font-bold transition " +
-                              (row.criativoEntregue ?
-                                "border-amber-400 bg-amber-100 text-amber-900 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200"
-                              : "border-dashed border-slate-300 text-slate-400 hover:border-amber-300 hover:text-amber-700 dark:border-slate-600")
-                            }
+              <table className="w-full table-fixed text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60">
+                    <th className="w-[38%] px-2 py-1">Cliente</th>
+                    <th className="w-[28%] px-2 py-1">Programação</th>
+                    <th className="w-[11%] px-1 py-1 text-center" title="Criativo entregou">
+                      Entregue
+                    </th>
+                    <th className="w-[11%] px-1 py-1 text-center" title="Subida na fila">
+                      Fila
+                    </th>
+                    <th className="w-[12%] px-1 py-1" title="Atualizado">
+                      Fechado
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                  {group.rows.map((row) => (
+                    <tr
+                      key={row.programacaoId}
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                    >
+                      <td className="truncate px-2 py-1 font-medium text-slate-800 dark:text-slate-100">
+                        {row.clienteNome || row.clienteRef}
+                      </td>
+                      <td className="truncate px-2 py-1 text-slate-700 dark:text-slate-200">{row.programacaoNome}</td>
+                      <td className="px-1 py-1 text-center">
+                        <button
+                          type="button"
+                          disabled={savingId === row.programacaoId}
+                          onClick={() => void toggleEntregue(row)}
+                          title={
+                            row.criativoEntregue ?
+                              `${row.criativoEntreguePor} · ${fmtWhen(row.criativoEntregueEm)}`
+                            : "Marcar entrega"
+                          }
+                          className={
+                            "inline-flex h-6 w-6 items-center justify-center rounded border text-[11px] font-bold transition " +
+                            (row.criativoEntregue ?
+                              "border-amber-400 bg-amber-100 text-amber-800 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200"
+                            : "border-slate-300 text-slate-400 hover:border-amber-400 dark:border-slate-600")
+                          }
+                        >
+                          {row.criativoEntregue ? "✓" : ""}
+                        </button>
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        {row.subidaFila ?
+                          <span
+                            className="inline-flex h-6 w-6 items-center justify-center rounded bg-sky-100 text-[11px] font-bold text-sky-700 dark:bg-sky-950 dark:text-sky-200"
+                            title={`${row.subidaFilaPor} · ${fmtWhen(row.subidaFilaEm)}`}
                           >
-                            {row.criativoEntregue ? "✓ Entregue" : "Marcar"}
-                          </button>
-                        </td>
-                        <td className="px-3 py-3">
-                          {row.subidaFila ?
-                            <span
-                              className="inline-flex items-center gap-1 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-200"
-                              title={`${row.subidaFilaPor} · ${fmtWhen(row.subidaFilaEm)}`}
-                            >
-                              ✓ Na fila
-                            </span>
-                          : <span className="text-xs text-slate-400">Aguardando upload</span>}
-                        </td>
-                        <td className="px-3 py-3">
-                          <FechamentoBadges items={row.fechamentos} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                            ✓
+                          </span>
+                        : <span className="inline-block h-6 w-6 text-center leading-6 text-slate-300">·</span>}
+                      </td>
+                      <td className="px-1 py-1">
+                        <FechamentoBadges items={row.fechamentos} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </section>
           ))}
         </div>
