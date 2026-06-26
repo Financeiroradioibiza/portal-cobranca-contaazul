@@ -9,7 +9,7 @@ import { readJsonFromResponse } from "@/lib/safeHttpJson";
 import type { ClientRow } from "@/lib/types";
 
 import { CONTRACTS_REFRESH_BATCH_SIZE } from "@/lib/clientPortalContracts";
-import { composePersistClienteNote } from "@/lib/portalClienteNote";
+import { composePersistClienteNote, formatPortalNoteForDisplay } from "@/lib/portalClienteNote";
 
 type ConnStatus = {
   connected: boolean;
@@ -188,7 +188,8 @@ export function CobrancaDashboard() {
 
           for (const id of ids) {
             const m = mapN[id];
-            lastPersistedNotesRef.current[id] = m?.note ?? "";
+            const noteRaw = m?.note ?? "";
+            lastPersistedNotesRef.current[id] = formatPortalNoteForDisplay(noteRaw);
           }
 
           setClients((prev) =>
@@ -203,7 +204,7 @@ export function CobrancaDashboard() {
                       cached
                     : null
                   : c.activeContractNumbers,
-                note: m?.note ?? c.note,
+                note: formatPortalNoteForDisplay(m?.note ?? c.note),
                 painelBloqueio: m?.painelBloqueio ?? false,
                 painelInativo: m?.painelInativo ?? false,
                 clienteDestaque: m?.clienteDestaque ?? false,
@@ -563,7 +564,8 @@ export function CobrancaDashboard() {
           return false;
         }
         const { note, painelBloqueio, painelInativo } = parsed.data;
-        lastPersistedNotesRef.current[clientId] = note;
+        const noteDisplay = formatPortalNoteForDisplay(note);
+        lastPersistedNotesRef.current[clientId] = noteDisplay;
         dirtyNoteIdsRef.current.delete(clientId);
         setActionMsg(null);
         setClients((prev) =>
@@ -571,7 +573,7 @@ export function CobrancaDashboard() {
             c.id === clientId
               ? {
                   ...c,
-                  note,
+                  note: noteDisplay,
                   painelBloqueio:
                     typeof painelBloqueio === "boolean" ? painelBloqueio : c.painelBloqueio,
                   painelInativo:
@@ -658,13 +660,13 @@ export function CobrancaDashboard() {
           );
           return;
         }
-        lastPersistedNotesRef.current[clientId] = d.note;
+        lastPersistedNotesRef.current[clientId] = formatPortalNoteForDisplay(d.note);
         setClients((prev) =>
           prev.map((c) =>
             c.id === clientId
               ? {
                   ...c,
-                  note: d.note as string,
+                  note: formatPortalNoteForDisplay(d.note as string),
                   painelBloqueio: Boolean(d.painelBloqueio),
                   painelInativo: Boolean(d.painelInativo),
                   clienteDestaque: Boolean(d.clienteDestaque),
@@ -1302,7 +1304,7 @@ export function CobrancaDashboard() {
                             );
                           }}
                           onBlur={(e) => void flushClientNoteDraft(c.id, e.target.value)}
-                          placeholder="Histórico interno. Acrescentou texto desde que clicou no campo? Ao sair, pode ser criada uma linha com data/hora."
+                          placeholder="Histórico interno (mais recente no topo). Escreva o novo contato acima do restante; ao sair, entra com data/hora."
                           className="box-border w-full max-h-24 max-w-full resize-y overflow-y-auto rounded border border-slate-300 bg-inherit px-1.5 py-0.5 text-[0.65rem] leading-tight text-slate-900 placeholder:text-slate-400 dark:border-slate-600 dark:text-slate-100 dark:placeholder:text-slate-500"
                           autoComplete="off"
                           spellCheck="false"
