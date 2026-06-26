@@ -1,6 +1,7 @@
 import type { ProducaoPlayerStatus } from "@prisma/client";
 import { cloud2FetchWithTimeout, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 import { mapPdvCadastroToGatewayFields } from "@/lib/player/pdvGatewayFields";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import {
   formatPortalPdvIdDisplay,
   portalClienteIdFromPdvId,
@@ -103,6 +104,8 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
   });
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
 
+  const rioTagByKey = buildRioTagMapFromBuckets(ctx.buckets);
+
   const clientes: PlayerGatewaySyncPayload["clientes"] = [];
   const pdvs: PlayerGatewaySyncPayload["pdvs"] = [];
 
@@ -149,7 +152,8 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
 
     for (const p of pdvList) {
       const cad = cadastroByKey.get(p.rioPdvId);
-      const gw = mapPdvCadastroToGatewayFields(cad);
+      const linhaTag = bucket.tagCobranca ?? "cobrando";
+      const gw = mapPdvCadastroToGatewayFields(cad, p.tagCobranca, linhaTag);
       const prog = programacaoForPdv(p.rioPdvId);
 
       if (p.isLinhaProxy) {
@@ -196,6 +200,7 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
     loginByClienteId,
     cadastroByKey,
     logoForSync,
+    rioTagByKey,
   });
 
   return { clientes, pdvs };
@@ -233,6 +238,20 @@ function bucketMetaForPortalClienteId(
   return null;
 }
 
+function buildRioTagMapFromBuckets(
+  buckets: MergedProducaoPlayerContext["buckets"],
+): Map<string, RioTagCobranca> {
+  const map = new Map<string, RioTagCobranca>();
+  for (const bucket of buckets) {
+    const linhaTag = bucket.tagCobranca ?? "cobrando";
+    map.set(bucket.rioLinhaId, linhaTag);
+    for (const p of bucket.pdvs) {
+      map.set(p.rioPdvId, p.tagCobranca ?? linhaTag);
+    }
+  }
+  return map;
+}
+
 /** PDVs com ID Player atribuído fora do bucket visível na produção (ex.: removidos do grupo). */
 function appendOrphanPortalPdvsToSyncPayload(params: {
   ctx: MergedProducaoPlayerContext;
@@ -244,8 +263,9 @@ function appendOrphanPortalPdvsToSyncPayload(params: {
   >;
   cadastroByKey: Map<string, CadastroForSync>;
   logoForSync: (portalClienteId: number) => string | null;
+  rioTagByKey: Map<string, RioTagCobranca>;
 }): void {
-  const { ctx, clientes, pdvs, loginByClienteId, cadastroByKey, logoForSync } = params;
+  const { ctx, clientes, pdvs, loginByClienteId, cadastroByKey, logoForSync, rioTagByKey } = params;
   const syncedRioKeys = new Set(
     pdvs.map((p) => p.origemRioPdvId).filter((k): k is string => Boolean(k)),
   );
@@ -262,7 +282,9 @@ function appendOrphanPortalPdvsToSyncPayload(params: {
     const placement = ctx.layout.pdvPlacements.find((p) => p.rioPdvId === rioKey);
     const origemRioLinhaId = placement?.rioLinhaId?.trim() || bucketMeta.origemRioLinhaId;
     const nomePdv = cad?.nome?.trim() || bucketMeta.nome;
-    const gw = mapPdvCadastroToGatewayFields(cad);
+    const pdvTag = rioTagByKey.get(rioKey);
+    const linhaTag = placement?.rioLinhaId ? rioTagByKey.get(placement.rioLinhaId) : undefined;
+    const gw = mapPdvCadastroToGatewayFields(cad, pdvTag, linhaTag);
     const prog =
       cad?.programacaoId != null
         ? {

@@ -8,7 +8,15 @@ import {
   FilaBrowserGuidanceOverview,
 } from "@/components/criacao/FilaBrowserGuidance";
 
-type Cliente = { ref: string; nome: string; pdvCount: number };
+import {
+  CriacaoClienteNomeComTag,
+  criacaoClienteRowClass,
+  type CriacaoClienteRow,
+} from "@/components/criacao/CriacaoClienteTag";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import { rioTagCobrancaRowBgClass } from "@/lib/rio/rioTagCobranca";
+
+type Cliente = CriacaoClienteRow & { pdvCount: number; tagCobranca?: RioTagCobranca };
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
 type ArvoreProg = { id: string; nome: string; pastas: ArvorePasta[] };
 type PickedFile = { nome: string; sizeBytes: number; file: File };
@@ -23,6 +31,8 @@ type UploadLote = {
   arvore: ArvoreProg[];
   progSel: string;
   pastaSel: string;
+  tagCriativoUserId: string;
+  tagCriativoIniciais: string;
   uploadTag: string;
   files: PickedFile[];
 };
@@ -36,6 +46,8 @@ function newLote(): UploadLote {
     arvore: [],
     progSel: "",
     pastaSel: "",
+    tagCriativoUserId: "",
+    tagCriativoIniciais: "",
     uploadTag: "",
     files: [],
   };
@@ -62,8 +74,6 @@ function loteLabel(l: UploadLote): string {
 export function UploadPanel() {
   const router = useRouter();
   const [titulo, setTitulo] = useState("");
-  const [tagCriativoUserId, setTagCriativoUserId] = useState("");
-  const [tagCriativoIniciais, setTagCriativoIniciais] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [lotes, setLotes] = useState<UploadLote[]>(() => [newLote()]);
   const [submitting, setSubmitting] = useState(false);
@@ -155,7 +165,6 @@ export function UploadPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           titulo: titulo.trim() || undefined,
-          tagCriativoUserId: tagCriativoUserId || undefined,
           lotes: lotesComArquivos.map((l, i) => ({
             titulo:
               titulo.trim() ||
@@ -169,7 +178,8 @@ export function UploadPanel() {
             clienteNome: l.clienteSel?.nome,
             programacaoId: l.progSel || undefined,
             pastaId: l.pastaSel || undefined,
-            uploadTagNome: (l.uploadTag.trim() || undefined),
+            uploadTagNome: l.uploadTag.trim() || undefined,
+            tagCriativoUserId: l.tagCriativoUserId || undefined,
             arquivos: l.files.map((f) => ({ nome: f.nome, sizeBytes: f.sizeBytes })),
           })),
         }),
@@ -259,8 +269,8 @@ export function UploadPanel() {
         <FilaBrowserGuidance phase={submitting ? "upload-enviando" : "upload-preparando"} />
       </div>
 
-      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <label className="text-sm sm:col-span-2">
+      <div className="mb-5">
+        <label className="block text-sm">
           <span className="mb-1 block text-xs font-semibold text-slate-500">Título geral do envio (opcional)</span>
           <input
             value={titulo}
@@ -269,11 +279,6 @@ export function UploadPanel() {
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
           />
         </label>
-        <CriativoTagSelect
-          value={tagCriativoUserId}
-          onChange={setTagCriativoUserId}
-          onSelected={(c) => setTagCriativoIniciais(c?.tagIniciais ?? "")}
-        />
       </div>
 
       <div className="space-y-4">
@@ -283,7 +288,6 @@ export function UploadPanel() {
             index={idx}
             lote={lote}
             clientes={clientes}
-            tagCriativoIniciais={tagCriativoIniciais}
             canRemove={lotes.length > 1}
             onUpdate={(patch) => updateLote(lote.id, patch)}
             onRemove={() => setLotes((prev) => prev.filter((l) => l.id !== lote.id))}
@@ -338,7 +342,6 @@ function LoteCard({
   index,
   lote,
   clientes,
-  tagCriativoIniciais,
   canRemove,
   onUpdate,
   onRemove,
@@ -350,7 +353,6 @@ function LoteCard({
   index: number;
   lote: UploadLote;
   clientes: Cliente[];
-  tagCriativoIniciais: string;
   canRemove: boolean;
   onUpdate: (patch: Partial<UploadLote>) => void;
   onRemove: () => void;
@@ -415,18 +417,35 @@ function LoteCard({
       </div>
 
       {lote.destinoTipo === "biblioteca" ?
-        <TagCriativaField
-          value={lote.uploadTag}
-          tagCriativoIniciais={tagCriativoIniciais}
-          onChange={(v) => onUpdate({ uploadTag: v })}
-          hint="As faixas entram só na biblioteca com esta tag."
-        />
+        <div className="mb-3 space-y-0">
+          <CriativoTagSelect
+            value={lote.tagCriativoUserId}
+            onChange={(v) => onUpdate({ tagCriativoUserId: v })}
+            onSelected={(c) => onUpdate({ tagCriativoIniciais: c?.tagIniciais ?? "" })}
+            help="Quem define iniciais e cor da tag neste lote."
+          />
+          <TagCriativaField
+            value={lote.uploadTag}
+            tagCriativoIniciais={lote.tagCriativoIniciais}
+            onChange={(v) => onUpdate({ uploadTag: v })}
+            hint="As faixas entram só na biblioteca com esta tag."
+          />
+        </div>
       : <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="text-sm sm:col-span-2">
             <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente</span>
             {lote.clienteSel ?
-              <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
-                <span className="truncate text-sm font-medium">{lote.clienteSel.nome}</span>
+              <div
+                className={
+                  "flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700 " +
+                  rioTagCobrancaRowBgClass(lote.clienteSel.tagCobranca)
+                }
+              >
+                <CriacaoClienteNomeComTag
+                  nome={lote.clienteSel.nome}
+                  tagCobranca={lote.clienteSel.tagCobranca}
+                  className="truncate text-sm font-medium"
+                />
                 <button type="button" onClick={onClearCliente} className="text-xs text-slate-400 hover:text-slate-600">
                   trocar
                 </button>
@@ -445,9 +464,16 @@ function LoteCard({
                         type="button"
                         key={c.ref}
                         onClick={() => onPickCliente(c)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+                        className={
+                          "flex w-full items-center justify-between px-3 py-2 text-left " +
+                          criacaoClienteRowClass(c.tagCobranca, false)
+                        }
                       >
-                        <span className="truncate">{c.nome}</span>
+                        <CriacaoClienteNomeComTag
+                          nome={c.nome}
+                          tagCobranca={c.tagCobranca}
+                          className="truncate"
+                        />
                         <span className="ml-2 shrink-0 text-xs text-slate-400">{c.pdvCount} PDV</span>
                       </button>
                     ))}
@@ -490,10 +516,16 @@ function LoteCard({
               </label>
             </>
           : null}
-          <div className="sm:col-span-2">
+          <div className="sm:col-span-2 space-y-0">
+            <CriativoTagSelect
+              value={lote.tagCriativoUserId}
+              onChange={(v) => onUpdate({ tagCriativoUserId: v })}
+              onSelected={(c) => onUpdate({ tagCriativoIniciais: c?.tagIniciais ?? "" })}
+              help="Quem define iniciais e cor da tag neste lote (pode ser diferente em cada pasta)."
+            />
             <TagCriativaField
               value={lote.uploadTag}
-              tagCriativoIniciais={tagCriativoIniciais}
+              tagCriativoIniciais={lote.tagCriativoIniciais}
               onChange={(v) => onUpdate({ uploadTag: v })}
               hint="Obrigatória — após processar, as faixas vão para a pasta do cliente e para a biblioteca com esta tag."
             />

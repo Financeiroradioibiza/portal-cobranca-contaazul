@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { deleteRioCompPdv, patchRioCompPdv } from "@/lib/rio/rioClienteCompService";
 import { normalizeRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { prisma } from "@/lib/prisma";
+import {
+  syncPlayerGatewayAfterRioLinhaTagChange,
+  syncPlayerGatewayAfterRioPdvTagChange,
+} from "@/lib/player/rioTagPlayerGatewaySync";
 
 type Ctx = { params: Promise<{ pdvId: string }> };
 
@@ -47,6 +51,9 @@ export async function PATCH(request: Request, context: Ctx) {
   }
 
   await patchRioCompPdv(pdvId, data);
+  if ("tagCobranca" in body) {
+    void syncPlayerGatewayAfterRioPdvTagChange(pdvId);
+  }
   const pdv = await prisma.rioCompPdv.findUniqueOrThrow({ where: { id: pdvId } });
   return NextResponse.json({ ok: true, pdv });
 }

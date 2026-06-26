@@ -7,7 +7,14 @@ import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls"
 import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
 import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vinhetaUploadClient";
 
-type Cliente = { ref: string; nome: string; pdvCount: number };
+import {
+  CriacaoClienteNomeComTag,
+  criacaoClienteRowClass,
+  type CriacaoClienteRow,
+} from "@/components/criacao/CriacaoClienteTag";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+
+type Cliente = CriacaoClienteRow & { pdvCount: number; tagCobranca?: RioTagCobranca };
 
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
 type ArvoreVinheta = {
@@ -272,16 +279,14 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                       onClick={() => setClienteSel(c)}
                       className={
                         "flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-left text-sm transition dark:border-slate-800 " +
-                        (on ?
-                          "bg-amber-100/80 font-semibold text-amber-950 dark:bg-amber-950/40 dark:text-amber-100"
-                        : "hover:bg-white/80 dark:hover:bg-slate-800/50")
+                        criacaoClienteRowClass(c.tagCobranca, on)
                       }
                     >
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold text-white dark:bg-slate-700">
                         {c.nome.slice(0, 1).toUpperCase()}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate">{c.nome}</span>
+                        <CriacaoClienteNomeComTag nome={c.nome} tagCobranca={c.tagCobranca} />
                         <span className="text-[10px] text-slate-500">{c.pdvCount} PDV</span>
                       </span>
                     </button>
@@ -312,7 +317,10 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-800 dark:bg-slate-800/80">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
-                    {clienteSel.nome}
+                    <CriacaoClienteNomeComTag
+                      nome={clienteSel.nome}
+                      tagCobranca={clienteSel.tagCobranca}
+                    />
                   </div>
                   <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-slate-600 dark:text-slate-400">
                     <span>{stats.progs} prog.</span>

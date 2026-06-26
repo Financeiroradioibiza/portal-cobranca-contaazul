@@ -9,6 +9,7 @@ import { normalizeRioOrigemCliente } from "@/lib/rio/rioOrigemCliente";
 import { normalizeRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
+import { syncPlayerGatewayAfterRioLinhaTagChange } from "@/lib/player/rioTagPlayerGatewaySync";
 
 type Ctx = { params: Promise<{ ym: string; linhaId: string }> };
 
@@ -109,6 +110,9 @@ export async function PATCH(request: Request, context: Ctx) {
   }
 
   await patchRioCompClienteLinha(linha.id, patch);
+  if ("tagCobranca" in body) {
+    void syncPlayerGatewayAfterRioLinhaTagChange(linha.id);
+  }
   const raw = await prisma.rioCompClienteLinha.findUniqueOrThrow({
     where: { id: linha.id },
     include: {

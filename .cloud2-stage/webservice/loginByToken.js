@@ -11,7 +11,7 @@ export async function registerLoginByTokenRoutes(app, prefix) {
     }
 
     const row = await loadSessionByToken(token);
-    if (!row || row.pdv_status === 'I') {
+    if (!row) {
       return reply.send({ mensagem: 'token_invalido' });
     }
 

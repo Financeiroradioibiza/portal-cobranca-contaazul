@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       ref: c.key,
       nome: c.nome,
       pdvCount: c.pdvCount,
+      tagCobranca: c.tagCobranca ?? "cobrando",
     }));
 
     if (q) {

@@ -1,6 +1,32 @@
 import { getPool } from '../../db/pool.js';
 import { loadSessionByToken } from './loginByToken.js';
 
+function buildPingPdvPayload(row) {
+  const serialInstalacao = String(row.serial_instalacao ?? '').trim();
+  return {
+    id: row.pdv_id,
+    nome: row.pdv_nome,
+    status: row.pdv_status ?? 'A',
+    atualizacao_pendente: row.atualizacao_pendente ?? 'N',
+    atualizacao_pendente_agenda: row.atualizacao_pendente_agenda ?? 'N',
+    ctrl_player: row.ctrl_player ?? 'N',
+    ctrl_placa_carro: row.ctrl_placa_carro ?? 'N',
+    ctrl_playlists: row.ctrl_playlists ?? 'N',
+    ...(serialInstalacao ? { serial_instalacao: serialInstalacao } : {}),
+    ...(String(row.nome_completo_contato_extra ?? '').trim() ?
+      { nome_completo_contato_extra: String(row.nome_completo_contato_extra).trim() }
+    : {}),
+  };
+}
+
+function buildPingClientePayload(row) {
+  return {
+    id: row.cliente_id,
+    nome: row.cliente_nome,
+    status: row.cliente_status ?? 'A',
+  };
+}
+
 /** GET /api/ping/ — heartbeat Player 5; devolve flags e atualizacao_pendente. */
 export async function registerPingRoutes(app, prefix) {
   app.get(`${prefix}/ping/`, async (req, reply) => {
@@ -10,8 +36,17 @@ export async function registerPingRoutes(app, prefix) {
     }
 
     const row = await loadSessionByToken(token);
-    if (!row || row.pdv_status === 'I') {
+    if (!row) {
       return reply.send({ mensagem: 'token_invalido' });
+    }
+
+    /** Cancelado / bloqueio financeiro / inativo no cadastro — informa status I sem deslogar. */
+    if (row.pdv_status === 'I') {
+      return reply.send({
+        pdv: buildPingPdvPayload({ ...row, pdv_status: 'I' }),
+        cliente: buildPingClientePayload(row),
+        mensagem: 'pdv_bloqueado',
+      });
     }
 
     const pool = getPool();
@@ -45,27 +80,9 @@ export async function registerPingRoutes(app, prefix) {
       row.atualizacao_pendente = 'N';
     }
 
-    const serialInstalacao = String(row.serial_instalacao ?? '').trim();
     return reply.send({
-      pdv: {
-        id: row.pdv_id,
-        nome: row.pdv_nome,
-        status: row.pdv_status,
-        atualizacao_pendente: row.atualizacao_pendente ?? 'N',
-        atualizacao_pendente_agenda: row.atualizacao_pendente_agenda ?? 'N',
-        ctrl_player: row.ctrl_player ?? 'N',
-        ctrl_placa_carro: row.ctrl_placa_carro ?? 'N',
-        ctrl_playlists: row.ctrl_playlists ?? 'N',
-        ...(serialInstalacao ? { serial_instalacao: serialInstalacao } : {}),
-        ...(String(row.nome_completo_contato_extra ?? '').trim() ?
-          { nome_completo_contato_extra: String(row.nome_completo_contato_extra).trim() }
-        : {}),
-      },
-      cliente: {
-        id: row.cliente_id,
-        nome: row.cliente_nome,
-        status: row.cliente_status ?? 'A',
-      },
+      pdv: buildPingPdvPayload(row),
+      cliente: buildPingClientePayload(row),
       mensagem: 'ping_salvo',
     });
   });

@@ -17,6 +17,7 @@ type LoteBody = {
   clienteRef?: string;
   clienteNome?: string;
   uploadTagNome?: string;
+  tagCriativoUserId?: string;
   programacaoId?: string;
   pastaId?: string;
   arquivos?: UploadArquivo[];
@@ -54,9 +55,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ingest_desabilitado" }, { status: 503 });
     }
 
-    const tagCriativo = await resolveTagCriativoUser(body.tagCriativoUserId, session.email);
-    const criativoNome = session.displayName ?? session.email;
-    const criativoUserId = tagCriativo.email;
+    const tagCriativoDefault = await resolveTagCriativoUser(body.tagCriativoUserId, session.email);
+    const uploaderNome = session.displayName ?? session.email;
 
     const rawLotes = Array.isArray(body.lotes) && body.lotes.length > 0 ? body.lotes : null;
 
@@ -66,6 +66,10 @@ export async function POST(request: Request) {
         const arquivos = Array.isArray(l.arquivos) ? l.arquivos.filter((a) => a?.nome?.trim()) : [];
         if (arquivos.length === 0) continue;
         const destinoTipo = l.destinoTipo === "biblioteca" ? "biblioteca" : "pasta";
+        const tagCriativo = await resolveTagCriativoUser(
+          l.tagCriativoUserId ?? body.tagCriativoUserId,
+          session.email,
+        );
         lotes.push({
           titulo: (l.titulo || body.titulo || "Upload").slice(0, 200),
           destinoTipo,
@@ -74,8 +78,8 @@ export async function POST(request: Request) {
           programacaoId: destinoTipo === "pasta" ? l.programacaoId : undefined,
           pastaId: destinoTipo === "pasta" ? l.pastaId : undefined,
           uploadTagNome: (l.uploadTagNome || body.uploadTagNome || "").trim() || undefined,
-          criativoUserId,
-          criativoNome,
+          criativoUserId: tagCriativo.email,
+          criativoNome: tagCriativo.displayName,
           arquivos,
         });
       }
@@ -83,7 +87,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "no_files" }, { status: 400 });
       }
 
-      const jobs = await createUploadJobsBatch(lotes, { criativoNome, criativoUserId });
+      const jobs = await createUploadJobsBatch(lotes, {
+        criativoNome: uploaderNome,
+        criativoUserId: tagCriativoDefault.email,
+      });
       return NextResponse.json({
         ok: true,
         ingestUrl: CRIACAO_INGEST_URL,
@@ -100,6 +107,10 @@ export async function POST(request: Request) {
     if (arquivos.length === 0) {
       return NextResponse.json({ error: "no_files" }, { status: 400 });
     }
+
+    const tagCriativo = await resolveTagCriativoUser(body.tagCriativoUserId, session.email);
+    const criativoNome = tagCriativo.displayName;
+    const criativoUserId = tagCriativo.email;
 
     const job = await createUploadJob({
       titulo: body.titulo ?? "",

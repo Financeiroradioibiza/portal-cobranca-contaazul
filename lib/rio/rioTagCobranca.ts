@@ -34,6 +34,12 @@ export function effectiveRioTagCobranca(
   return lt;
 }
 
+/** Tag Rio que deve inativar o PDV no gateway (Player para ao pingar). */
+export function rioTagCobrancaBloqueiaPlayer(tag: RioTagCobranca | null | undefined): boolean {
+  const t = normalizeRioTagCobranca(tag);
+  return t === "cancelado" || t === "bloqueio_financeiro";
+}
+
 export function rioTagCobrancaRowBgClass(tag: RioTagCobranca | null | undefined): string {
   if (tag === "cancelado") {
     return "border-red-300/60 bg-red-50/90 dark:border-red-900/50 dark:bg-red-950/35";
