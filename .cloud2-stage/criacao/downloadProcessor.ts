@@ -1,6 +1,5 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { criacaoConfig } from './config.js';
 import { portalQuery } from './portalDb.js';
 import {
   downloadStagingKey,
@@ -104,7 +103,7 @@ async function completeItem(
   await refreshJobCounters(jobId);
 }
 
-async function authHeaders(token: string): Record<string, string> {
+function authHeaders(token: string): Record<string, string> {
   const h: Record<string, string> = { Accept: 'application/json' };
   if (token) h.Authorization = `Bearer ${token}`;
   return h;
@@ -132,7 +131,7 @@ async function downloadSpotizerr(item: PendingItem, cfg: DownloadEnv): Promise<v
   if (!downloadUrl) {
     const searchRes = await fetch(
       `${cfg.spotizerrUrl}/api/search/?q=${encodeURIComponent(item.linha_original)}&type=track&limit=1`,
-      { headers: await authHeaders(cfg.spotizerrToken) },
+      { headers: authHeaders(cfg.spotizerrToken) },
     );
     if (!searchRes.ok) {
       await failItem(item.id, item.job_id, `Spotizerr busca falhou (${searchRes.status})`);
@@ -147,7 +146,7 @@ async function downloadSpotizerr(item: PendingItem, cfg: DownloadEnv): Promise<v
     downloadUrl = `${cfg.spotizerrUrl}/api/track/download/${first.id}`;
   }
 
-  const res = await fetch(downloadUrl, { headers: await authHeaders(cfg.spotizerrToken) });
+  const res = await fetch(downloadUrl, { headers: authHeaders(cfg.spotizerrToken) });
   if (!res.ok) {
     await failItem(item.id, item.job_id, `Spotizerr download falhou (${res.status})`);
     return;
