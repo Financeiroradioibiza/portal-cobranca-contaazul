@@ -50,6 +50,45 @@ type WaveformBarsProps = {
 
 type DragMode = "trim-start" | "trim-end" | "mix" | "region-start" | "region-end" | null;
 
+/** Badges no canto da waveform: trim salvo/aplicado e ponto de mix manual. */
+export function WaveformEditBadges({
+  hasTrim,
+  hasManualMix,
+  className = "",
+}: {
+  hasTrim: boolean;
+  hasManualMix: boolean;
+  className?: string;
+}) {
+  if (!hasTrim && !hasManualMix) return null;
+  return (
+    <div
+      className={
+        "pointer-events-none absolute left-1 top-1 z-30 flex flex-wrap gap-0.5 " + className
+      }
+    >
+      {hasTrim ?
+        <span
+          className="rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide text-yellow-950 shadow-sm"
+          style={{ backgroundColor: "#facc15" }}
+          title="Trim aplicado (corte início ou fim)"
+        >
+          TRIM
+        </span>
+      : null}
+      {hasManualMix ?
+        <span
+          className="rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide text-white shadow-sm"
+          style={{ backgroundColor: "#f97316" }}
+          title="Ponto de mix ajustado manualmente"
+        >
+          PMIX
+        </span>
+      : null}
+    </div>
+  );
+}
+
 function pctFromSec(sec: number, durationSec: number): number {
   if (durationSec <= 0) return 0;
   return Math.min(100, Math.max(0, (sec / durationSec) * 100));

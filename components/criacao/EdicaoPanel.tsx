@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 import { MIX_PADRAO_SEGUNDOS } from "@/lib/criacao/criacaoDefaults";
-import { LazyWaveformBars, WaveformBars } from "@/components/criacao/waveform/WaveformBars";
+import { LazyWaveformBars, WaveformBars, WaveformEditBadges } from "@/components/criacao/waveform/WaveformBars";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
@@ -218,6 +218,7 @@ export function EdicaoPanel() {
               {faixas.map((f) => {
                 const active = sel?.id === f.id;
                 const hasTrim = f.trimInicioMs > 0 || f.trimFimMs > 0;
+                const hasManualMix = !f.mixAuto;
                 return (
                   <li key={f.id}>
                     <div
@@ -235,7 +236,10 @@ export function EdicaoPanel() {
                         (active ? "bg-slate-800/80 ring-1 ring-inset ring-amber-500/40" : "hover:bg-slate-900/60")
                       }
                     >
-                      <LazyWaveformBars previewUrl={f.previewUrl} height={44} barCount={120} barColor="rgba(255,255,255,0.7)" />
+                      <div className="relative min-w-0">
+                        <LazyWaveformBars previewUrl={f.previewUrl} height={44} barCount={120} barColor="rgba(255,255,255,0.7)" />
+                        <WaveformEditBadges hasTrim={hasTrim} hasManualMix={hasManualMix} />
+                      </div>
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-100">{f.titulo || "(sem título)"}</div>
                         <div className="truncate text-xs text-slate-400">
@@ -422,25 +426,31 @@ function FaixaEditor({
       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
         Clique para posicionar o play · arraste as linhas âmbar para trim · verde = mix · cinza = será cortado
       </div>
-      <WaveformBars
-        previewUrl={faixa.previewUrl}
-        height={88}
-        barCount={180}
-        interactive
-        playheadPct={pct(cur)}
-        overlays={overlays}
-        trimEdit={{
-          durationSec: durSec,
-          trimStartSec: trimIni,
-          trimEndSec: trimFim,
-          mixSec: mix,
-          onTrimStart: (s) => setTrimIni(Math.max(0, s)),
-          onTrimEnd: (s) => setTrimFim(Math.max(0, s)),
-          onMix: (s) => setMix(s),
-        }}
-        onSeek={(ratio) => seekTo(ratio, true)}
-        className="mb-2 w-full"
-      />
+      <div className="relative mb-2 w-full">
+        <WaveformBars
+          previewUrl={faixa.previewUrl}
+          height={88}
+          barCount={180}
+          interactive
+          playheadPct={pct(cur)}
+          overlays={overlays}
+          trimEdit={{
+            durationSec: durSec,
+            trimStartSec: trimIni,
+            trimEndSec: trimFim,
+            mixSec: mix,
+            onTrimStart: (s) => setTrimIni(Math.max(0, s)),
+            onTrimEnd: (s) => setTrimFim(Math.max(0, s)),
+            onMix: (s) => setMix(s),
+          }}
+          onSeek={(ratio) => seekTo(ratio, true)}
+          className="w-full"
+        />
+        <WaveformEditBadges
+          hasTrim={faixa.trimInicioMs > 0 || faixa.trimFimMs > 0 || trimIni > 0 || trimFim > 0}
+          hasManualMix={!faixa.mixAuto}
+        />
+      </div>
       <div className="mb-4 flex items-center justify-between text-[10px] text-slate-400">
         <span>{fmt(cur)}</span>
         <span>trecho útil: {fmt(efetivoInicio)} – {fmt(efetivoFim)}</span>
