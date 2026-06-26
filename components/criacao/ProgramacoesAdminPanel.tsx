@@ -14,6 +14,7 @@ import {
 } from "@/components/criacao/CriacaoClienteTag";
 import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
 import { ProgramacaoDonoInlineSelect } from "@/components/criacao/ProgramacaoDonoInlineSelect";
+import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
@@ -68,11 +69,13 @@ function progEncerrada(prog: Pick<ArvoreProg, "publicada" | "atualizacaoAberta">
 }
 
 export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (programacaoId: string) => void }) {
+  const { map, assignDono, removeDono } = useProgramacaoDonoMap();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [criativos, setCriativos] = useState<
     Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>
   >([]);
   const [loadingCriativos, setLoadingCriativos] = useState(true);
+  const [criativosErro, setCriativosErro] = useState<string | null>(null);
   const [clienteBusca, setClienteBusca] = useState("");
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null);
   const [arvore, setArvore] = useState<ArvoreProg[]>([]);
@@ -96,14 +99,22 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
 
   useEffect(() => {
     fetch("/api/criacao/criativos")
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (!r.ok) {
+          setCriativosErro("Não foi possível carregar a lista de criativos.");
+          return null;
+        }
+        return r.json();
+      })
       .then((d) => {
         if (d?.criativos) {
           setCriativos(
             d.criativos as Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>,
           );
+          setCriativosErro(null);
         }
       })
+      .catch(() => setCriativosErro("Não foi possível carregar a lista de criativos."))
       .finally(() => setLoadingCriativos(false));
   }, []);
 
@@ -359,6 +370,12 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                 </button>
               </div>
 
+              {criativosErro ?
+                <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                  {criativosErro} O seletor <strong>Dono</strong> fica desabilitado até a lista carregar.
+                </div>
+              : null}
+
               {showNovaProg ?
                 <NovaProgramacaoInline
                   cliente={clienteSel}
@@ -419,6 +436,9 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                               programacaoId={prog.id}
                               criativos={criativos}
                               loading={loadingCriativos}
+                              dono={map[prog.id] ?? null}
+                              onAssign={(criativo) => assignDono(prog.id, criativo)}
+                              onClear={() => removeDono(prog.id)}
                             />
                           </div>
                           <div className="mt-1 flex flex-wrap gap-1">
