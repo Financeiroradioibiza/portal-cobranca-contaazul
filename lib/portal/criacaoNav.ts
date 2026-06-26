@@ -3,6 +3,7 @@ export const CRIACAO_SIDEBAR = [
   { href: "/criacao/programacoes", label: "Programações", icon: "🎼" },
   { href: "/criacao/biblioteca", label: "Biblioteca musical", icon: "🎵" },
   { href: "/criacao/upload", label: "Upload", icon: "⬆️" },
+  { href: "/criacao/download", label: "Download link", icon: "🔗" },
   { href: "/criacao/fila", label: "Fila de processamento", icon: "⏳" },
   { href: "/criacao/edicao", label: "Edição de música", icon: "✂️" },
   { href: "/criacao/wizard", label: "Wizard IA", icon: "✨" },

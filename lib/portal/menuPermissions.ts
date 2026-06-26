@@ -42,6 +42,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "programacoes", label: "Programações" },
       { id: "biblioteca", label: "Biblioteca musical" },
       { id: "upload", label: "Upload" },
+      { id: "download", label: "Download link" },
       { id: "fila", label: "Fila de processamento" },
       { id: "edicao", label: "Edição de música" },
       { id: "vinhetas", label: "Vinhetas" },

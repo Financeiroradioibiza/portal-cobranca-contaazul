@@ -15,7 +15,7 @@ function pathDentroDe(baseDir: string, rel: string): string | null {
 }
 
 export function ensureStorageDirs(): void {
-  for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta']) {
+  for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta', 'download-staging']) {
     fs.mkdirSync(path.join(root(), sub), { recursive: true });
   }
 }
@@ -27,6 +27,20 @@ export function uploadPath(itemId: string): string {
 
 export function uploadKey(itemId: string): string {
   return `upload:${itemId}.mp3`;
+}
+
+/** MP3 baixado por Spotizerr/Deemix/YouTube antes do upload manual. */
+export function downloadStagingPath(itemId: string): string {
+  return path.join(root(), 'download-staging', `${itemId}.mp3`);
+}
+
+export function downloadStagingKey(itemId: string): string {
+  return `download-staging:${itemId}.mp3`;
+}
+
+export function downloadStagingRelFromKey(key: string): string | null {
+  if (!key.startsWith('download-staging:')) return null;
+  return key.slice('download-staging:'.length);
 }
 
 /** Diretório temporário por item (wav/mp3 intermediários). */

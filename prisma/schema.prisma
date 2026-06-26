@@ -1112,3 +1112,71 @@ model MusicaRejeicao {
   @@index([clienteRef])
   @@map("musica_rejeicao")
 }
+
+enum DownloadProvider {
+  spotizerr
+  deemix
+  youtube
+}
+
+enum DownloadJobStatus {
+  aguardando
+  processando
+  concluido
+  erro
+  cancelado
+}
+
+enum DownloadItemStatus {
+  aguardando
+  processando
+  concluido
+  erro
+}
+
+/// Lote de downloads (Spotizerr / Deemix / YouTube) antes do upload.
+model DownloadJob {
+  id             String             @id @default(cuid())
+  provider       DownloadProvider
+  status         DownloadJobStatus  @default(aguardando)
+  titulo         String             @default("") @db.VarChar(200)
+  criativoNome   String             @default("") @map("criativo_nome") @db.VarChar(120)
+  criativoUserId String?            @map("criativo_user_id") @db.VarChar(200)
+  totalItens     Int                @default(0) @map("total_itens")
+  itensFeitos    Int                @default(0) @map("itens_feitos")
+  erroMsg        String             @default("") @map("erro_msg") @db.Text
+  startedAt      DateTime?          @map("started_at")
+  finishedAt     DateTime?          @map("finished_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  itens DownloadItem[]
+
+  @@index([provider, status, createdAt])
+  @@map("download_job")
+}
+
+model DownloadItem {
+  id             String             @id @default(cuid())
+  jobId          String             @map("job_id")
+  linhaOriginal  String             @default("") @map("linha_original") @db.Text
+  /// url | texto
+  inputTipo      String             @default("texto") @map("input_tipo") @db.VarChar(16)
+  status         DownloadItemStatus @default(aguardando)
+  arquivoNome    String             @default("") @map("arquivo_nome") @db.VarChar(500)
+  titulo         String             @default("") @db.VarChar(500)
+  artista        String             @default("") @db.VarChar(500)
+  /// Chave relativa no disco cloud2 (download-staging:…)
+  storageKey     String?            @map("storage_key") @db.VarChar(300)
+  sizeBytes      Int?               @map("size_bytes")
+  providerRef    String             @default("") @map("provider_ref") @db.VarChar(200)
+  erroMsg        String             @default("") @map("erro_msg") @db.Text
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  job DownloadJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, status])
+  @@index([status, createdAt])
+  @@map("download_item")
+}
