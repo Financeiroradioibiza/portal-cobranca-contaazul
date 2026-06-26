@@ -12,8 +12,8 @@ const PAGE_LABELS: Record<string, string> = {
   "/financeiro/visao-geral": "Acessou Financeiro — visão geral",
   "/financeiro/cobranca-aberta": "Acessou Financeiro — cobrança aberta",
   "/financeiro/consulta-painel": "Acessou Financeiro — consulta painel",
-  "/financeiro/envios-oc": "Acessou Financeiro — envios manuais",
-  "/financeiro/manual": "Acessou Financeiro — envios manuais",
+  "/financeiro/envios-oc": "Acessou Financeiro — envios OC",
+  "/financeiro/manual": "Acessou Financeiro — envios OC",
   "/config/usuarios": "Acessou Configuração — usuários",
   "/config/logs": "Acessou Configuração — logs",
 };

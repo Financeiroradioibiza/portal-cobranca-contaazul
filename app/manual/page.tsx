@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { ENVIOS_MANUAIS_EXTERNAL_URL } from "@/lib/portal/financeiroNav";
 
+/** Atalho legado — envios OC ficam no portal. */
 export default function ManualLegacyPage() {
-  redirect(ENVIOS_MANUAIS_EXTERNAL_URL);
+  redirect("/financeiro/envios-oc");
 }

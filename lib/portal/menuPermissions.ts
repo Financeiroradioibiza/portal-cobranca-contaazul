@@ -8,7 +8,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "visao-geral", label: "Visão geral" },
       { id: "planilha-rio", label: "Planilha Rio" },
       { id: "vencidos", label: "Vencidos" },
-      { id: "envios-oc", label: "Envios manuais" },
+      { id: "envios-oc", label: "Envios OC" },
       { id: "consulta-painel", label: "Consulta painel" },
     ],
   },
