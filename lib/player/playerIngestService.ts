@@ -341,10 +341,78 @@ export const LOJA_CADASTRO_FIELDS = [
 export type LojaCadastroField = (typeof LOJA_CADASTRO_FIELDS)[number];
 
 export const LOJA_FIELD_LABELS: Record<LojaCadastroField, string> = {
-  contatoLojaNome: "Nome do gerente da loja",
-  contatoLojaTelefone: "WhatsApp da loja",
-  contatoLojaEmail: "E-mail da loja",
+  contatoLojaNome: "Nome contato loja",
+  contatoLojaTelefone: "WhatsApp loja",
+  contatoLojaEmail: "E-mail loja",
 };
+
+export type CadastroSecao = "loja" | "financeiro";
+
+export const COBRANCA_CADASTRO_FIELDS = [
+  "contatoCobrancaNome",
+  "contatoCobrancaEmail",
+  "contatoCobrancaTelefone",
+] as const;
+
+export type CobrancaCadastroField = (typeof COBRANCA_CADASTRO_FIELDS)[number];
+
+export const COBRANCA_FIELD_LABELS: Record<CobrancaCadastroField, string> = {
+  contatoCobrancaNome: "Nome responsável cobrança",
+  contatoCobrancaEmail: "E-mail responsável cobrança",
+  contatoCobrancaTelefone: "Telefone responsável cobrança",
+};
+
+const COBRANCA_PAYLOAD_ALIASES: Record<string, CobrancaCadastroField> = {
+  contatoCobrancaNome: "contatoCobrancaNome",
+  contato_cobranca_nome: "contatoCobrancaNome",
+  nome_responsavel_cobranca: "contatoCobrancaNome",
+  responsavelCobrancaNome: "contatoCobrancaNome",
+  contatoCobrancaEmail: "contatoCobrancaEmail",
+  contato_cobranca_email: "contatoCobrancaEmail",
+  email_responsavel_cobranca: "contatoCobrancaEmail",
+  responsavelCobrancaEmail: "contatoCobrancaEmail",
+  contatoCobrancaTelefone: "contatoCobrancaTelefone",
+  contato_cobranca_telefone: "contatoCobrancaTelefone",
+  telefone_responsavel_cobranca: "contatoCobrancaTelefone",
+  responsavelCobrancaTelefone: "contatoCobrancaTelefone",
+};
+
+export function resolveCadastroSecao(payload: Record<string, unknown>): CadastroSecao {
+  const raw = payload.secao ?? payload.variante ?? payload.tipo_cadastro;
+  if (raw === "financeiro" || raw === "cobranca") return "financeiro";
+  if (raw === "loja") return "loja";
+  const fin = extractFinanceiroCadastroFromPayload(payload);
+  const loja = extractLojaCadastroFromPayload(payload);
+  if (Object.keys(fin).length > 0 && Object.keys(loja).length === 0) return "financeiro";
+  return "loja";
+}
+
+export function extractFinanceiroCadastroFromPayload(
+  payload: Record<string, unknown>,
+): Partial<Record<CobrancaCadastroField, string>> {
+  const patch: Partial<Record<CobrancaCadastroField, string>> = {};
+  for (const [srcKey, dbKey] of Object.entries(COBRANCA_PAYLOAD_ALIASES)) {
+    const v = payload[srcKey];
+    if (typeof v !== "string" || !v.trim()) continue;
+    patch[dbKey] = v.trim();
+  }
+  return patch;
+}
+
+export function financeiroPayloadEntries(
+  payload: Record<string, unknown>,
+): Array<{ field: CobrancaCadastroField; label: string; value: string }> {
+  const patch = extractFinanceiroCadastroFromPayload(payload);
+  return COBRANCA_CADASTRO_FIELDS.filter((f) => patch[f]?.trim()).map((field) => ({
+    field,
+    label: COBRANCA_FIELD_LABELS[field],
+    value: patch[field]!.trim(),
+  }));
+}
+
+export function cadastroSecaoLabel(secao: CadastroSecao): string {
+  return secao === "financeiro" ? "Financeiro" : "Loja";
+}
 
 /** Extrai só os 3 campos de contato da loja enviados pelo Player 5. */
 export function extractLojaCadastroFromPayload(
@@ -420,12 +488,16 @@ export async function conciliarPlayerCadastro(
   if (!rioPdvKey) throw new Error("pdv_nao_vinculado");
 
   const payload = parsePayload(ingest.payloadJson);
-  const lojaPatch = extractLojaCadastroFromPayload(payload);
+  const secao = resolveCadastroSecao(payload);
+  const patch =
+    secao === "financeiro" ?
+      extractFinanceiroCadastroFromPayload(payload)
+    : extractLojaCadastroFromPayload(payload);
 
-  if (Object.keys(lojaPatch).length === 0) throw new Error("payload_vazio");
+  if (Object.keys(patch).length === 0) throw new Error("payload_vazio");
 
   const { updatePdvCadastro } = await import("@/lib/cadastros/producaoPdvCadastroService");
-  await updatePdvCadastro(rioPdvKey, lojaPatch);
+  await updatePdvCadastro(rioPdvKey, patch);
 
   const updated = await prisma.playerIngest.update({
     where: { id: ingestId },

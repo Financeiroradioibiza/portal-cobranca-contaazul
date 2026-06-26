@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  COBRANCA_CADASTRO_FIELDS,
+  COBRANCA_FIELD_LABELS,
   LOJA_CADASTRO_FIELDS,
   LOJA_FIELD_LABELS,
+  cadastroSecaoLabel,
+  financeiroPayloadEntries,
   lojaPayloadEntries,
+  resolveCadastroSecao,
+  type CobrancaCadastroField,
   type LojaCadastroField,
 } from "@/lib/player/playerIngestService";
 
@@ -31,13 +37,18 @@ function producaoLojaValue(producao: ProducaoDto | null, field: LojaCadastroFiel
   return typeof v === "string" ? v.trim() : "";
 }
 
+function producaoFinanceiroValue(producao: ProducaoDto | null, field: CobrancaCadastroField): string {
+  const v = producao?.[field];
+  return typeof v === "string" ? v.trim() : "";
+}
+
 function mapConciliarError(data: unknown): string {
   const err =
     data && typeof data === "object" && "error" in data ?
       (data as { error?: unknown }).error
     : undefined;
   if (err === "pdv_nao_vinculado") return "Não foi possível localizar o PDV de produção.";
-  if (err === "payload_vazio") return "O envio do player não contém contatos da loja.";
+  if (err === "payload_vazio") return "O envio do player não contém dados para esta seção.";
   if (err === "server_error") return "Erro no servidor ao conciliar. Tente de novo em instantes.";
   if (typeof err === "string" && err.trim()) return err;
   return "conciliar_failed";
@@ -262,7 +273,12 @@ export function AtualizacoesCadastroPanel() {
     }
   }
 
-  const enviado = selected ? lojaPayloadEntries(selected.payload) : [];
+  const selectedSecao = selected ? resolveCadastroSecao(selected.payload) : "loja";
+  const enviado = selected ?
+    selectedSecao === "financeiro" ?
+      financeiroPayloadEntries(selected.payload)
+    : lojaPayloadEntries(selected.payload)
+  : [];
   const cadastroEncontrado = Boolean(producao && suggestedRioPdvKey);
 
   return (
@@ -272,8 +288,8 @@ export function AtualizacoesCadastroPanel() {
       </div>
       <h1 className="mt-1 text-2xl font-bold tracking-tight">Atualizações de cadastro</h1>
       <p className="mt-2 max-w-2xl text-sm text-slate-500">
-        Dados da loja enviados pelo Player 5 na instalação — compare com o cadastro atual, vincule ou
-        descarte se já estiver correto.
+        Atualizações enviadas pelo Player 5 — loja e financeiro separados. Compare com o cadastro
+        atual, vincule ou descarte se já estiver correto.
       </p>
 
       {msg ?
@@ -371,6 +387,9 @@ export function AtualizacoesCadastroPanel() {
                       >
                         <div className="font-semibold">{r.clienteNome || "Cliente"}</div>
                         <div className="text-xs text-slate-500">{r.pdvNome || "PDV"}</div>
+                        <div className="mt-0.5 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {cadastroSecaoLabel(resolveCadastroSecao(r.payload))}
+                        </div>
                         <div className="text-[10px] text-slate-400">
                           {r.clienteGatewayId != null ? `cli ${r.clienteGatewayId}` : ""}
                           {r.pdvGatewayId != null ? ` · pdv ${r.pdvGatewayId}` : ""}
@@ -401,6 +420,8 @@ export function AtualizacoesCadastroPanel() {
                 {selected.clienteGatewayId != null ? `Cliente Player ${selected.clienteGatewayId}` : "—"}
                 {selected.pdvGatewayId != null ? ` · PDV ${selected.pdvGatewayId}` : ""}
                 {selected.portalPdvId != null ? ` · portal ${selected.portalPdvId}` : ""}
+                {" · "}
+                <span className="font-semibold">{cadastroSecaoLabel(selectedSecao)}</span>
               </p>
               {suggestedRioPdvKey ?
                 <p className="mt-1 text-[10px] font-medium text-slate-500">
@@ -416,7 +437,9 @@ export function AtualizacoesCadastroPanel() {
                 </h2>
                 <dl className="mt-3 space-y-3 text-sm">
                   {enviado.length === 0 ?
-                    <div className="text-slate-500">Sem contatos da loja neste envio.</div>
+                    <div className="text-slate-500">
+                      Sem dados de {selectedSecao === "financeiro" ? "cobrança" : "loja"} neste envio.
+                    </div>
                   : (
                     enviado.map(({ field, label, value }) => (
                       <div key={field}>
@@ -438,7 +461,9 @@ export function AtualizacoesCadastroPanel() {
                     !cadastroEncontrado ?
                       "Cadastro de produção não encontrado para este cliente/PDV."
                     : enviado.length === 0 ?
-                      "Nenhum contato da loja no envio."
+                      `Nenhum dado de ${selectedSecao === "financeiro" ? "cobrança" : "loja"} no envio.`
+                    : selectedSecao === "financeiro" ?
+                      "Aplicar contatos de cobrança ao cadastro"
                     : "Aplicar contatos da loja ao cadastro"
                   }
                 >
@@ -464,19 +489,26 @@ export function AtualizacoesCadastroPanel() {
                   </p>
                 : (
                   <dl className="mt-3 space-y-3 text-sm">
-                    {LOJA_CADASTRO_FIELDS.map((field) => {
-                      const value = producaoLojaValue(producao, field);
-                      return (
-                        <div key={field}>
-                          <dt className="text-[10px] font-bold uppercase text-slate-400">
-                            {LOJA_FIELD_LABELS[field]}
-                          </dt>
-                          <dd className={value ? "text-slate-800 dark:text-slate-100" : "text-slate-400"}>
-                            {value || "—"}
-                          </dd>
-                        </div>
-                      );
-                    })}
+                    {(selectedSecao === "financeiro" ? COBRANCA_CADASTRO_FIELDS : LOJA_CADASTRO_FIELDS).map(
+                      (field) => {
+                        const value =
+                          selectedSecao === "financeiro" ?
+                            producaoFinanceiroValue(producao, field as CobrancaCadastroField)
+                          : producaoLojaValue(producao, field as LojaCadastroField);
+                        const label =
+                          selectedSecao === "financeiro" ?
+                            COBRANCA_FIELD_LABELS[field as CobrancaCadastroField]
+                          : LOJA_FIELD_LABELS[field as LojaCadastroField];
+                        return (
+                          <div key={field}>
+                            <dt className="text-[10px] font-bold uppercase text-slate-400">{label}</dt>
+                            <dd className={value ? "text-slate-800 dark:text-slate-100" : "text-slate-400"}>
+                              {value || "—"}
+                            </dd>
+                          </div>
+                        );
+                      },
+                    )}
                   </dl>
                 )}
               </section>
