@@ -7,6 +7,7 @@ import { registerEnriquecerTagsRoutes } from "./enriquecer-tags.js";
 import { registerPlayerRegistryRoutes } from "./player-registry.js";
 import { registerApagarMusicaRoutes } from "./apagar-musica.js";
 import { registerRefreshTagsRoutes } from "./refresh-tags.js";
+import { registerUploadAudioRoutes } from "./upload-audio.js";
 
 const CRIACAO_PREFIX = "/criacao";
 
@@ -14,6 +15,7 @@ const CRIACAO_PREFIX = "/criacao";
 export async function registerCriacaoRoutes(app: FastifyInstance): Promise<void> {
   await registerIngestRoutes(app, CRIACAO_PREFIX);
   await registerAudioRoutes(app, CRIACAO_PREFIX);
+  await registerUploadAudioRoutes(app, CRIACAO_PREFIX);
   await registerVinhetaRoutes(app, CRIACAO_PREFIX);
   await registerPublicarRoutes(app, CRIACAO_PREFIX);
   await registerEnriquecerTagsRoutes(app, CRIACAO_PREFIX);

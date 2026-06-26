@@ -25,6 +25,21 @@ export function verifyIngestToken(token: string): { itemId: string; jobId: strin
   return { itemId, jobId };
 }
 
+/** Preview upload bruto: itemId.exp → query token=sig */
+export function verifyUploadStreamToken(itemId: string, exp: number, sig: string): boolean {
+  const secret = criacaoConfig.ingestSecret;
+  if (!secret || !itemId || !sig) return false;
+  if (!Number.isFinite(exp) || Date.now() > exp) return false;
+  const base = `${itemId}.${exp}`;
+  const expected = crypto.createHmac('sha256', secret).update(base).digest('hex');
+  if (expected.length !== sig.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+  } catch {
+    return false;
+  }
+}
+
 /** Preview áudio: musicaId.formato.exp → query token=sig */
 export function verifyStreamToken(
   musicaId: string,

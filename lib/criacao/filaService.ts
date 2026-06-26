@@ -244,4 +244,19 @@ export async function resolveDuplicata(itemId: string, decision: "nova" | "exist
   return true;
 }
 
+/** Resolve todas as duplicatas pendentes de um job de uma vez. */
+export async function resolveDuplicatasBulk(
+  jobId: string,
+  decision: "nova" | "existente",
+): Promise<number> {
+  const result = await prisma.processamentoItem.updateMany({
+    where: { jobId, status: "duplicata" },
+    data: {
+      status: decision === "nova" ? "aguardando" : "concluido",
+      erroMsg: decision === "existente" ? "Descartada (duplicata confirmada)" : "",
+    },
+  });
+  return result.count;
+}
+
 export { ETAPAS };

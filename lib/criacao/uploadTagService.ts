@@ -24,8 +24,9 @@ export async function applyPendingUploadTags(limit = 80): Promise<number> {
       JOIN processamento_job j ON j.id = pi.job_id
      WHERE pi.status = 'concluido'
        AND pi.musica_id IS NOT NULL
+       AND COALESCE(pi.erro_msg, '') NOT LIKE 'Descartada (duplicata confirmada)%'
        AND j.upload_tag_nome <> ''
-       AND j.status = 'concluido'
+       AND j.status IN ('concluido', 'revisao')
        AND NOT EXISTS (
          SELECT 1
            FROM musica_tag_manual mtm

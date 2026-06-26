@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { getJobDetail } from "@/lib/criacao/filaService";
 import { listFaixasEdicao } from "@/lib/criacao/edicaoService";
+import { getJobDetail } from "@/lib/criacao/filaService";
+import { musicaIdsParaRevisaoEdicao } from "@/lib/criacao/revisaoFaixasService";
+import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -12,11 +14,26 @@ export async function GET(_request: Request, ctx: Ctx) {
     const job = await getJobDetail(id);
     if (!job) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-    const musicaIds = job.itens
-      .filter((i) => i.status === "concluido" && i.musicaId)
-      .map((i) => i.musicaId as string);
+    if (job.status === "revisao") {
+      try {
+        await applyPendingUploadTags(200);
+      } catch (e) {
+        console.error("[criacao/fila/:id/revisao-faixas] upload tags", e);
+      }
+    }
 
-    const faixas = musicaIds.length > 0 ? await listFaixasEdicao({ musicaIds }) : [];
+    const musicaIds = musicaIdsParaRevisaoEdicao(job.itens);
+    const faixas =
+      musicaIds.length > 0 ?
+        await listFaixasEdicao({ musicaIds, revisao: true })
+      : [];
+
+    const itensRevisaoEdicao = job.itens.filter(
+      (i) => musicaIds.includes(i.musicaId ?? ""),
+    ).length;
+    const itensDuplicataDescartada = job.itens.filter((i) =>
+      (i.erroMsg ?? "").startsWith("Descartada (duplicata confirmada)"),
+    ).length;
 
     return NextResponse.json({
       job: {
@@ -27,8 +44,11 @@ export async function GET(_request: Request, ctx: Ctx) {
         uploadTagNome: job.uploadTagNome,
         pastaNome: job.pastaNome,
         programacaoNome: job.programacaoNome,
+        criativoNome: job.criativoNome,
       },
       faixas,
+      itensRevisaoEdicao,
+      itensDuplicataDescartada,
     });
   } catch (e) {
     if (e instanceof Response) return e;

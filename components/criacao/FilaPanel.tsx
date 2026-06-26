@@ -313,6 +313,10 @@ export function FilaPanel() {
                         onResolveDuplicata={async (itemId, decision) => {
                           await resolve(j.id, itemId, decision);
                         }}
+                        onItemsChanged={async () => {
+                          await loadItems(j.id);
+                          await load();
+                        }}
                         onApproved={() => {
                           lastSyncPendingAt.current = 0;
                           void syncPending();

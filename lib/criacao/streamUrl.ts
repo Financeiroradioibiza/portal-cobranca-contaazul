@@ -11,6 +11,7 @@ const SECRET = process.env.CRIACAO_INGEST_SECRET ?? "";
 
 /** Base de áudio derivada da URL de ingest (…/criacao/ingest -> …/criacao/audio). */
 const AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/audio");
+const UPLOAD_AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/upload-audio");
 
 /** Validade do link de preview: 8h (cobre uma jornada de trabalho do criativo). */
 const TTL_MS = 8 * 60 * 60 * 1000;
@@ -31,4 +32,14 @@ export function buildPreviewUrl(
   const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
   const qs = new URLSearchParams({ f: formato, exp: String(exp), token: sig });
   return `${AUDIO_BASE}/${musicaId}?${qs.toString()}`;
+}
+
+/** Gera URL tocável do MP3 bruto do upload (antes do pipeline). */
+export function buildUploadPreviewUrl(itemId: string, ttlMs: number = TTL_MS): string | null {
+  if (!SECRET) return null;
+  const exp = Date.now() + ttlMs;
+  const base = `${itemId}.${exp}`;
+  const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
+  const qs = new URLSearchParams({ exp: String(exp), token: sig });
+  return `${UPLOAD_AUDIO_BASE}/${itemId}?${qs.toString()}`;
 }

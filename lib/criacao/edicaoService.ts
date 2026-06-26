@@ -32,9 +32,11 @@ export async function listFaixasEdicao(opts: {
   tagId?: string;
   pastaId?: string;
   musicaIds?: string[];
+  /** Revisão pós-upload: inclui faixas ainda em processamento. */
+  revisao?: boolean;
   limit?: number;
 }): Promise<FaixaEdicaoRow[]> {
-  const where: Prisma.MusicaBibliotecaWhereInput = { status: "pronta" };
+  const where: Prisma.MusicaBibliotecaWhereInput = opts.revisao ? {} : { status: "pronta" };
   const q = opts.search?.trim();
   if (opts.musicaIds?.length) {
     where.id = { in: opts.musicaIds.slice(0, 300) };

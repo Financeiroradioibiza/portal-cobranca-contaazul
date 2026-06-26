@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { approveJob, cancelJob, getJobDetail } from "@/lib/criacao/filaService";
+import { approveJob, cancelJob, getJobDetail, resolveDuplicatasBulk } from "@/lib/criacao/filaService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
@@ -24,7 +24,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
-    let body: { action?: string };
+    let body: { action?: string; decision?: string };
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -33,6 +33,13 @@ export async function PATCH(request: Request, ctx: Ctx) {
     if (body.action === "cancel") {
       const ok = await cancelJob(id);
       return NextResponse.json({ ok });
+    }
+    if (body.action === "resolve_duplicatas") {
+      if (body.decision !== "nova" && body.decision !== "existente") {
+        return NextResponse.json({ error: "invalid_decision" }, { status: 400 });
+      }
+      const count = await resolveDuplicatasBulk(id, body.decision);
+      return NextResponse.json({ ok: true, count });
     }
     if (body.action === "approve") {
       const result = await approveJob(id);

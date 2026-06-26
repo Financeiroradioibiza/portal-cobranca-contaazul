@@ -59,7 +59,7 @@ elif [[ "$MODE" == "patch" ]]; then
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/deploy/tsconfig.json" \
     "$REMOTE:$REMOTE_DIR/tsconfig.json"
-  for f in ingest.ts audio.ts vinheta.ts publicar.ts enriquecer-tags.ts apagar-musica.ts refresh-tags.ts reprocess-edicao.ts player-registry.ts publishCronogramas.ts tagEnrichmentCore.ts; do
+  for f in ingest.ts audio.ts upload-audio.ts vinheta.ts publicar.ts enriquecer-tags.ts apagar-musica.ts refresh-tags.ts reprocess-edicao.ts player-registry.ts publishCronogramas.ts tagEnrichmentCore.ts; do
     rsync -avz -e "ssh -o BatchMode=yes" \
       "$ROOT/.cloud2-stage/$f" \
       "$REMOTE:$REMOTE_DIR/src/routes/criacao/$f"
