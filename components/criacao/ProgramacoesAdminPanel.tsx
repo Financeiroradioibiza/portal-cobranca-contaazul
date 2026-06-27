@@ -5,6 +5,7 @@ import { FORMATO_LABEL } from "@/lib/criacao/programacaoService";
 import { CriativoTagSelect } from "@/components/criacao/CriativoTagSelect";
 import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
 import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
+import { printAtualizacaoLogPdf } from "@/lib/criacao/atualizacaoLogExport";
 import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vinhetaUploadClient";
 
 import {
@@ -1362,9 +1363,30 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
               {r.programacaoNomeLog ?? ""} · {r.disparadaPor} · +{ent.length} / −{sai.length}
             </p>
             {aberto ?
-              <div className="ml-4 mt-1 grid gap-2 sm:grid-cols-2">
-                <DiffList titulo="Entraram" faixas={ent} cor="emerald" />
-                <DiffList titulo="Saíram" faixas={sai} cor="red" />
+              <div className="ml-4 mt-1 space-y-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    printAtualizacaoLogPdf({
+                      rotuloLog: r.rotuloLog ?? r.codigo,
+                      codigo: r.codigo,
+                      revision: r.revision,
+                      disparadaEm: r.disparadaEm,
+                      disparadaPor: r.disparadaPor,
+                      clienteNomeLog: r.clienteNomeLog,
+                      pdvsLog: r.pdvsLog,
+                      programacaoNomeLog: r.programacaoNomeLog,
+                      diff: r.diff ?? { entraram: [], sairam: [] },
+                    })
+                  }
+                  className="rounded border border-slate-300 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-white dark:border-slate-600 dark:text-slate-300"
+                >
+                  Exportar log em PDF
+                </button>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <DiffList titulo="Entraram" faixas={ent} cor="emerald" />
+                  <DiffList titulo="Saíram" faixas={sai} cor="red" />
+                </div>
               </div>
             : null}
           </li>

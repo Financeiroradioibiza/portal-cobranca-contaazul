@@ -6,7 +6,7 @@ import { criacaoConfig } from './config.js';
 import { findDuplicate } from './dedupe.js';
 import { analyzeAudio } from './analyze.js';
 import { produceMasterAndUso, probeBpmFromFile, probeIsrcFromFile } from './ffmpeg.js';
-import { detectMixSegundosFinais } from './mixDetect.js';
+import { detectMixAndTrim } from './mixTrimDetect.js';
 import { parseMp3Filename } from './parseFilename.js';
 import { portalQuery } from './portalDb.js';
 import { pipelineLog, pipelineTimed } from './pipelineLogger.js';
@@ -108,6 +108,30 @@ async function finishItemDuplicata(item: ClaimedItem, existenteId: string): Prom
   await maybeFinishJob(item.job_id);
 }
 
+/** Hash idêntico — confirma duplicata sem revisão humana; aplica tag na faixa existente. */
+async function finishItemDuplicataAutoConfirmada(item: ClaimedItem, existenteId: string): Promise<void> {
+  await portalQuery(
+    `UPDATE processamento_item
+        SET status = 'concluido', duplicata_de_id = $2, musica_id = $2,
+            etapa_atual = 'deduplicacao',
+            erro_msg = 'Descartada (duplicata confirmada)',
+            updated_at = now()
+      WHERE id = $1`,
+    [item.id, existenteId],
+  );
+  await portalQuery(
+    `UPDATE processamento_job j
+        SET itens_feitos = (
+              SELECT count(*)::int FROM processamento_item
+               WHERE job_id = j.id AND status = 'concluido'
+            ),
+            updated_at = now()
+      WHERE j.id = $1`,
+    [item.job_id],
+  );
+  await maybeFinishJob(item.job_id);
+}
+
 async function finishItemErro(item: ClaimedItem, msg: string): Promise<void> {
   await portalQuery(
     `UPDATE processamento_item
@@ -168,10 +192,14 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
   const ctx = { itemId: item.id, jobId: item.job_id, etapa: 'deduplicacao' };
   return pipelineTimed(ctx, async () => {
     await setItemEtapa(item.id, 'deduplicacao');
-    const dup = await findDuplicate(inputPath);
+    const dup = await findDuplicate(inputPath, { skipChromaprintMatchId: item.duplicata_de_id });
     if (dup.kind === 'duplicata') {
       pipelineLog(ctx, 'duplicata', { via: dup.via, existenteId: dup.existenteId });
-      await finishItemDuplicata(item, dup.existenteId);
+      if (dup.via === 'content_hash') {
+        await finishItemDuplicataAutoConfirmada(item, dup.existenteId);
+      } else {
+        await finishItemDuplicata(item, dup.existenteId);
+      }
       return 'duplicata' as const;
     }
 
@@ -180,7 +208,7 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
     const ins = await portalQuery<{ id: string }>(
       `INSERT INTO musica_biblioteca
          (id, titulo, artista, content_hash, chromaprint, status, mix_segundos_finais, mix_auto, updated_at)
-       VALUES ($1, $2, $3, $4, $5, 'processando', $6, true, now())
+       VALUES ($1, $2, $3, $4, $5, 'processando', 0, true, now())
        RETURNING id`,
       [
         musicaId,
@@ -188,7 +216,6 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
         artista,
         dup.contentHash,
         dup.chromaprint,
-        criacaoConfig.defaultMixSegundos,
       ],
     );
     return ins.rows[0]!.id;
@@ -200,14 +227,21 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
 
   await pipelineTimed({ ...ctx, etapa: 'ponto_mix' }, async () => {
     await setItemEtapa(item.id, 'ponto_mix');
-    const mixSeg = await detectMixSegundosFinais(inputPath);
+    const { mixSegundosFinais, trimFimMs, trimInicioMs } = await detectMixAndTrim(inputPath);
     await portalQuery(
       `UPDATE musica_biblioteca
-          SET mix_segundos_finais = $2, updated_at = now()
+          SET mix_segundos_finais = $2,
+              trim_inicio_ms = $3,
+              trim_fim_ms = $4,
+              updated_at = now()
         WHERE id = $1 AND mix_auto = true`,
-      [musicaId, mixSeg],
+      [musicaId, mixSegundosFinais, trimInicioMs, trimFimMs],
     );
-    pipelineLog({ ...ctx, etapa: 'ponto_mix' }, 'mix_detectado', { mixSegundos: mixSeg });
+    pipelineLog(
+      { ...ctx, etapa: 'ponto_mix' },
+      'mix_trim_detectado',
+      { mixSegundos: mixSegundosFinais, trimFimMs, trimInicioMs },
+    );
   });
 
   const produced = await pipelineTimed({ ...ctx, etapa: 'normalizacao' }, async () => {

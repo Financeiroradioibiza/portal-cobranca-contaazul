@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 import { MIX_PADRAO_SEGUNDOS } from "@/lib/criacao/criacaoDefaults";
+import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { LazyWaveformBars, WaveformBars, WaveformEditBadges } from "@/components/criacao/waveform/WaveformBars";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
@@ -49,6 +50,7 @@ function TagChips({ faixa, max = 6 }: { faixa: Faixa; max?: number }) {
       label: `${t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}${t.nome}`,
       style: { background: t.cor, color: readableText(t.cor) } as CSSProperties,
       title: t.criativoNome,
+      compact: isUploadCompetenciaTag(t.nome),
     })),
     ...faixa.tagsAuto.slice(0, 4).map((t, i) => ({
       key: `${t.fonte}-${i}`,
@@ -65,7 +67,10 @@ function TagChips({ faixa, max = 6 }: { faixa: Faixa; max?: number }) {
         t.style ?
           <span
             key={t.key}
-            className="inline-flex rounded px-1.5 py-0.5 text-[9px] font-bold"
+            className={
+              "inline-flex rounded font-bold " +
+              ("compact" in t && t.compact ? "px-1 py-0 text-[8px] opacity-90" : "px-1.5 py-0.5 text-[9px]")
+            }
             style={t.style}
             title={t.title}
           >
@@ -94,7 +99,6 @@ export function EdicaoPanel() {
   const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
   const [allTags, setAllTags] = useState<TagChip[]>([]);
   const [sel, setSel] = useState<Faixa | null>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void fetch("/api/criacao/tags")
@@ -102,10 +106,6 @@ export function EdicaoPanel() {
       .then((d: { tags?: TagChip[] }) => setAllTags(d.tags ?? []))
       .catch(() => setAllTags([]));
   }, []);
-
-  useEffect(() => {
-    if (sel) editorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [sel?.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,7 +209,7 @@ export function EdicaoPanel() {
           Nenhuma faixa pronta. Processe uploads primeiro.
         </div>
       : <>
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-sm dark:border-slate-800">
+          <div className={`overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-sm dark:border-slate-800${sel ? " pb-52 md:pb-64" : ""}`}>
             <div className="hidden border-b border-slate-800 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 md:grid md:grid-cols-[minmax(0,1fr)_minmax(220px,340px)] md:gap-4">
               <span>Forma de onda</span>
               <span>Faixa · tags</span>
@@ -258,16 +258,19 @@ export function EdicaoPanel() {
           </div>
 
           {sel ?
-            <div ref={editorRef} className="mt-4">
-              <FaixaEditor
-                key={sel.id}
-                faixa={sel}
-                onClose={() => setSel(null)}
-                onSaved={(updated) => {
-                  setFaixas((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
-                  setSel(updated);
-                }}
-              />
+            <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-700 bg-slate-950/95 shadow-[0_-8px_32px_rgba(0,0,0,0.35)] backdrop-blur-md">
+              <div className="mx-auto max-w-[1400px] px-3 py-3 sm:px-4">
+                <FaixaEditor
+                  key={sel.id}
+                  faixa={sel}
+                  docked
+                  onClose={() => setSel(null)}
+                  onSaved={(updated) => {
+                    setFaixas((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+                    setSel(updated);
+                  }}
+                />
+              </div>
             </div>
           : null}
         </>
@@ -280,10 +283,12 @@ function FaixaEditor({
   faixa,
   onSaved,
   onClose,
+  docked = false,
 }: {
   faixa: Faixa;
   onSaved: (f: Faixa) => void;
   onClose: () => void;
+  docked?: boolean;
 }) {
   const durSec = (faixa.durationMs ?? 0) / 1000;
   const [mix, setMix] = useState<number>(faixa.mixSegundosFinais ?? MIX_PADRAO_SEGUNDOS);
@@ -397,17 +402,17 @@ function FaixaEditor({
   ];
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <div className={docked ? "" : "rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"}>
+      <div className={`mb-3 flex flex-wrap items-start justify-between gap-3${docked ? " text-white" : ""}`}>
         <div className="min-w-0">
-          <div className="text-lg font-bold">{faixa.titulo || "(sem título)"}</div>
-          <div className="text-sm text-slate-500">
+          <div className={`truncate font-bold ${docked ? "text-sm" : "text-lg"}`}>{faixa.titulo || "(sem título)"}</div>
+          <div className={`truncate text-xs ${docked ? "text-slate-400" : "text-slate-500"}`}>
             {faixa.artista || "—"} · {fmt(durSec)}
             {faixa.loudnessLufs != null ? ` · ${faixa.loudnessLufs.toFixed(1)} LUFS` : ""}
           </div>
-          <TagChips faixa={faixa} max={8} />
+          {!docked ? <TagChips faixa={faixa} max={8} /> : null}
         </div>
-        <button type="button" onClick={onClose} className="text-sm text-slate-400 hover:text-slate-600">
+        <button type="button" onClick={onClose} className="text-sm text-slate-400 hover:text-slate-200">
           Fechar ✕
         </button>
       </div>
@@ -423,13 +428,13 @@ function FaixaEditor({
         className="hidden"
       />
 
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+      <div className={`mb-1 text-[10px] font-semibold uppercase tracking-wide ${docked ? "text-slate-500" : "text-slate-500"}`}>
         Clique para posicionar o play · arraste as linhas âmbar para trim · verde = mix · cinza = será cortado
       </div>
       <div className="relative mb-2 w-full">
         <WaveformBars
           previewUrl={faixa.previewUrl}
-          height={88}
+          height={docked ? 64 : 88}
           barCount={180}
           interactive
           playheadPct={pct(cur)}
@@ -457,7 +462,7 @@ function FaixaEditor({
         <span>{fmt(durSec)}</span>
       </div>
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
+      <div className={`mb-3 flex flex-wrap items-center gap-3${docked ? " text-slate-400" : ""}`}>
         <button
           type="button"
           onClick={togglePlay}
@@ -473,7 +478,7 @@ function FaixaEditor({
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-3${docked ? " text-white" : ""}`}>
         <div>
           <label className="mb-1 block text-xs font-semibold text-slate-500">Ponto de mix (segundos finais)</label>
           <div className="flex items-center gap-2">
@@ -515,12 +520,12 @@ function FaixaEditor({
         </label>
       </div>
 
-      <div className="mt-5 flex items-center gap-3">
+      <div className="mt-3 flex items-center gap-3">
         <button
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
         >
           {saving ? "Salvando…" : "Salvar ajustes"}
         </button>

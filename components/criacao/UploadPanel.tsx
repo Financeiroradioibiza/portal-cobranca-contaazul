@@ -7,6 +7,7 @@ import {
   FilaBrowserGuidance,
   FilaBrowserGuidanceOverview,
 } from "@/components/criacao/FilaBrowserGuidance";
+import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 
 import {
   CriacaoClienteNomeComTag,
@@ -48,7 +49,7 @@ function newLote(): UploadLote {
     pastaSel: "",
     tagCriativoUserId: "",
     tagCriativoIniciais: "",
-    uploadTag: "",
+    uploadTag: defaultUploadCompetenciaTag(),
     files: [],
   };
 }

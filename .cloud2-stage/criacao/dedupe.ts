@@ -33,7 +33,10 @@ async function tryChromaprint(filePath: string): Promise<string | null> {
 }
 
 /** Dedupe por SHA256 + Chromaprint opcional (fpcalc no PATH). */
-export async function findDuplicate(filePath: string): Promise<DedupeResult & { contentHash: string; chromaprint: string | null }> {
+export async function findDuplicate(
+  filePath: string,
+  opts?: { skipChromaprintMatchId?: string | null },
+): Promise<DedupeResult & { contentHash: string; chromaprint: string | null }> {
   const contentHash = await sha256File(filePath);
 
   const byHash = await portalQuery<{ id: string }>(
@@ -57,13 +60,18 @@ export async function findDuplicate(filePath: string): Promise<DedupeResult & { 
       [chromaprint],
     );
     if (byFp.rowCount && byFp.rows[0]?.id) {
-      return {
-        kind: 'duplicata',
-        existenteId: byFp.rows[0].id,
-        via: 'chromaprint',
-        contentHash,
-        chromaprint,
-      };
+      const existenteId = byFp.rows[0].id;
+      if (opts?.skipChromaprintMatchId && opts.skipChromaprintMatchId === existenteId) {
+        // Revisão humana escolheu «manter como nova» — ignora este fingerprint.
+      } else {
+        return {
+          kind: 'duplicata',
+          existenteId,
+          via: 'chromaprint',
+          contentHash,
+          chromaprint,
+        };
+      }
     }
   }
 

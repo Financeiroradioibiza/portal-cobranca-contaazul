@@ -28,8 +28,7 @@ export async function getDuplicataCompare(itemId: string): Promise<DuplicataComp
   });
   if (!item || item.status !== "duplicata") return null;
 
-  const uploadPreviewUrl =
-    streamEnabled() && item.rawStorageKey ? buildUploadPreviewUrl(item.id) : null;
+  const uploadPreviewUrl = streamEnabled() ? buildUploadPreviewUrl(item.id) : null;
 
   let existente: DuplicataCompareData["existente"] = null;
   const existenteId = item.duplicataDeId;

@@ -731,6 +731,7 @@ function CronogramaSection({
   const [freq, setFreq] = useState("");
   const [freqMusicas, setFreqMusicas] = useState("");
   const [busy, setBusy] = useState(false);
+  const [regrasAdicionadas, setRegrasAdicionadas] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -789,11 +790,21 @@ function CronogramaSection({
       setDFim("");
       setFreq("");
       setFreqMusicas("");
-      setOpen(false);
+      setRegrasAdicionadas((n) => n + 1);
       await load();
     } finally {
       setBusy(false);
     }
+  }
+
+  function fecharFormulario() {
+    setOpen(false);
+    setRegrasAdicionadas(0);
+    setDias(new Set());
+    setDIni("");
+    setDFim("");
+    setFreq("");
+    setFreqMusicas("");
   }
 
   async function remover(id: string) {
@@ -957,14 +968,26 @@ function CronogramaSection({
               </>
             : null}
           </div>
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => void criar()}
               disabled={busy || !alvo}
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
             >
-              Adicionar regra
+              {busy ? "Salvando…" : "Adicionar regra"}
+            </button>
+            {regrasAdicionadas > 0 ?
+              <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                {regrasAdicionadas} regra{regrasAdicionadas === 1 ? "" : "s"} salva{regrasAdicionadas === 1 ? "" : "s"} — pode adicionar mais para a mesma pasta
+              </span>
+            : null}
+            <button
+              type="button"
+              onClick={fecharFormulario}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 dark:border-slate-600 dark:text-slate-300"
+            >
+              Concluir
             </button>
           </div>
         </div>

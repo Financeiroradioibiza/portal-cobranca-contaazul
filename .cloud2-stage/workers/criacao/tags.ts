@@ -1,6 +1,7 @@
 import { portalQuery } from '../../criacao/portalDb.js';
 import {
   extractGravadoraFromTags,
+  fetchDeezerCanonicalNames,
   fetchDeezerExplicit,
   fetchExternalTrackMetadata,
   fetchLabelTags,
@@ -99,6 +100,16 @@ export async function enrichUploadTagsForMusica(musicaId: string): Promise<void>
   );
   const m = row.rows[0];
   if (!m) return;
+
+  const canonical = await fetchDeezerCanonicalNames({ titulo: m.titulo, artista: m.artista });
+  if (canonical && (canonical.titulo !== m.titulo || canonical.artista !== m.artista)) {
+    await portalQuery(
+      `UPDATE musica_biblioteca SET titulo = $2, artista = $3, updated_at = now() WHERE id = $1`,
+      [musicaId, canonical.titulo, canonical.artista],
+    );
+    m.titulo = canonical.titulo;
+    m.artista = canonical.artista;
+  }
 
   const meta = await applyMetadataEnrichment(m);
   let merged = meta.merged;

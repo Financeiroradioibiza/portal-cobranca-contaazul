@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
@@ -466,7 +467,10 @@ export function BibliotecaMusicalPanel() {
                   {m.tagsManuais.map((t) => (
                     <span
                       key={t.id}
-                      className="inline-flex rounded px-2 py-0.5 text-[10px] font-bold"
+                      className={
+                        "inline-flex rounded font-bold " +
+                        (isUploadCompetenciaTag(t.nome) ? "px-1 py-0 text-[8px] opacity-90" : "px-2 py-0.5 text-[10px]")
+                      }
                       style={{ background: t.cor, color: readableText(t.cor) }}
                       title={t.criativoNome ? `${t.criativoNome} · ${t.nome}` : t.nome}
                     >

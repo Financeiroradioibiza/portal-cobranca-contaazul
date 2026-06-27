@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 
 export type UploadArquivo = { nome: string; sizeBytes?: number };
 
@@ -45,7 +46,7 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       clienteNome: (input.clienteNome ?? "").slice(0, 200),
       criativoNome: (input.criativoNome ?? "").slice(0, 120),
       criativoUserId: input.criativoUserId?.slice(0, 200) || null,
-      uploadTagNome: (input.uploadTagNome ?? "").trim().slice(0, 80),
+      uploadTagNome: ((input.uploadTagNome ?? "").trim() || defaultUploadCompetenciaTag()).slice(0, 80),
       programacaoId: input.programacaoId || null,
       pastaId: input.pastaId || null,
       totalItens: arquivos.length,
@@ -239,6 +240,7 @@ export async function resolveDuplicata(itemId: string, decision: "nova" | "exist
     data: {
       status: decision === "nova" ? "aguardando" : "concluido",
       erroMsg: decision === "existente" ? "Descartada (duplicata confirmada)" : "",
+      ...(decision === "nova" ? { musicaId: null } : {}),
     },
   });
   return true;

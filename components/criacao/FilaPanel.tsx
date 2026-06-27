@@ -367,6 +367,15 @@ export function FilaPanel() {
                           Lista
                         </button>
                       </div>
+                      {j.status === "concluido" ?
+                        <a
+                          href={`/api/criacao/fila/${j.id}/upload-log`}
+                          download
+                          className="rounded-lg border border-slate-300 px-3 py-1 text-[10px] font-semibold text-slate-600 hover:bg-white dark:border-slate-600 dark:text-slate-300"
+                        >
+                          Baixar log (.txt)
+                        </a>
+                      : null}
                     </div>
 
                     {!items[j.id] ?

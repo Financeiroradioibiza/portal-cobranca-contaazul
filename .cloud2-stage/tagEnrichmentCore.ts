@@ -444,3 +444,17 @@ export async function fetchLabelTags(input: {
   }
   return out;
 }
+
+/** Nomes canônicos artista/título como no Deezer (streaming). */
+export async function fetchDeezerCanonicalNames(input: {
+  titulo: string;
+  artista: string;
+}): Promise<{ titulo: string; artista: string } | null> {
+  if (!input.titulo.trim() || !input.artista.trim()) return null;
+  const hits = await searchDeezerTracks(input);
+  const hit = pickDeezerTrackHit(input, hits);
+  const titulo = hit?.title?.trim();
+  const artista = hit?.artist?.name?.trim();
+  if (!titulo || !artista) return null;
+  return { titulo: titulo.slice(0, 500), artista: artista.slice(0, 500) };
+}
