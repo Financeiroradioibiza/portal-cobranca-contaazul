@@ -4,6 +4,7 @@ import {
   createChamado,
   getChamadoUserContext,
   listAllChamados,
+  listChamadosForUser,
   listOpenChamadosForUser,
   parsePrioridade,
   parseStringArray,
@@ -19,7 +20,9 @@ export async function GET(request: Request) {
 
     const scope = new URL(request.url).searchParams.get("scope");
     const chamados =
-      scope === "mine" ? await listOpenChamadosForUser(ctx) : await listAllChamados();
+      scope === "mine" ? await listOpenChamadosForUser(ctx)
+      : scope === "mine-all" ? await listChamadosForUser(ctx)
+      : await listAllChamados();
     return NextResponse.json({ ok: true, chamados });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -48,9 +51,12 @@ export async function POST(request: Request) {
     const prioridade = parsePrioridade(body.prioridade) ?? "media";
     const setores = parseStringArray(body.setores);
     const responsaveis = parseStringArray(body.responsaveis);
+    const rioLinhaId = typeof body.rioLinhaId === "string" ? body.rioLinhaId : null;
+    const rioPdvKey = typeof body.rioPdvKey === "string" ? body.rioPdvKey : null;
+    const clienteNome = typeof body.clienteNome === "string" ? body.clienteNome : "";
 
     const chamado = await createChamado(
-      { titulo, descricao, prioridade, setores, responsaveis },
+      { titulo, descricao, prioridade, setores, responsaveis, rioLinhaId, rioPdvKey, clienteNome },
       ctx,
     );
     return NextResponse.json({ ok: true, chamado });

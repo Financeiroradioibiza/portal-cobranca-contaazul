@@ -58,7 +58,10 @@ export const PORTAL_TOP_NAV: PortalTopNavItem[] = [
 export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: PortalSidebarItem[] }> = {
   dashboard: {
     section: "Dashboard",
-    items: [{ href: PORTAL_HOME_HREF, icon: "🏠", label: "Visão geral" }],
+    items: [
+      { href: PORTAL_HOME_HREF, icon: "🏠", label: "Visão geral" },
+      { href: "/clientes", icon: "👥", label: "Clientes" },
+    ],
   },
   financeiro: {
     section: "Financeiro",

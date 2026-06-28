@@ -36,13 +36,27 @@ type SuporteClienteOption = {
 };
 
 function suporteColCount(
+  showIdentBlock: boolean,
   showPlayer: boolean,
   showContatos: boolean,
   clienteMode: boolean,
 ): number {
-  const identCols = clienteMode ? 4 : 7;
+  const identCols =
+    clienteMode ?
+      showIdentBlock ? 4 : 1
+    : showIdentBlock ? 6 : 1;
   const playerCols = showPlayer ? (clienteMode ? 5 : 6) : 0;
   return identCols + playerCols + (showContatos ? 4 : 0);
+}
+
+const STICKY_PDV_TH =
+  "suporte-sticky-pdv min-w-[7rem] max-w-[9.5rem] border-r border-slate-200/90 bg-[#f5f0e8] px-2 py-1.5 dark:border-slate-600/80 dark:bg-slate-800/95";
+const STICKY_PDV_TD = "suporte-sticky-pdv min-w-[7rem] max-w-[9.5rem] border-r border-slate-200/90 px-2 py-1.5 dark:border-slate-600/80";
+
+function stickyPdvRowBg(tagBg: string | undefined, semPing: boolean): string {
+  if (tagBg) return tagBg;
+  if (semPing) return "bg-rose-50/70 dark:bg-rose-950/20";
+  return "bg-[#faf8f5] dark:bg-slate-900";
 }
 
 const EMPTY_TELEMETRY: SuportePdvRow["telemetry"] = {
@@ -409,7 +423,7 @@ function DownloadBar({ percent }: { percent: number | null }) {
   const p = percent ?? 0;
   const label = percent == null ? "—" : `${Math.round(p)}%`;
   return (
-    <div className="min-w-[90px]">
+    <div className="min-w-[4rem]">
       <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
         <div
           className="h-full rounded-full bg-fuchsia-500 transition-all"
@@ -705,6 +719,7 @@ function PlayerTokenCell({
 
 function PdvRow({
   row,
+  showIdentBlock,
   showPlayerBlock,
   showContatosBlock,
   clienteMode,
@@ -713,6 +728,7 @@ function PdvRow({
   onTokenRegenerated,
 }: {
   row: SuportePdvRow;
+  showIdentBlock: boolean;
   showPlayerBlock: boolean;
   showContatosBlock: boolean;
   clienteMode: boolean;
@@ -728,6 +744,7 @@ function PdvRow({
     row.contatoLojaEmail ? `mailto:${row.contatoLojaEmail.split(/[,;]/)[0]?.trim()}` : undefined;
   const pdvTag = effectiveRioTagCobranca(row.tagCobranca, row.clienteTagCobranca);
   const tagBg = rioTagCobrancaRowBgClass(pdvTag);
+  const stickyBg = stickyPdvRowBg(tagBg, row.semPing5Dias);
 
   return (
     <tr
@@ -740,68 +757,64 @@ function PdvRow({
         : "hover:bg-white/80 dark:hover:bg-slate-900/50")
       }
     >
-      <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
-        <IdCell id={row.portalPdvId} label="Copiar ID do PDV no Player" variant="pdv" />
-      </td>
-      <td className="min-w-[9rem] max-w-[14rem] px-2 py-2 align-top">
-        <div className="font-semibold">
-          <RioTagCobrancaNome nome={row.nome} tag={pdvTag} />
+      <td className={STICKY_PDV_TD + " " + stickyBg}>
+        <div className="flex min-w-0 items-start gap-0.5">
+          <span className="min-w-0 flex-1 font-semibold leading-snug">
+            <RioTagCobrancaNome nome={row.nome} tag={pdvTag} />
+          </span>
+          {row.nome.trim() ?
+            <CopyTextButton size="compact" variant="icon" text={row.nome.trim()} label="Copiar nome do PDV" />
+          : null}
         </div>
         {row.semPing5Dias ?
-          <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">
-            Sem ping 5d+
-          </span>
+          <span className="text-[9px] font-semibold text-rose-600 dark:text-rose-400">Sem ping 5d+</span>
         : null}
       </td>
-      <td className="whitespace-nowrap px-2 py-2 align-top">
-        <CopyableCell
-          text={displayBrazilianTaxId(row.cnpj)}
-          label="Copiar CNPJ do PDV"
-          mono
-        />
-      </td>
-      {clienteMode ?
-        <td className="min-w-[7rem] max-w-[12rem] px-2 py-2 align-top">
-          <ProgramacaoCriacaoCell nome={row.programacaoCriacaoNome} />
-        </td>
-      : null}
-      {!clienteMode ?
+      {showIdentBlock ?
         <>
-          <td className="w-[4.5rem] whitespace-nowrap px-1.5 py-2 align-top">
-            <IdCell
-              id={row.portalClienteId}
-              label="Copiar ID do cliente no Player"
-              variant="cliente"
-            />
+          <td className="w-[3.75rem] whitespace-nowrap px-1.5 py-1.5 align-top">
+            <IdCell id={row.portalPdvId} label="Copiar ID do PDV no Player" variant="pdv" />
           </td>
-          <td className="min-w-[8rem] max-w-[12rem] px-2 py-2 align-top">
-            <RioTagCobrancaNome nome={row.clienteNome} tag={row.clienteTagCobranca} />
+          <td className="w-[6.75rem] whitespace-nowrap px-1.5 py-1.5 align-top">
+            <CopyableCell text={displayBrazilianTaxId(row.cnpj)} label="Copiar CNPJ do PDV" mono />
           </td>
-          <td className="min-w-[9rem] max-w-[14rem] px-2 py-2 align-top">
-            <ClienteLoginInfo
-              email={row.clienteLoginEmail}
-              password={row.clienteLoginPassword}
-              pending={row.clienteLoginPending}
-              field="login"
-            />
-          </td>
-          <td className="min-w-[5.5rem] max-w-[8rem] px-2 py-2 align-top">
-            <ClienteLoginInfo
-              email={row.clienteLoginEmail}
-              password={row.clienteLoginPassword}
-              pending={row.clienteLoginPending}
-              field="senha"
-            />
-          </td>
+          {clienteMode ?
+            <td className="min-w-[5.5rem] max-w-[8rem] px-1.5 py-1.5 align-top">
+              <ProgramacaoCriacaoCell nome={row.programacaoCriacaoNome} />
+            </td>
+          : <>
+              <td className="min-w-[5.5rem] max-w-[8.5rem] px-1.5 py-1.5 align-top">
+                <span className="block truncate text-[11px]">
+                  <RioTagCobrancaNome nome={row.clienteNome} tag={row.clienteTagCobranca} />
+                </span>
+              </td>
+              <td className="min-w-[6.5rem] max-w-[8.5rem] px-1.5 py-1.5 align-top">
+                <ClienteLoginInfo
+                  email={row.clienteLoginEmail}
+                  password={row.clienteLoginPassword}
+                  pending={row.clienteLoginPending}
+                  field="login"
+                />
+              </td>
+              <td className="w-[4.25rem] max-w-[5.5rem] px-1.5 py-1.5 align-top">
+                <ClienteLoginInfo
+                  email={row.clienteLoginEmail}
+                  password={row.clienteLoginPassword}
+                  pending={row.clienteLoginPending}
+                  field="senha"
+                />
+              </td>
+            </>
+          }
         </>
       : null}
       {showPlayerBlock ?
         <>
-          <td className={"px-2 py-2 align-top " + BLOCK_DIVIDER}>
+          <td className={"w-[4.5rem] px-1.5 py-1.5 align-top " + BLOCK_DIVIDER}>
             <DownloadBar percent={row.telemetry.downloadPercent} />
             <PlayerTelemetryHint row={row} telemetriaDisponivel={telemetriaDisponivel} />
           </td>
-          <td className="px-2 py-2 align-top">
+          <td className="w-[5rem] px-1.5 py-1.5 align-top">
             <PlayerTokenCell
               row={row}
               canRegenerate={canRegenerarToken}
@@ -809,43 +822,43 @@ function PdvRow({
             />
           </td>
           {!clienteMode ?
-            <td className="px-2 py-2 align-top">
+            <td className="min-w-[5rem] max-w-[7rem] px-1.5 py-1.5 align-top">
               <ProgramacaoCriacaoCell nome={row.programacaoCriacaoNome} />
             </td>
           : null}
-          <td className="px-2 py-2 align-top text-slate-500">
+          <td className="w-[3.25rem] whitespace-nowrap px-1.5 py-1.5 align-top text-[10px] text-slate-500">
             {row.telemetry.playerVersion ?? row.playerVersion ?? "—"}
           </td>
-          <td className="whitespace-nowrap px-2 py-2 align-top text-slate-500">
+          <td className="w-[5.25rem] whitespace-nowrap px-1.5 py-1.5 align-top text-[10px] text-slate-500">
             {fmtPing(row.telemetry.firstPingAt)}
           </td>
-          <td className="whitespace-nowrap px-2 py-2 align-top text-slate-500">
+          <td className="w-[5.25rem] whitespace-nowrap px-1.5 py-1.5 align-top text-[10px] text-slate-500">
             {fmtPing(row.telemetry.lastPingAt)}
           </td>
         </>
       : null}
       {showContatosBlock ?
         <>
-          <td className={"px-2 py-2 align-top " + BLOCK_DIVIDER}>
+          <td className={"min-w-[5rem] max-w-[7rem] px-1.5 py-1.5 align-top " + BLOCK_DIVIDER}>
             <ContactCell value={row.contatoLojaNome} />
           </td>
-          <td className="px-2 py-2 align-top">
+          <td className="w-[5.5rem] px-1.5 py-1.5 align-top">
             <ContactCell value={row.contatoLojaTelefone} href={telHref} />
           </td>
-          <td className="px-2 py-2 align-top">
+          <td className="min-w-[5.5rem] max-w-[8rem] px-1.5 py-1.5 align-top">
             <ContactCell
               value={row.contatoLojaEmail}
               href={mailHref}
               copyLabel="Copiar e-mail da loja"
             />
           </td>
-          <td className="px-2 py-2 align-top">
+          <td className="w-[3.25rem] px-1.5 py-1.5 align-top">
             {row.googleMapsUrl ?
               <a
                 href={row.googleMapsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-0.5 text-[11px] font-semibold text-sky-700 hover:bg-sky-50 dark:border-slate-600 dark:text-sky-400 dark:hover:bg-sky-950/40"
+                className="inline-flex items-center rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 hover:bg-sky-50 dark:border-slate-600 dark:text-sky-400 dark:hover:bg-sky-950/40"
                 title={row.googleMapsQuery || "Abrir no Google Maps"}
               >
                 Maps
@@ -866,6 +879,7 @@ export function ProducaoSuportePanel() {
   const [listFilter, setListFilter] = useState<ListFilter>("todos");
   const [batchSize, setBatchSize] = useState<BatchSize>(DEFAULT_BATCH);
   const [visibleCount, setVisibleCount] = useState<number>(DEFAULT_BATCH);
+  const [showIdentBlock, setShowIdentBlock] = useState(true);
   const [showPlayerBlock, setShowPlayerBlock] = useState(true);
   const [showContatosBlock, setShowContatosBlock] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("pdv");
@@ -873,10 +887,11 @@ export function ProducaoSuportePanel() {
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
 
   const clienteMode = viewMode === "cliente" && Boolean(selectedClienteKey);
-  const colCount = suporteColCount(showPlayerBlock, showContatosBlock, clienteMode);
-  const identColSpan = clienteMode ? 4 : 7;
+  const colCount = suporteColCount(showIdentBlock, showPlayerBlock, showContatosBlock, clienteMode);
+  const identColSpan = clienteMode ? (showIdentBlock ? 4 : 1) : showIdentBlock ? 6 : 1;
   const playerColSpan = clienteMode ? 5 : 6;
-  const hasExtraColumns = showPlayerBlock || showContatosBlock;
+  const hasExtraColumns =
+    (showIdentBlock && identColSpan > 1) || showPlayerBlock || showContatosBlock;
 
   const clienteOptions = useMemo(
     () => buildClienteOptions(data?.pdvs ?? []),
@@ -1134,7 +1149,11 @@ export function ProducaoSuportePanel() {
             Blocos
           </span>
           <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200/90 bg-slate-100/70 p-0.5 dark:border-slate-600 dark:bg-slate-800/50">
-            <BlockColumnToggle alwaysOn label="Identificação" />
+            <BlockColumnToggle
+              active={showIdentBlock}
+              label="Identificação"
+              onClick={() => setShowIdentBlock((v) => !v)}
+            />
             <BlockColumnToggle
               active={showPlayerBlock}
               label="Player 5"
@@ -1150,6 +1169,7 @@ export function ProducaoSuportePanel() {
             type="button"
             className="text-[10px] font-semibold text-slate-500 underline-offset-2 hover:text-fuchsia-700 hover:underline dark:text-slate-400 dark:hover:text-fuchsia-300"
             onClick={() => {
+              setShowIdentBlock(true);
               setShowPlayerBlock(true);
               setShowContatosBlock(true);
             }}
@@ -1163,6 +1183,7 @@ export function ProducaoSuportePanel() {
             type="button"
             className="text-[10px] font-semibold text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline dark:text-slate-400"
             onClick={() => {
+              setShowIdentBlock(true);
               setShowPlayerBlock(false);
               setShowContatosBlock(false);
             }}
@@ -1182,7 +1203,7 @@ export function ProducaoSuportePanel() {
           {viewMode === "cliente" && !selectedClienteKey ?
             null
           : <>
-          <table className="w-max min-w-full border-collapse text-left text-xs">
+          <table className="w-max min-w-full border-collapse text-left text-[11px]">
             <thead className="bg-[#f5f0e8] text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800/95">
               <tr className="text-[9px] font-semibold normal-case tracking-normal text-slate-400">
                 <th colSpan={identColSpan} className="px-2 pb-0 pt-2 text-left">
@@ -1200,55 +1221,57 @@ export function ProducaoSuportePanel() {
                 : null}
               </tr>
               <tr>
-                <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID PDV no Player">
-                  ID PDV
-                </th>
-                <th className="min-w-[9rem] px-2 py-2">PDV</th>
-                <th className="whitespace-nowrap px-2 py-2">CNPJ PDV</th>
-                {clienteMode ?
-                  <th className="min-w-[7rem] px-2 py-2" title="Amarração definida na Central de programações (criação)">
-                    Programação
-                  </th>
-                : null}
-                {!clienteMode ?
+                <th className={STICKY_PDV_TH}>PDV</th>
+                {showIdentBlock ?
                   <>
-                    <th className="w-[4.5rem] px-1.5 py-2 text-center" title="ID cliente no Player">
-                      ID cli.
+                    <th className="w-[3.75rem] px-1.5 py-1.5 text-center" title="ID PDV no Player">
+                      ID PDV
                     </th>
-                    <th className="min-w-[8rem] px-2 py-2">Cliente</th>
-                    <th className="min-w-[9rem] px-2 py-2" title="E-mail de login no Player 5">
-                      Login
-                    </th>
-                    <th className="min-w-[5.5rem] px-2 py-2" title="Senha de login no Player 5">
-                      Senha
-                    </th>
-                  </>
-                : null}
-                {showPlayerBlock ?
-                  <>
-                    <th className={"whitespace-nowrap px-2 py-2 " + BLOCK_DIVIDER}>Cache</th>
-                    <th className="whitespace-nowrap px-2 py-2" title="Chave serial de instalação do Player 5">
-                      Token
-                    </th>
-                    {!clienteMode ?
+                    <th className="w-[6.75rem] whitespace-nowrap px-1.5 py-1.5">CNPJ</th>
+                    {clienteMode ?
                       <th
-                        className="px-2 py-2"
+                        className="min-w-[5.5rem] px-1.5 py-1.5"
                         title="Amarração definida na Central de programações (criação)"
                       >
                         Programação
                       </th>
+                    : <>
+                        <th className="min-w-[5.5rem] px-1.5 py-1.5">Cliente</th>
+                        <th className="min-w-[6.5rem] px-1.5 py-1.5" title="E-mail de login no Player 5">
+                          Login
+                        </th>
+                        <th className="w-[4.25rem] px-1.5 py-1.5" title="Senha de login no Player 5">
+                          Senha
+                        </th>
+                      </>
+                    }
+                  </>
+                : null}
+                {showPlayerBlock ?
+                  <>
+                    <th className={"w-[4.5rem] whitespace-nowrap px-1.5 py-1.5 " + BLOCK_DIVIDER}>Cache</th>
+                    <th className="w-[5rem] whitespace-nowrap px-1.5 py-1.5" title="Chave serial de instalação do Player 5">
+                      Token
+                    </th>
+                    {!clienteMode ?
+                      <th
+                        className="min-w-[5rem] px-1.5 py-1.5"
+                        title="Amarração definida na Central de programações (criação)"
+                      >
+                        Prog.
+                      </th>
                     : null}
-                    <th className="whitespace-nowrap px-2 py-2">Versão player</th>
-                    <th className="whitespace-nowrap px-2 py-2">1º ping</th>
-                    <th className="whitespace-nowrap px-2 py-2">Último ping</th>
+                    <th className="w-[3.25rem] whitespace-nowrap px-1.5 py-1.5">Versão</th>
+                    <th className="w-[5.25rem] whitespace-nowrap px-1.5 py-1.5">1º ping</th>
+                    <th className="w-[5.25rem] whitespace-nowrap px-1.5 py-1.5">Últ. ping</th>
                   </>
                 : null}
                 {showContatosBlock ?
                   <>
-                    <th className={"px-2 py-2 " + BLOCK_DIVIDER}>Contato loja</th>
-                    <th className="px-2 py-2">Telefone</th>
-                    <th className="px-2 py-2">E-mail</th>
-                    <th className="px-2 py-2">Maps</th>
+                    <th className={"min-w-[5rem] px-1.5 py-1.5 " + BLOCK_DIVIDER}>Contato</th>
+                    <th className="w-[5.5rem] px-1.5 py-1.5">Tel.</th>
+                    <th className="min-w-[5.5rem] px-1.5 py-1.5">E-mail</th>
+                    <th className="w-[3.25rem] px-1.5 py-1.5">Maps</th>
                   </>
                 : null}
               </tr>
@@ -1274,6 +1297,7 @@ export function ProducaoSuportePanel() {
                   <PdvRow
                     key={row.rioPdvKey}
                     row={row}
+                    showIdentBlock={showIdentBlock}
                     showPlayerBlock={showPlayerBlock}
                     showContatosBlock={showContatosBlock}
                     clienteMode={clienteMode}

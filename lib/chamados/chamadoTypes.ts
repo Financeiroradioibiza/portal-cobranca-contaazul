@@ -13,6 +13,9 @@ export type ChamadoView = {
   fechadoPorEmail: string | null;
   fechadoPorNome: string | null;
   fechadoEm: string | null;
+  rioLinhaId: string | null;
+  rioPdvKey: string | null;
+  clienteNome: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -30,6 +33,9 @@ export type CreateChamadoInput = {
   prioridade: ChamadoPrioridade;
   setores: string[];
   responsaveis: string[];
+  rioLinhaId?: string | null;
+  rioPdvKey?: string | null;
+  clienteNome?: string;
 };
 
 export type UpdateChamadoInput = {

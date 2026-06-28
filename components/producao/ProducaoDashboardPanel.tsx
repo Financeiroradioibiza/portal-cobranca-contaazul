@@ -1,88 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChamadosDashboardWidget, useOpenChamadosCount } from "@/components/chamados/ChamadosDashboardWidget";
-import { ProducaoClienteDrawer } from "@/components/producao/ProducaoClienteDrawer";
-import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
-import { rioTagCobrancaRowBgClass } from "@/lib/rio/rioTagCobranca";
-import type {
-  DashboardClienteDetail,
-  DashboardClienteRow,
-  ProducaoDashboardPayload,
-} from "@/lib/cadastros/producaoDashboardService";
+import { useCallback, useEffect, useState } from "react";
+import { ChamadosBoard } from "@/components/chamados/ChamadosBoard";
+import { useOpenChamadosCount } from "@/components/chamados/ChamadosDashboardWidget";
+import type { ProducaoDashboardPayload } from "@/lib/cadastros/producaoDashboardService";
 import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
-
-/** Lotes ao expandir cliente (evita travar com 200+ lojas). */
-const DASHBOARD_PDV_BATCH_OPTIONS = [20, 50, 100] as const;
-const DEFAULT_DASHBOARD_PDV_BATCH = DASHBOARD_PDV_BATCH_OPTIONS[0];
-type DashboardPdvBatchSize = (typeof DASHBOARD_PDV_BATCH_OPTIONS)[number];
-
-type MonthMeta = { id: string; yearMonth: number };
-
-function PdvBatchSizePicker({
-  value,
-  onChange,
-}: {
-  value: DashboardPdvBatchSize;
-  onChange: (size: DashboardPdvBatchSize) => void;
-}) {
-  return (
-    <div
-      className="flex items-center gap-1.5"
-      title="Quantos PDVs carregar por vez ao expandir um cliente"
-    >
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        Por vez
-      </span>
-      <div className="inline-flex overflow-hidden rounded border border-slate-300 dark:border-slate-600">
-        {DASHBOARD_PDV_BATCH_OPTIONS.map((size) => (
-          <button
-            key={size}
-            type="button"
-            className={
-              "px-2 py-1 text-[11px] font-semibold transition-colors " +
-              (value === size ?
-                "bg-fuchsia-600 text-white"
-              : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900")
-            }
-            onClick={() => onChange(size)}
-          >
-            {size}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function fmtPing(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "short",
-      timeZone: "America/Sao_Paulo",
-    }).format(new Date(iso));
-  } catch {
-    return "—";
-  }
-}
-
-function DownloadBar({ percent }: { percent: number | null }) {
-  const p = percent ?? 0;
-  const label = percent == null ? "—" : `${Math.round(p)}%`;
-  return (
-    <div className="min-w-[100px]">
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-        <div
-          className="h-full rounded-full bg-fuchsia-500 transition-all"
-          style={{ width: `${Math.min(100, Math.max(0, p))}%` }}
-        />
-      </div>
-      <span className="text-[10px] text-slate-500">{label}</span>
-    </div>
-  );
-}
 
 function OverviewCard({
   title,
@@ -137,10 +59,6 @@ export function ProducaoDashboardPanel() {
   const [data, setData] = useState<ProducaoDashboardPayload | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const [q, setQ] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [pdvBatchSize, setPdvBatchSize] = useState<DashboardPdvBatchSize>(DEFAULT_DASHBOARD_PDV_BATCH);
-  const [clienteDetail, setClienteDetail] = useState<DashboardClienteDetail | null>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -150,7 +68,6 @@ export function ProducaoDashboardPanel() {
       const json = (await res.json()) as ProducaoDashboardPayload & { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
       setData(json);
-      setExpanded(new Set());
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao carregar dashboard.");
       setData(null);
@@ -162,33 +79,6 @@ export function ProducaoDashboardPanel() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const filtered = useMemo(() => {
-    const list = data?.clientes ?? [];
-    const needle = q.trim().toLowerCase();
-    if (!needle) return list;
-    return list.filter((c) => {
-      const blob = `${c.nome} ${c.pdvs.map((p) => p.nome).join(" ")}`.toLowerCase();
-      return blob.includes(needle);
-    });
-  }, [data?.clientes, q]);
-
-  function expandAll() {
-    setExpanded(new Set(filtered.map((c) => c.key)));
-  }
-
-  function collapseAll() {
-    setExpanded(new Set());
-  }
-
-  function toggleCliente(key: string) {
-    setExpanded((prev) => {
-      const n = new Set(prev);
-      if (n.has(key)) n.delete(key);
-      else n.add(key);
-      return n;
-    });
-  }
 
   const ov = data?.overview;
 
@@ -213,6 +103,9 @@ export function ProducaoDashboardPanel() {
 
       {msg ?
         <p className="mb-3 text-sm text-rose-700 dark:text-rose-400">{msg}</p>
+      : null}
+      {busy && !data ?
+        <p className="mb-3 text-sm text-slate-500">Carregando resumo…</p>
       : null}
 
       <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -248,8 +141,6 @@ export function ProducaoDashboardPanel() {
         />
       </section>
 
-      <ChamadosDashboardWidget />
-
       <section className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -267,234 +158,7 @@ export function ProducaoDashboardPanel() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
-        <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-700 dark:bg-slate-800/80">
-          <div className="flex flex-wrap gap-4 text-xs font-bold uppercase tracking-wide">
-            <span>
-              Total{" "}
-              <span className="text-slate-900 dark:text-white">{ov?.totalPdvs ?? 0} PDVs</span>
-            </span>
-            <span>
-              Online{" "}
-              <span className="text-emerald-600">{ov?.onlinePdvs ?? 0}</span>
-            </span>
-            <span>
-              Offline{" "}
-              <span className="text-amber-600">{ov?.offlinePdvs ?? 0}</span>
-            </span>
-            <span>
-              Cache médio{" "}
-              <span className="text-fuchsia-700 dark:text-fuchsia-400">—</span>
-            </span>
-          </div>
-          <div className="ms-auto flex flex-wrap items-center gap-2">
-            <PdvBatchSizePicker value={pdvBatchSize} onChange={setPdvBatchSize} />
-            <button
-              type="button"
-              className="rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-600"
-              onClick={expandAll}
-            >
-              ▾ Expandir todos
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-600"
-              onClick={collapseAll}
-            >
-              ▸ Recolher todos
-            </button>
-            <input
-              type="search"
-              placeholder="Buscar…"
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-950"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="max-h-[calc(100vh-28rem)] overflow-y-auto">
-          {busy && !data ?
-            <p className="p-4 text-sm text-slate-500">Carregando…</p>
-          : filtered.length === 0 ?
-            <p className="p-4 text-sm text-slate-500">Nenhum cliente na produção nesta competência.</p>
-          : filtered.map((c) => (
-              <ClienteBlock
-                key={c.key}
-                cliente={c}
-                open={expanded.has(c.key)}
-                pdvBatchSize={pdvBatchSize}
-                onToggle={() => toggleCliente(c.key)}
-                onOpenDetail={() => setClienteDetail(c.detail)}
-              />
-            ))
-          }
-        </div>
-
-        <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          Clientes fechados por padrão. Ao expandir, mostramos {pdvBatchSize} PDVs por vez (ajuste
-          20/50/100 acima) — use «Mostrar mais» para o restante.
-        </p>
-      </section>
-
-      <ProducaoClienteDrawer detail={clienteDetail} onClose={() => setClienteDetail(null)} />
-    </div>
-  );
-}
-
-function ClienteBlock({
-  cliente,
-  open,
-  pdvBatchSize,
-  onToggle,
-  onOpenDetail,
-}: {
-  cliente: DashboardClienteRow;
-  open: boolean;
-  pdvBatchSize: DashboardPdvBatchSize;
-  onToggle: () => void;
-  onOpenDetail: () => void;
-}) {
-  const [pdvLimit, setPdvLimit] = useState<number>(pdvBatchSize);
-
-  useEffect(() => {
-    if (!open) {
-      setPdvLimit(pdvBatchSize);
-      return;
-    }
-    setPdvLimit((prev) => Math.min(cliente.pdvCount, Math.max(prev, pdvBatchSize)));
-  }, [open, pdvBatchSize, cliente.pdvCount]);
-
-  const visiblePdvs = cliente.pdvs.slice(0, pdvLimit);
-  const remaining = cliente.pdvCount - visiblePdvs.length;
-  const hasMore = remaining > 0;
-  const clienteTagBg = rioTagCobrancaRowBgClass(cliente.tagCobranca);
-
-  return (
-    <div
-      className={
-        "border-b " +
-        (clienteTagBg || "border-slate-200 dark:border-slate-700")
-      }
-    >
-      <div
-        className={
-          "flex flex-wrap items-center gap-2 px-4 py-2.5 " +
-          (clienteTagBg || "hover:bg-white/60 dark:hover:bg-slate-800/40")
-        }
-      >
-        <button
-          type="button"
-          className="text-slate-400"
-          aria-expanded={open}
-          onClick={onToggle}
-        >
-          {open ? "▾" : "▸"}
-        </button>
-        <span className="text-slate-400">📁</span>
-        <button
-          type="button"
-          className="min-w-0 flex-1 text-left text-sm font-bold hover:text-fuchsia-800 dark:hover:text-fuchsia-300"
-          onClick={onOpenDetail}
-        >
-          <RioTagCobrancaNome nome={cliente.nome} tag={cliente.tagCobranca} />
-          {cliente.isCustom ?
-            <span className="ms-1 text-[10px] font-normal text-violet-600">· manual</span>
-          : null}
-        </button>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 dark:text-slate-400">
-          {cliente.onlineCount > 0 ?
-            <span>
-              <span className="text-emerald-500">●</span> {cliente.onlineCount} online
-            </span>
-          : null}
-          {cliente.offlineCount > 0 ?
-            <span>
-              <span className="text-amber-500">●</span> {cliente.offlineCount} offline
-            </span>
-          : null}
-          <span className="font-semibold text-slate-800 dark:text-slate-200">
-            {cliente.pdvCount} PDVs
-          </span>
-          {cliente.pdvCount > pdvBatchSize ?
-            <span className="text-[10px] text-slate-400">· lotes de {pdvBatchSize}</span>
-          : null}
-        </div>
-      </div>
-
-      {open ?
-        <div className="bg-white/50 pb-2 ps-10 pe-4 dark:bg-slate-900/30">
-          {cliente.pdvCount > pdvBatchSize ?
-            <p className="mb-1 px-2 text-[10px] text-slate-500">
-              Mostrando {visiblePdvs.length} de {cliente.pdvCount} PDVs (lotes de {pdvBatchSize})
-            </p>
-          : null}
-          <div className="mb-1 hidden grid-cols-[1fr_100px_120px_90px_100px_100px] gap-2 px-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 lg:grid">
-            <span>PDV</span>
-            <span>Cache</span>
-            <span>Programação</span>
-            <span>Versão player</span>
-            <span>1º ping</span>
-            <span>Último ping</span>
-          </div>
-          {visiblePdvs.map((p) => {
-            const pdvTagBg = rioTagCobrancaRowBgClass(p.tagCobranca);
-            return (
-            <div
-              key={p.rioPdvKey}
-              className={
-                "mb-1 grid gap-2 rounded-md border px-3 py-2 text-xs lg:grid-cols-[1fr_100px_120px_90px_100px_100px] lg:items-center " +
-                (pdvTagBg || "border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900")
-              }
-            >
-              <div className="min-w-0">
-                <RioTagCobrancaNome nome={p.nome} tag={p.tagCobranca} className="font-semibold" />
-                {p.rioLinhaNome !== cliente.nome ?
-                  <span className="ms-1 text-[10px] text-slate-400">· {p.rioLinhaNome}</span>
-                : null}
-                <span
-                  className={
-                    "ms-2 text-[10px] " +
-                    (p.statusPlayer === "Ativo" ? "text-emerald-600" : "text-slate-400")
-                  }
-                >
-                  {p.statusPlayer}
-                </span>
-              </div>
-              <DownloadBar percent={p.telemetry.downloadPercent} />
-              <span className="text-slate-700 dark:text-slate-300">{p.programacaoMusical}</span>
-              <span className="text-slate-500">{p.telemetry.playerVersion ?? "—"}</span>
-              <span className="text-slate-500">{fmtPing(p.telemetry.firstPingAt)}</span>
-              <span className="text-slate-500">{fmtPing(p.telemetry.lastPingAt)}</span>
-            </div>
-            );
-          })}
-          {hasMore || pdvLimit > pdvBatchSize ?
-            <div className="mt-1 flex flex-wrap gap-2 px-2">
-              {hasMore ?
-                <button
-                  type="button"
-                  className="rounded border border-fuchsia-300 px-2 py-1 text-[11px] font-semibold text-fuchsia-800 dark:border-fuchsia-700 dark:text-fuchsia-200"
-                  onClick={() =>
-                    setPdvLimit((n) => Math.min(n + pdvBatchSize, cliente.pdvCount))
-                  }
-                >
-                  Mostrar mais ({Math.min(pdvBatchSize, remaining)} de {remaining})
-                </button>
-              : null}
-              {pdvLimit > pdvBatchSize ?
-                <button
-                  type="button"
-                  className="rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-600"
-                  onClick={() => setPdvLimit(pdvBatchSize)}
-                >
-                  Recolher lista
-                </button>
-              : null}
-            </div>
-          : null}
-        </div>
-      : null}
+      <ChamadosBoard scope="mine" embedded />
     </div>
   );
 }

@@ -568,3 +568,15 @@ body {
   background: rgba(100, 116, 139, 0.7);
 }
 
+.suporte-table-scroll th.suporte-sticky-pdv,
+.suporte-table-scroll td.suporte-sticky-pdv {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  box-shadow: 2px 0 8px -3px rgba(15, 23, 42, 0.14);
+}
+
+.suporte-table-scroll thead th.suporte-sticky-pdv {
+  z-index: 25;
+}
+

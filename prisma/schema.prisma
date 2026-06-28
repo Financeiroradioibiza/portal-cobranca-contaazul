@@ -608,11 +608,18 @@ model Chamado {
   fechadoPorEmail  String?           @map("fechado_por_email") @db.VarChar(200)
   fechadoPorNome   String?           @map("fechado_por_nome") @db.VarChar(120)
   fechadoEm        DateTime?         @map("fechado_em")
+  /// Cliente Rio / grupo produção (quando o chamado é sobre um cliente).
+  rioLinhaId       String?           @map("rio_linha_id") @db.VarChar(64)
+  /// PDV específico (quando o chamado é sobre uma loja).
+  rioPdvKey        String?           @map("rio_pdv_key") @db.VarChar(120)
+  clienteNome      String            @default("") @map("cliente_nome") @db.VarChar(200)
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
   @@index([status, updatedAt])
   @@index([criadoPorEmail])
+  @@index([rioLinhaId])
+  @@index([rioPdvKey])
   @@map("chamado")
 }
 

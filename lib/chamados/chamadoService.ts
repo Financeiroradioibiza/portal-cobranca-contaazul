@@ -68,6 +68,9 @@ export function chamadoToView(row: Chamado): ChamadoView {
     fechadoPorEmail: row.fechadoPorEmail,
     fechadoPorNome: row.fechadoPorNome,
     fechadoEm: row.fechadoEm?.toISOString() ?? null,
+    rioLinhaId: row.rioLinhaId,
+    rioPdvKey: row.rioPdvKey,
+    clienteNome: row.clienteNome,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -149,6 +152,43 @@ export async function listOpenChamadosForUser(ctx: ChamadoUserContext): Promise<
     .map(chamadoToView);
 }
 
+export async function listChamadosForUser(ctx: ChamadoUserContext): Promise<ChamadoView[]> {
+  const rows = await prisma.chamado.findMany({
+    orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+  });
+  return rows.filter((r) => userParticipatesInChamado(r, ctx)).map(chamadoToView);
+}
+
+export async function listChamadosForCliente(opts: {
+  rioLinhaId: string;
+  rioPdvKeys: string[];
+}): Promise<ChamadoView[]> {
+  const ingestRows = await prisma.playerIngest.findMany({
+    where: {
+      rioPdvKey: { in: opts.rioPdvKeys },
+      chamadoId: { not: null },
+    },
+    select: { chamadoId: true },
+  });
+  const ingestIds = [
+    ...new Set(ingestRows.map((r) => r.chamadoId).filter((id): id is string => Boolean(id))),
+  ];
+
+  const or: Array<Record<string, unknown>> = [{ rioLinhaId: opts.rioLinhaId }];
+  if (opts.rioPdvKeys.length > 0) {
+    or.push({ rioPdvKey: { in: opts.rioPdvKeys } });
+  }
+  if (ingestIds.length > 0) {
+    or.push({ id: { in: ingestIds } });
+  }
+
+  const rows = await prisma.chamado.findMany({
+    where: { OR: or },
+    orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+  });
+  return rows.map(chamadoToView);
+}
+
 export async function createChamado(
   input: CreateChamadoInput,
   ctx: ChamadoUserContext,
@@ -159,8 +199,16 @@ export async function createChamado(
   const setores = normalizeSetores(input.setores);
   const responsaveis = normalizeEmails(input.responsaveis);
   if (setores.length === 0 && responsaveis.length === 0) {
-    setores.push(ctx.profileSlug === "admin" ? "geral" : ctx.profileSlug);
+    if (input.rioLinhaId || input.rioPdvKey) {
+      setores.push("relacionamento");
+    } else {
+      setores.push(ctx.profileSlug === "admin" ? "geral" : ctx.profileSlug);
+    }
   }
+
+  const rioLinhaId = input.rioLinhaId?.trim().slice(0, 64) || null;
+  const rioPdvKey = input.rioPdvKey?.trim().slice(0, 120) || null;
+  const clienteNome = input.clienteNome?.trim().slice(0, 200) ?? "";
 
   const row = await prisma.chamado.create({
     data: {
@@ -171,6 +219,9 @@ export async function createChamado(
       responsaveisJson: serializeStringArray(responsaveis),
       criadoPorEmail: ctx.email,
       criadoPorNome: ctx.displayName,
+      rioLinhaId,
+      rioPdvKey,
+      clienteNome,
     },
   });
   return chamadoToView(row);

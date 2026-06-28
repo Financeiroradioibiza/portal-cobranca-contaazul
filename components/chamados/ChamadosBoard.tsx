@@ -56,13 +56,20 @@ function sortCards(a: ChamadoView, b: ChamadoView): number {
   return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
 }
 
-export function ChamadosBoard() {
+type ChamadosBoardProps = {
+  /** Quando "mine", carrega só chamados em que o usuário ou setor participa. */
+  scope?: "all" | "mine";
+  /** Layout compacto para embutir no dashboard (sem banner grande). */
+  embedded?: boolean;
+};
+
+export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoardProps) {
   const [chamados, setChamados] = useState<ChamadoView[]>([]);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterTab>("todos");
+  const [filter, setFilter] = useState<FilterTab>(scope === "mine" ? "abertos" : "todos");
   const [selected, setSelected] = useState<ChamadoView | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -76,8 +83,10 @@ export function ChamadosBoard() {
     setLoading(true);
     setMsg(null);
     try {
+      const chamadosUrl =
+        scope === "mine" ? "/api/chamados?scope=mine-all" : "/api/chamados";
       const [cRes, pRes] = await Promise.all([
-        fetch("/api/chamados", { credentials: "same-origin" }),
+        fetch(chamadosUrl, { credentials: "same-origin" }),
         fetch("/api/chamados/participants", { credentials: "same-origin" }),
       ]);
       const cData = cRes.ok ? await cRes.json() : null;
@@ -89,7 +98,7 @@ export function ChamadosBoard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     void load();
@@ -213,28 +222,52 @@ export function ChamadosBoard() {
     setFormResp((prev) => (prev.includes(email) ? prev.filter((x) => x !== email) : [...prev, email]));
   }
 
+  const title = scope === "mine" ? "Seus chamados" : "Quadro de chamados";
+  const subtitle =
+    scope === "mine" ?
+      "Chamados em que você ou seu setor participa."
+    : "Comunicação interna entre setores e pessoas — estilo kanban, simples e colorido.";
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-100 via-sky-50 to-emerald-50 p-4 dark:border-violet-900/50 dark:from-violet-950/40 dark:via-sky-950/30 dark:to-emerald-950/30">
-        <div>
-          <p className="text-lg font-bold text-slate-900 dark:text-white">Quadro de chamados</p>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Comunicação interna entre setores e pessoas — estilo kanban, simples e colorido.
-          </p>
+      {embedded ?
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400">{subtitle}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatPill label="Total" value={stats.total} tone="slate" />
+            <StatPill label="Abertos" value={stats.abertos} tone="sky" />
+            <StatPill label="Resolvidos" value={stats.fechados} tone="emerald" />
+            <button
+              type="button"
+              onClick={openCreate}
+              className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500"
+            >
+              + Novo chamado
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <StatPill label="Total" value={stats.total} tone="slate" />
-          <StatPill label="Abertos" value={stats.abertos} tone="sky" />
-          <StatPill label="Resolvidos" value={stats.fechados} tone="emerald" />
-          <button
-            type="button"
-            onClick={openCreate}
-            className="rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:from-violet-500 hover:to-fuchsia-500"
-          >
-            + Novo chamado
-          </button>
+      : <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-100 via-sky-50 to-emerald-50 p-4 dark:border-violet-900/50 dark:from-violet-950/40 dark:via-sky-950/30 dark:to-emerald-950/30">
+          <div>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{title}</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400">{subtitle}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatPill label="Total" value={stats.total} tone="slate" />
+            <StatPill label="Abertos" value={stats.abertos} tone="sky" />
+            <StatPill label="Resolvidos" value={stats.fechados} tone="emerald" />
+            <button
+              type="button"
+              onClick={openCreate}
+              className="rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:from-violet-500 hover:to-fuchsia-500"
+            >
+              + Novo chamado
+            </button>
+          </div>
         </div>
-      </div>
+      }
 
       <div className="flex flex-wrap gap-2">
         {(
