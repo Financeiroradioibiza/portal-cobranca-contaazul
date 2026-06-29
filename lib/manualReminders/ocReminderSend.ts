@@ -2,7 +2,7 @@ import type { ManualReminderMonth, ManualReminderRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import { sendEmailViaSmtp } from "@/lib/email/ocSmtp";
-import { formatPriorBrazilMonthBillingLabel } from "@/lib/manualReminders/yearMonth";
+import { formatPriorMonthBillingLabelFromYearMonth } from "@/lib/manualReminders/yearMonth";
 import {
   buildOcEmailVars,
   parseOcEmailRecipients,
@@ -38,7 +38,7 @@ export async function buildOcReminderTransmission(row: OcRowWithMonth): Promise<
   const tpl = await getOrCreateOcEmailTemplate();
   const vars = buildOcEmailVars({
     clienteNome: row.clienteNome,
-    mesLabel: formatPriorBrazilMonthBillingLabel(),
+    mesLabel: formatPriorMonthBillingLabelFromYearMonth(row.month.yearMonth),
     cnpjDocumento: row.cnpjDocumento ?? "—",
   });
 

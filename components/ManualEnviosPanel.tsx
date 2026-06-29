@@ -14,7 +14,7 @@ import {
 import { parseEmailAddresses } from "@/lib/format";
 import {
   currentBrazilYearMonth,
-  formatPriorBrazilMonthBillingLabel,
+  formatPriorMonthBillingLabelFromYearMonth,
   formatYearMonthLabel,
   shiftYearMonth,
 } from "@/lib/manualReminders/yearMonth";
@@ -444,14 +444,19 @@ export function ManualEnviosPanel() {
     [activeYm, loadMonthRows],
   );
 
+  const mesLabelAba = useMemo(
+    () => formatPriorMonthBillingLabelFromYearMonth(activeYm),
+    [activeYm],
+  );
+
   const ocPreviewVars = useMemo(
     () =>
       buildOcEmailVars({
         clienteNome: ocPreviewClienteNome.trim() || `Cliente exemplo (${COMPANY_NAME})`,
-        mesLabel: formatPriorBrazilMonthBillingLabel(),
+        mesLabel: mesLabelAba,
         cnpjDocumento: "00.000.000/0001-91",
       }),
-    [ocPreviewClienteNome],
+    [ocPreviewClienteNome, mesLabelAba],
   );
 
   const ocPreviewSubjectRendered = useMemo(
@@ -506,7 +511,7 @@ export function ManualEnviosPanel() {
     }
     const vars = buildOcEmailVars({
       clienteNome: row.clienteNome,
-      mesLabel: formatPriorBrazilMonthBillingLabel(),
+      mesLabel: mesLabelAba,
       cnpjDocumento: row.cnpjDocumento ?? "—",
     });
     const subjPreview = renderOcEmailText(ocEmailSubject, vars);
@@ -881,9 +886,9 @@ export function ManualEnviosPanel() {
               <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">{"{{cnpjDocumento}}"}</code>
               <span className="mt-1 block text-slate-500 dark:text-slate-500">
                 No envio (e nesta prévia),{" "}
-                <code className="rounded bg-slate-100 px-0.5 text-[10px] dark:bg-slate-800">{"{{mesLabel}}"}</code> é sempre a
-                competência de <strong>mês anterior</strong> ao dia de hoje (horário Brasil), ex.: 1º de maio →{" "}
-                <strong>{formatPriorBrazilMonthBillingLabel()}</strong>.
+                <code className="rounded bg-slate-100 px-0.5 text-[10px] dark:bg-slate-800">{"{{mesLabel}}"}</code> é o
+                mês anterior à <strong>aba selecionada</strong> ({formatYearMonthLabel(activeYm)} →{" "}
+                <strong>{mesLabelAba}</strong>).
               </span>
             </p>
             <div className="grid gap-4 lg:grid-cols-2">

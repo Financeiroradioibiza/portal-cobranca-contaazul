@@ -58,8 +58,16 @@ export function shiftYearMonth(ym: number, deltaMonths: number): number {
 /**
  * Competência da faturagem no texto do e-mail de OC:
  * sempre o **mês civil anterior** ao relógio de **Brasil**, p.ex. envio em 1º de maio → `abr/2026`.
+ * @deprecated Prefer `formatPriorMonthBillingLabelFromYearMonth` com a aba da planilha selecionada.
  */
 export function formatPriorBrazilMonthBillingLabel(refDate = new Date()): string {
   const ym = currentBrazilYearMonth(refDate);
-  return formatYearMonthLabel(shiftYearMonth(ym, -1));
+  return formatPriorMonthBillingLabelFromYearMonth(ym);
+}
+
+/**
+ * Competência no e-mail OC: mês anterior à **aba/competência** da planilha (ex.: aba jul/2026 → `jun/2026`).
+ */
+export function formatPriorMonthBillingLabelFromYearMonth(tabYearMonth: number): string {
+  return formatYearMonthLabel(shiftYearMonth(tabYearMonth, -1));
 }
