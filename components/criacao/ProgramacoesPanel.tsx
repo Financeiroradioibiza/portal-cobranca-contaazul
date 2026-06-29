@@ -10,6 +10,7 @@ import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAvis
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { CronogramaAlvoBadges, DOW, diasLabel } from "@/components/criacao/CronogramaAlvoBadges";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
+import { formatPastaMusicaAddedAt } from "@/lib/criacao/pastaMusicaUi";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -28,6 +29,7 @@ type PastaMusicaView = {
   status: string;
   mixSegundosFinais: number | null;
   previewUrl: string | null;
+  addedAt: string | null;
 };
 type PastaView = {
   id: string;
@@ -87,6 +89,8 @@ function ProgramacaoEditor({
   const [novaPastaSelecionavel, setNovaPastaSelecionavel] = useState(false);
   const [addTo, setAddTo] = useState<PastaView | null>(null);
   const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
+  /** Faixas adicionadas nesta sessão do editor — destaque até fechar a programação. */
+  const [sessionAddedIds, setSessionAddedIds] = useState<Set<string>>(() => new Set());
   const marcouAberta = useRef(false);
 
   async function registrarEdicao() {
@@ -449,8 +453,17 @@ function ProgramacaoEditor({
                   Pasta vazia — clique em “+ Músicas” para adicionar da biblioteca.
                 </div>
               : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {pasta.musicas.map((m, idx) => (
-                    <li key={m.id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                  {pasta.musicas.map((m, idx) => {
+                    const isNova = sessionAddedIds.has(m.id);
+                    return (
+                    <li
+                      key={m.id}
+                      className={`flex items-center gap-3 px-4 py-2 text-sm ${
+                        isNova ?
+                          "border-l-2 border-emerald-500 bg-emerald-50/70 dark:border-emerald-400 dark:bg-emerald-950/25"
+                        : ""
+                      }`}
+                    >
                       <input
                         type="checkbox"
                         checked={selected.has(m.id)}
@@ -502,6 +515,14 @@ function ProgramacaoEditor({
                           mix {m.mixSegundosFinais}s
                         </span>
                       : null}
+                      <span
+                        className={`shrink-0 text-[11px] tabular-nums ${
+                          isNova ? "font-medium text-emerald-700 dark:text-emerald-300" : "text-slate-400"
+                        }`}
+                        title="Data de entrada nesta pasta"
+                      >
+                        {formatPastaMusicaAddedAt(m.addedAt)}
+                      </span>
                       <span className="shrink-0 text-xs tabular-nums text-slate-400">{formatDuration(m.durationMs)}</span>
                       <button
                         type="button"
@@ -512,7 +533,8 @@ function ProgramacaoEditor({
                         ✕
                       </button>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               }
             </div>
@@ -537,7 +559,12 @@ function ProgramacaoEditor({
           pasta={addTo}
           pastas={prog.pastas}
           onClose={() => setAddTo(null)}
-          onAdded={async () => {
+          onAdded={async (musicaIds) => {
+            setSessionAddedIds((prev) => {
+              const next = new Set(prev);
+              for (const mid of musicaIds) next.add(mid);
+              return next;
+            });
             await registrarEdicao();
             setAddTo(null);
             await load();
@@ -1187,7 +1214,7 @@ function AddMusicasModal({
   pasta: PastaView;
   pastas: PastaView[];
   onClose: () => void;
-  onAdded: () => void;
+  onAdded: (musicaIds: string[]) => void | Promise<void>;
 }) {
   const [busca, setBusca] = useState("");
   const [draft, setDraft] = useState("");
@@ -1256,7 +1283,7 @@ function AddMusicasModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ musicaIds: Array.from(sel) }),
       });
-      onAdded();
+      await onAdded(Array.from(sel));
     } catch {
       setSaving(false);
     }

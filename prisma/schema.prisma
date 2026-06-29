@@ -1030,9 +1030,11 @@ model Pasta {
 }
 
 model PastaMusica {
-  pastaId   String @map("pasta_id")
-  musicaId  String @map("musica_id")
-  sortOrder Int    @default(0) @map("sort_order")
+  pastaId   String    @map("pasta_id")
+  musicaId  String    @map("musica_id")
+  sortOrder Int       @default(0) @map("sort_order")
+  /// Quando a faixa entrou nesta pasta (independe de outras pastas/programações).
+  addedAt   DateTime? @default(now()) @map("added_at")
 
   pasta  Pasta            @relation(fields: [pastaId], references: [id], onDelete: Cascade)
   musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)

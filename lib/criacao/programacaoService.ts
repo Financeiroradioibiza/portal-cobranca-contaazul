@@ -229,6 +229,8 @@ export type PastaMusicaView = {
   status: string;
   mixSegundosFinais: number | null;
   previewUrl: string | null;
+  /** ISO — quando a faixa entrou nesta pasta. */
+  addedAt: string | null;
 };
 
 export type PastaView = {
@@ -327,6 +329,7 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
           status: m.status,
           mixSegundosFinais: m.mixSegundosFinais,
           previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
+          addedAt: pm.addedAt instanceof Date ? pm.addedAt.toISOString() : null,
         };
       }),
     })),
@@ -439,8 +442,9 @@ export async function addMusicasToPasta(pastaId: string, musicaIds: string[]): P
   if (novos.length === 0) return 0;
 
   let order = (last?.sortOrder ?? -1) + 1;
+  const now = new Date();
   await prisma.pastaMusica.createMany({
-    data: novos.map((musicaId) => ({ pastaId, musicaId, sortOrder: order++ })),
+    data: novos.map((musicaId) => ({ pastaId, musicaId, sortOrder: order++, addedAt: now })),
     skipDuplicates: true,
   });
   return novos.length;
