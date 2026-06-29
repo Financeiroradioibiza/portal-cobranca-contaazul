@@ -291,3 +291,33 @@ export async function produceVinhetaMp3(inputPath: string, outputPath: string): 
   await fsp.rm(workDir, { recursive: true, force: true }).catch(() => null);
   return { durationMs };
 }
+
+/** Locução ElevenLabs + trilha ambiente — voz em destaque, bed mais baixo. */
+export async function mixVinhetaVoiceWithBed(
+  voicePath: string,
+  bedPath: string,
+  outputPath: string,
+): Promise<{ durationMs: number }> {
+  const workDir = path.join(path.dirname(outputPath), 'work-vinheta-ia');
+  await fsp.mkdir(workDir, { recursive: true });
+  const mixedRaw = path.join(workDir, 'mixed-raw.mp3');
+  await runFfmpeg([
+    '-i',
+    voicePath,
+    '-i',
+    bedPath,
+    '-filter_complex',
+    '[1:a]volume=0.2[bed];[0:a][bed]amix=inputs=2:duration=first:dropout_transition=2,volume=1.15',
+    '-ac',
+    '1',
+    '-codec:a',
+    'libmp3lame',
+    '-b:a',
+    '192k',
+    mixedRaw,
+  ]);
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  const result = await produceVinhetaMp3(mixedRaw, outputPath);
+  await fsp.rm(workDir, { recursive: true, force: true }).catch(() => null);
+  return result;
+}

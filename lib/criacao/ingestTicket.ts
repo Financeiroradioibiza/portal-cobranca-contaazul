@@ -12,6 +12,9 @@ const SECRET = process.env.CRIACAO_INGEST_SECRET ?? "";
 export const CRIACAO_INGEST_URL =
   process.env.CRIACAO_CLOUD2_INGEST_URL ?? "https://cloud2.radioibiza.app.br/criacao/ingest";
 
+export const VINHETA_IA_MIX_URL = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/vinheta-ia-mix");
+export const VINHETA_CLONE_URL = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/vinheta-clone");
+
 /** Validade padrão do ticket: 2h (tempo de sobra para subir uma pasta grande). */
 const TTL_MS = 2 * 60 * 60 * 1000;
 

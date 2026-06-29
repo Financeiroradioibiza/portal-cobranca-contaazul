@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { criacaoConfig } from '../../criacao/config.js';
-import { produceVinhetaMp3 } from '../../criacao/ffmpeg.js';
+import { produceVinhetaMp3, mixVinhetaVoiceWithBed } from '../../criacao/ffmpeg.js';
 import { verifyVinhetaStreamAccess, verifyVinhetaToken } from '../../criacao/ingestToken.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
@@ -103,6 +103,103 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
       if (!resolved) return reply.code(404).send({ ok: false, error: 'arquivo_ausente' });
 
       return sendAudioReply(reply, resolved, req.headers.range, 'private, max-age=3600');
+    },
+  );
+
+  app.post(`${prefix}/vinheta-ia-mix`, async (req, reply) => {
+    let token = '';
+    let trilhaMusicaId = '';
+    let voiceBuffer: Buffer | null = null;
+
+    const parts = req.parts();
+    for await (const part of parts) {
+      if (part.type === 'field' && part.fieldname === 'token') {
+        token = String(part.value ?? '').trim();
+      } else if (part.type === 'field' && part.fieldname === 'trilhaMusicaId') {
+        trilhaMusicaId = String(part.value ?? '').trim();
+      } else if (part.type === 'file' && part.fieldname === 'voice') {
+        voiceBuffer = await part.toBuffer();
+      }
+    }
+
+    if (!token) return reply.code(400).send({ ok: false, error: 'token_ausente' });
+    const parsed = verifyVinhetaToken(token);
+    if (!parsed) return reply.code(401).send({ ok: false, error: 'token_invalido' });
+    if (!voiceBuffer?.length) return reply.code(400).send({ ok: false, error: 'voice_ausente' });
+    if (!trilhaMusicaId) return reply.code(400).send({ ok: false, error: 'trilha_obrigatoria' });
+
+    const trilhaRes = await portalQuery<{ storage_key: string }>(
+      `SELECT storage_key FROM musica_versao WHERE musica_id = $1 AND storage_key IS NOT NULL ORDER BY formato ASC LIMIT 1`,
+      [trilhaMusicaId],
+    );
+    const bedKey = trilhaRes.rows[0]?.storage_key;
+    if (!bedKey) return reply.code(404).send({ ok: false, error: 'trilha_ausente' });
+
+    const bedResolved = await resolveUsoAudio(bedKey);
+    if (!bedResolved) return reply.code(404).send({ ok: false, error: 'trilha_arquivo_ausente' });
+
+    ensureStorageDirs();
+    const workDir = path.join(criacaoConfig.storageRoot, 'work', `vinheta-ia-${parsed.vinhetaId}`);
+    await fsp.mkdir(workDir, { recursive: true });
+    const voicePath = path.join(workDir, 'voice.mp3');
+    const bedPath = path.join(workDir, 'bed.mp3');
+    const dest = vinhetaPath(parsed.vinhetaId);
+
+    await fsp.writeFile(voicePath, voiceBuffer);
+    if (bedResolved.mp3Buffer) {
+      await fsp.writeFile(bedPath, bedResolved.mp3Buffer);
+    } else {
+      await fsp.copyFile(bedResolved.filePath, bedPath);
+    }
+
+    try {
+      const { durationMs } = await mixVinhetaVoiceWithBed(voicePath, bedPath, dest);
+      app.log.info({ vinhetaId: parsed.vinhetaId, durationMs }, '[vinheta-ia-mix] ok');
+    } finally {
+      await fsp.rm(workDir, { recursive: true, force: true }).catch(() => null);
+    }
+
+    const key = vinhetaStorageKey(parsed.vinhetaId);
+    await portalQuery(
+      `UPDATE vinheta SET storage_key = $2, updated_at = now() WHERE id = $1`,
+      [parsed.vinhetaId, key],
+    );
+    return reply.send({ ok: true, vinhetaId: parsed.vinhetaId, storageKey: key });
+  });
+
+  app.post<{ Body: { token?: string; sourceVinhetaId?: string; targetVinhetaId?: string } }>(
+    `${prefix}/vinheta-clone`,
+    async (req, reply) => {
+      const token = String(req.body?.token ?? '').trim();
+      const sourceVinhetaId = String(req.body?.sourceVinhetaId ?? '').trim();
+      const targetVinhetaId = String(req.body?.targetVinhetaId ?? '').trim();
+      if (!token || !sourceVinhetaId || !targetVinhetaId) {
+        return reply.code(400).send({ ok: false, error: 'parametros_invalidos' });
+      }
+      const parsed = verifyVinhetaToken(token);
+      if (!parsed || parsed.vinhetaId !== targetVinhetaId) {
+        return reply.code(401).send({ ok: false, error: 'token_invalido' });
+      }
+
+      const srcKey = vinhetaStorageKey(sourceVinhetaId);
+      const srcResolved = await resolveUsoAudio(srcKey);
+      if (!srcResolved) return reply.code(404).send({ ok: false, error: 'origem_ausente' });
+
+      ensureStorageDirs();
+      const dest = vinhetaPath(targetVinhetaId);
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      if (srcResolved.mp3Buffer) {
+        await fsp.writeFile(dest, srcResolved.mp3Buffer);
+      } else {
+        await fsp.copyFile(srcResolved.filePath, dest);
+      }
+
+      const key = vinhetaStorageKey(targetVinhetaId);
+      await portalQuery(
+        `UPDATE vinheta SET storage_key = $2, updated_at = now() WHERE id = $1`,
+        [targetVinhetaId, key],
+      );
+      return reply.send({ ok: true, targetVinhetaId, storageKey: key });
     },
   );
 }

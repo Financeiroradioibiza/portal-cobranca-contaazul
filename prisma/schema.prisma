@@ -1045,24 +1045,40 @@ model PastaMusica {
 enum VinhetaTipo {
   tts
   audio
+  ia
+}
+
+enum VinhetaStatus {
+  rascunho
+  gerando
+  preview
+  aprovada
 }
 
 /// Vinheta/aviso atrelável a uma programação.
 model Vinheta {
-  id               String      @id @default(cuid())
-  programacaoId    String?     @map("programacao_id")
-  nome             String      @db.VarChar(160)
-  tipo             VinhetaTipo @default(tts)
-  texto            String      @default("") @db.Text
-  voz              String      @default("") @db.VarChar(80)
-  trilhaStorageKey String?     @map("trilha_storage_key") @db.VarChar(300)
-  storageKey       String?     @map("storage_key") @db.VarChar(300)
-  createdAt        DateTime    @default(now()) @map("created_at")
-  updatedAt        DateTime    @updatedAt @map("updated_at")
+  id               String        @id @default(cuid())
+  programacaoId    String?       @map("programacao_id")
+  nome             String        @db.VarChar(160)
+  tipo             VinhetaTipo   @default(tts)
+  status           VinhetaStatus @default(rascunho)
+  texto            String        @default("") @db.Text
+  voz              String        @default("") @db.VarChar(80)
+  /// Voz ElevenLabs (nome exibido) — complementa `voz` (voice_id).
+  vozNome          String        @default("") @map("voz_nome") @db.VarChar(120)
+  trilhaMusicaId   String?       @map("trilha_musica_id")
+  trilhaStorageKey String?       @map("trilha_storage_key") @db.VarChar(300)
+  storageKey       String?       @map("storage_key") @db.VarChar(300)
+  criativoUserId   String?       @map("criativo_user_id") @db.VarChar(200)
+  criativoNome     String        @default("") @map("criativo_nome") @db.VarChar(120)
+  aprovadaEm       DateTime?     @map("aprovada_em")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
   programacao Programacao? @relation(fields: [programacaoId], references: [id], onDelete: SetNull)
 
   @@index([programacaoId])
+  @@index([status, criativoUserId])
   @@map("vinheta")
 }
 

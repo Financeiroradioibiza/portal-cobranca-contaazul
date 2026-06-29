@@ -570,6 +570,7 @@ function VinhetasSection({
   const [vinhetas, setVinhetas] = useState<Vinheta[]>([]);
   const [nome, setNome] = useState("");
   const [busy, setBusy] = useState(false);
+  const [bibOpen, setBibOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pendingUploadId = useRef<string | null>(null);
 
@@ -659,13 +660,32 @@ function VinhetasSection({
         />
         <button
           type="button"
+          onClick={() => setBibOpen(true)}
+          className="rounded-lg border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100"
+        >
+          Puxar da biblioteca IA
+        </button>
+        <button
+          type="button"
           onClick={() => void criar()}
           disabled={busy || !nome.trim()}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
         >
-          + Vinheta
+          + Vinheta MP3
         </button>
       </div>
+
+      {bibOpen ?
+        <ImportVinhetaBibliotecaModal
+          programacaoId={programacaoId}
+          onClose={() => setBibOpen(false)}
+          onImported={async () => {
+            setBibOpen(false);
+            await onEdit?.();
+            await load();
+          }}
+        />
+      : null}
 
       {vinhetas.length === 0 ?
         <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400 dark:border-slate-700">
@@ -677,7 +697,7 @@ function VinhetasSection({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">
-                    {v.tipo === "audio" ? "Áudio" : "TTS legado"}
+                    {v.tipo === "ia" ? "IA" : v.tipo === "audio" ? "Áudio" : "TTS legado"}
                   </span>
                   <span className="text-sm font-semibold">{v.nome}</span>
                   <CronogramaAlvoBadges ags={ags} alvoTipo="vinheta" alvoId={v.id} />
@@ -706,6 +726,91 @@ function VinhetasSection({
           ))}
         </div>
       }
+    </div>
+  );
+}
+
+function ImportVinhetaBibliotecaModal({
+  programacaoId,
+  onClose,
+  onImported,
+}: {
+  programacaoId: string;
+  onClose: () => void;
+  onImported: () => void | Promise<void>;
+}) {
+  const [rows, setRows] = useState<Array<{ id: string; nome: string; previewUrl: string | null; temAudio: boolean }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/criacao/vinhetas/lab?scope=biblioteca");
+        const data = (await res.json()) as {
+          vinhetas?: Array<{ id: string; nome: string; previewUrl: string | null; temAudio: boolean }>;
+        };
+        setRows(data.vinhetas ?? []);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function puxar(vinhetaId: string) {
+    setBusy(vinhetaId);
+    try {
+      const res = await fetch(`/api/criacao/vinhetas/lab/${encodeURIComponent(vinhetaId)}/anexar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ programacaoId }),
+      });
+      if (!res.ok) throw new Error();
+      await onImported();
+    } catch {
+      alert("Não foi possível puxar esta vinheta.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <h3 className="text-sm font-bold">Vinhetas salvas (IA)</h3>
+          <p className="text-xs text-slate-500">Criadas em Criação → Vinhetas</p>
+        </div>
+        <ul className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+          {loading ?
+            <li className="px-4 py-6 text-sm text-slate-500">Carregando…</li>
+          : rows.length === 0 ?
+            <li className="px-4 py-6 text-sm text-slate-500">Nenhuma vinheta aprovada na biblioteca.</li>
+          : rows.map((v) => (
+              <li key={v.id} className="flex items-center justify-between gap-2 px-4 py-3 text-sm">
+                <span className="font-medium">{v.nome}</span>
+                <button
+                  type="button"
+                  disabled={busy === v.id}
+                  onClick={() => void puxar(v.id)}
+                  className="rounded-lg bg-violet-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  {busy === v.id ? "…" : "Usar aqui"}
+                </button>
+              </li>
+            ))
+          }
+        </ul>
+        <div className="border-t border-slate-200 px-4 py-3 text-right dark:border-slate-800">
+          <button type="button" onClick={onClose} className="text-sm text-slate-500">
+            Fechar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
