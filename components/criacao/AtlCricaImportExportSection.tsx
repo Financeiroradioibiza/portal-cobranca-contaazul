@@ -170,7 +170,8 @@ export function AtlCricaImportExportSection({
       <div>
         <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">2 · Importar pasta preenchida</h3>
         <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-          Depois de colocar os MP3s no Mac, selecione a pasta raiz ou envie o ZIP de volta.
+          Depois de colocar os MP3s no Mac, envie o <strong>ZIP original</strong> de volta ou selecione a pasta cujas
+          subpastas são <code className="text-[10px]">Cliente/Programação/Pasta</code> (não a pasta pai do ZIP).
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <input

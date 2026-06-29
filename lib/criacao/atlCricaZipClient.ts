@@ -37,10 +37,12 @@ export async function listMp3PathsFromZip(file: File): Promise<Array<{ path: str
   const files: Array<{ path: string }> = [];
   zip.forEach((relativePath, entry) => {
     if (entry.dir) return;
-    const name = relativePath.split("/").pop() ?? "";
+    const normalized = relativePath.replace(/\\/g, "/");
+    if (normalized.toLowerCase().startsWith("__macosx/")) return;
+    const name = normalized.split("/").pop() ?? "";
     if (!name.toLowerCase().endsWith(".mp3")) return;
     if (name === ".gitkeep") return;
-    files.push({ path: relativePath.replace(/\\/g, "/") });
+    files.push({ path: normalized });
   });
   return files;
 }

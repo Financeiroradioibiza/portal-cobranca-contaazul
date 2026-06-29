@@ -22,6 +22,12 @@ export function buildAtlFolderPath(
   ].join("/");
 }
 
+/** Remove prefixo __MACOSX de paths do Finder. */
+export function stripMacOsxPathPrefix(segments: string[]): string[] {
+  if (segments[0]?.toLowerCase() === "__macosx") return segments.slice(1);
+  return segments;
+}
+
 /** Divide path relativo em segmentos (ignora vazio e `.`). */
 export function splitRelativePath(path: string): string[] {
   return path
