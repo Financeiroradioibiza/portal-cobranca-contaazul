@@ -163,16 +163,19 @@ export async function listChamadosForCliente(opts: {
   rioLinhaId: string;
   rioPdvKeys: string[];
 }): Promise<ChamadoView[]> {
-  const ingestRows = await prisma.playerIngest.findMany({
-    where: {
-      rioPdvKey: { in: opts.rioPdvKeys },
-      chamadoId: { not: null },
-    },
-    select: { chamadoId: true },
-  });
-  const ingestIds = [
-    ...new Set(ingestRows.map((r) => r.chamadoId).filter((id): id is string => Boolean(id))),
-  ];
+  let ingestIds: string[] = [];
+  if (opts.rioPdvKeys.length > 0) {
+    const ingestRows = await prisma.playerIngest.findMany({
+      where: {
+        rioPdvKey: { in: opts.rioPdvKeys },
+        chamadoId: { not: null },
+      },
+      select: { chamadoId: true },
+    });
+    ingestIds = [
+      ...new Set(ingestRows.map((r) => r.chamadoId).filter((id): id is string => Boolean(id))),
+    ];
+  }
 
   const or: Array<Record<string, unknown>> = [{ rioLinhaId: opts.rioLinhaId }];
   if (opts.rioPdvKeys.length > 0) {
@@ -182,11 +185,20 @@ export async function listChamadosForCliente(opts: {
     or.push({ id: { in: ingestIds } });
   }
 
-  const rows = await prisma.chamado.findMany({
-    where: { OR: or },
-    orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
-  });
-  return rows.map(chamadoToView);
+  try {
+    const rows = await prisma.chamado.findMany({
+      where: { OR: or },
+      orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+    });
+    return rows.map(chamadoToView);
+  } catch {
+    if (ingestIds.length === 0) return [];
+    const rows = await prisma.chamado.findMany({
+      where: { id: { in: ingestIds } },
+      orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+    });
+    return rows.map(chamadoToView);
+  }
 }
 
 export async function createChamado(

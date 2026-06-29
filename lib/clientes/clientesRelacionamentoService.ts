@@ -109,16 +109,16 @@ function ingestCadastroToAtualizacao(row: PlayerIngestView): ClienteAtualizacaoI
 }
 
 export async function listClientesRelacionamento(q?: string): Promise<ClientesListPayload> {
-  const dash = await getProducaoDashboard();
   const needle = q?.trim().toLowerCase() ?? "";
-  let list = dash.clientes;
-
-  if (needle) {
-    list = list.filter((c) => {
-      const blob = `${c.nome} ${c.pdvs.map((p) => p.nome).join(" ")}`.toLowerCase();
-      return blob.includes(needle);
-    });
+  if (needle.length < 2) {
+    return { ok: true, clientes: [], total: 0 };
   }
+
+  const dash = await getProducaoDashboard();
+  const list = dash.clientes.filter((c) => {
+    const blob = `${c.nome} ${c.pdvs.map((p) => p.nome).join(" ")}`.toLowerCase();
+    return blob.includes(needle);
+  });
 
   const clientes: ClienteResumo[] = list.map((c) => ({
     key: c.key,
@@ -143,54 +143,62 @@ export async function getClienteRelacionamentoDetail(
   const rioPdvKeys = cliente.pdvs.map((p) => p.rioPdvKey);
   const pdvsTocando = cliente.pdvs.filter(pdvIsTocando).length;
 
+  const emptyKeys = rioPdvKeys.length === 0;
+
   const [chamados, cadastros, ingestRows, programacaoAtualizacoes] = await Promise.all([
     listChamadosForCliente({
       rioLinhaId: cliente.rioLinhaId,
       rioPdvKeys,
     }),
-    prisma.producaoPdvCadastro.findMany({
-      where: { rioPdvKey: { in: rioPdvKeys } },
-      select: {
-        rioPdvKey: true,
-        playerInstaladoEm: true,
-        createdAt: true,
-        programacaoId: true,
-      },
-    }),
-    prisma.playerIngest.findMany({
-      where: { rioPdvKey: { in: rioPdvKeys } },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    }),
-    (async () => {
-      const programacaoIds = [
-        ...new Set(
-          (
-            await prisma.producaoPdvCadastro.findMany({
-              where: { rioPdvKey: { in: rioPdvKeys }, programacaoId: { not: null } },
-              select: { programacaoId: true },
-            })
-          )
-            .map((r) => r.programacaoId)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      ];
-      if (programacaoIds.length === 0) return [];
-      return prisma.programacaoAtualizacao.findMany({
-        where: { programacaoId: { in: programacaoIds } },
-        orderBy: { disparadaEm: "desc" },
-        take: 40,
+    emptyKeys ?
+      Promise.resolve([])
+    : prisma.producaoPdvCadastro.findMany({
+        where: { rioPdvKey: { in: rioPdvKeys } },
         select: {
-          id: true,
-          codigo: true,
-          tipoSubida: true,
-          rotuloLog: true,
-          disparadaEm: true,
-          disparadaPor: true,
-          pdvsLog: true,
+          rioPdvKey: true,
+          playerInstaladoEm: true,
+          createdAt: true,
+          programacaoId: true,
         },
-      });
-    })(),
+      }),
+    emptyKeys ?
+      Promise.resolve([])
+    : prisma.playerIngest.findMany({
+        where: { rioPdvKey: { in: rioPdvKeys } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    emptyKeys ?
+      Promise.resolve([])
+    : (async () => {
+        const programacaoIds = [
+          ...new Set(
+            (
+              await prisma.producaoPdvCadastro.findMany({
+                where: { rioPdvKey: { in: rioPdvKeys }, programacaoId: { not: null } },
+                select: { programacaoId: true },
+              })
+            )
+              .map((r) => r.programacaoId)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ];
+        if (programacaoIds.length === 0) return [];
+        return prisma.programacaoAtualizacao.findMany({
+          where: { programacaoId: { in: programacaoIds } },
+          orderBy: { disparadaEm: "desc" },
+          take: 40,
+          select: {
+            id: true,
+            codigo: true,
+            tipoSubida: true,
+            rotuloLog: true,
+            disparadaEm: true,
+            disparadaPor: true,
+            pdvsLog: true,
+          },
+        });
+      })(),
   ]);
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));

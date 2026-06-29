@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ChamadoPrioridade } from "@prisma/client";
 import { CHAMADO_COLUNAS, CHAMADO_PRIORIDADES, prioridadeMeta } from "@/lib/chamados/chamadoConstants";
@@ -15,6 +15,8 @@ import type {
 } from "@/lib/clientes/clientesRelacionamentoService";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
 import { ProducaoClienteDrawer } from "@/components/producao/ProducaoClienteDrawer";
+
+const MIN_SEARCH_LEN = 2;
 
 function fmtWhen(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -39,8 +41,10 @@ export function ClientesRelacionamentoPanel() {
   const selectedKey = searchParams.get("key");
 
   const [q, setQ] = useState("");
+  const [searched, setSearched] = useState(false);
   const [list, setList] = useState<ClienteResumo[]>([]);
   const [listBusy, setListBusy] = useState(false);
+  const [preview, setPreview] = useState<ClienteResumo | null>(null);
   const [detail, setDetail] = useState<ClienteDetailPayload | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -48,17 +52,25 @@ export function ClientesRelacionamentoPanel() {
   const [chamadoTarget, setChamadoTarget] = useState<ChamadoTarget | null>(null);
 
   const loadList = useCallback(async (needle: string) => {
+    const term = needle.trim();
+    if (term.length < MIN_SEARCH_LEN) {
+      setList([]);
+      setSearched(false);
+      return;
+    }
     setListBusy(true);
     setMsg("");
+    setPreview(null);
     try {
-      const params = needle.trim() ? `?q=${encodeURIComponent(needle.trim())}` : "";
-      const res = await fetch(`/api/clientes${params}`);
+      const res = await fetch(`/api/clientes?q=${encodeURIComponent(term)}`);
       const json = (await res.json()) as { ok?: boolean; clientes?: ClienteResumo[]; error?: string };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
       setList(json.clientes ?? []);
+      setSearched(true);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao buscar clientes.");
       setList([]);
+      setSearched(true);
     } finally {
       setListBusy(false);
     }
@@ -81,10 +93,6 @@ export function ClientesRelacionamentoPanel() {
   }, []);
 
   useEffect(() => {
-    void loadList(q);
-  }, [q, loadList]);
-
-  useEffect(() => {
     if (selectedKey) {
       void loadDetail(selectedKey);
     } else {
@@ -92,15 +100,19 @@ export function ClientesRelacionamentoPanel() {
     }
   }, [selectedKey, loadDetail]);
 
+  function runSearch(e?: FormEvent) {
+    e?.preventDefault();
+    void loadList(q);
+  }
+
   function openCliente(key: string) {
     router.push(`/clientes?key=${encodeURIComponent(key)}`);
   }
 
   function backToSearch() {
     router.push("/clientes");
+    setPreview(null);
   }
-
-  const filteredList = useMemo(() => list, [list]);
 
   if (selectedKey) {
     return (
@@ -174,33 +186,91 @@ export function ClientesRelacionamentoPanel() {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Buscar cliente</p>
         <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
-          Encontre um cliente da produção para ver PDVs, chamados, instalações, atualizações e feedbacks.
+          Digite pelo menos {MIN_SEARCH_LEN} caracteres e busque. Escolha o cliente na lista e confirme para abrir a ficha.
         </p>
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Nome do cliente ou PDV…"
-          className="w-full max-w-lg rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-          autoFocus
-        />
+        <form onSubmit={runSearch} className="flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Nome do cliente ou PDV…"
+            className="min-w-[240px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+            autoFocus
+          />
+          <button
+            type="submit"
+            disabled={listBusy || q.trim().length < MIN_SEARCH_LEN}
+            className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-50"
+          >
+            {listBusy ? "Buscando…" : "Buscar"}
+          </button>
+        </form>
       </section>
 
       {msg ?
         <p className="text-sm text-rose-600 dark:text-rose-400">{msg}</p>
       : null}
 
+      {preview ?
+        <section className="rounded-xl border-2 border-fuchsia-300 bg-fuchsia-50/60 p-4 dark:border-fuchsia-800 dark:bg-fuchsia-950/20">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-fuchsia-700 dark:text-fuchsia-300">
+            Cliente selecionado
+          </p>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <RioTagCobrancaNome
+                nome={preview.nome}
+                tag={preview.tagCobranca}
+                className="text-lg font-bold text-slate-900 dark:text-white"
+              />
+              {preview.isCustom ?
+                <span className="ms-1 text-xs text-violet-600">· grupo manual</span>
+              : null}
+              <div className="mt-2 flex flex-wrap gap-3 text-sm text-slate-600 dark:text-slate-400">
+                <span>{preview.pdvCount} PDVs</span>
+                <span className="text-emerald-600">{preview.onlineCount} tocando</span>
+                {preview.offlineCount > 0 ?
+                  <span className="text-amber-600">{preview.offlineCount} offline</span>
+                : null}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-white dark:border-slate-600 dark:hover:bg-slate-900"
+              >
+                Trocar
+              </button>
+              <button
+                type="button"
+                onClick={() => openCliente(preview.key)}
+                className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500"
+              >
+                Continuar →
+              </button>
+            </div>
+          </div>
+        </section>
+      : null}
+
       {listBusy ?
-        <p className="text-sm text-slate-500">Buscando…</p>
-      : filteredList.length === 0 ?
-        <p className="text-sm text-slate-500">Nenhum cliente encontrado.</p>
-      : <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {filteredList.map((c) => (
+        <p className="text-sm text-slate-500">Buscando clientes…</p>
+      : searched && list.length === 0 ?
+        <p className="text-sm text-slate-500">Nenhum cliente encontrado para &quot;{q.trim()}&quot;.</p>
+      : list.length > 0 ?
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {list.map((c) => (
             <button
               key={c.key}
               type="button"
-              onClick={() => openCliente(c.key)}
-              className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-fuchsia-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 dark:hover:border-fuchsia-700"
+              onClick={() => setPreview(c)}
+              className={
+                "rounded-xl border bg-white p-4 text-left shadow-sm transition hover:shadow-md dark:bg-slate-900 " +
+                (preview?.key === c.key ?
+                  "border-fuchsia-400 ring-2 ring-fuchsia-200 dark:border-fuchsia-600 dark:ring-fuchsia-900"
+                : "border-slate-200 hover:border-fuchsia-300 dark:border-slate-700 dark:hover:border-fuchsia-700")
+              }
             >
               <RioTagCobrancaNome nome={c.nome} tag={c.tagCobranca} className="font-bold text-slate-900 dark:text-white" />
               {c.isCustom ?
@@ -216,7 +286,7 @@ export function ClientesRelacionamentoPanel() {
             </button>
           ))}
         </div>
-      }
+      : null}
     </div>
   );
 }
