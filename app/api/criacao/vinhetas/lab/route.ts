@@ -16,6 +16,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, vinhetas: rows });
   } catch (e) {
     if (e instanceof Response) return e;
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error("[criacao/vinhetas/lab GET]", detail, e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }

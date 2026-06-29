@@ -12,6 +12,7 @@ import {
   marcarSubidoAtlCrica,
   submitAtlCricaFileUpload,
 } from "@/lib/criacao/atlCricaUploadClient";
+import { AtlCricaImportExportSection } from "@/components/criacao/AtlCricaImportExportSection";
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
 import type { ArvoreProgramacaoNode } from "@/lib/criacao/programacaoService";
 
@@ -109,6 +110,13 @@ export function AtlCricaPanel() {
     );
   }, [board, donoMap]);
 
+  const skeletonWarnings = useMemo(() => {
+    if (!board) return [];
+    return board.rows
+      .filter((p) => p.pastasCount === 0)
+      .map((p) => `${p.clienteNome} · ${p.programacaoNome} — sem pastas na Central de programações.`);
+  }, [board]);
+
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-white p-4 dark:border-violet-900/40 dark:from-violet-950/30 dark:to-slate-900">
@@ -116,7 +124,8 @@ export function AtlCricaPanel() {
           ATL CRICA
         </p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Organize as atualizações mensais por cliente e programação. Conectado ao painel de{" "}
+          Exporte a hierarquia de pastas no Mac, arraste os MP3s do mês e importe de volta — o portal envia cada faixa
+          para a pasta certa. Conectado ao painel de{" "}
           <Link href="/criacao/atualizacoes" className="font-semibold text-violet-700 hover:underline dark:text-violet-300">
             Atualizações
           </Link>{" "}
@@ -159,6 +168,27 @@ export function AtlCricaPanel() {
         <p className="text-sm text-rose-600 dark:text-rose-400">{msg}</p>
       : null}
 
+      {skeletonWarnings.length > 0 ?
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <p className="font-semibold">Esqueleto incompleto — corrija antes de exportar:</p>
+          <ul className="mt-1 list-inside list-disc text-xs">
+            {skeletonWarnings.slice(0, 8).map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+            {skeletonWarnings.length > 8 ?
+              <li>… e mais {skeletonWarnings.length - 8}</li>
+            : null}
+          </ul>
+        </div>
+      : null}
+
+      {competencia ?
+        <AtlCricaImportExportSection
+          competencia={competencia}
+          onDone={() => void load(competencia)}
+        />
+      : null}
+
       {loading ?
         <p className="text-sm text-slate-500">Carregando…</p>
       : clientesVisiveis.length === 0 ?
@@ -173,7 +203,6 @@ export function AtlCricaPanel() {
                 <th className="px-3 py-2">Cliente</th>
                 <th className="px-3 py-2">Programações</th>
                 <th className="px-3 py-2">Status do mês</th>
-                <th className="px-3 py-2">Ação</th>
               </tr>
             </thead>
             <tbody>
@@ -195,22 +224,10 @@ export function AtlCricaPanel() {
                     <td className="px-3 py-2.5">
                       <StatusPills c={c} />
                     </td>
-                    <td className="px-3 py-2.5">
-                      <button
-                        type="button"
-                        className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500"
-                        onClick={() => {
-                          setClienteAtivo(c);
-                          setModo("upload");
-                        }}
-                      >
-                        Atualizar →
-                      </button>
-                    </td>
                   </tr>
                   {expandedCliente === c.clienteRef ?
                     <tr className="border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/40">
-                      <td colSpan={4} className="px-3 py-2">
+                      <td colSpan={3} className="px-3 py-2">
                         <ul className="space-y-1 text-xs">
                           {c.programacoes.map((p) => (
                             <li key={p.programacaoId} className="flex flex-wrap items-center gap-2">
@@ -245,6 +262,32 @@ export function AtlCricaPanel() {
           </table>
         </div>
       }
+
+      {clientesVisiveis.length > 0 ?
+        <details className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-600 dark:text-slate-300">
+            Fluxo antigo no portal (upload por cliente, inteligente, Spotify)
+          </summary>
+          <p className="mt-2 text-xs text-slate-500">
+            Use apenas se não puder trabalhar com pastas locais. Prefira exportar/importar acima.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {clientesVisiveis.map((c) => (
+              <button
+                key={c.clienteRef}
+                type="button"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold dark:border-slate-700 dark:bg-slate-900"
+                onClick={() => {
+                  setClienteAtivo(c);
+                  setModo("upload");
+                }}
+              >
+                {c.clienteNome} →
+              </button>
+            ))}
+          </div>
+        </details>
+      : null}
 
       {clienteAtivo ?
         <ClienteWorkspace

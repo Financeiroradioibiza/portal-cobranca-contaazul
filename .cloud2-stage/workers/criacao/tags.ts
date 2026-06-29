@@ -11,7 +11,7 @@ import {
   mergeExternalTags,
   parseTagsFromJson,
   type ExternalAutoTag,
-} from '../../tagEnrichmentCore.js';
+} from '../../routes/criacao/tagEnrichmentCore.js';
 import { classifyExplicitLyricsWithGemini } from '../../criacao/explicitGemini.js';
 
 const EXPLICIT_TAG_FONTE = 'moderacao';

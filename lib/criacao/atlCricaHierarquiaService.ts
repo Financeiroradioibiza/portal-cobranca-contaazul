@@ -1,0 +1,132 @@
+import { getAtlCricaBoard } from "@/lib/criacao/atlCricaService";
+import { getClienteProgramacaoArvore } from "@/lib/criacao/programacaoService";
+import { buildAtlFolderPath } from "@/lib/criacao/pathSanitize";
+import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
+
+export type AtlCricaManifestPasta = {
+  path: string;
+  clienteRef: string;
+  clienteNome: string;
+  programacaoId: string;
+  programacaoNome: string;
+  pastaId: string;
+  pastaNome: string;
+};
+
+export type AtlCricaExportManifest = {
+  ok: true;
+  version: 1;
+  competencia: string;
+  uploadTag: string;
+  criadorEmail: string;
+  pastas: AtlCricaManifestPasta[];
+  clientes: Array<{ clienteRef: string; clienteNome: string; programacoes: number; pastas: number }>;
+  warnings: string[];
+  blockExport: boolean;
+};
+
+function uploadTagFromCompetencia(competencia: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(competencia.trim());
+  if (m) return `${m[2]}/${m[1]!.slice(-2)}`;
+  return defaultUploadCompetenciaTag();
+}
+
+function uniquePath(base: string, used: Set<string>): string {
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  let n = 2;
+  while (used.has(`${base}-${n}`)) n += 1;
+  const next = `${base}-${n}`;
+  used.add(next);
+  return next;
+}
+
+export async function buildAtlCricaExportManifest(opts: {
+  competencia?: string | null;
+  sessionEmail: string;
+  isAdmin?: boolean;
+}): Promise<AtlCricaExportManifest> {
+  const board = await getAtlCricaBoard(opts);
+  const warnings: string[] = [];
+  const pastas: AtlCricaManifestPasta[] = [];
+  const usedPaths = new Set<string>();
+  const clienteStats = new Map<
+    string,
+    { clienteNome: string; programacoes: Set<string>; pastas: number }
+  >();
+
+  const progIdsOnBoard = new Set(board.rows.map((r) => r.programacaoId));
+
+  for (const cliente of board.clientes) {
+    const arvore = await getClienteProgramacaoArvore(cliente.clienteRef);
+    const progsFiltradas = arvore.filter((p) => progIdsOnBoard.has(p.id));
+
+    for (const prog of progsFiltradas) {
+      const row = board.rows.find((r) => r.programacaoId === prog.id);
+      if (row && row.pastasCount === 0) {
+        warnings.push(
+          `${cliente.clienteNome} · ${prog.nome} — sem pastas (crie na Central de programações).`,
+        );
+      }
+      if (prog.pastas.length === 0) continue;
+
+      for (const pasta of prog.pastas) {
+        const basePath = buildAtlFolderPath(cliente.clienteNome, prog.nome, pasta.nome);
+        const path = uniquePath(basePath, usedPaths);
+        pastas.push({
+          path,
+          clienteRef: cliente.clienteRef,
+          clienteNome: cliente.clienteNome,
+          programacaoId: prog.id,
+          programacaoNome: prog.nome,
+          pastaId: pasta.id,
+          pastaNome: pasta.nome,
+        });
+
+        const stat = clienteStats.get(cliente.clienteRef) ?? {
+          clienteNome: cliente.clienteNome,
+          programacoes: new Set<string>(),
+          pastas: 0,
+        };
+        stat.programacoes.add(prog.id);
+        stat.pastas += 1;
+        clienteStats.set(cliente.clienteRef, stat);
+      }
+    }
+  }
+
+  if (pastas.length === 0) {
+    warnings.push("Nenhuma pasta encontrada para exportar nesta competência.");
+  }
+
+  const blockExport = warnings.some((w) => w.includes("sem pastas"));
+
+  return {
+    ok: true,
+    version: 1,
+    competencia: board.competencia,
+    uploadTag: uploadTagFromCompetencia(board.competencia),
+    criadorEmail: board.sessionEmail,
+    pastas,
+    clientes: [...clienteStats.entries()].map(([clienteRef, s]) => ({
+      clienteRef,
+      clienteNome: s.clienteNome,
+      programacoes: s.programacoes.size,
+      pastas: s.pastas,
+    })),
+    warnings,
+    blockExport,
+  };
+}
+
+export const ATL_CRICA_LEIA_ME = `ATL CRICA — hierarquia de pastas
+================================
+
+1. Coloque arquivos .mp3 dentro das pastas (Cliente/Programação/Pasta).
+2. Não renomeie as pastas de primeiro nível se possível — o portal usa atl-manifest.json para saber o destino.
+3. Volte ao portal ATL CRICA e use «Importar pasta preenchida» ou envie este ZIP de volta.
+
+Competência e tag de upload estão em atl-manifest.json.
+`;

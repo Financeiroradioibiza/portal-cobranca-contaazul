@@ -12,6 +12,8 @@ export async function GET() {
     return NextResponse.json({ ok: true, trilhas });
   } catch (e) {
     if (e instanceof Response) return e;
+    const detail = e instanceof Error ? e.message : String(e);
+    console.error("[criacao/vinhetas/trilhas GET]", detail, e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }

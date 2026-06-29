@@ -35,7 +35,7 @@ export function ProgramacaoDonoInlineSelect({
   const hoverTitle =
     selected ?
       `Dono: ${selected.displayName} (${selected.tagIniciais || "?"})`
-    : "Escolher dono criativo (salvo neste navegador)";
+      : "Escolher dono criativo (salvo no portal e neste navegador)";
 
   return (
     <label

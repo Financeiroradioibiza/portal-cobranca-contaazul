@@ -8,6 +8,8 @@ export type AtlCricaUploadLote = {
   pastaNome: string;
   programacaoNome: string;
   arquivos: File[];
+  clienteRef?: string;
+  clienteNome?: string;
 };
 
 function uploadTagFromCompetencia(competencia: string): string {
@@ -22,6 +24,26 @@ export async function submitAtlCricaFileUpload(opts: {
   clienteRef: string;
   clienteNome: string;
   lotes: AtlCricaUploadLote[];
+  onProgress?: (done: number, total: number, label?: string) => void;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  return submitAtlCricaImportUpload({
+    titulo: opts.titulo,
+    competencia: opts.competencia,
+    lotes: opts.lotes.map((l) => ({
+      ...l,
+      clienteRef: l.clienteRef ?? opts.clienteRef,
+      clienteNome: l.clienteNome ?? opts.clienteNome,
+    })),
+    onProgress: opts.onProgress,
+  });
+}
+
+export async function submitAtlCricaImportUpload(opts: {
+  titulo: string;
+  competencia: string;
+  lotes: Array<
+    AtlCricaUploadLote & { clienteRef: string; clienteNome: string }
+  >;
   onProgress?: (done: number, total: number, label?: string) => void;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const lotesComArquivos = opts.lotes.filter((l) => l.arquivos.length > 0);
@@ -39,8 +61,8 @@ export async function submitAtlCricaFileUpload(opts: {
       lotes: lotesComArquivos.map((l) => ({
         titulo: `ATL CRICA · ${l.pastaNome}`,
         destinoTipo: "pasta" as const,
-        clienteRef: opts.clienteRef,
-        clienteNome: opts.clienteNome,
+        clienteRef: l.clienteRef,
+        clienteNome: l.clienteNome,
         programacaoId: l.programacaoId,
         pastaId: l.pastaId,
         uploadTagNome: uploadTag,

@@ -28,6 +28,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
       nome?: string;
       formatoPadrao?: string;
       publicada?: boolean;
+      criativoUserId?: string | null;
+      criativoNome?: string;
     };
     const ok = await updateProgramacao(id, body);
     return NextResponse.json({ ok });

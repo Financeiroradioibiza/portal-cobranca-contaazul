@@ -15,6 +15,7 @@ import {
 } from "@/components/criacao/CriacaoClienteTag";
 import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
 import { ProgramacaoDonoInlineSelect } from "@/components/criacao/ProgramacaoDonoInlineSelect";
+import { persistProgramacaoDonoToServer } from "@/lib/criacao/atlCricaDonoPersist";
 import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
@@ -442,8 +443,17 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                               criativos={criativos}
                               loading={loadingCriativos}
                               dono={map[prog.id] ?? null}
-                              onAssign={(criativo) => assignDono(prog.id, criativo)}
-                              onClear={() => removeDono(prog.id)}
+                              onAssign={(criativo) => {
+                                assignDono(prog.id, criativo);
+                                void persistProgramacaoDonoToServer(prog.id, {
+                                  email: criativo.email,
+                                  displayName: criativo.displayName,
+                                });
+                              }}
+                              onClear={() => {
+                                removeDono(prog.id);
+                                void persistProgramacaoDonoToServer(prog.id, null);
+                              }}
                             />
                           </div>
                           <div className="mt-1 flex flex-wrap gap-1">

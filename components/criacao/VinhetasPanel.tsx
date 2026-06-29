@@ -199,7 +199,12 @@ export function VinhetasPanel() {
       fd.append("token", created.token);
       fd.append("file", trilhaUploadFile);
       const up = await fetch(created.ingestUrl, { method: "POST", body: fd });
-      if (!up.ok) throw new Error("Upload da trilha falhou no servidor.");
+      if (!up.ok) {
+        const detail = up.status === 404 ?
+          "O cloud2 ainda não tem a rota de upload de trilhas — peça redeploy do portal-ibiza (Envyron)."
+        : `Upload da trilha falhou no servidor (HTTP ${up.status}).`;
+        throw new Error(detail);
+      }
       setTrilhaUploadNome("");
       setTrilhaUploadFile(null);
       const listRes = await fetch("/api/criacao/vinhetas/trilhas");

@@ -63,6 +63,8 @@ export type ArvoreProgramacaoNode = {
   atualizacaoAberta: boolean;
   atualizacaoAbertaEm: string | null;
   atualizacaoAbertaPor: string;
+  criativoUserId: string | null;
+  criativoNome: string;
   pastas: ArvorePastaNode[];
   vinhetas: ArvoreVinhetaNode[];
   agendamentos: AgendamentoRow[];
@@ -93,6 +95,8 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
           publicada: true,
           atualizacaoAbertaEm: true,
           atualizacaoAbertaPor: true,
+          criativoUserId: true,
+          criativoNome: true,
           pastas: pastasInclude,
           vinhetas: vinhetasSelect,
         },
@@ -105,6 +109,8 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
           nome: true,
           formatoPadrao: true,
           publicada: true,
+          criativoUserId: true,
+          criativoNome: true,
           pastas: pastasInclude,
           vinhetas: vinhetasSelect,
         },
@@ -123,6 +129,8 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
       atualizacaoAberta: abertaEmRaw instanceof Date,
       atualizacaoAbertaEm: abertaEmRaw instanceof Date ? abertaEmRaw.toISOString() : null,
       atualizacaoAbertaPor: String(abertaPorRaw ?? ""),
+      criativoUserId: p.criativoUserId ?? null,
+      criativoNome: p.criativoNome ?? "",
       pastas: p.pastas.map((f) => ({
         id: f.id,
         nome: f.nome,
@@ -327,7 +335,13 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
 
 export async function updateProgramacao(
   id: string,
-  patch: { nome?: string; formatoPadrao?: string; publicada?: boolean },
+  patch: {
+    nome?: string;
+    formatoPadrao?: string;
+    publicada?: boolean;
+    criativoUserId?: string | null;
+    criativoNome?: string;
+  },
 ): Promise<boolean> {
   const data: Prisma.ProgramacaoUpdateInput = {};
   if (typeof patch.nome === "string" && patch.nome.trim()) data.nome = patch.nome.trim().slice(0, 120);
@@ -335,6 +349,13 @@ export async function updateProgramacao(
   if (typeof patch.publicada === "boolean") {
     data.publicada = patch.publicada;
     data.publishedAt = patch.publicada ? new Date() : null;
+  }
+  if (patch.criativoUserId !== undefined) {
+    data.criativoUserId =
+      patch.criativoUserId?.trim() ? patch.criativoUserId.trim().slice(0, 200) : null;
+  }
+  if (typeof patch.criativoNome === "string") {
+    data.criativoNome = patch.criativoNome.slice(0, 120);
   }
   if (Object.keys(data).length === 0) return false;
   await prisma.programacao.update({ where: { id }, data });
