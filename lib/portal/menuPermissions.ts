@@ -40,6 +40,7 @@ export const PORTAL_MENU_MODULES = [
     label: "Criação",
     subs: [
       { id: "programacoes", label: "Programações" },
+      { id: "atl-crica", label: "ATL CRICA" },
       { id: "atualizacoes", label: "Atualizações" },
       { id: "biblioteca", label: "Biblioteca musical" },
       { id: "upload", label: "Upload" },

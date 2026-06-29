@@ -1,6 +1,7 @@
 /** Sidebar do módulo Criação (musical) — alinhado ao mockup v5. */
 export const CRIACAO_SIDEBAR = [
   { href: "/criacao/programacoes", label: "Programações", icon: "🎼" },
+  { href: "/criacao/atl-crica", label: "ATL CRICA", icon: "📅" },
   { href: "/criacao/atualizacoes", label: "Atualizações", icon: "📋" },
   { href: "/criacao/biblioteca", label: "Biblioteca musical", icon: "🎵" },
   { href: "/criacao/upload", label: "Upload", icon: "⬆️" },

@@ -61,6 +61,8 @@ export type ArvoreProgramacaoNode = {
   formatoPadrao: string;
   publicada: boolean;
   atualizacaoAberta: boolean;
+  atualizacaoAbertaEm: string | null;
+  atualizacaoAbertaPor: string;
   pastas: ArvorePastaNode[];
   vinhetas: ArvoreVinhetaNode[];
   agendamentos: AgendamentoRow[];
@@ -90,6 +92,7 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
           formatoPadrao: true,
           publicada: true,
           atualizacaoAbertaEm: true,
+          atualizacaoAbertaPor: true,
           pastas: pastasInclude,
           vinhetas: vinhetasSelect,
         },
@@ -109,28 +112,34 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
 
   const agendamentosByProg = await listAgendamentosByProgramacaoIds(items.map((p) => p.id));
 
-  return items.map((p) => ({
-    id: p.id,
-    nome: p.nome,
-    formatoPadrao: p.formatoPadrao,
-    publicada: p.publicada,
-    atualizacaoAberta: hasAberta && "atualizacaoAbertaEm" in p && p.atualizacaoAbertaEm != null,
-    pastas: p.pastas.map((f) => ({
-      id: f.id,
-      nome: f.nome,
-      velocidade: f.velocidade,
-      selecionavel: f.selecionavel,
-      musicasCount: f._count.musicas,
-    })),
-    vinhetas: p.vinhetas.map((v) => ({
-      id: v.id,
-      nome: v.nome,
-      tipo: v.tipo,
-      temAudio: Boolean(v.storageKey),
-      previewUrl: v.storageKey ? buildVinhetaPreviewUrl(v.id) : null,
-    })),
-    agendamentos: agendamentosByProg.get(p.id) ?? [],
-  }));
+  return items.map((p) => {
+    const abertaEmRaw = hasAberta && "atualizacaoAbertaEm" in p ? p.atualizacaoAbertaEm : null;
+    const abertaPorRaw = hasAberta && "atualizacaoAbertaPor" in p ? p.atualizacaoAbertaPor : "";
+    return {
+      id: p.id,
+      nome: p.nome,
+      formatoPadrao: p.formatoPadrao,
+      publicada: p.publicada,
+      atualizacaoAberta: abertaEmRaw instanceof Date,
+      atualizacaoAbertaEm: abertaEmRaw instanceof Date ? abertaEmRaw.toISOString() : null,
+      atualizacaoAbertaPor: String(abertaPorRaw ?? ""),
+      pastas: p.pastas.map((f) => ({
+        id: f.id,
+        nome: f.nome,
+        velocidade: f.velocidade,
+        selecionavel: f.selecionavel,
+        musicasCount: f._count.musicas,
+      })),
+      vinhetas: p.vinhetas.map((v) => ({
+        id: v.id,
+        nome: v.nome,
+        tipo: v.tipo,
+        temAudio: Boolean(v.storageKey),
+        previewUrl: v.storageKey ? buildVinhetaPreviewUrl(v.id) : null,
+      })),
+      agendamentos: agendamentosByProg.get(p.id) ?? [],
+    };
+  });
 }
 
 export async function listProgramacoes(opts: {
@@ -231,10 +240,18 @@ export type ProgramacaoDetail = {
   formatoPadrao: string;
   publicada: boolean;
   criativoNome: string;
+  atualizacaoAberta: boolean;
+  atualizacaoAbertaEm: string | null;
+  atualizacaoAbertaPor: string;
   pastas: PastaView[];
 };
 
 export async function getProgramacao(id: string): Promise<ProgramacaoDetail | null> {
+  const hasAberta = await hasAtualizacaoAbertaColumn();
+  const abertaSelect =
+    hasAberta ?
+      ({ atualizacaoAbertaEm: true, atualizacaoAbertaPor: true } as const)
+    : ({} as const);
   const p = await prisma.programacao.findUnique({
     where: { id },
     select: {
@@ -245,6 +262,7 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
       formatoPadrao: true,
       publicada: true,
       criativoNome: true,
+      ...abertaSelect,
       pastas: {
         orderBy: { sortOrder: "asc" },
         include: {
@@ -270,6 +288,9 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
   });
   if (!p) return null;
 
+  const abertaEmRaw = hasAberta && "atualizacaoAbertaEm" in p ? p.atualizacaoAbertaEm : null;
+  const abertaPorRaw = hasAberta && "atualizacaoAbertaPor" in p ? p.atualizacaoAbertaPor : "";
+
   return {
     id: p.id,
     nome: p.nome,
@@ -278,6 +299,9 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
     formatoPadrao: p.formatoPadrao,
     publicada: p.publicada,
     criativoNome: p.criativoNome,
+    atualizacaoAberta: abertaEmRaw instanceof Date,
+    atualizacaoAbertaEm: abertaEmRaw instanceof Date ? abertaEmRaw.toISOString() : null,
+    atualizacaoAbertaPor: String(abertaPorRaw ?? ""),
     pastas: p.pastas.map((f) => ({
       id: f.id,
       nome: f.nome,

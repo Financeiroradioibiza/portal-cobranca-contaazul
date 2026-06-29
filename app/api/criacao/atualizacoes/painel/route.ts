@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { competenciaFromDate } from "@/lib/criacao/competencia";
+import { competenciaFromDate, parseCompetencia } from "@/lib/criacao/competencia";
 import { listPainelCompetencia } from "@/lib/criacao/atualizacaoPainelService";
 import { hasAtualizacaoPainelTable } from "@/lib/criacao/atualizacaoPainelSchemaCompat";
 
@@ -9,8 +9,9 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     requirePortalSession(await getPortalSession());
-    // Por enquanto só o mês corrente (vira Julho, Ago… automaticamente no fuso BR).
-    const competencia = competenciaFromDate();
+    const url = new URL(request.url);
+    const competenciaParam = parseCompetencia(url.searchParams.get("competencia"));
+    const competencia = competenciaParam ?? competenciaFromDate();
     const migrationPendente = !(await hasAtualizacaoPainelTable());
     const rows = await listPainelCompetencia(competencia);
     return NextResponse.json({
@@ -34,7 +35,7 @@ export async function PATCH(request: Request) {
       criativoEntregue?: boolean;
     };
     const programacaoId = (body.programacaoId ?? "").trim();
-    const competencia = competenciaFromDate();
+    const competencia = parseCompetencia(body.competencia) ?? competenciaFromDate();
     if (!programacaoId) {
       return NextResponse.json({ error: "programacao_obrigatoria" }, { status: 400 });
     }

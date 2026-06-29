@@ -6,7 +6,11 @@ import {
   RIO_CA_REFRESH_BATCH_SIZE,
   matchRioImportRowsByDocumentoBatch,
   refreshRioMonthLinkedFromCaBatch,
+  rioCaRefreshBatchLimit,
 } from "@/lib/rio/rioCaPersonLink";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const CA_HINT_PT =
   "Sem sessão OAuth Conta Azul no servidor. Abra o painel principal (/), reconecte o Conta Azul neste mesmo domínio.";
@@ -44,7 +48,7 @@ export async function POST(req: Request, context: Ctx) {
       offset = Math.floor(b.offset);
     }
     if (typeof b?.limit === "number" && Number.isFinite(b.limit) && b.limit > 0) {
-      limit = Math.min(25, Math.floor(b.limit));
+      limit = Math.floor(b.limit);
     }
     if (b?.mode === "match" || b?.matchByDocument === true) mode = "match";
     else if (b?.mode === "refresh") mode = "refresh";
@@ -54,8 +58,16 @@ export async function POST(req: Request, context: Ctx) {
     if ("includeContracts" in (b ?? {})) {
       includeContracts = Boolean(b?.includeContracts);
     }
+    const maxBatch =
+      mode === "refresh" ? rioCaRefreshBatchLimit({ includeContracts }) : RIO_CA_REFRESH_BATCH_SIZE;
+    limit = Math.min(25, Math.max(1, limit || maxBatch), maxBatch);
   } catch {
     /* defaults */
+  }
+
+  if (mode === "refresh") {
+    const maxBatch = rioCaRefreshBatchLimit({ includeContracts });
+    limit = Math.min(Math.max(1, limit), maxBatch);
   }
 
   const token = await getValidAccessToken();

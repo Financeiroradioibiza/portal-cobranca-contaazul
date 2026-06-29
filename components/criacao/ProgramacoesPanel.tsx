@@ -6,6 +6,8 @@ import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
 import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vinhetaUploadClient";
 import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
+import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
+import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { CronogramaAlvoBadges, DOW, diasLabel } from "@/components/criacao/CronogramaAlvoBadges";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 
@@ -43,6 +45,9 @@ type ProgramacaoDetail = {
   formatoPadrao: string;
   publicada: boolean;
   criativoNome: string;
+  atualizacaoAberta: boolean;
+  atualizacaoAbertaEm: string | null;
+  atualizacaoAbertaPor: string;
   pastas: PastaView[];
 };
 
@@ -302,6 +307,16 @@ function ProgramacaoEditor({
           </select>
         </div>
       </div>
+
+      {prog.atualizacaoAberta && isAtlCricaAbertura(prog.atualizacaoAbertaPor) ?
+        <div className="mb-4">
+          <AtlCricaAberturaAviso
+            abertaPor={prog.atualizacaoAbertaPor}
+            abertaEm={prog.atualizacaoAbertaEm}
+            criativoNomeDb={prog.criativoNome}
+          />
+        </div>
+      : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <input

@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RIO_CA_REFRESH_BATCH_SIZE } from "@/lib/rio/rioCaPersonLink";
+import {
+  RIO_CA_REFRESH_BATCH_SIZE,
+  RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS,
+  rioCaRefreshBatchLimit,
+} from "@/lib/rio/rioCaPersonLink";
 import { COBRANCA_HOME_HREF } from "@/lib/portal/cobrancaNav";
 import { COMPANY_NAME } from "@/lib/brand";
 import {
@@ -288,7 +292,10 @@ export function RioClientesCompPanel() {
       },
     ) => {
       let offset = 0;
-      const limit = RIO_CA_REFRESH_BATCH_SIZE;
+      const limit =
+        mode === "refresh" ?
+          rioCaRefreshBatchLimit({ includeContracts: opts?.includeContracts ?? true })
+        : RIO_CA_REFRESH_BATCH_SIZE;
       const progressLabel = opts?.progressLabel ?? (mode === "match" ? "Casar CNPJ → CA" : "Atualizar vinculados CA");
 
       while (true) {
@@ -328,6 +335,14 @@ export function RioClientesCompPanel() {
         }>(res);
 
         if (!res.ok) {
+          const proxyHtml =
+            /inactivity\s+timeout/i.test(rawText) || /too much time has passed/i.test(rawText);
+          if (proxyHtml) {
+            throw new Error(
+              "Timeout do servidor (Netlify). Com «Contratos» marcado usamos lotes de " +
+                `${RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS} clientes — tente de novo; se persistir, marque só «Contratos» (sem Enriquecer) ou aumente o limite de função no Netlify.`,
+            );
+          }
           throw new Error(
             data?.message || data?.error || rawText.slice(0, 220) || "Falha ao atualizar vínculos.",
           );
@@ -1957,8 +1972,8 @@ export function RioClientesCompPanel() {
             onChange={(e) => setSyncIncludeContracts(e.target.checked)}
           />
           <span>
-            Atualizar <strong>números de contrato</strong> na CA — também em lotes de{" "}
-            <strong>{RIO_CA_REFRESH_BATCH_SIZE}</strong> (evita timeout).
+            Atualizar <strong>números de contrato</strong> na CA — lotes de{" "}
+            <strong>{RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS}</strong> (mais lento por cliente; evita timeout).
           </span>
         </label>
       </div>
@@ -2085,7 +2100,7 @@ export function RioClientesCompPanel() {
           disabled={refreshingCa || linhas.length === 0}
           className="rounded-lg border border-sky-700 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-950 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-600 dark:bg-sky-950/50 dark:text-sky-100"
           onClick={() => void refreshLinkedFromCa(false)}
-          title="Atualiza linhas vinculadas — 10 clientes por vez (usa as caixas Enriquecer / Contratos)"
+          title={`Atualiza linhas vinculadas — ${RIO_CA_REFRESH_BATCH_SIZE} (ou ${RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS} com Contratos) por vez`}
         >
           {refreshingCa ? "Atualizando CA…" : "Atualizar vinculados CA"}
         </button>

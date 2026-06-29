@@ -57,6 +57,12 @@ export function rioCaUnlinkedPersonId(linhaId: string): string {
 
 /** Tamanho de cada lote ao atualizar vínculos CA (evita timeout no Netlify). */
 export const RIO_CA_REFRESH_BATCH_SIZE = 10;
+/** Com «Contratos» marcado: cada cliente = várias páginas GET /v1/contratos — lote menor. */
+export const RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS = 3;
+
+export function rioCaRefreshBatchLimit(opts?: { includeContracts?: boolean }): number {
+  return opts?.includeContracts ? RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS : RIO_CA_REFRESH_BATCH_SIZE;
+}
 
 export type RioCaLinhaRefreshOptions = {
   includePersonDetails?: boolean;

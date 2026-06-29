@@ -15,6 +15,8 @@ import {
 } from "@/components/criacao/CriacaoClienteTag";
 import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
 import { ProgramacaoDonoInlineSelect } from "@/components/criacao/ProgramacaoDonoInlineSelect";
+import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
+import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
@@ -35,6 +37,8 @@ type ArvoreProg = {
   formatoPadrao: string;
   publicada: boolean;
   atualizacaoAberta: boolean;
+  atualizacaoAbertaEm: string | null;
+  atualizacaoAbertaPor: string;
   pastas: ArvorePasta[];
   vinhetas: ArvoreVinheta[];
   agendamentos: AgendamentoRow[];
@@ -489,6 +493,16 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                           </div>
                         </div>
                       </div>
+
+                      {prog.atualizacaoAberta && isAtlCricaAbertura(prog.atualizacaoAbertaPor) ?
+                        <div className="ms-6 mt-2 px-2">
+                          <AtlCricaAberturaAviso
+                            abertaPor={prog.atualizacaoAbertaPor}
+                            abertaEm={prog.atualizacaoAbertaEm}
+                            compact
+                          />
+                        </div>
+                      : null}
 
                       {expanded.has(prog.id) ?
                         <ul className="ms-6 mt-1 space-y-0.5 border-s border-slate-200 ps-3 dark:border-slate-700">
