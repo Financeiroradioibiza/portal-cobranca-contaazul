@@ -131,12 +131,14 @@ function pickDeezerTrackHit(
   input: { titulo: string; artista: string },
   search: { data?: { id?: number; album?: { id?: number }; title?: string; artist?: { name?: string }; explicit_lyrics?: boolean }[] } | null,
 ) {
-  return (
-    search?.data?.find(
-      (t) =>
-        t.title?.toLowerCase().includes(input.titulo.trim().toLowerCase().slice(0, 8)) ||
-        t.artist?.name?.toLowerCase().includes(input.artista.trim().toLowerCase().slice(0, 6)),
-    ) ?? search?.data?.[0]
+  const hits = search?.data ?? [];
+  if (!input.artista.trim() || input.titulo.trim().length < 4) return undefined;
+  const titulo = input.titulo.trim().toLowerCase();
+  const artista = input.artista.trim().toLowerCase();
+  return hits.find(
+    (t) =>
+      t.title?.trim().toLowerCase() === titulo &&
+      t.artist?.name?.trim().toLowerCase() === artista,
   );
 }
 

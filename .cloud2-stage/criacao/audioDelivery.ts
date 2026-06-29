@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import type { FastifyReply } from 'fastify';
 import { decryptRib, isRibFile } from './rib.js';
-import { usoPath, usoRelFromStorageKey, vinhetaIdFromStorageKey, vinhetaPath } from './storage.js';
+import { usoPath, usoRelFromStorageKey, vinhetaIdFromStorageKey, vinhetaPath, vinhetaTrilhaIdFromStorageKey, vinhetaTrilhaPath } from './storage.js';
 
 type ResolvedAudio = {
   /** Arquivo legível no disco (mp3 ou .rib). */
@@ -17,6 +17,14 @@ export async function resolveUsoAudio(storageKey: string): Promise<ResolvedAudio
     const vinhetaId = vinhetaIdFromStorageKey(storageKey);
     if (vinhetaId) {
       const filePath = vinhetaPath(vinhetaId);
+      const stat = await fsp.stat(filePath).catch(() => null);
+      if (!stat) return null;
+      return { filePath, mp3Buffer: null, contentLength: stat.size };
+    }
+
+    const trilhaId = vinhetaTrilhaIdFromStorageKey(storageKey);
+    if (trilhaId) {
+      const filePath = vinhetaTrilhaPath(trilhaId);
       const stat = await fsp.stat(filePath).catch(() => null);
       if (!stat) return null;
       return { filePath, mp3Buffer: null, contentLength: stat.size };

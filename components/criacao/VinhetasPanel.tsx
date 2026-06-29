@@ -6,7 +6,12 @@ import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls"
 import type { VinhetaLabRow } from "@/lib/criacao/vinhetaLabService";
 
 type Voice = { voice_id: string; name: string; category?: string };
-type BibRow = { id: string; titulo: string; artista: string; previewUrl: string | null; label?: string };
+type TrilhaRow = {
+  id: string;
+  nome: string;
+  previewUrl: string | null;
+  temAudio: boolean;
+};
 type PresetVoice = { voiceId: string; label: string };
 type ElevenLabsSource = "server" | "user" | "none";
 
@@ -25,25 +30,37 @@ export function VinhetasPanel() {
   const [nome, setNome] = useState("");
   const [texto, setTexto] = useState("");
   const [vozId, setVozId] = useState("");
-  const [trilha, setTrilha] = useState<BibRow | null>(null);
-  const [trilhaBusca, setTrilhaBusca] = useState("");
-  const [trilhas, setTrilhas] = useState<BibRow[]>([]);
-  const [trilhasPreset, setTrilhasPreset] = useState<BibRow[]>([]);
-  const [loadingTrilhas, setLoadingTrilhas] = useState(false);
+  const [trilha, setTrilha] = useState<TrilhaRow | null>(null);
+  const [trilhasVinheta, setTrilhasVinheta] = useState<TrilhaRow[]>([]);
+  const [loadingTrilhas, setLoadingTrilhas] = useState(true);
+  const [trilhaUploadNome, setTrilhaUploadNome] = useState("");
+  const [trilhaUploadFile, setTrilhaUploadFile] = useState<File | null>(null);
+  const [uploadingTrilha, setUploadingTrilha] = useState(false);
   const [ativo, setAtivo] = useState<VinhetaLabRow | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [isMaster, setIsMaster] = useState(false);
   const [adminVoices, setAdminVoices] = useState<PresetVoice[]>([]);
-  const [adminTrilhas, setAdminTrilhas] = useState<{ musicaId: string; label: string }[]>([]);
   const [adminVoiceId, setAdminVoiceId] = useState("");
   const [adminVoiceLabel, setAdminVoiceLabel] = useState("");
-  const [adminTrilhaBusca, setAdminTrilhaBusca] = useState("");
-  const [adminTrilhaHits, setAdminTrilhaHits] = useState<BibRow[]>([]);
   const [savingCatalog, setSavingCatalog] = useState(false);
 
   const vozNome = useMemo(() => voices.find((v) => v.voice_id === vozId)?.name ?? "", [voices, vozId]);
-  const trilhasEscolha = trilhasPreset.length > 0 ? trilhasPreset : trilhas;
+
+  const loadTrilhasVinheta = useCallback(async () => {
+    setLoadingTrilhas(true);
+    try {
+      const res = await fetch("/api/criacao/vinhetas/trilhas");
+      const data = (await res.json()) as { trilhas?: TrilhaRow[] };
+      const list = (data.trilhas ?? []).filter((t) => t.temAudio);
+      setTrilhasVinheta(list);
+      if (list[0]) setTrilha((prev) => prev ?? list[0]);
+    } catch {
+      setTrilhasVinheta([]);
+    } finally {
+      setLoadingTrilhas(false);
+    }
+  }, []);
 
   const loadCatalog = useCallback(async () => {
     setLoadingVoices(true);
@@ -51,8 +68,6 @@ export function VinhetasPanel() {
       const res = await fetch("/api/criacao/vinhetas/catalog");
       const data = (await res.json()) as {
         presetVoices?: PresetVoice[];
-        presetTrilhas?: BibRow[];
-        presetVoicesAsElevenLabs?: Voice[];
         elevenLabs?: { configured?: boolean; source?: ElevenLabsSource };
         canEdit?: boolean;
       };
@@ -61,22 +76,8 @@ export function VinhetasPanel() {
       setElevenSource(el?.source ?? "none");
       setIsMaster(Boolean(data.canEdit));
       setAdminVoices(data.presetVoices ?? []);
-      setAdminTrilhas(
-        (data.presetTrilhas ?? []).map((t) => ({
-          musicaId: t.id,
-          label: t.label ?? `${t.artista} — ${t.titulo}`,
-        })),
-      );
-      setTrilhasPreset(data.presetTrilhas ?? []);
-      if (data.presetTrilhas?.[0]) {
-        const first = data.presetTrilhas[0];
-        setTrilha((prev) =>
-          prev ??
-          ({ id: first.id, titulo: first.titulo, artista: first.artista, previewUrl: first.previewUrl } as BibRow),
-        );
-      }
     } catch {
-      setTrilhasPreset([]);
+      /* ignore */
     } finally {
       setLoadingVoices(false);
     }
@@ -129,7 +130,8 @@ export function VinhetasPanel() {
     void loadCatalog();
     void loadVoices();
     void loadList();
-  }, [loadCatalog, loadVoices, loadList]);
+    void loadTrilhasVinheta();
+  }, [loadCatalog, loadVoices, loadList, loadTrilhasVinheta]);
 
   async function saveApiKey() {
     setSavingKey(true);
@@ -151,18 +153,6 @@ export function VinhetasPanel() {
     }
   }
 
-  async function buscarTrilhasAdmin() {
-    try {
-      const params = new URLSearchParams({ pageSize: "30", status: "pronta" });
-      if (adminTrilhaBusca.trim()) params.set("search", adminTrilhaBusca.trim());
-      const res = await fetch(`/api/criacao/biblioteca?${params.toString()}`);
-      const data = (await res.json()) as { musicas: BibRow[] };
-      setAdminTrilhaHits(data.musicas ?? []);
-    } catch {
-      setAdminTrilhaHits([]);
-    }
-  }
-
   async function salvarCatalogo() {
     setSavingCatalog(true);
     setMsg("");
@@ -170,12 +160,12 @@ export function VinhetasPanel() {
       const res = await fetch("/api/criacao/vinhetas/catalog", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voices: adminVoices, trilhas: adminTrilhas }),
+        body: JSON.stringify({ voices: adminVoices, trilhas: [] }),
       });
       if (!res.ok) throw new Error("Falha ao salvar catálogo.");
       await loadCatalog();
       await loadVoices();
-      setMsg("Catálogo fixo salvo — vozes e trilhas atualizadas para todos.");
+      setMsg("Vozes fixas salvas.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao salvar catálogo.");
     } finally {
@@ -183,18 +173,59 @@ export function VinhetasPanel() {
     }
   }
 
-  async function buscarTrilhas() {
-    setLoadingTrilhas(true);
+  async function enviarTrilha() {
+    if (!trilhaUploadNome.trim() || !trilhaUploadFile) {
+      setMsg("Informe nome e arquivo MP3 da trilha.");
+      return;
+    }
+    setUploadingTrilha(true);
+    setMsg("");
     try {
-      const params = new URLSearchParams({ pageSize: "40", status: "pronta" });
-      if (trilhaBusca.trim()) params.set("search", trilhaBusca.trim());
-      const res = await fetch(`/api/criacao/biblioteca?${params.toString()}`);
-      const data = (await res.json()) as { musicas: BibRow[] };
-      setTrilhas(data.musicas ?? []);
-    } catch {
-      setTrilhas([]);
+      const createRes = await fetch("/api/criacao/vinhetas/trilhas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: trilhaUploadNome.trim() }),
+      });
+      const created = (await createRes.json()) as {
+        trilha?: TrilhaRow;
+        ingestUrl?: string;
+        token?: string;
+        error?: string;
+      };
+      if (!createRes.ok || !created.trilha || !created.ingestUrl || !created.token) {
+        throw new Error(created.error ?? "Falha ao criar trilha.");
+      }
+      const fd = new FormData();
+      fd.append("token", created.token);
+      fd.append("file", trilhaUploadFile);
+      const up = await fetch(created.ingestUrl, { method: "POST", body: fd });
+      if (!up.ok) throw new Error("Upload da trilha falhou no servidor.");
+      setTrilhaUploadNome("");
+      setTrilhaUploadFile(null);
+      const listRes = await fetch("/api/criacao/vinhetas/trilhas");
+      const listData = (await listRes.json()) as { trilhas?: TrilhaRow[] };
+      const list = (listData.trilhas ?? []).filter((t) => t.temAudio);
+      setTrilhasVinheta(list);
+      const hit = list.find((t) => t.id === created.trilha!.id);
+      if (hit) setTrilha(hit);
+      setMsg(`Trilha «${created.trilha.nome}» salva — disponível só em Vinhetas.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao enviar trilha.");
     } finally {
-      setLoadingTrilhas(false);
+      setUploadingTrilha(false);
+    }
+  }
+
+  async function apagarTrilha(id: string) {
+    if (!window.confirm("Apagar esta trilha ambiente?")) return;
+    try {
+      const res = await fetch(`/api/criacao/vinhetas/trilhas/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("trilha_em_uso");
+      if (trilha?.id === id) setTrilha(null);
+      await loadTrilhasVinheta();
+      setMsg("Trilha removida.");
+    } catch {
+      setMsg("Não foi possível apagar — trilha pode estar em uso numa vinheta.");
     }
   }
 
@@ -214,7 +245,7 @@ export function VinhetasPanel() {
           texto: texto.trim(),
           voz: vozId,
           vozNome,
-          trilhaMusicaId: trilha.id,
+          trilhaVinhetaId: trilha.id,
         }),
       });
       const data = (await res.json()) as { vinheta?: VinhetaLabRow; error?: string };
@@ -274,7 +305,7 @@ export function VinhetasPanel() {
       <section className="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white p-4 dark:border-amber-900/40 dark:from-amber-950/30 dark:to-slate-900">
         <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300">Vinhetas IA</p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Locução ElevenLabs + trilha ambiente da biblioteca. Aprove aqui e puxe depois nas programações.
+          Locução ElevenLabs + trilha ambiente própria (upload aqui). Aprove e puxe depois nas programações.
         </p>
       </section>
 
@@ -317,109 +348,56 @@ export function VinhetasPanel() {
 
       {isMaster ?
         <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 dark:border-violet-900/40 dark:bg-violet-950/20">
-          <h2 className="text-sm font-bold text-violet-900 dark:text-violet-200">Catálogo fixo (admin)</h2>
+          <h2 className="text-sm font-bold text-violet-900 dark:text-violet-200">Vozes fixas (admin)</h2>
           <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-            Vozes e trilhas que aparecem para todos. IDs de voz vêm do painel ElevenLabs (Voice Library). Trilhas
-            usam o ID da música na biblioteca do portal.
+            IDs de voz do painel ElevenLabs (Voice Library). Trilhas ambiente são enviadas abaixo — não entram na biblioteca musical.
           </p>
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold text-slate-500">Vozes ({adminVoices.length})</p>
-              <ul className="mt-2 space-y-1 text-xs">
-                {adminVoices.map((v) => (
-                  <li key={v.voiceId} className="flex items-center justify-between gap-2 rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
-                    <span>
-                      {v.label} <span className="text-slate-400">({v.voiceId.slice(0, 8)}…)</span>
-                    </span>
-                    <button
-                      type="button"
-                      className="text-red-600"
-                      onClick={() => setAdminVoices((prev) => prev.filter((x) => x.voiceId !== v.voiceId))}
-                    >
-                      Remover
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <input
-                  value={adminVoiceId}
-                  onChange={(e) => setAdminVoiceId(e.target.value)}
-                  placeholder="voice_id ElevenLabs"
-                  className="min-w-[140px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
-                />
-                <input
-                  value={adminVoiceLabel}
-                  onChange={(e) => setAdminVoiceLabel(e.target.value)}
-                  placeholder="Nome exibido"
-                  className="min-w-[100px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
-                />
+          <p className="mt-3 text-xs font-semibold text-slate-500">Vozes ({adminVoices.length})</p>
+          <ul className="mt-2 space-y-1 text-xs">
+            {adminVoices.map((v) => (
+              <li key={v.voiceId} className="flex items-center justify-between gap-2 rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
+                <span>
+                  {v.label} <span className="text-slate-400">({v.voiceId.slice(0, 8)}…)</span>
+                </span>
                 <button
                   type="button"
-                  disabled={adminVoiceId.trim().length < 8}
-                  onClick={() => {
-                    const voiceId = adminVoiceId.trim();
-                    const label = adminVoiceLabel.trim() || voiceId;
-                    setAdminVoices((prev) =>
-                      prev.some((x) => x.voiceId === voiceId) ? prev : [...prev, { voiceId, label }],
-                    );
-                    setAdminVoiceId("");
-                    setAdminVoiceLabel("");
-                  }}
-                  className="rounded border px-2 py-1 text-xs font-semibold dark:border-slate-600"
+                  className="text-red-600"
+                  onClick={() => setAdminVoices((prev) => prev.filter((x) => x.voiceId !== v.voiceId))}
                 >
-                  + Voz
+                  Remover
                 </button>
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500">Trilhas ambiente ({adminTrilhas.length})</p>
-              <ul className="mt-2 space-y-1 text-xs">
-                {adminTrilhas.map((t) => (
-                  <li key={t.musicaId} className="flex items-center justify-between gap-2 rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
-                    <span>{t.label}</span>
-                    <button
-                      type="button"
-                      className="text-red-600"
-                      onClick={() => setAdminTrilhas((prev) => prev.filter((x) => x.musicaId !== t.musicaId))}
-                    >
-                      Remover
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-2 flex gap-2">
-                <input
-                  value={adminTrilhaBusca}
-                  onChange={(e) => setAdminTrilhaBusca(e.target.value)}
-                  placeholder="Buscar música…"
-                  className="flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
-                />
-                <button type="button" onClick={() => void buscarTrilhasAdmin()} className="rounded border px-2 text-xs dark:border-slate-600">
-                  Buscar
-                </button>
-              </div>
-              {adminTrilhaHits.length > 0 ?
-                <ul className="mt-2 max-h-28 overflow-y-auto divide-y text-xs dark:divide-slate-800">
-                  {adminTrilhaHits.map((m) => (
-                    <li key={m.id}>
-                      <button
-                        type="button"
-                        className="w-full py-1 text-left hover:text-violet-700"
-                        onClick={() => {
-                          const label = `${m.artista} — ${m.titulo}`;
-                          setAdminTrilhas((prev) =>
-                            prev.some((x) => x.musicaId === m.id) ? prev : [...prev, { musicaId: m.id, label }],
-                          );
-                        }}
-                      >
-                        + {m.artista} — {m.titulo}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              : null}
-            </div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              value={adminVoiceId}
+              onChange={(e) => setAdminVoiceId(e.target.value)}
+              placeholder="voice_id ElevenLabs"
+              className="min-w-[140px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
+            />
+            <input
+              value={adminVoiceLabel}
+              onChange={(e) => setAdminVoiceLabel(e.target.value)}
+              placeholder="Nome exibido"
+              className="min-w-[100px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
+            />
+            <button
+              type="button"
+              disabled={adminVoiceId.trim().length < 8}
+              onClick={() => {
+                const voiceId = adminVoiceId.trim();
+                const label = adminVoiceLabel.trim() || voiceId;
+                setAdminVoices((prev) =>
+                  prev.some((x) => x.voiceId === voiceId) ? prev : [...prev, { voiceId, label }],
+                );
+                setAdminVoiceId("");
+                setAdminVoiceLabel("");
+              }}
+              className="rounded border px-2 py-1 text-xs font-semibold dark:border-slate-600"
+            >
+              + Voz
+            </button>
           </div>
           <button
             type="button"
@@ -427,10 +405,65 @@ export function VinhetasPanel() {
             onClick={() => void salvarCatalogo()}
             className="mt-4 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {savingCatalog ? "Salvando…" : "Salvar catálogo fixo"}
+            {savingCatalog ? "Salvando…" : "Salvar vozes fixas"}
           </button>
         </section>
       : null}
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+        <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Trilhas ambiente (só Vinhetas)</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          MP3 de fundo para mixar com a locução. Ficam gravadas aqui — não aparecem na biblioteca musical.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input
+            value={trilhaUploadNome}
+            onChange={(e) => setTrilhaUploadNome(e.target.value)}
+            placeholder="Nome (ex.: Jazz suave 1)"
+            className="min-w-[160px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+          />
+          <input
+            type="file"
+            accept="audio/mpeg,.mp3"
+            onChange={(e) => setTrilhaUploadFile(e.target.files?.[0] ?? null)}
+            className="max-w-[220px] text-xs file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1 dark:file:bg-slate-800"
+          />
+          <button
+            type="button"
+            disabled={uploadingTrilha || !trilhaUploadNome.trim() || !trilhaUploadFile}
+            onClick={() => void enviarTrilha()}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {uploadingTrilha ? "Enviando…" : "Subir trilha"}
+          </button>
+        </div>
+        {loadingTrilhas ?
+          <p className="mt-3 text-xs text-slate-400">Carregando trilhas…</p>
+        : trilhasVinheta.length === 0 ?
+          <p className="mt-3 text-xs text-slate-500">Nenhuma trilha ainda — suba MP3 acima.</p>
+        : <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto text-sm">
+            {trilhasVinheta.map((t) => (
+              <li key={t.id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/80">
+                <button
+                  type="button"
+                  className={`flex-1 text-left ${trilha?.id === t.id ? "font-semibold text-emerald-700" : ""}`}
+                  onClick={() => setTrilha(t)}
+                >
+                  {t.nome}
+                </button>
+                {t.previewUrl ?
+                  <MusicaPreviewButton
+                    track={{ id: t.id, titulo: t.nome, artista: "Trilha", previewUrl: t.previewUrl, durationMs: null }}
+                  />
+                : null}
+                <button type="button" className="text-xs text-red-600" onClick={() => void apagarTrilha(t.id)}>
+                  Apagar
+                </button>
+              </li>
+            ))}
+          </ul>
+        }
+      </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
@@ -473,53 +506,13 @@ export function VinhetasPanel() {
               <p className="text-xs text-amber-600">{voicesError}</p>
             : null}
             <div>
-              <label className="text-xs font-semibold text-slate-500">
-                Trilha ambiente
-                {trilhasPreset.length > 0 ? ` (${trilhasPreset.length} opções fixas)` : ""}
-              </label>
-              {trilhasPreset.length === 0 ?
-                <>
-                  <div className="mt-1 flex gap-2">
-                    <input
-                      value={trilhaBusca}
-                      onChange={(e) => setTrilhaBusca(e.target.value)}
-                      placeholder="Buscar na biblioteca…"
-                      className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-                    />
-                    <button type="button" onClick={() => void buscarTrilhas()} className="rounded-lg border px-3 text-xs font-semibold dark:border-slate-600">
-                      Buscar
-                    </button>
-                  </div>
-                  {loadingTrilhas ?
-                    <p className="mt-2 text-xs text-slate-400">Buscando…</p>
-                  : null}
-                </>
-              : null}
+              <label className="text-xs font-semibold text-slate-500">Trilha selecionada</label>
               {trilha ?
-                <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
-                  ✓ {trilha.artista} — {trilha.titulo}
+                <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">✓ {trilha.nome}</p>
+              : <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  Escolha uma trilha na seção acima (ou suba uma nova).
                 </p>
-              : null}
-              {trilhasEscolha.length > 0 ?
-                <ul className="mt-2 max-h-40 overflow-y-auto divide-y divide-slate-100 text-xs dark:divide-slate-800">
-                  {trilhasEscolha.map((m) => (
-                    <li key={m.id} className="flex items-center gap-2 py-1">
-                      <button
-                        type="button"
-                        className={`flex-1 text-left ${trilha?.id === m.id ? "font-semibold text-emerald-700" : "hover:text-amber-700"}`}
-                        onClick={() => setTrilha(m)}
-                      >
-                        {m.label ?? `${m.artista} — ${m.titulo}`}
-                      </button>
-                      {m.previewUrl ?
-                        <MusicaPreviewButton track={{ id: m.id, titulo: m.titulo, artista: m.artista, previewUrl: m.previewUrl, durationMs: null }} />
-                      : null}
-                    </li>
-                  ))}
-                </ul>
-              : trilhasPreset.length === 0 && !loadingTrilhas && trilhaBusca ?
-                <p className="mt-2 text-xs text-slate-400">Nenhuma trilha — busque ou peça ao admin cadastrar opções fixas.</p>
-              : null}
+              }
             </div>
             <button
               type="button"

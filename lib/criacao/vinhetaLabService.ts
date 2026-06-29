@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { buildVinhetaPreviewUrl } from "@/lib/criacao/vinhetaSign";
+import { buildVinhetaPreviewUrl, buildVinhetaTrilhaPreviewUrl } from "@/lib/criacao/vinhetaSign";
 import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import {
@@ -19,6 +19,7 @@ export type VinhetaLabRow = {
   voz: string;
   vozNome: string;
   trilhaMusicaId: string | null;
+  trilhaVinhetaId: string | null;
   trilhaTitulo: string | null;
   trilhaArtista: string | null;
   trilhaPreviewUrl: string | null;
@@ -42,6 +43,7 @@ async function mapLabRow(v: {
   voz: string;
   vozNome: string;
   trilhaMusicaId: string | null;
+  trilhaVinhetaId: string | null;
   programacaoId: string | null;
   criativoNome: string;
   storageKey: string | null;
@@ -52,7 +54,17 @@ async function mapLabRow(v: {
   let trilhaTitulo: string | null = null;
   let trilhaArtista: string | null = null;
   let trilhaPreviewUrl: string | null = null;
-  if (v.trilhaMusicaId) {
+  if (v.trilhaVinhetaId) {
+    const t = await prisma.vinhetaTrilha.findUnique({
+      where: { id: v.trilhaVinhetaId },
+      select: { nome: true, storageKey: true },
+    });
+    if (t) {
+      trilhaTitulo = t.nome;
+      trilhaArtista = "Trilha Vinhetas";
+      trilhaPreviewUrl = t.storageKey ? buildVinhetaTrilhaPreviewUrl(v.trilhaVinhetaId) : null;
+    }
+  } else if (v.trilhaMusicaId) {
     const m = await prisma.musicaBiblioteca.findUnique({
       where: { id: v.trilhaMusicaId },
       select: { titulo: true, artista: true, versoes: { select: { formato: true } } },
@@ -73,6 +85,7 @@ async function mapLabRow(v: {
     voz: v.voz,
     vozNome: v.vozNome,
     trilhaMusicaId: v.trilhaMusicaId,
+    trilhaVinhetaId: v.trilhaVinhetaId,
     trilhaTitulo,
     trilhaArtista,
     trilhaPreviewUrl,
@@ -114,6 +127,7 @@ export async function createVinhetaLabDraft(input: {
   voz: string;
   vozNome: string;
   trilhaMusicaId?: string | null;
+  trilhaVinhetaId?: string | null;
   criativoUserId: string;
   criativoNome: string;
 }): Promise<VinhetaLabRow> {
@@ -128,6 +142,7 @@ export async function createVinhetaLabDraft(input: {
       voz: input.voz.slice(0, 80),
       vozNome: input.vozNome.slice(0, 120),
       trilhaMusicaId: input.trilhaMusicaId || null,
+      trilhaVinhetaId: input.trilhaVinhetaId || null,
       criativoUserId: input.criativoUserId,
       criativoNome: input.criativoNome.slice(0, 120),
     },
@@ -143,6 +158,7 @@ export async function updateVinhetaLabDraft(
     voz?: string;
     vozNome?: string;
     trilhaMusicaId?: string | null;
+    trilhaVinhetaId?: string | null;
   },
 ): Promise<VinhetaLabRow> {
   const data: Record<string, unknown> = {};
@@ -151,6 +167,7 @@ export async function updateVinhetaLabDraft(
   if (typeof patch.voz === "string") data.voz = patch.voz.slice(0, 80);
   if (typeof patch.vozNome === "string") data.vozNome = patch.vozNome.slice(0, 120);
   if (patch.trilhaMusicaId !== undefined) data.trilhaMusicaId = patch.trilhaMusicaId || null;
+  if (patch.trilhaVinhetaId !== undefined) data.trilhaVinhetaId = patch.trilhaVinhetaId || null;
   if (Object.keys(data).length === 0) throw new Error("nada_para_atualizar");
   const row = await prisma.vinheta.update({ where: { id }, data });
   return mapLabRow(row);
@@ -161,7 +178,7 @@ export async function generateVinhetaLab(id: string, sessionEmail: string): Prom
   if (!row || row.tipo !== "ia") throw new Error("vinheta_nao_encontrada");
   if (!row.texto.trim()) throw new Error("texto_obrigatorio");
   if (!row.voz.trim()) throw new Error("voz_obrigatoria");
-  if (!row.trilhaMusicaId) throw new Error("trilha_obrigatoria");
+  if (!row.trilhaVinhetaId && !row.trilhaMusicaId) throw new Error("trilha_obrigatoria");
 
   const apiKey = await resolveElevenLabsApiKey(sessionEmail);
   if (!apiKey) throw new Error("elevenlabs_nao_configurado");
@@ -179,7 +196,8 @@ export async function generateVinhetaLab(id: string, sessionEmail: string): Prom
     const fd = new FormData();
     fd.append("token", token);
     fd.append("voice", new Blob([new Uint8Array(voiceMp3)], { type: "audio/mpeg" }), "voice.mp3");
-    fd.append("trilhaMusicaId", row.trilhaMusicaId);
+    if (row.trilhaVinhetaId) fd.append("trilhaVinhetaId", row.trilhaVinhetaId);
+    else if (row.trilhaMusicaId) fd.append("trilhaMusicaId", row.trilhaMusicaId);
 
     const mixRes = await fetch(vinhetaMixUrl, { method: "POST", body: fd });
     if (!mixRes.ok) {
@@ -233,6 +251,7 @@ export async function anexarVinhetaLabEmProgramacao(
       voz: src.voz,
       vozNome: src.vozNome,
       trilhaMusicaId: src.trilhaMusicaId,
+      trilhaVinhetaId: src.trilhaVinhetaId,
       trilhaStorageKey: src.trilhaStorageKey,
       criativoUserId: src.criativoUserId,
       criativoNome: src.criativoNome,

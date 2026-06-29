@@ -1067,6 +1067,8 @@ model Vinheta {
   /// Voz ElevenLabs (nome exibido) — complementa `voz` (voice_id).
   vozNome          String        @default("") @map("voz_nome") @db.VarChar(120)
   trilhaMusicaId   String?       @map("trilha_musica_id")
+  /// Trilha ambiente exclusiva do módulo Vinhetas (não entra na biblioteca musical).
+  trilhaVinhetaId  String?       @map("trilha_vinheta_id")
   trilhaStorageKey String?       @map("trilha_storage_key") @db.VarChar(300)
   storageKey       String?       @map("storage_key") @db.VarChar(300)
   criativoUserId   String?       @map("criativo_user_id") @db.VarChar(200)
@@ -1080,6 +1082,21 @@ model Vinheta {
   @@index([programacaoId])
   @@index([status, criativoUserId])
   @@map("vinheta")
+}
+
+/// Trilha ambiente para vinhetas IA — upload direto, visível só em Criação → Vinhetas.
+model VinhetaTrilha {
+  id             String   @id @default(cuid())
+  nome           String   @db.VarChar(160)
+  storageKey     String?  @map("storage_key") @db.VarChar(300)
+  durationMs     Int?     @map("duration_ms")
+  uploadedBy     String   @map("uploaded_by") @db.VarChar(200)
+  uploadedByNome String   @default("") @map("uploaded_by_nome") @db.VarChar(120)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([uploadedBy])
+  @@map("vinheta_trilha")
 }
 
 enum JobTipo {

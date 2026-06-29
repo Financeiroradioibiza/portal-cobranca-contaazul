@@ -1,17 +1,17 @@
 import { portalQuery } from '../../criacao/portalDb.js';
 import {
   extractGravadoraFromTags,
-  fetchDeezerCanonicalNames,
   fetchDeezerExplicit,
   fetchExternalTrackMetadata,
   fetchLabelTags,
   fetchMusicBrainzExplicit,
   hasApiExplicitCheck,
+  isEligibleForExternalTrackMatch,
   mergeApiExplicitTags,
   mergeExternalTags,
   parseTagsFromJson,
   type ExternalAutoTag,
-} from '../../routes/criacao/tagEnrichmentCore.js';
+} from '../../tagEnrichmentCore.js';
 import { classifyExplicitLyricsWithGemini } from '../../criacao/explicitGemini.js';
 
 const EXPLICIT_TAG_FONTE = 'moderacao';
@@ -59,7 +59,7 @@ async function applyMetadataEnrichment(
   let isrc = m.isrc;
   let ano: number | null = null;
 
-  if (force || !isrc?.trim() || bpm == null) {
+  if ((force || !isrc?.trim() || bpm == null) && isEligibleForExternalTrackMatch({ titulo: m.titulo, artista: m.artista })) {
     const meta = await fetchExternalTrackMetadata({
       titulo: m.titulo,
       artista: m.artista,
@@ -101,16 +101,6 @@ export async function enrichUploadTagsForMusica(musicaId: string): Promise<void>
   const m = row.rows[0];
   if (!m) return;
 
-  const canonical = await fetchDeezerCanonicalNames({ titulo: m.titulo, artista: m.artista });
-  if (canonical && (canonical.titulo !== m.titulo || canonical.artista !== m.artista)) {
-    await portalQuery(
-      `UPDATE musica_biblioteca SET titulo = $2, artista = $3, updated_at = now() WHERE id = $1`,
-      [musicaId, canonical.titulo, canonical.artista],
-    );
-    m.titulo = canonical.titulo;
-    m.artista = canonical.artista;
-  }
-
   const meta = await applyMetadataEnrichment(m);
   let merged = meta.merged;
   let changed = meta.changed;
@@ -118,7 +108,7 @@ export async function enrichUploadTagsForMusica(musicaId: string): Promise<void>
   let isrc = meta.isrc;
   const ano = meta.ano;
 
-  if (!extractGravadoraFromTags(merged)) {
+  if (!extractGravadoraFromTags(merged) && isEligibleForExternalTrackMatch({ titulo: m.titulo, artista: m.artista })) {
     const labels = await fetchLabelTags({
       titulo: m.titulo,
       artista: m.artista,
@@ -130,7 +120,7 @@ export async function enrichUploadTagsForMusica(musicaId: string): Promise<void>
     }
   }
 
-  if (!hasApiExplicitCheck(merged)) {
+  if (!hasApiExplicitCheck(merged) && isEligibleForExternalTrackMatch({ titulo: m.titulo, artista: m.artista })) {
     const deezer = await fetchDeezerExplicit({ titulo: m.titulo, artista: m.artista });
     const musicbrainz = await fetchMusicBrainzExplicit({
       titulo: m.titulo,

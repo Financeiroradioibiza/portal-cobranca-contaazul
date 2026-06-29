@@ -15,7 +15,7 @@ function pathDentroDe(baseDir: string, rel: string): string | null {
 }
 
 export function ensureStorageDirs(): void {
-  for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta', 'download-staging']) {
+  for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta', 'vinheta-trilha', 'download-staging']) {
     fs.mkdirSync(path.join(root(), sub), { recursive: true });
   }
 }
@@ -92,6 +92,28 @@ export function vinhetaStorageKey(vinhetaId: string): string {
 export function vinhetaIdFromStorageKey(key: string): string | null {
   if (!key.startsWith('vinheta:')) return null;
   const name = key.slice('vinheta:'.length);
+  if (!name.endsWith('.mp3')) return null;
+  const id = name.slice(0, -4);
+  return id || null;
+}
+
+export function vinhetaTrilhaPath(trilhaId: string): string {
+  const id = String(trilhaId ?? '').trim();
+  if (!id || id.includes('..') || id.includes('/') || id.includes('\\')) {
+    throw new Error('trilha_id_invalido');
+  }
+  const safe = pathDentroDe(path.join(root(), 'vinheta-trilha'), `${id}.mp3`);
+  if (!safe) throw new Error('trilha_id_invalido');
+  return safe;
+}
+
+export function vinhetaTrilhaStorageKey(trilhaId: string): string {
+  return `vinheta-trilha:${trilhaId}.mp3`;
+}
+
+export function vinhetaTrilhaIdFromStorageKey(key: string): string | null {
+  if (!key.startsWith('vinheta-trilha:')) return null;
+  const name = key.slice('vinheta-trilha:'.length);
   if (!name.endsWith('.mp3')) return null;
   const id = name.slice(0, -4);
   return id || null;

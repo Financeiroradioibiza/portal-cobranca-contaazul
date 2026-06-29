@@ -6,11 +6,12 @@ import { produceVinhetaMp3, mixVinhetaVoiceWithBed } from '../../criacao/ffmpeg.
 import { verifyVinhetaStreamAccess, verifyVinhetaToken } from '../../criacao/ingestToken.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
-import { ensureStorageDirs, vinhetaPath, vinhetaStorageKey } from '../../criacao/storage.js';
+import { ensureStorageDirs, vinhetaPath, vinhetaStorageKey, vinhetaTrilhaPath, vinhetaTrilhaStorageKey } from '../../criacao/storage.js';
 
 const MAX_VINHETA_BYTES = Number(process.env.CRIACAO_MAX_VINHETA_BYTES ?? String(20 * 1024 * 1024));
 
 type VinhetaAudioParams = { vinhetaId: string };
+type VinhetaTrilhaAudioParams = { trilhaId: string };
 type VinhetaAudioQuery = { exp?: string; token?: string };
 
 /** Upload e preview de vinhetas de áudio (spots) — direto no cloud2. */
@@ -81,6 +82,86 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
     return reply.send({ ok: true, vinhetaId: parsed.vinhetaId, bytes: fileBuffer.length, storageKey: key });
   });
 
+  app.post(`${prefix}/vinheta-trilha-ingest`, async (req, reply) => {
+    let token = '';
+    let fileBuffer: Buffer | null = null;
+    let fileName = 'trilha.mp3';
+
+    const parts = req.parts();
+    for await (const part of parts) {
+      if (part.type === 'field' && part.fieldname === 'token') {
+        token = String(part.value ?? '').trim();
+      } else if (part.type === 'file' && part.fieldname === 'file') {
+        fileName = part.filename || fileName;
+        fileBuffer = await part.toBuffer();
+      }
+    }
+
+    if (!token) return reply.code(400).send({ ok: false, error: 'token_ausente' });
+    const parsed = verifyVinhetaToken(token);
+    if (!parsed) return reply.code(401).send({ ok: false, error: 'token_invalido' });
+    if (!fileBuffer?.length) return reply.code(400).send({ ok: false, error: 'arquivo_ausente' });
+
+    const ext = path.extname(fileName).toLowerCase();
+    if (ext && ext !== '.mp3') {
+      return reply.code(400).send({ ok: false, error: 'formato_invalido' });
+    }
+
+    const trilhaRes = await portalQuery<{ id: string }>(
+      `SELECT id FROM vinheta_trilha WHERE id = $1 LIMIT 1`,
+      [parsed.vinhetaId],
+    );
+    if (!trilhaRes.rows[0]) return reply.code(404).send({ ok: false, error: 'trilha_nao_encontrada' });
+
+    ensureStorageDirs();
+    const dest = vinhetaTrilhaPath(parsed.vinhetaId);
+    const scratch = path.join(criacaoConfig.storageRoot, 'work', `vinheta-trilha-upload-${parsed.vinhetaId}.mp3`);
+    await fsp.mkdir(path.dirname(scratch), { recursive: true });
+    await fsp.writeFile(scratch, fileBuffer);
+    let durationMs = 0;
+    try {
+      const produced = await produceVinhetaMp3(scratch, dest);
+      durationMs = produced.durationMs;
+    } finally {
+      await fsp.unlink(scratch).catch(() => null);
+    }
+
+    const key = vinhetaTrilhaStorageKey(parsed.vinhetaId);
+    await portalQuery(
+      `UPDATE vinheta_trilha
+          SET storage_key = $2, duration_ms = $3, updated_at = now()
+        WHERE id = $1`,
+      [parsed.vinhetaId, key, durationMs || null],
+    );
+
+    return reply.send({ ok: true, trilhaId: parsed.vinhetaId, bytes: fileBuffer.length, storageKey: key, durationMs });
+  });
+
+  app.get<{ Params: VinhetaTrilhaAudioParams; Querystring: VinhetaAudioQuery }>(
+    `${prefix}/vinheta-trilha-audio/:trilhaId`,
+    async (req, reply) => {
+      const trilhaId = String(req.params.trilhaId ?? '').trim();
+      const exp = Number(req.query.exp);
+      const sig = String(req.query.token ?? '').trim();
+
+      if (!trilhaId || !verifyVinhetaStreamAccess(trilhaId, exp, sig)) {
+        return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+      }
+
+      const r = await portalQuery<{ storage_key: string | null }>(
+        `SELECT storage_key FROM vinheta_trilha WHERE id = $1 LIMIT 1`,
+        [trilhaId],
+      );
+      const key = r.rows[0]?.storage_key;
+      if (!key) return reply.code(404).send({ ok: false, error: 'audio_ausente' });
+
+      const resolved = await resolveUsoAudio(key);
+      if (!resolved) return reply.code(404).send({ ok: false, error: 'arquivo_ausente' });
+
+      return sendAudioReply(reply, resolved, req.headers.range, 'private, max-age=3600');
+    },
+  );
+
   app.get<{ Params: VinhetaAudioParams; Querystring: VinhetaAudioQuery }>(
     `${prefix}/vinheta-audio/:vinhetaId`,
     async (req, reply) => {
@@ -109,6 +190,7 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
   app.post(`${prefix}/vinheta-ia-mix`, async (req, reply) => {
     let token = '';
     let trilhaMusicaId = '';
+    let trilhaVinhetaId = '';
     let voiceBuffer: Buffer | null = null;
 
     const parts = req.parts();
@@ -117,6 +199,8 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
         token = String(part.value ?? '').trim();
       } else if (part.type === 'field' && part.fieldname === 'trilhaMusicaId') {
         trilhaMusicaId = String(part.value ?? '').trim();
+      } else if (part.type === 'field' && part.fieldname === 'trilhaVinhetaId') {
+        trilhaVinhetaId = String(part.value ?? '').trim();
       } else if (part.type === 'file' && part.fieldname === 'voice') {
         voiceBuffer = await part.toBuffer();
       }
@@ -126,13 +210,22 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
     const parsed = verifyVinhetaToken(token);
     if (!parsed) return reply.code(401).send({ ok: false, error: 'token_invalido' });
     if (!voiceBuffer?.length) return reply.code(400).send({ ok: false, error: 'voice_ausente' });
-    if (!trilhaMusicaId) return reply.code(400).send({ ok: false, error: 'trilha_obrigatoria' });
+    if (!trilhaMusicaId && !trilhaVinhetaId) return reply.code(400).send({ ok: false, error: 'trilha_obrigatoria' });
 
-    const trilhaRes = await portalQuery<{ storage_key: string }>(
-      `SELECT storage_key FROM musica_versao WHERE musica_id = $1 AND storage_key IS NOT NULL ORDER BY formato ASC LIMIT 1`,
-      [trilhaMusicaId],
-    );
-    const bedKey = trilhaRes.rows[0]?.storage_key;
+    let bedKey: string | null = null;
+    if (trilhaVinhetaId) {
+      const trilhaRes = await portalQuery<{ storage_key: string | null }>(
+        `SELECT storage_key FROM vinheta_trilha WHERE id = $1 LIMIT 1`,
+        [trilhaVinhetaId],
+      );
+      bedKey = trilhaRes.rows[0]?.storage_key ?? null;
+    } else {
+      const trilhaRes = await portalQuery<{ storage_key: string }>(
+        `SELECT storage_key FROM musica_versao WHERE musica_id = $1 AND storage_key IS NOT NULL ORDER BY formato ASC LIMIT 1`,
+        [trilhaMusicaId],
+      );
+      bedKey = trilhaRes.rows[0]?.storage_key ?? null;
+    }
     if (!bedKey) return reply.code(404).send({ ok: false, error: 'trilha_ausente' });
 
     const bedResolved = await resolveUsoAudio(bedKey);

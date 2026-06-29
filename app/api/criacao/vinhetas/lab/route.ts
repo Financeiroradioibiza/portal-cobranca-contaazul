@@ -29,6 +29,7 @@ export async function POST(request: Request) {
       voz?: string;
       vozNome?: string;
       trilhaMusicaId?: string;
+      trilhaVinhetaId?: string;
     };
     const row = await createVinhetaLabDraft({
       nome: body.nome ?? "",
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
       voz: body.voz ?? "",
       vozNome: body.vozNome ?? "",
       trilhaMusicaId: body.trilhaMusicaId ?? null,
+      trilhaVinhetaId: body.trilhaVinhetaId ?? null,
       criativoUserId: normalizePortalEmail(session.email),
       criativoNome: session.displayName ?? session.email,
     });

@@ -72,6 +72,38 @@ function normalizeSearchArtist(artista: string): string {
   return alt || trimmed;
 }
 
+/** Evita busca externa com nomes genéricos de upload (ex.: Pop.mp3, Satisfy.mp3). */
+export function isEligibleForExternalTrackMatch(input: { titulo: string; artista: string }): boolean {
+  const titulo = normalizeSearchTitle(input.titulo).trim();
+  const artista = input.artista.trim();
+  if (titulo.length < 4 || artista.length < 2) return false;
+  const lower = titulo.toLowerCase();
+  if (/^(pop|jazz|rock|mix|demo|faixa|track|satisfy|interlude|audio|music)(\d|[.\s_(-]|$)/i.test(lower)) {
+    return false;
+  }
+  return true;
+}
+
+function scoreDeezerHit(input: { titulo: string; artista: string }, hit: DeezerTrackHit): number {
+  const hitTitle = hit.title?.trim() ?? "";
+  const hitArtist = hit.artist?.name?.trim() ?? "";
+  if (!hitTitle || !hitArtist) return 0;
+  const wantTitle = normalizeSearchTitle(input.titulo).toLowerCase();
+  const gotTitle = normalizeSearchTitle(hitTitle).toLowerCase();
+  const wantArtist = normalizeSearchArtist(input.artista).toLowerCase();
+  const gotArtist = normalizeSearchArtist(hitArtist).toLowerCase();
+  const titleOk =
+    wantTitle === gotTitle ||
+    (wantTitle.length >= 5 && gotTitle.includes(wantTitle)) ||
+    (gotTitle.length >= 5 && wantTitle.includes(gotTitle));
+  const artistOk =
+    wantArtist === gotArtist ||
+    (wantArtist.length >= 4 && gotArtist.includes(wantArtist)) ||
+    (gotArtist.length >= 4 && wantArtist.includes(gotArtist));
+  if (!titleOk || !artistOk) return 0;
+  return wantTitle === gotTitle && wantArtist === gotArtist ? 100 : 85;
+}
+
 type DeezerTrackHit = {
   id?: number;
   album?: { id?: number };
@@ -83,13 +115,13 @@ type DeezerTrackHit = {
 async function searchDeezerTracks(input: { titulo: string; artista: string }): Promise<DeezerTrackHit[]> {
   const titulo = normalizeSearchTitle(input.titulo);
   const artista = input.artista.trim();
+  if (!artista || !isEligibleForExternalTrackMatch(input)) return [];
   const artistaAlt = normalizeSearchArtist(artista);
   const queries = [
     `artist:"${artista}" track:"${titulo}"`,
     titulo !== input.titulo.trim() ? `artist:"${artista}" track:"${input.titulo.trim()}"` : null,
     `${artista} ${titulo}`,
     artistaAlt !== artista ? `${artistaAlt} ${titulo}` : null,
-    titulo,
   ].filter((q): q is string => Boolean(q));
 
   const seen = new Set<number>();
@@ -196,26 +228,21 @@ async function resolveMusicBrainzRecordingId(input: {
 }
 
 function pickDeezerTrackHit(input: { titulo: string; artista: string }, hits: DeezerTrackHit[]) {
-  const titulo = normalizeSearchTitle(input.titulo).toLowerCase();
-  const artista = input.artista.trim().toLowerCase();
-  const artistaAlt = normalizeSearchArtist(input.artista).toLowerCase();
-  const needle = titulo.slice(0, 8);
-  const artistNeedle = artista.slice(0, 6);
-  return (
-    hits.find(
-      (t) =>
-        (t.title?.toLowerCase().includes(needle) ||
-          titulo.includes(t.title?.toLowerCase().slice(0, 8) ?? "")) &&
-        (t.artist?.name?.toLowerCase().includes(artistNeedle) ||
-          t.artist?.name?.toLowerCase().includes(artistaAlt.slice(0, 6))),
-    ) ??
-    hits.find((t) => t.title?.toLowerCase().includes(needle)) ??
-    hits[0]
-  );
+  if (!isEligibleForExternalTrackMatch(input)) return undefined;
+  let best: DeezerTrackHit | undefined;
+  let bestScore = 0;
+  for (const hit of hits) {
+    const score = scoreDeezerHit(input, hit);
+    if (score > bestScore) {
+      bestScore = score;
+      best = hit;
+    }
+  }
+  return bestScore >= 85 ? best : undefined;
 }
 
 async function fetchDeezerLabel(input: { titulo: string; artista: string }): Promise<string | null> {
-  if (!input.titulo.trim() || !input.artista.trim()) return null;
+  if (!isEligibleForExternalTrackMatch(input)) return null;
   const hits = await searchDeezerTracks(input);
   const hit = pickDeezerTrackHit(input, hits);
   const albumId = hit?.album?.id;
@@ -229,7 +256,7 @@ export async function fetchDeezerExplicit(input: {
   titulo: string;
   artista: string;
 }): Promise<boolean | null> {
-  if (!input.titulo.trim() || !input.artista.trim()) return null;
+  if (!isEligibleForExternalTrackMatch(input)) return null;
   const hits = await searchDeezerTracks(input);
   const hit = pickDeezerTrackHit(input, hits);
   if (!hit?.id) return null;
@@ -404,6 +431,21 @@ export async function fetchExternalTrackMetadata(input: {
   artista: string;
   isrc: string | null;
 }): Promise<ExternalTrackMetadata> {
+  if (!isEligibleForExternalTrackMatch(input)) {
+    const isrc = normalizeIsrc(input.isrc);
+    const tags: ExternalAutoTag[] = [];
+    if (isrc) tags.push({ fonte: "interno", chave: "isrc", valor: isrc });
+    const mb = isrc
+      ? await fetchMusicBrainzTrackMetadata({ titulo: input.titulo, artista: input.artista, isrc })
+      : { bpm: null, isrc, ano: null, tags: [] as ExternalAutoTag[] };
+    return {
+      bpm: null,
+      isrc: mb.isrc ?? isrc,
+      ano: mb.ano,
+      tags: mergeExternalTags(tags, mb.tags),
+    };
+  }
+
   const dz = await fetchDeezerTrackMetadata(input);
   const mb = await fetchMusicBrainzTrackMetadata({
     titulo: input.titulo,
@@ -450,11 +492,12 @@ export async function fetchDeezerCanonicalNames(input: {
   titulo: string;
   artista: string;
 }): Promise<{ titulo: string; artista: string } | null> {
-  if (!input.titulo.trim() || !input.artista.trim()) return null;
+  if (!isEligibleForExternalTrackMatch(input)) return null;
   const hits = await searchDeezerTracks(input);
   const hit = pickDeezerTrackHit(input, hits);
-  const titulo = hit?.title?.trim();
-  const artista = hit?.artist?.name?.trim();
+  if (!hit || scoreDeezerHit(input, hit) < 100) return null;
+  const titulo = hit.title?.trim();
+  const artista = hit.artist?.name?.trim();
   if (!titulo || !artista) return null;
   return { titulo: titulo.slice(0, 500), artista: artista.slice(0, 500) };
 }
