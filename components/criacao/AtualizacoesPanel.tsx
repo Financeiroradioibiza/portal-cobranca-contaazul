@@ -174,7 +174,7 @@ export function AtualizacoesPanel() {
     <div className="mx-auto w-full max-w-[1600px] px-2 py-3 sm:px-3">
       <header className="mb-2 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Criação / Atualizações</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Criação / PRODUÇÃO</div>
           <h1 className="text-lg font-bold leading-tight">Painel · {competencia ? competenciaLabel(competencia) : "…"}</h1>
         </div>
         {!loading ?

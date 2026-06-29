@@ -127,7 +127,7 @@ export function AtlCricaPanel() {
           Exporte a hierarquia de pastas no Mac, arraste os MP3s do mês e importe de volta — o portal envia cada faixa
           para a pasta certa. Conectado ao painel de{" "}
           <Link href="/criacao/atualizacoes" className="font-semibold text-violet-700 hover:underline dark:text-violet-300">
-            Atualizações
+            PRODUÇÃO
           </Link>{" "}
           e à{" "}
           <Link href="/criacao/programacoes" className="font-semibold text-violet-700 hover:underline dark:text-violet-300">
