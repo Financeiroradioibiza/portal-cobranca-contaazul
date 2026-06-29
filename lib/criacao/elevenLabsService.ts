@@ -42,13 +42,20 @@ export async function listElevenLabsVoices(apiKey: string): Promise<ElevenLabsVo
     const txt = await res.text().catch(() => "");
     throw new Error(`elevenlabs_voices_failed:${res.status}:${txt.slice(0, 120)}`);
   }
-  const data = (await res.json()) as { voices?: ElevenLabsVoice[] };
-  return (data.voices ?? []).map((v) => ({
-    voice_id: v.voice_id,
-    name: v.name,
-    category: v.category,
-    preview_url: v.preview_url ?? null,
-  }));
+  const data = (await res.json()) as {
+    voices?: ElevenLabsVoice[];
+    data?: ElevenLabsVoice[];
+  };
+  const raw = data.voices ?? data.data ?? [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((v) => ({
+      voice_id: String(v.voice_id ?? "").trim(),
+      name: String(v.name ?? v.voice_id ?? "").trim(),
+      category: v.category,
+      preview_url: v.preview_url ?? null,
+    }))
+    .filter((v) => v.voice_id.length >= 8);
 }
 
 export async function synthesizeElevenLabsSpeech(opts: {

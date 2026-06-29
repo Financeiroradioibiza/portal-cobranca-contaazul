@@ -6,13 +6,17 @@ import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls"
 import type { VinhetaLabRow } from "@/lib/criacao/vinhetaLabService";
 
 type Voice = { voice_id: string; name: string; category?: string };
-type BibRow = { id: string; titulo: string; artista: string; previewUrl: string | null };
+type BibRow = { id: string; titulo: string; artista: string; previewUrl: string | null; label?: string };
+type PresetVoice = { voiceId: string; label: string };
+type ElevenLabsSource = "server" | "user" | "none";
 
 export function VinhetasPanel() {
   const [configured, setConfigured] = useState(false);
+  const [elevenSource, setElevenSource] = useState<ElevenLabsSource>("none");
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [savingKey, setSavingKey] = useState(false);
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [voicesError, setVoicesError] = useState("");
   const [loadingVoices, setLoadingVoices] = useState(true);
   const [vinhetas, setVinhetas] = useState<VinhetaLabRow[]>([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -24,32 +28,91 @@ export function VinhetasPanel() {
   const [trilha, setTrilha] = useState<BibRow | null>(null);
   const [trilhaBusca, setTrilhaBusca] = useState("");
   const [trilhas, setTrilhas] = useState<BibRow[]>([]);
+  const [trilhasPreset, setTrilhasPreset] = useState<BibRow[]>([]);
   const [loadingTrilhas, setLoadingTrilhas] = useState(false);
   const [ativo, setAtivo] = useState<VinhetaLabRow | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const vozNome = useMemo(() => voices.find((v) => v.voice_id === vozId)?.name ?? "", [voices, vozId]);
+  const [isMaster, setIsMaster] = useState(false);
+  const [adminVoices, setAdminVoices] = useState<PresetVoice[]>([]);
+  const [adminTrilhas, setAdminTrilhas] = useState<{ musicaId: string; label: string }[]>([]);
+  const [adminVoiceId, setAdminVoiceId] = useState("");
+  const [adminVoiceLabel, setAdminVoiceLabel] = useState("");
+  const [adminTrilhaBusca, setAdminTrilhaBusca] = useState("");
+  const [adminTrilhaHits, setAdminTrilhaHits] = useState<BibRow[]>([]);
+  const [savingCatalog, setSavingCatalog] = useState(false);
 
-  const loadConfig = useCallback(async () => {
-    const res = await fetch("/api/criacao/vinhetas/elevenlabs/config");
-    const data = (await res.json()) as { configured?: boolean };
-    setConfigured(Boolean(data.configured));
+  const vozNome = useMemo(() => voices.find((v) => v.voice_id === vozId)?.name ?? "", [voices, vozId]);
+  const trilhasEscolha = trilhasPreset.length > 0 ? trilhasPreset : trilhas;
+
+  const loadCatalog = useCallback(async () => {
+    setLoadingVoices(true);
+    try {
+      const res = await fetch("/api/criacao/vinhetas/catalog");
+      const data = (await res.json()) as {
+        presetVoices?: PresetVoice[];
+        presetTrilhas?: BibRow[];
+        presetVoicesAsElevenLabs?: Voice[];
+        elevenLabs?: { configured?: boolean; source?: ElevenLabsSource };
+        canEdit?: boolean;
+      };
+      const el = data.elevenLabs;
+      setConfigured(Boolean(el?.configured));
+      setElevenSource(el?.source ?? "none");
+      setIsMaster(Boolean(data.canEdit));
+      setAdminVoices(data.presetVoices ?? []);
+      setAdminTrilhas(
+        (data.presetTrilhas ?? []).map((t) => ({
+          musicaId: t.id,
+          label: t.label ?? `${t.artista} — ${t.titulo}`,
+        })),
+      );
+      setTrilhasPreset(data.presetTrilhas ?? []);
+      if (data.presetTrilhas?.[0]) {
+        const first = data.presetTrilhas[0];
+        setTrilha((prev) =>
+          prev ??
+          ({ id: first.id, titulo: first.titulo, artista: first.artista, previewUrl: first.previewUrl } as BibRow),
+        );
+      }
+    } catch {
+      setTrilhasPreset([]);
+    } finally {
+      setLoadingVoices(false);
+    }
   }, []);
 
   const loadVoices = useCallback(async () => {
     setLoadingVoices(true);
+    setVoicesError("");
     try {
       const res = await fetch("/api/criacao/vinhetas/elevenlabs/voices");
-      const data = (await res.json()) as { configured?: boolean; voices?: Voice[]; error?: string };
+      const data = (await res.json()) as {
+        configured?: boolean;
+        voices?: Voice[];
+        error?: string | null;
+        presetOnly?: boolean;
+      };
       setConfigured(Boolean(data.configured));
-      setVoices(data.voices ?? []);
-      if (data.voices?.[0] && !vozId) setVozId(data.voices[0].voice_id);
+      const list = data.voices ?? [];
+      setVoices(list);
+      if (data.error && list.length === 0) {
+        setVoicesError(
+          data.error.includes("401") || data.error.includes("403") ?
+            "Chave ElevenLabs inválida ou sem permissão — confira ELEVENLABS_API_KEY no Netlify."
+          : "Não foi possível listar vozes. Cadastre vozes fixas abaixo (master) ou em VINHETA_IA_VOZES.",
+        );
+      } else if (list.length === 0 && data.configured) {
+        setVoicesError("Nenhuma voz disponível — cadastre IDs fixos em Catálogo fixo ou VINHETA_IA_VOZES.");
+      }
+      if (list[0]) setVozId((prev) => prev || list[0].voice_id);
     } catch {
       setVoices([]);
+      setVoicesError("Erro ao carregar vozes.");
     } finally {
       setLoadingVoices(false);
     }
-  }, [vozId]);
+  }, []);
 
   const loadList = useCallback(async () => {
     setLoadingList(true);
@@ -63,10 +126,10 @@ export function VinhetasPanel() {
   }, []);
 
   useEffect(() => {
-    void loadConfig();
+    void loadCatalog();
     void loadVoices();
     void loadList();
-  }, [loadConfig, loadVoices, loadList]);
+  }, [loadCatalog, loadVoices, loadList]);
 
   async function saveApiKey() {
     setSavingKey(true);
@@ -79,13 +142,44 @@ export function VinhetasPanel() {
       });
       if (!res.ok) throw new Error("Falha ao salvar chave.");
       setApiKeyDraft("");
-      await loadConfig();
       await loadVoices();
       setMsg("Conta ElevenLabs conectada.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro.");
     } finally {
       setSavingKey(false);
+    }
+  }
+
+  async function buscarTrilhasAdmin() {
+    try {
+      const params = new URLSearchParams({ pageSize: "30", status: "pronta" });
+      if (adminTrilhaBusca.trim()) params.set("search", adminTrilhaBusca.trim());
+      const res = await fetch(`/api/criacao/biblioteca?${params.toString()}`);
+      const data = (await res.json()) as { musicas: BibRow[] };
+      setAdminTrilhaHits(data.musicas ?? []);
+    } catch {
+      setAdminTrilhaHits([]);
+    }
+  }
+
+  async function salvarCatalogo() {
+    setSavingCatalog(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/criacao/vinhetas/catalog", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voices: adminVoices, trilhas: adminTrilhas }),
+      });
+      if (!res.ok) throw new Error("Falha ao salvar catálogo.");
+      await loadCatalog();
+      await loadVoices();
+      setMsg("Catálogo fixo salvo — vozes e trilhas atualizadas para todos.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao salvar catálogo.");
+    } finally {
+      setSavingCatalog(false);
     }
   }
 
@@ -190,11 +284,16 @@ export function VinhetasPanel() {
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
         <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Conta ElevenLabs</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          {configured ?
-            "Conectada — vozes da sua conta disponíveis abaixo."
-          : "Cole sua API key (elevenlabs.io → Profile → API Keys) ou configure ELEVENLABS_API_KEY no servidor."}
-        </p>
+        {configured ?
+          <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+            {elevenSource === "server" ?
+              "Conectada automaticamente via Netlify (ELEVENLABS_API_KEY)."
+            : "Conectada com sua chave pessoal."}
+          </p>
+        : <p className="mt-1 text-xs text-slate-500">
+            Cole sua API key (elevenlabs.io → Profile → API Keys) ou configure ELEVENLABS_API_KEY no Netlify.
+          </p>
+        }
         {!configured ?
           <div className="mt-3 flex flex-wrap gap-2">
             <input
@@ -216,6 +315,123 @@ export function VinhetasPanel() {
         : null}
       </section>
 
+      {isMaster ?
+        <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 dark:border-violet-900/40 dark:bg-violet-950/20">
+          <h2 className="text-sm font-bold text-violet-900 dark:text-violet-200">Catálogo fixo (admin)</h2>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+            Vozes e trilhas que aparecem para todos. IDs de voz vêm do painel ElevenLabs (Voice Library). Trilhas
+            usam o ID da música na biblioteca do portal.
+          </p>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold text-slate-500">Vozes ({adminVoices.length})</p>
+              <ul className="mt-2 space-y-1 text-xs">
+                {adminVoices.map((v) => (
+                  <li key={v.voiceId} className="flex items-center justify-between gap-2 rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
+                    <span>
+                      {v.label} <span className="text-slate-400">({v.voiceId.slice(0, 8)}…)</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="text-red-600"
+                      onClick={() => setAdminVoices((prev) => prev.filter((x) => x.voiceId !== v.voiceId))}
+                    >
+                      Remover
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <input
+                  value={adminVoiceId}
+                  onChange={(e) => setAdminVoiceId(e.target.value)}
+                  placeholder="voice_id ElevenLabs"
+                  className="min-w-[140px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
+                />
+                <input
+                  value={adminVoiceLabel}
+                  onChange={(e) => setAdminVoiceLabel(e.target.value)}
+                  placeholder="Nome exibido"
+                  className="min-w-[100px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
+                />
+                <button
+                  type="button"
+                  disabled={adminVoiceId.trim().length < 8}
+                  onClick={() => {
+                    const voiceId = adminVoiceId.trim();
+                    const label = adminVoiceLabel.trim() || voiceId;
+                    setAdminVoices((prev) =>
+                      prev.some((x) => x.voiceId === voiceId) ? prev : [...prev, { voiceId, label }],
+                    );
+                    setAdminVoiceId("");
+                    setAdminVoiceLabel("");
+                  }}
+                  className="rounded border px-2 py-1 text-xs font-semibold dark:border-slate-600"
+                >
+                  + Voz
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500">Trilhas ambiente ({adminTrilhas.length})</p>
+              <ul className="mt-2 space-y-1 text-xs">
+                {adminTrilhas.map((t) => (
+                  <li key={t.musicaId} className="flex items-center justify-between gap-2 rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
+                    <span>{t.label}</span>
+                    <button
+                      type="button"
+                      className="text-red-600"
+                      onClick={() => setAdminTrilhas((prev) => prev.filter((x) => x.musicaId !== t.musicaId))}
+                    >
+                      Remover
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={adminTrilhaBusca}
+                  onChange={(e) => setAdminTrilhaBusca(e.target.value)}
+                  placeholder="Buscar música…"
+                  className="flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
+                />
+                <button type="button" onClick={() => void buscarTrilhasAdmin()} className="rounded border px-2 text-xs dark:border-slate-600">
+                  Buscar
+                </button>
+              </div>
+              {adminTrilhaHits.length > 0 ?
+                <ul className="mt-2 max-h-28 overflow-y-auto divide-y text-xs dark:divide-slate-800">
+                  {adminTrilhaHits.map((m) => (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        className="w-full py-1 text-left hover:text-violet-700"
+                        onClick={() => {
+                          const label = `${m.artista} — ${m.titulo}`;
+                          setAdminTrilhas((prev) =>
+                            prev.some((x) => x.musicaId === m.id) ? prev : [...prev, { musicaId: m.id, label }],
+                          );
+                        }}
+                      >
+                        + {m.artista} — {m.titulo}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              : null}
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={savingCatalog}
+            onClick={() => void salvarCatalogo()}
+            className="mt-4 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {savingCatalog ? "Salvando…" : "Salvar catálogo fixo"}
+          </button>
+        </section>
+      : null}
+
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
           <h2 className="text-sm font-bold">Nova vinheta</h2>
@@ -236,6 +452,10 @@ export function VinhetasPanel() {
             <label className="block text-xs font-semibold text-slate-500">Voz ElevenLabs</label>
             {loadingVoices ?
               <p className="text-xs text-slate-400">Carregando vozes…</p>
+            : voices.length === 0 ?
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                {voicesError || "Nenhuma voz cadastrada — peça ao admin configurar o catálogo fixo."}
+              </p>
             : <select
                 value={vozId}
                 onChange={(e) => setVozId(e.target.value)}
@@ -244,37 +464,52 @@ export function VinhetasPanel() {
                 {voices.map((v) => (
                   <option key={v.voice_id} value={v.voice_id}>
                     {v.name}
-                    {v.category ? ` (${v.category})` : ""}
+                    {v.category && v.category !== "preset" ? ` (${v.category})` : ""}
                   </option>
                 ))}
               </select>
             }
+            {voicesError && voices.length > 0 ?
+              <p className="text-xs text-amber-600">{voicesError}</p>
+            : null}
             <div>
-              <label className="text-xs font-semibold text-slate-500">Trilha ambiente</label>
-              <div className="mt-1 flex gap-2">
-                <input
-                  value={trilhaBusca}
-                  onChange={(e) => setTrilhaBusca(e.target.value)}
-                  placeholder="Buscar na biblioteca…"
-                  className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-                />
-                <button type="button" onClick={() => void buscarTrilhas()} className="rounded-lg border px-3 text-xs font-semibold dark:border-slate-600">
-                  Buscar
-                </button>
-              </div>
+              <label className="text-xs font-semibold text-slate-500">
+                Trilha ambiente
+                {trilhasPreset.length > 0 ? ` (${trilhasPreset.length} opções fixas)` : ""}
+              </label>
+              {trilhasPreset.length === 0 ?
+                <>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      value={trilhaBusca}
+                      onChange={(e) => setTrilhaBusca(e.target.value)}
+                      placeholder="Buscar na biblioteca…"
+                      className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    />
+                    <button type="button" onClick={() => void buscarTrilhas()} className="rounded-lg border px-3 text-xs font-semibold dark:border-slate-600">
+                      Buscar
+                    </button>
+                  </div>
+                  {loadingTrilhas ?
+                    <p className="mt-2 text-xs text-slate-400">Buscando…</p>
+                  : null}
+                </>
+              : null}
               {trilha ?
                 <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
                   ✓ {trilha.artista} — {trilha.titulo}
                 </p>
               : null}
-              {loadingTrilhas ?
-                <p className="mt-2 text-xs text-slate-400">Buscando…</p>
-              : trilhas.length > 0 ?
-                <ul className="mt-2 max-h-32 overflow-y-auto divide-y divide-slate-100 text-xs dark:divide-slate-800">
-                  {trilhas.map((m) => (
+              {trilhasEscolha.length > 0 ?
+                <ul className="mt-2 max-h-40 overflow-y-auto divide-y divide-slate-100 text-xs dark:divide-slate-800">
+                  {trilhasEscolha.map((m) => (
                     <li key={m.id} className="flex items-center gap-2 py-1">
-                      <button type="button" className="flex-1 text-left hover:text-amber-700" onClick={() => setTrilha(m)}>
-                        {m.artista} — {m.titulo}
+                      <button
+                        type="button"
+                        className={`flex-1 text-left ${trilha?.id === m.id ? "font-semibold text-emerald-700" : "hover:text-amber-700"}`}
+                        onClick={() => setTrilha(m)}
+                      >
+                        {m.label ?? `${m.artista} — ${m.titulo}`}
                       </button>
                       {m.previewUrl ?
                         <MusicaPreviewButton track={{ id: m.id, titulo: m.titulo, artista: m.artista, previewUrl: m.previewUrl, durationMs: null }} />
@@ -282,11 +517,13 @@ export function VinhetasPanel() {
                     </li>
                   ))}
                 </ul>
+              : trilhasPreset.length === 0 && !loadingTrilhas && trilhaBusca ?
+                <p className="mt-2 text-xs text-slate-400">Nenhuma trilha — busque ou peça ao admin cadastrar opções fixas.</p>
               : null}
             </div>
             <button
               type="button"
-              disabled={busy || !configured}
+              disabled={busy || !configured || !vozId || !trilha}
               onClick={() => void criarRascunho()}
               className="w-full rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
             >

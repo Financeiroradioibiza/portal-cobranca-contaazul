@@ -13,10 +13,12 @@ export async function GET() {
   try {
     const session = requirePortalSession(await getPortalSession());
     const key = await resolveElevenLabsApiKey(session.email);
+    const global = elevenLabsEnabledGlobally();
     return NextResponse.json({
       configured: Boolean(key),
-      globalFallback: elevenLabsEnabledGlobally(),
-      hasUserKey: Boolean(key && !elevenLabsEnabledGlobally()),
+      source: global ? "server" : key ? "user" : "none",
+      globalFallback: global,
+      hasUserKey: Boolean(key && !global),
     });
   } catch (e) {
     if (e instanceof Response) return e;

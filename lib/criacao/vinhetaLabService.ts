@@ -256,8 +256,35 @@ export async function anexarVinhetaLabEmProgramacao(
 }
 
 export async function getElevenLabsVoicesForUser(sessionEmail: string) {
+  const { getPresetVoices, presetVoicesToElevenLabs } = await import("@/lib/criacao/vinhetaPresetsService");
+  const presetVoices = await getPresetVoices();
   const apiKey = await resolveElevenLabsApiKey(sessionEmail);
-  if (!apiKey) return { configured: false, voices: [] as Awaited<ReturnType<typeof listElevenLabsVoices>> };
-  const voices = await listElevenLabsVoices(apiKey);
-  return { configured: true, voices };
+  if (!apiKey) {
+    return {
+      configured: false,
+      presetOnly: presetVoices.length > 0,
+      voices: presetVoicesToElevenLabs(presetVoices),
+      error: presetVoices.length > 0 ? "elevenlabs_nao_configurada" : null,
+    };
+  }
+  if (presetVoices.length > 0) {
+    return {
+      configured: true,
+      presetOnly: true,
+      voices: presetVoicesToElevenLabs(presetVoices),
+      error: null,
+    };
+  }
+  try {
+    const voices = await listElevenLabsVoices(apiKey);
+    return { configured: true, presetOnly: false, voices, error: null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "elevenlabs_voices_failed";
+    return {
+      configured: true,
+      presetOnly: false,
+      voices: [] as Awaited<ReturnType<typeof listElevenLabsVoices>>,
+      error: msg,
+    };
+  }
 }

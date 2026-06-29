@@ -11,10 +11,6 @@ export async function GET() {
     return NextResponse.json(payload);
   } catch (e) {
     if (e instanceof Response) return e;
-    const msg = e instanceof Error ? e.message : "server_error";
-    if (msg.startsWith("elevenlabs_")) {
-      return NextResponse.json({ error: msg, configured: false, voices: [] }, { status: 502 });
-    }
-    return NextResponse.json({ error: "server_error" }, { status: 500 });
+    return NextResponse.json({ error: "server_error", configured: false, voices: [] }, { status: 500 });
   }
 }
