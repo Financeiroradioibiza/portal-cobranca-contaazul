@@ -489,13 +489,17 @@ function UploadModo({
 
       const fileLotes = drafts
         .filter((d) => d.arquivos.length > 0)
-        .map((d) => ({
-          programacaoId: d.programacaoId,
-          pastaId: d.pastaId,
-          pastaNome: d.pastaNome,
-          programacaoNome: d.programacaoNome,
-          arquivos: d.arquivos,
-        }));
+        .map((d) => {
+          const prog = cliente.programacoes.find((p) => p.programacaoId === d.programacaoId);
+          return {
+            programacaoId: d.programacaoId,
+            pastaId: d.pastaId,
+            pastaNome: d.pastaNome,
+            programacaoNome: d.programacaoNome,
+            criativoUserId: prog?.criativoUserId ?? null,
+            arquivos: d.arquivos,
+          };
+        });
 
       if (fileLotes.length > 0) {
         setProgress({ done: 0, total: fileLotes.reduce((n, l) => n + l.arquivos.length, 0) });

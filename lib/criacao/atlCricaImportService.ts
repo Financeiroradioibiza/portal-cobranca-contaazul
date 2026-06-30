@@ -26,6 +26,8 @@ export type AtlCricaImportPreviewLote = {
   programacaoNome: string;
   pastaId: string;
   pastaNome: string;
+  criativoUserId: string | null;
+  criativoNome: string;
   arquivos: string[];
   /** Paths relativos completos (Cliente/Prog/Pasta/arquivo.mp3). */
   paths: string[];
@@ -56,13 +58,19 @@ type PastaLookup = {
   programacaoNome: string;
   pastaId: string;
   pastaNome: string;
+  criativoUserId: string | null;
+  criativoNome: string;
 };
 
 function isMp3(name: string): boolean {
   return name.toLowerCase().endsWith(".mp3");
 }
 
-function lookupFromManifestPasta(hit: AtlCricaManifestPasta): PastaLookup {
+function lookupFromManifestPasta(
+  hit: AtlCricaManifestPasta,
+  criativoUserId: string | null,
+  criativoNome: string,
+): PastaLookup {
   return {
     clienteRef: hit.clienteRef,
     clienteNome: hit.clienteNome,
@@ -70,7 +78,48 @@ function lookupFromManifestPasta(hit: AtlCricaManifestPasta): PastaLookup {
     programacaoNome: hit.programacaoNome,
     pastaId: hit.pastaId,
     pastaNome: hit.pastaNome,
+    criativoUserId,
+    criativoNome,
   };
+}
+
+function criativoForProgramacao(
+  boardRows: Array<{ programacaoId: string; criativoUserId: string | null; criativoNomeDb: string }>,
+  programacaoId: string,
+): { criativoUserId: string | null; criativoNome: string } {
+  const row = boardRows.find((r) => r.programacaoId === programacaoId);
+  return {
+    criativoUserId: row?.criativoUserId ?? null,
+    criativoNome: row?.criativoNomeDb ?? "",
+  };
+}
+
+/**
+ * Encontra a pasta do manifest pelo sufixo do caminho do arquivo.
+ * Usa o atl-manifest.json exportado — não depende de match exato de string (Mac/ZIP).
+ */
+export function findManifestPastaForFilePath(
+  manifest: AtlCricaExportManifest,
+  filePath: string,
+): AtlCricaManifestPasta | null {
+  const segments = stripMacOsxPathPrefix(splitRelativePath(filePath));
+  if (segments.length < 2) return null;
+  const fileName = segments[segments.length - 1]!;
+  if (!isMp3(fileName)) return null;
+  const folderSegs = segments.slice(0, -1);
+
+  let best: { hit: AtlCricaManifestPasta; depth: number } | null = null;
+  for (const p of manifest.pastas) {
+    const mSegs = splitRelativePath(p.path);
+    if (folderSegs.length < mSegs.length) continue;
+    const suffix = folderSegs.slice(-mSegs.length).join("/");
+    if (atlFolderPathsMatch(suffix, p.path) || atlFolderPathsLooseMatch(suffix, p.path)) {
+      if (!best || mSegs.length > best.depth) {
+        best = { hit: p, depth: mSegs.length };
+      }
+    }
+  }
+  return best?.hit ?? null;
 }
 
 function lookupByNames(
@@ -80,6 +129,7 @@ function lookupByNames(
   programacaoNome: string,
   pastaNome: string,
   progIdsAllowed: Set<string> | null,
+  boardRows: Array<{ programacaoId: string; criativoUserId: string | null; criativoNomeDb: string }>,
 ): PastaLookup | null {
   const progKey = pathSegmentCompareKey(programacaoNome);
   const pastaKey = pathSegmentCompareKey(pastaNome);
@@ -91,6 +141,7 @@ function lookupByNames(
       if (pathSegmentCompareKey(prog.nome) !== progKey) continue;
       for (const pasta of prog.pastas) {
         if (pathSegmentCompareKey(pasta.nome) !== pastaKey) continue;
+        const criativo = criativoForProgramacao(boardRows, prog.id);
         return {
           clienteRef,
           clienteNome: clienteNomeByRef.get(clienteRef) ?? "",
@@ -98,22 +149,13 @@ function lookupByNames(
           programacaoNome: prog.nome,
           pastaId: pasta.id,
           pastaNome: pasta.nome,
+          criativoUserId: criativo.criativoUserId,
+          criativoNome: criativo.criativoNome,
         };
       }
     }
   }
   return null;
-}
-
-function findManifestPasta(
-  manifest: AtlCricaExportManifest,
-  candidate: string,
-): AtlCricaManifestPasta | null {
-  const exact = manifest.pastas.find((p) => p.path === candidate);
-  if (exact) return exact;
-  const fuzzy = manifest.pastas.find((p) => atlFolderPathsMatch(p.path, candidate));
-  if (fuzzy) return fuzzy;
-  return manifest.pastas.find((p) => atlFolderPathsLooseMatch(p.path, candidate)) ?? null;
 }
 
 function resolveClienteRefByFolderName(
@@ -127,34 +169,6 @@ function resolveClienteRefByFolderName(
     if (pathSegmentLooseKey(c.clienteNome) === loose) return c.clienteRef;
   }
   return null;
-}
-
-/**
- * Resolve Cliente/Programação/Pasta mesmo quando há prefixos extras
- * (ex.: atl-crica-2026-06/Cliente/Prog/Pasta após descompactar ou selecionar pasta pai).
- */
-export function resolveAtlCricaFolderPath(
-  folderSegments: string[],
-  manifest: AtlCricaExportManifest | null,
-): { folderPath: string; manifestHit: AtlCricaManifestPasta | null } | null {
-  const segs = stripMacOsxPathPrefix(folderSegments);
-  if (segs.length < 3) return null;
-
-  if (manifest?.pastas.length) {
-    for (let i = 0; i <= segs.length - 3; i += 1) {
-      const candidate = segs.slice(i).join("/");
-      const hit = findManifestPasta(manifest, candidate);
-      if (hit) return { folderPath: hit.path, manifestHit: hit };
-    }
-  }
-
-  const last3 = segs.slice(-3).join("/");
-  if (manifest?.pastas.length) {
-    const hit = findManifestPasta(manifest, last3);
-    if (hit) return { folderPath: hit.path, manifestHit: hit };
-  }
-
-  return { folderPath: last3, manifestHit: null };
 }
 
 export async function previewAtlCricaImport(opts: {
@@ -208,23 +222,24 @@ export async function previewAtlCricaImport(opts: {
       ignoredNonMp3 += 1;
       continue;
     }
-    const folderSegments = segments.slice(0, -1);
-    const resolved = resolveAtlCricaFolderPath(folderSegments, manifest);
-    if (!resolved) {
-      unknownPaths += 1;
-      if (sampleUnknownPaths.length < 3) sampleUnknownPaths.push(file.path);
-      continue;
+
+    let lookup: PastaLookup | null = null;
+
+    if (manifest.pastas.length > 0) {
+      const hit = findManifestPastaForFilePath(manifest, file.path);
+      if (hit) {
+        const criativo = criativoForProgramacao(board.rows, hit.programacaoId);
+        lookup = lookupFromManifestPasta(hit, criativo.criativoUserId, criativo.criativoNome);
+      }
     }
 
-    let lookup: PastaLookup | null =
-      resolved.manifestHit ? lookupFromManifestPasta(resolved.manifestHit) : null;
-
     if (!lookup) {
-      const parts = splitRelativePath(resolved.folderPath);
-      if (parts.length >= 3) {
-        const clienteSeg = parts[0]!;
-        const progSeg = parts[1]!;
-        const pastaSeg = parts[2]!;
+      const folderSegments = segments.slice(0, -1);
+      const last3 = folderSegments.slice(-3);
+      if (last3.length >= 3) {
+        const clienteSeg = last3[0]!;
+        const progSeg = last3[1]!;
+        const pastaSeg = last3[2]!;
         const clienteRef = resolveClienteRefByFolderName(board.clientes, clienteSeg);
         lookup = lookupByNames(
           treeByCliente,
@@ -233,6 +248,7 @@ export async function previewAtlCricaImport(opts: {
           progSeg,
           pastaSeg,
           progIdsAllowed,
+          board.rows,
         );
         if (!lookup && opts.manifest) {
           lookup = lookupByNames(
@@ -242,14 +258,10 @@ export async function previewAtlCricaImport(opts: {
             progSeg,
             pastaSeg,
             null,
+            board.rows,
           );
         }
       }
-    }
-
-    if (!lookup && manifest) {
-      const hit = findManifestPasta(manifest, resolved.folderPath);
-      if (hit) lookup = lookupFromManifestPasta(hit);
     }
 
     if (!lookup) {
@@ -271,6 +283,8 @@ export async function previewAtlCricaImport(opts: {
         programacaoNome: lookup.programacaoNome,
         pastaId: lookup.pastaId,
         pastaNome: lookup.pastaNome,
+        criativoUserId: lookup.criativoUserId,
+        criativoNome: lookup.criativoNome,
         arquivos: [fileName],
         paths: [file.path],
       });
@@ -286,12 +300,12 @@ export async function previewAtlCricaImport(opts: {
     warnings.push("Nenhum MP3 reconhecido nas pastas enviadas.");
   }
   if (unknownPaths > 0) {
-    warnings.push(`${unknownPaths} caminho(s) ignorado(s) — pasta desconhecida ou fora da hierarquia.`);
+    warnings.push(`${unknownPaths} caminho(s) ignorado(s) — pasta não encontrada no manifest ou no painel.`);
     if (sampleUnknownPaths.length > 0) {
       warnings.push(`Exemplo: ${sampleUnknownPaths[0]}`);
     }
     warnings.push(
-      "Dica: use o ZIP exportado pelo portal (com atl-manifest.json) ou selecione a pasta cujo conteúdo começa em Cliente/Programação/Pasta.",
+      "Confirme que o ZIP inclui atl-manifest.json (exportado pelo portal) e que a faixa está dentro de Cliente/Programação/Pasta.",
     );
   }
 

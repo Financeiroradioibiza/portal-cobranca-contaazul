@@ -1,4 +1,4 @@
-import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
+import { buildAtlCricaPastaUploadTag } from "@/lib/criacao/atlCricaUploadTag";
 
 type Ticket = { itemId: string; arquivoNome: string; token: string; exp: number };
 
@@ -10,13 +10,9 @@ export type AtlCricaUploadLote = {
   arquivos: File[];
   clienteRef?: string;
   clienteNome?: string;
+  /** Dono da programação — define iniciais da tag ([LA] …). */
+  criativoUserId?: string | null;
 };
-
-function uploadTagFromCompetencia(competencia: string): string {
-  const m = /^(\d{4})-(\d{2})$/.exec(competencia.trim());
-  if (m) return `${m[2]}/${m[1]!.slice(-2)}`;
-  return defaultUploadCompetenciaTag();
-}
 
 export async function submitAtlCricaFileUpload(opts: {
   titulo: string;
@@ -49,7 +45,6 @@ export async function submitAtlCricaImportUpload(opts: {
   const lotesComArquivos = opts.lotes.filter((l) => l.arquivos.length > 0);
   if (lotesComArquivos.length === 0) return { ok: true };
 
-  const uploadTag = uploadTagFromCompetencia(opts.competencia);
   const totalUpload = lotesComArquivos.reduce((n, l) => n + l.arquivos.length, 0);
   let done = 0;
 
@@ -65,7 +60,8 @@ export async function submitAtlCricaImportUpload(opts: {
         clienteNome: l.clienteNome,
         programacaoId: l.programacaoId,
         pastaId: l.pastaId,
-        uploadTagNome: uploadTag,
+        uploadTagNome: buildAtlCricaPastaUploadTag(l.pastaNome),
+        tagCriativoUserId: l.criativoUserId?.trim() || undefined,
         arquivos: l.arquivos.map((f) => ({ nome: f.name, sizeBytes: f.size })),
       })),
     }),
