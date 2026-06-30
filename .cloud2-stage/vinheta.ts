@@ -191,6 +191,7 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
     let token = '';
     let trilhaMusicaId = '';
     let trilhaVinhetaId = '';
+    let bedVolume = 0.18;
     let voiceBuffer: Buffer | null = null;
 
     const parts = req.parts();
@@ -201,6 +202,9 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
         trilhaMusicaId = String(part.value ?? '').trim();
       } else if (part.type === 'field' && part.fieldname === 'trilhaVinhetaId') {
         trilhaVinhetaId = String(part.value ?? '').trim();
+      } else if (part.type === 'field' && part.fieldname === 'bedVolume') {
+        const n = Number(String(part.value ?? '').trim());
+        if (Number.isFinite(n) && n > 0 && n <= 1) bedVolume = n;
       } else if (part.type === 'file' && part.fieldname === 'voice') {
         voiceBuffer = await part.toBuffer();
       }
@@ -246,7 +250,7 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
     }
 
     try {
-      const { durationMs } = await mixVinhetaVoiceWithBed(voicePath, bedPath, dest);
+      const { durationMs } = await mixVinhetaVoiceWithBed(voicePath, bedPath, dest, { bedVolume });
       app.log.info({ vinhetaId: parsed.vinhetaId, durationMs }, '[vinheta-ia-mix] ok');
     } finally {
       await fsp.rm(workDir, { recursive: true, force: true }).catch(() => null);

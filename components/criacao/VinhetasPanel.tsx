@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
-import type { VinhetaLabRow } from "@/lib/criacao/vinhetaLabService";
+import type { VinhetaLabRow, VinhetaLabTweakAction } from "@/lib/criacao/vinhetaLabService";
+import { formatVinhetaIaSpeed, formatVinhetaIaStability } from "@/lib/criacao/vinhetaIaDefaults";
 
 type Voice = { voice_id: string; name: string; category?: string };
 type TrilhaRow = {
@@ -46,6 +47,34 @@ export function VinhetasPanel() {
   const [savingCatalog, setSavingCatalog] = useState(false);
 
   const vozNome = useMemo(() => voices.find((v) => v.voice_id === vozId)?.name ?? "", [voices, vozId]);
+
+  function abrirVinheta(v: VinhetaLabRow) {
+    setAtivo(v);
+    setNome(v.nome);
+    setTexto(v.texto);
+    setVozId(v.voz);
+    if (v.trilhaVinhetaId) {
+      const t = trilhasVinheta.find((x) => x.id === v.trilhaVinhetaId);
+      if (t) setTrilha(t);
+    }
+  }
+
+  function draftPayload() {
+    return {
+      nome: nome.trim(),
+      texto: texto.trim(),
+      voz: vozId,
+      vozNome,
+      trilhaVinhetaId: trilha?.id ?? null,
+    };
+  }
+
+  useEffect(() => {
+    if (!ativo) return;
+    setNome(ativo.nome);
+    setTexto(ativo.texto);
+    setVozId(ativo.voz);
+  }, [ativo?.id, ativo?.nome, ativo?.texto, ativo?.voz]);
 
   const loadTrilhasVinheta = useCallback(async () => {
     setLoadingTrilhas(true);
@@ -255,9 +284,7 @@ export function VinhetasPanel() {
       });
       const data = (await res.json()) as { vinheta?: VinhetaLabRow; error?: string };
       if (!res.ok) throw new Error(data.error ?? "erro");
-      setAtivo(data.vinheta ?? null);
-      setNome("");
-      setTexto("");
+      if (data.vinheta) abrirVinheta(data.vinheta);
       await loadList();
       setMsg("Rascunho criado — clique em Gerar para ouvir a edição.");
     } catch (e) {
@@ -267,20 +294,43 @@ export function VinhetasPanel() {
     }
   }
 
-  async function gerar(id: string) {
+  async function gerar(id: string, withDraft = true) {
     setBusy(true);
     setMsg("");
     try {
       const res = await fetch(`/api/criacao/vinhetas/lab/${encodeURIComponent(id)}/generate`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(withDraft ? draftPayload() : {}),
       });
       const data = (await res.json()) as { vinheta?: VinhetaLabRow; error?: string };
       if (!res.ok) throw new Error(data.error ?? "geracao_falhou");
-      if (data.vinheta) setAtivo(data.vinheta);
+      if (data.vinheta) abrirVinheta(data.vinheta);
       await loadList();
-      setMsg("Edição pronta — ouça e aprove para salvar na biblioteca.");
+      setMsg("Edição pronta — ouça, ajuste e regenere até aprovar.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Erro ao gerar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function aplicarTweak(id: string, action: VinhetaLabTweakAction) {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/criacao/vinhetas/lab/${encodeURIComponent(id)}/tweak`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...draftPayload() }),
+      });
+      const data = (await res.json()) as { vinheta?: VinhetaLabRow; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "tweak_falhou");
+      if (data.vinheta) abrirVinheta(data.vinheta);
+      await loadList();
+      setMsg("Edição atualizada — ouça de novo.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Erro ao ajustar.");
     } finally {
       setBusy(false);
     }
@@ -534,12 +584,33 @@ export function VinhetasPanel() {
           <h2 className="text-sm font-bold">Preview / aprovação</h2>
           {ativo ?
             <div className="mt-3 space-y-3">
-              <p className="font-semibold">{ativo.nome}</p>
-              <p className="text-xs text-slate-500">Status: {ativo.status} · Voz: {ativo.vozNome || ativo.voz}</p>
-              {ativo.trilhaTitulo ?
-                <p className="text-xs text-slate-500">
-                  Trilha: {ativo.trilhaArtista} — {ativo.trilhaTitulo}
-                </p>
+              <input
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                disabled={ativo.status === "aprovada"}
+                className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold dark:border-slate-700 dark:bg-slate-950 disabled:opacity-60"
+              />
+              <textarea
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+                rows={4}
+                disabled={ativo.status === "aprovada"}
+                placeholder="Texto da locução…"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950 disabled:opacity-60"
+              />
+              <p className="text-xs text-slate-500">
+                Status: {ativo.status} · Voz: {ativo.vozNome || ativo.voz}
+                {ativo.trilhaTitulo ? ` · Trilha: ${ativo.trilhaTitulo}` : ""}
+              </p>
+              {ativo.status !== "aprovada" ?
+                <div className="rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-[11px] text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+                  <div className="font-semibold">Parâmetros da última edição</div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                    <span>Velocidade voz: {formatVinhetaIaSpeed(ativo.iaVoiceSpeed)}</span>
+                    <span>Estabilidade: {formatVinhetaIaStability(ativo.iaVoiceStability)}</span>
+                    <span>Trilha: {Math.round(ativo.iaBedVolume * 100)}%</span>
+                  </div>
+                </div>
               : null}
               {!ativo.temAudio && ativo.status !== "gerando" ?
                 <p className="text-xs text-amber-700 dark:text-amber-300">
@@ -553,28 +624,72 @@ export function VinhetasPanel() {
                 previewUrl={ativo.previewUrl}
                 onUploaded={() => void loadList()}
               />
-              <div className="flex flex-wrap gap-2">
-                {ativo.status !== "preview" && ativo.status !== "aprovada" ?
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void gerar(ativo.id)}
-                    className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white"
-                  >
-                    {busy ? "Gerando…" : "Gerar edição"}
-                  </button>
-                : null}
-                {ativo.status === "preview" ?
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void aprovar(ativo.id)}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
-                  >
-                    Aprovar e salvar
-                  </button>
-                : null}
-              </div>
+              {ativo.status !== "aprovada" ?
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || !texto.trim() || !vozId}
+                      onClick={() => void gerar(ativo.id)}
+                      className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {busy ? "Gerando…" : ativo.temAudio ? "Regenerar edição" : "Gerar edição"}
+                    </button>
+                    {ativo.status === "preview" || ativo.temAudio ?
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void aprovar(ativo.id)}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Aprovar e salvar
+                      </button>
+                    : null}
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                      Ajustes rápidos (regenera automaticamente)
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busy || !ativo.temAudio}
+                        onClick={() => void aplicarTweak(ativo.id, "bed_lower")}
+                        className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                      >
+                        Música mais baixa (−10%)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || !ativo.temAudio || ativo.iaVoiceSpeed <= 0.5}
+                        onClick={() => void aplicarTweak(ativo.id, "speed_down")}
+                        className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                      >
+                        Ralentar voz (−0,10)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || !ativo.temAudio}
+                        onClick={() => void aplicarTweak(ativo.id, "stability_more")}
+                        className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                      >
+                        Mais estabilidade (50%)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || !ativo.temAudio}
+                        onClick={() => void aplicarTweak(ativo.id, "stability_less")}
+                        className="rounded border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold hover:bg-slate-100 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800"
+                      >
+                        Menos estabilidade (31%)
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[10px] text-slate-500">
+                      Altere o texto acima e use <strong>Regenerar edição</strong>, ou aplique um ajuste rápido.
+                    </p>
+                  </div>
+                </>
+              : null}
             </div>
           : <p className="mt-3 text-sm text-slate-500">Selecione ou crie uma vinheta à esquerda.</p>}
         </div>
@@ -592,7 +707,7 @@ export function VinhetasPanel() {
                 <span className="font-medium">{v.nome}</span>
                 <div className="flex items-center gap-2">
                   <VinhetaAudioControls vinhetaId={v.id} tipo="ia" temAudio={v.temAudio} previewUrl={v.previewUrl} onUploaded={() => void loadList()} />
-                  <button type="button" className="text-xs text-violet-600" onClick={() => setAtivo(v)}>
+                  <button type="button" className="text-xs text-violet-600" onClick={() => abrirVinheta(v)}>
                     Abrir
                   </button>
                 </div>
@@ -625,7 +740,7 @@ export function VinhetasPanel() {
                     <button
                       type="button"
                       className="text-xs font-semibold text-violet-600 hover:underline"
-                      onClick={() => setAtivo(v)}
+                      onClick={() => abrirVinheta(v)}
                     >
                       Abrir
                     </button>

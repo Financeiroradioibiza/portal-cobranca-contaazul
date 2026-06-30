@@ -62,9 +62,13 @@ export async function synthesizeElevenLabsSpeech(opts: {
   apiKey: string;
   voiceId: string;
   text: string;
+  stability?: number;
+  speed?: number;
 }): Promise<Buffer> {
   const text = opts.text.trim();
   if (!text) throw new Error("texto_obrigatorio");
+  const stability = Math.min(1, Math.max(0, opts.stability ?? 0.45));
+  const speed = Math.min(1.2, Math.max(0.5, opts.speed ?? 1));
   const res = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${encodeURIComponent(opts.voiceId)}`, {
     method: "POST",
     headers: {
@@ -75,7 +79,8 @@ export async function synthesizeElevenLabsSpeech(opts: {
     body: JSON.stringify({
       text,
       model_id: "eleven_multilingual_v2",
-      voice_settings: { stability: 0.45, similarity_boost: 0.75 },
+      voice_settings: { stability, similarity_boost: 0.75 },
+      speed,
     }),
   });
   if (!res.ok) {

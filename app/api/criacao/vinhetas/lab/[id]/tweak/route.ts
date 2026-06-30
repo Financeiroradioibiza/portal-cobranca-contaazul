@@ -1,33 +1,42 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { normalizePortalEmail } from "@/lib/auth/users";
-import { generateVinhetaLab, regenerateVinhetaLabWithDraft } from "@/lib/criacao/vinhetaLabService";
+import { tweakAndRegenerateVinhetaLab, type VinhetaLabTweakAction } from "@/lib/criacao/vinhetaLabService";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const ACTIONS: VinhetaLabTweakAction[] = [
+  "bed_lower",
+  "speed_down",
+  "stability_more",
+  "stability_less",
+];
+
 export async function POST(request: Request, ctx: Ctx) {
   try {
     const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as {
+      action?: VinhetaLabTweakAction;
       nome?: string;
       texto?: string;
       voz?: string;
       vozNome?: string;
       trilhaVinhetaId?: string | null;
     };
-    const hasDraft =
-      body.nome !== undefined ||
-      body.texto !== undefined ||
-      body.voz !== undefined ||
-      body.vozNome !== undefined ||
-      body.trilhaVinhetaId !== undefined;
-    const row = hasDraft
-      ? await regenerateVinhetaLabWithDraft(id, normalizePortalEmail(session.email), body)
-      : await generateVinhetaLab(id, normalizePortalEmail(session.email));
+    if (!body.action || !ACTIONS.includes(body.action)) {
+      return NextResponse.json({ error: "acao_invalida" }, { status: 400 });
+    }
+    const row = await tweakAndRegenerateVinhetaLab(id, normalizePortalEmail(session.email), body.action, {
+      nome: body.nome,
+      texto: body.texto,
+      voz: body.voz,
+      vozNome: body.vozNome,
+      trilhaVinhetaId: body.trilhaVinhetaId,
+    });
     return NextResponse.json({ ok: true, vinheta: row });
   } catch (e) {
     if (e instanceof Response) return e;

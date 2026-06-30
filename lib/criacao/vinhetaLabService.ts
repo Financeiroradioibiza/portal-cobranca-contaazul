@@ -9,6 +9,19 @@ import {
 } from "@/lib/criacao/elevenLabsService";
 import { VINHETA_CLONE_URL, VINHETA_IA_MIX_URL } from "@/lib/criacao/ingestTicket";
 import { signVinhetaUpload } from "@/lib/criacao/vinhetaSign";
+import {
+  VINHETA_IA_BED_VOLUME_FACTOR,
+  VINHETA_IA_DEFAULT_BED_VOLUME,
+  VINHETA_IA_DEFAULT_VOICE_SPEED,
+  VINHETA_IA_DEFAULT_VOICE_STABILITY,
+  VINHETA_IA_MIN_BED_VOLUME,
+  VINHETA_IA_MIN_VOICE_SPEED,
+  VINHETA_IA_SPEED_STEP,
+  VINHETA_IA_STABILITY_LESS,
+  VINHETA_IA_STABILITY_MORE,
+} from "@/lib/criacao/vinhetaIaDefaults";
+
+export type VinhetaLabTweakAction = "bed_lower" | "speed_down" | "stability_more" | "stability_less";
 
 export type VinhetaLabRow = {
   id: string;
@@ -23,6 +36,9 @@ export type VinhetaLabRow = {
   trilhaTitulo: string | null;
   trilhaArtista: string | null;
   trilhaPreviewUrl: string | null;
+  iaBedVolume: number;
+  iaVoiceSpeed: number;
+  iaVoiceStability: number;
   programacaoId: string | null;
   criativoNome: string;
   temAudio: boolean;
@@ -47,6 +63,9 @@ async function mapLabRow(v: {
   programacaoId: string | null;
   criativoNome: string;
   storageKey: string | null;
+  iaBedVolume: number;
+  iaVoiceSpeed: number;
+  iaVoiceStability: number;
   aprovadaEm: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -89,6 +108,9 @@ async function mapLabRow(v: {
     trilhaTitulo,
     trilhaArtista,
     trilhaPreviewUrl,
+    iaBedVolume: v.iaBedVolume,
+    iaVoiceSpeed: v.iaVoiceSpeed,
+    iaVoiceStability: v.iaVoiceStability,
     programacaoId: v.programacaoId,
     criativoNome: v.criativoNome,
     temAudio: Boolean(v.storageKey),
@@ -145,6 +167,9 @@ export async function createVinhetaLabDraft(input: {
       trilhaVinhetaId: input.trilhaVinhetaId || null,
       criativoUserId: input.criativoUserId,
       criativoNome: input.criativoNome.slice(0, 120),
+      iaBedVolume: VINHETA_IA_DEFAULT_BED_VOLUME,
+      iaVoiceSpeed: VINHETA_IA_DEFAULT_VOICE_SPEED,
+      iaVoiceStability: VINHETA_IA_DEFAULT_VOICE_STABILITY,
     },
   });
   return mapLabRow(row);
@@ -173,9 +198,81 @@ export async function updateVinhetaLabDraft(
   return mapLabRow(row);
 }
 
+function applyTweakToParams(
+  current: { iaBedVolume: number; iaVoiceSpeed: number; iaVoiceStability: number },
+  action: VinhetaLabTweakAction,
+): { iaBedVolume: number; iaVoiceSpeed: number; iaVoiceStability: number } {
+  switch (action) {
+    case "bed_lower":
+      return {
+        ...current,
+        iaBedVolume: Math.max(VINHETA_IA_MIN_BED_VOLUME, current.iaBedVolume * VINHETA_IA_BED_VOLUME_FACTOR),
+      };
+    case "speed_down":
+      return {
+        ...current,
+        iaVoiceSpeed: Math.max(VINHETA_IA_MIN_VOICE_SPEED, current.iaVoiceSpeed - VINHETA_IA_SPEED_STEP),
+      };
+    case "stability_more":
+      return { ...current, iaVoiceStability: VINHETA_IA_STABILITY_MORE };
+    case "stability_less":
+      return { ...current, iaVoiceStability: VINHETA_IA_STABILITY_LESS };
+    default:
+      return current;
+  }
+}
+
+export async function tweakAndRegenerateVinhetaLab(
+  id: string,
+  sessionEmail: string,
+  action: VinhetaLabTweakAction,
+  draftPatch?: {
+    nome?: string;
+    texto?: string;
+    voz?: string;
+    vozNome?: string;
+    trilhaMusicaId?: string | null;
+    trilhaVinhetaId?: string | null;
+  },
+): Promise<VinhetaLabRow> {
+  const row = await prisma.vinheta.findUnique({ where: { id } });
+  if (!row || row.tipo !== "ia") throw new Error("vinheta_nao_encontrada");
+  if (row.status === "aprovada") throw new Error("vinheta_ja_aprovada");
+
+  if (draftPatch) {
+    await updateVinhetaLabDraft(id, draftPatch);
+  }
+
+  const fresh = await prisma.vinheta.findUnique({ where: { id } });
+  if (!fresh) throw new Error("vinheta_nao_encontrada");
+
+  const next = applyTweakToParams(fresh, action);
+  await prisma.vinheta.update({ where: { id }, data: next });
+  return generateVinhetaLab(id, sessionEmail);
+}
+
+export async function regenerateVinhetaLabWithDraft(
+  id: string,
+  sessionEmail: string,
+  draftPatch?: {
+    nome?: string;
+    texto?: string;
+    voz?: string;
+    vozNome?: string;
+    trilhaMusicaId?: string | null;
+    trilhaVinhetaId?: string | null;
+  },
+): Promise<VinhetaLabRow> {
+  if (draftPatch && Object.keys(draftPatch).length > 0) {
+    await updateVinhetaLabDraft(id, draftPatch);
+  }
+  return generateVinhetaLab(id, sessionEmail);
+}
+
 export async function generateVinhetaLab(id: string, sessionEmail: string): Promise<VinhetaLabRow> {
   const row = await prisma.vinheta.findUnique({ where: { id } });
   if (!row || row.tipo !== "ia") throw new Error("vinheta_nao_encontrada");
+  if (row.status === "aprovada") throw new Error("vinheta_ja_aprovada");
   if (!row.texto.trim()) throw new Error("texto_obrigatorio");
   if (!row.voz.trim()) throw new Error("voz_obrigatoria");
   if (!row.trilhaVinhetaId && !row.trilhaMusicaId) throw new Error("trilha_obrigatoria");
@@ -190,12 +287,15 @@ export async function generateVinhetaLab(id: string, sessionEmail: string): Prom
       apiKey,
       voiceId: row.voz,
       text: row.texto,
+      stability: row.iaVoiceStability,
+      speed: row.iaVoiceSpeed,
     });
 
     const { token } = signVinhetaUpload(id);
     const fd = new FormData();
     fd.append("token", token);
     fd.append("voice", new Blob([new Uint8Array(voiceMp3)], { type: "audio/mpeg" }), "voice.mp3");
+    fd.append("bedVolume", String(row.iaBedVolume));
     if (row.trilhaVinhetaId) fd.append("trilhaVinhetaId", row.trilhaVinhetaId);
     else if (row.trilhaMusicaId) fd.append("trilhaMusicaId", row.trilhaMusicaId);
 
@@ -255,6 +355,9 @@ export async function anexarVinhetaLabEmProgramacao(
       trilhaStorageKey: src.trilhaStorageKey,
       criativoUserId: src.criativoUserId,
       criativoNome: src.criativoNome,
+      iaBedVolume: src.iaBedVolume,
+      iaVoiceSpeed: src.iaVoiceSpeed,
+      iaVoiceStability: src.iaVoiceStability,
       aprovadaEm: new Date(),
     },
     select: { id: true, nome: true },

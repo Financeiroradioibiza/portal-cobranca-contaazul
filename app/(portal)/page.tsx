@@ -6,7 +6,7 @@ export default function PortalHomePage() {
       <header className="portal-page-header">
         <div>
           <div className="portal-page-crumb">Dashboard</div>
-          <h1 className="portal-page-title">Visão geral</h1>
+          <h1 className="portal-page-title">Dashboard</h1>
         </div>
       </header>
       <div className="portal-page-body">

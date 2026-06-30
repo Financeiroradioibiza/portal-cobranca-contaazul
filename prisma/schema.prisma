@@ -1075,6 +1075,12 @@ model Vinheta {
   storageKey       String?       @map("storage_key") @db.VarChar(300)
   criativoUserId   String?       @map("criativo_user_id") @db.VarChar(200)
   criativoNome     String        @default("") @map("criativo_nome") @db.VarChar(120)
+  /// Volume relativo da trilha no mix (padrão ~18%).
+  iaBedVolume      Float         @default(0.18) @map("ia_bed_volume")
+  /// Velocidade ElevenLabs (1.0 = normal).
+  iaVoiceSpeed     Float         @default(1.0) @map("ia_voice_speed")
+  /// Estabilidade ElevenLabs (0–1).
+  iaVoiceStability Float         @default(0.45) @map("ia_voice_stability")
   aprovadaEm       DateTime?     @map("aprovada_em")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
