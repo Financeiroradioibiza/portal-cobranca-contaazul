@@ -5,7 +5,14 @@ import {
 } from "@/lib/criacao/atlCricaHierarquiaService";
 import { getAtlCricaBoard } from "@/lib/criacao/atlCricaService";
 import { getClienteProgramacaoArvore } from "@/lib/criacao/programacaoService";
-import { sanitizePathSegment, splitRelativePath, stripMacOsxPathPrefix } from "@/lib/criacao/pathSanitize";
+import {
+  atlFolderPathsLooseMatch,
+  atlFolderPathsMatch,
+  pathSegmentCompareKey,
+  pathSegmentLooseKey,
+  splitRelativePath,
+  stripMacOsxPathPrefix,
+} from "@/lib/criacao/pathSanitize";
 
 export type AtlCricaImportFileInput = {
   /** Path relativo incluindo nome do arquivo, ex.: Cliente/Prog/POP/faixa.mp3 */
@@ -72,18 +79,18 @@ function lookupByNames(
   clienteRefFilter: string | null,
   programacaoNome: string,
   pastaNome: string,
-  progIdsAllowed: Set<string>,
+  progIdsAllowed: Set<string> | null,
 ): PastaLookup | null {
-  const progKey = sanitizePathSegment(programacaoNome).toLowerCase();
-  const pastaKey = sanitizePathSegment(pastaNome).toLowerCase();
+  const progKey = pathSegmentCompareKey(programacaoNome);
+  const pastaKey = pathSegmentCompareKey(pastaNome);
 
   for (const [clienteRef, arvore] of treeByCliente) {
     if (clienteRefFilter && clienteRef !== clienteRefFilter) continue;
     for (const prog of arvore) {
-      if (!progIdsAllowed.has(prog.id)) continue;
-      if (sanitizePathSegment(prog.nome).toLowerCase() !== progKey) continue;
+      if (progIdsAllowed && !progIdsAllowed.has(prog.id)) continue;
+      if (pathSegmentCompareKey(prog.nome) !== progKey) continue;
       for (const pasta of prog.pastas) {
-        if (sanitizePathSegment(pasta.nome).toLowerCase() !== pastaKey) continue;
+        if (pathSegmentCompareKey(pasta.nome) !== pastaKey) continue;
         return {
           clienteRef,
           clienteNome: clienteNomeByRef.get(clienteRef) ?? "",
@@ -98,13 +105,26 @@ function lookupByNames(
   return null;
 }
 
+function findManifestPasta(
+  manifest: AtlCricaExportManifest,
+  candidate: string,
+): AtlCricaManifestPasta | null {
+  const exact = manifest.pastas.find((p) => p.path === candidate);
+  if (exact) return exact;
+  const fuzzy = manifest.pastas.find((p) => atlFolderPathsMatch(p.path, candidate));
+  if (fuzzy) return fuzzy;
+  return manifest.pastas.find((p) => atlFolderPathsLooseMatch(p.path, candidate)) ?? null;
+}
+
 function resolveClienteRefByFolderName(
   boardClientes: Array<{ clienteRef: string; clienteNome: string }>,
   folderName: string,
 ): string | null {
-  const key = sanitizePathSegment(folderName).toLowerCase();
+  const key = pathSegmentCompareKey(folderName);
+  const loose = pathSegmentLooseKey(folderName);
   for (const c of boardClientes) {
-    if (sanitizePathSegment(c.clienteNome).toLowerCase() === key) return c.clienteRef;
+    if (pathSegmentCompareKey(c.clienteNome) === key) return c.clienteRef;
+    if (pathSegmentLooseKey(c.clienteNome) === loose) return c.clienteRef;
   }
   return null;
 }
@@ -120,28 +140,17 @@ export function resolveAtlCricaFolderPath(
   const segs = stripMacOsxPathPrefix(folderSegments);
   if (segs.length < 3) return null;
 
-  const full = segs.join("/");
-
   if (manifest?.pastas.length) {
-    const exact = manifest.pastas.find((p) => p.path === full);
-    if (exact) return { folderPath: exact.path, manifestHit: exact };
-
     for (let i = 0; i <= segs.length - 3; i += 1) {
       const candidate = segs.slice(i).join("/");
-      const hit = manifest.pastas.find((p) => p.path === candidate);
+      const hit = findManifestPasta(manifest, candidate);
       if (hit) return { folderPath: hit.path, manifestHit: hit };
-    }
-
-    for (const p of manifest.pastas) {
-      if (full.endsWith(`/${p.path}`)) {
-        return { folderPath: p.path, manifestHit: p };
-      }
     }
   }
 
   const last3 = segs.slice(-3).join("/");
   if (manifest?.pastas.length) {
-    const hit = manifest.pastas.find((p) => p.path === last3);
+    const hit = findManifestPasta(manifest, last3);
     if (hit) return { folderPath: hit.path, manifestHit: hit };
   }
 
@@ -225,7 +234,22 @@ export async function previewAtlCricaImport(opts: {
           pastaSeg,
           progIdsAllowed,
         );
+        if (!lookup && opts.manifest) {
+          lookup = lookupByNames(
+            treeByCliente,
+            clienteNomeByRef,
+            clienteRef,
+            progSeg,
+            pastaSeg,
+            null,
+          );
+        }
       }
+    }
+
+    if (!lookup && manifest) {
+      const hit = findManifestPasta(manifest, resolved.folderPath);
+      if (hit) lookup = lookupFromManifestPasta(hit);
     }
 
     if (!lookup) {
