@@ -40,7 +40,8 @@ export function VinhetasPanel() {
   const [ativo, setAtivo] = useState<VinhetaLabRow | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [isMaster, setIsMaster] = useState(false);
+  const [isConfigAdmin, setIsConfigAdmin] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
   const [adminVoices, setAdminVoices] = useState<PresetVoice[]>([]);
   const [adminVoiceId, setAdminVoiceId] = useState("");
   const [adminVoiceLabel, setAdminVoiceLabel] = useState("");
@@ -99,11 +100,12 @@ export function VinhetasPanel() {
         presetVoices?: PresetVoice[];
         elevenLabs?: { configured?: boolean; source?: ElevenLabsSource };
         canEdit?: boolean;
+        vinhetaConfigAdmin?: boolean;
       };
       const el = data.elevenLabs;
       setConfigured(Boolean(el?.configured));
       setElevenSource(el?.source ?? "none");
-      setIsMaster(Boolean(data.canEdit));
+      setIsConfigAdmin(Boolean(data.vinhetaConfigAdmin ?? data.canEdit));
       setAdminVoices(data.presetVoices ?? []);
     } catch {
       /* ignore */
@@ -368,157 +370,175 @@ export function VinhetasPanel() {
         <p className="text-sm text-slate-700 dark:text-slate-300">{msg}</p>
       : null}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-        <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Conta ElevenLabs</h2>
-        {configured ?
-          <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
-            {elevenSource === "server" ?
-              "Conectada automaticamente via Netlify (ELEVENLABS_API_KEY)."
-            : "Conectada com sua chave pessoal."}
-          </p>
-        : <p className="mt-1 text-xs text-slate-500">
-            Cole sua API key (elevenlabs.io → Profile → API Keys) ou configure ELEVENLABS_API_KEY no Netlify.
-          </p>
-        }
-        {!configured ?
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input
-              type="password"
-              value={apiKeyDraft}
-              onChange={(e) => setApiKeyDraft(e.target.value)}
-              placeholder="sk_…"
-              className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-            />
-            <button
-              type="button"
-              disabled={savingKey || apiKeyDraft.length < 16}
-              onClick={() => void saveApiKey()}
-              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {savingKey ? "Salvando…" : "Conectar"}
-            </button>
-          </div>
-        : null}
-      </section>
-
-      {isMaster ?
-        <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 dark:border-violet-900/40 dark:bg-violet-950/20">
-          <h2 className="text-sm font-bold text-violet-900 dark:text-violet-200">Vozes fixas (admin)</h2>
-          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-            IDs de voz do painel ElevenLabs (Voice Library). Trilhas ambiente são enviadas abaixo — não entram na biblioteca musical.
-          </p>
-          <p className="mt-3 text-xs font-semibold text-slate-500">Vozes ({adminVoices.length})</p>
-          <ul className="mt-2 space-y-1 text-xs">
-            {adminVoices.map((v) => (
-              <li key={v.voiceId} className="flex items-center justify-between gap-2 rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
-                <span>
-                  {v.label} <span className="text-slate-400">({v.voiceId.slice(0, 8)}…)</span>
-                </span>
-                <button
-                  type="button"
-                  className="text-red-600"
-                  onClick={() => setAdminVoices((prev) => prev.filter((x) => x.voiceId !== v.voiceId))}
-                >
-                  Remover
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <input
-              value={adminVoiceId}
-              onChange={(e) => setAdminVoiceId(e.target.value)}
-              placeholder="voice_id ElevenLabs"
-              className="min-w-[140px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
-            />
-            <input
-              value={adminVoiceLabel}
-              onChange={(e) => setAdminVoiceLabel(e.target.value)}
-              placeholder="Nome exibido"
-              className="min-w-[100px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
-            />
-            <button
-              type="button"
-              disabled={adminVoiceId.trim().length < 8}
-              onClick={() => {
-                const voiceId = adminVoiceId.trim();
-                const label = adminVoiceLabel.trim() || voiceId;
-                setAdminVoices((prev) =>
-                  prev.some((x) => x.voiceId === voiceId) ? prev : [...prev, { voiceId, label }],
-                );
-                setAdminVoiceId("");
-                setAdminVoiceLabel("");
-              }}
-              className="rounded border px-2 py-1 text-xs font-semibold dark:border-slate-600"
-            >
-              + Voz
-            </button>
-          </div>
+      {isConfigAdmin ?
+        <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
           <button
             type="button"
-            disabled={savingCatalog}
-            onClick={() => void salvarCatalogo()}
-            className="mt-4 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            onClick={() => setShowConfig((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/50"
           >
-            {savingCatalog ? "Salvando…" : "Salvar vozes fixas"}
+            <span className="inline-flex items-center gap-2">
+              <span aria-hidden>⚙</span>
+              Config
+            </span>
+            <span className="text-xs font-normal text-slate-400">{showConfig ? "Ocultar" : "Mostrar"}</span>
           </button>
-        </section>
-      : null}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-        <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Trilhas ambiente (só Vinhetas)</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          MP3 de fundo para mixar com a locução. Ficam gravadas aqui — não aparecem na biblioteca musical.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <input
-            value={trilhaUploadNome}
-            onChange={(e) => setTrilhaUploadNome(e.target.value)}
-            placeholder="Nome (ex.: Jazz suave 1)"
-            className="min-w-[160px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-          <input
-            type="file"
-            accept="audio/mpeg,.mp3"
-            onChange={(e) => setTrilhaUploadFile(e.target.files?.[0] ?? null)}
-            className="max-w-[220px] text-xs file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1 dark:file:bg-slate-800"
-          />
-          <button
-            type="button"
-            disabled={uploadingTrilha || !trilhaUploadNome.trim() || !trilhaUploadFile}
-            onClick={() => void enviarTrilha()}
-            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {uploadingTrilha ? "Enviando…" : "Subir trilha"}
-          </button>
-        </div>
-        {loadingTrilhas ?
-          <p className="mt-3 text-xs text-slate-400">Carregando trilhas…</p>
-        : trilhasVinheta.length === 0 ?
-          <p className="mt-3 text-xs text-slate-500">Nenhuma trilha ainda — suba MP3 acima.</p>
-        : <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto text-sm">
-            {trilhasVinheta.map((t) => (
-              <li key={t.id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/80">
-                <button
-                  type="button"
-                  className={`flex-1 text-left ${trilha?.id === t.id ? "font-semibold text-emerald-700" : ""}`}
-                  onClick={() => setTrilha(t)}
-                >
-                  {t.nome}
-                </button>
-                {t.previewUrl ?
-                  <MusicaPreviewButton
-                    track={{ id: t.id, titulo: t.nome, artista: "Trilha", previewUrl: t.previewUrl, durationMs: null }}
-                  />
+          {showConfig ?
+            <div className="space-y-4 border-t border-slate-200 p-4 dark:border-slate-700">
+              <section>
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Conta ElevenLabs</h2>
+                {configured ?
+                  <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                    {elevenSource === "server" ?
+                      "Conectada automaticamente via Netlify (ELEVENLABS_API_KEY)."
+                    : "Conectada com sua chave pessoal."}
+                  </p>
+                : <p className="mt-1 text-xs text-slate-500">
+                    Cole sua API key (elevenlabs.io → Profile → API Keys) ou configure ELEVENLABS_API_KEY no Netlify.
+                  </p>
+                }
+                {!configured ?
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <input
+                      type="password"
+                      value={apiKeyDraft}
+                      onChange={(e) => setApiKeyDraft(e.target.value)}
+                      placeholder="sk_…"
+                      className="min-w-[240px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    />
+                    <button
+                      type="button"
+                      disabled={savingKey || apiKeyDraft.length < 16}
+                      onClick={() => void saveApiKey()}
+                      className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {savingKey ? "Salvando…" : "Conectar"}
+                    </button>
+                  </div>
                 : null}
-                <button type="button" className="text-xs text-red-600" onClick={() => void apagarTrilha(t.id)}>
-                  Apagar
+              </section>
+
+              <section className="rounded-xl border border-violet-200 bg-violet-50/50 p-4 dark:border-violet-900/40 dark:bg-violet-950/20">
+                <h2 className="text-sm font-bold text-violet-900 dark:text-violet-200">Vozes fixas (admin)</h2>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                  IDs de voz do painel ElevenLabs (Voice Library). Trilhas ambiente são enviadas abaixo — não entram na biblioteca musical.
+                </p>
+                <p className="mt-3 text-xs font-semibold text-slate-500">Vozes ({adminVoices.length})</p>
+                <ul className="mt-2 space-y-1 text-xs">
+                  {adminVoices.map((v) => (
+                    <li key={v.voiceId} className="flex items-center justify-between gap-2 rounded bg-white/80 px-2 py-1 dark:bg-slate-900/80">
+                      <span>
+                        {v.label} <span className="text-slate-400">({v.voiceId.slice(0, 8)}…)</span>
+                      </span>
+                      <button
+                        type="button"
+                        className="text-red-600"
+                        onClick={() => setAdminVoices((prev) => prev.filter((x) => x.voiceId !== v.voiceId))}
+                      >
+                        Remover
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <input
+                    value={adminVoiceId}
+                    onChange={(e) => setAdminVoiceId(e.target.value)}
+                    placeholder="voice_id ElevenLabs"
+                    className="min-w-[140px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
+                  />
+                  <input
+                    value={adminVoiceLabel}
+                    onChange={(e) => setAdminVoiceLabel(e.target.value)}
+                    placeholder="Nome exibido"
+                    className="min-w-[100px] flex-1 rounded border px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-950"
+                  />
+                  <button
+                    type="button"
+                    disabled={adminVoiceId.trim().length < 8}
+                    onClick={() => {
+                      const voiceId = adminVoiceId.trim();
+                      const label = adminVoiceLabel.trim() || voiceId;
+                      setAdminVoices((prev) =>
+                        prev.some((x) => x.voiceId === voiceId) ? prev : [...prev, { voiceId, label }],
+                      );
+                      setAdminVoiceId("");
+                      setAdminVoiceLabel("");
+                    }}
+                    className="rounded border px-2 py-1 text-xs font-semibold dark:border-slate-600"
+                  >
+                    + Voz
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={savingCatalog}
+                  onClick={() => void salvarCatalogo()}
+                  className="mt-4 rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {savingCatalog ? "Salvando…" : "Salvar vozes fixas"}
                 </button>
-              </li>
-            ))}
-          </ul>
-        }
-      </section>
+              </section>
+
+              <section>
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Trilhas ambiente (só Vinhetas)</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  MP3 de fundo para mixar com a locução. Ficam gravadas aqui — não aparecem na biblioteca musical.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <input
+                    value={trilhaUploadNome}
+                    onChange={(e) => setTrilhaUploadNome(e.target.value)}
+                    placeholder="Nome (ex.: Jazz suave 1)"
+                    className="min-w-[160px] flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  />
+                  <input
+                    type="file"
+                    accept="audio/mpeg,.mp3"
+                    onChange={(e) => setTrilhaUploadFile(e.target.files?.[0] ?? null)}
+                    className="max-w-[220px] text-xs file:mr-2 file:rounded file:border-0 file:bg-slate-100 file:px-2 file:py-1 dark:file:bg-slate-800"
+                  />
+                  <button
+                    type="button"
+                    disabled={uploadingTrilha || !trilhaUploadNome.trim() || !trilhaUploadFile}
+                    onClick={() => void enviarTrilha()}
+                    className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {uploadingTrilha ? "Enviando…" : "Subir trilha"}
+                  </button>
+                </div>
+                {loadingTrilhas ?
+                  <p className="mt-3 text-xs text-slate-400">Carregando trilhas…</p>
+                : trilhasVinheta.length === 0 ?
+                  <p className="mt-3 text-xs text-slate-500">Nenhuma trilha ainda — suba MP3 acima.</p>
+                : <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto text-sm">
+                    {trilhasVinheta.map((t) => (
+                      <li key={t.id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800/80">
+                        <button
+                          type="button"
+                          className={`flex-1 text-left ${trilha?.id === t.id ? "font-semibold text-emerald-700" : ""}`}
+                          onClick={() => setTrilha(t)}
+                        >
+                          {t.nome}
+                        </button>
+                        {t.previewUrl ?
+                          <MusicaPreviewButton
+                            track={{ id: t.id, titulo: t.nome, artista: "Trilha", previewUrl: t.previewUrl, durationMs: null }}
+                          />
+                        : null}
+                        <button type="button" className="text-xs text-red-600" onClick={() => void apagarTrilha(t.id)}>
+                          Apagar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                }
+              </section>
+            </div>
+          : null}
+        </div>
+      : null}
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
@@ -561,12 +581,27 @@ export function VinhetasPanel() {
               <p className="text-xs text-amber-600">{voicesError}</p>
             : null}
             <div>
-              <label className="text-xs font-semibold text-slate-500">Trilha selecionada</label>
-              {trilha ?
-                <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">✓ {trilha.nome}</p>
-              : <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                  Escolha uma trilha na seção acima (ou suba uma nova).
+              <label className="text-xs font-semibold text-slate-500">Trilha ambiente</label>
+              {loadingTrilhas ?
+                <p className="mt-1 text-xs text-slate-400">Carregando trilhas…</p>
+              : trilhasVinheta.length === 0 ?
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  Nenhuma trilha disponível — peça ao admin configurar em ⚙ Config.
                 </p>
+              : <select
+                  value={trilha?.id ?? ""}
+                  onChange={(e) => {
+                    const t = trilhasVinheta.find((x) => x.id === e.target.value);
+                    if (t) setTrilha(t);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                >
+                  {trilhasVinheta.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.nome}
+                    </option>
+                  ))}
+                </select>
               }
             </div>
             <button

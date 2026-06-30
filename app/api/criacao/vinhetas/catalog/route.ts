@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import {
   getPortalSession,
-  isMasterRole,
-  requireMasterSession,
   requirePortalSession,
+  requireVinhetaConfigSession,
 } from "@/lib/auth/portalAccess";
 import {
   elevenLabsEnabledGlobally,
   resolveElevenLabsApiKey,
 } from "@/lib/criacao/elevenLabsService";
+import { isVinhetaConfigAdmin } from "@/lib/criacao/vinhetaConfigAccess";
 import {
   getVinhetaCatalogPayload,
   saveVinhetaPresets,
@@ -31,7 +31,8 @@ export async function GET() {
         source: global ? "server" : key ? "user" : "none",
         globalFallback: global,
       },
-      canEdit: isMasterRole(session.roles),
+      canEdit: isVinhetaConfigAdmin(session),
+      vinhetaConfigAdmin: isVinhetaConfigAdmin(session),
     });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -41,7 +42,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const session = await requireMasterSession();
+    const session = await requireVinhetaConfigSession();
     const body = (await request.json().catch(() => ({}))) as {
       voices?: VinhetaPresetVoice[];
       trilhas?: VinhetaPresetTrilha[];

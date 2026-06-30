@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { getPortalSession, requirePortalSession, requireVinhetaConfigSession } from "@/lib/auth/portalAccess";
 import {
   clearElevenLabsApiKey,
   elevenLabsEnabledGlobally,
@@ -28,7 +28,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const session = requirePortalSession(await getPortalSession());
+    const session = await requireVinhetaConfigSession();
     const body = (await request.json().catch(() => ({}))) as { apiKey?: string; clear?: boolean };
     if (body.clear) {
       await clearElevenLabsApiKey(session.email, session.email);

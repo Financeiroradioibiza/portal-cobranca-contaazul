@@ -20,6 +20,7 @@ import {
   VINHETA_IA_STABILITY_LESS,
   VINHETA_IA_STABILITY_MORE,
 } from "@/lib/criacao/vinhetaIaDefaults";
+import { hasVinhetaIaParamsColumns } from "@/lib/criacao/vinhetaSchemaCompat";
 
 export type VinhetaLabTweakAction = "bed_lower" | "speed_down" | "stability_more" | "stability_less";
 
@@ -50,6 +51,47 @@ export type VinhetaLabRow = {
 
 const vinhetaMixUrl = VINHETA_IA_MIX_URL;
 
+const labBaseSelect = {
+  id: true,
+  nome: true,
+  tipo: true,
+  status: true,
+  texto: true,
+  voz: true,
+  vozNome: true,
+  trilhaMusicaId: true,
+  trilhaVinhetaId: true,
+  programacaoId: true,
+  criativoNome: true,
+  storageKey: true,
+  aprovadaEm: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+async function labRowSelect() {
+  const hasIa = await hasVinhetaIaParamsColumns();
+  return hasIa ?
+      ({ ...labBaseSelect, iaBedVolume: true, iaVoiceSpeed: true, iaVoiceStability: true } as const)
+    : labBaseSelect;
+}
+
+function iaParamsFromRow(row: Record<string, unknown>): { iaBedVolume: number; iaVoiceSpeed: number; iaVoiceStability: number } {
+  return {
+    iaBedVolume: (row.iaBedVolume as number | undefined) ?? VINHETA_IA_DEFAULT_BED_VOLUME,
+    iaVoiceSpeed: (row.iaVoiceSpeed as number | undefined) ?? VINHETA_IA_DEFAULT_VOICE_SPEED,
+    iaVoiceStability: (row.iaVoiceStability as number | undefined) ?? VINHETA_IA_DEFAULT_VOICE_STABILITY,
+  };
+}
+
+async function labCloneSourceSelect() {
+  return {
+    ...(await labRowSelect()),
+    trilhaStorageKey: true,
+    criativoUserId: true,
+  } as const;
+}
+
 async function mapLabRow(v: {
   id: string;
   nome: string;
@@ -63,13 +105,14 @@ async function mapLabRow(v: {
   programacaoId: string | null;
   criativoNome: string;
   storageKey: string | null;
-  iaBedVolume: number;
-  iaVoiceSpeed: number;
-  iaVoiceStability: number;
+  iaBedVolume?: number;
+  iaVoiceSpeed?: number;
+  iaVoiceStability?: number;
   aprovadaEm: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }): Promise<VinhetaLabRow> {
+  const ia = iaParamsFromRow(v);
   let trilhaTitulo: string | null = null;
   let trilhaArtista: string | null = null;
   let trilhaPreviewUrl: string | null = null;
@@ -108,9 +151,9 @@ async function mapLabRow(v: {
     trilhaTitulo,
     trilhaArtista,
     trilhaPreviewUrl,
-    iaBedVolume: v.iaBedVolume,
-    iaVoiceSpeed: v.iaVoiceSpeed,
-    iaVoiceStability: v.iaVoiceStability,
+    iaBedVolume: ia.iaBedVolume,
+    iaVoiceSpeed: ia.iaVoiceSpeed,
+    iaVoiceStability: ia.iaVoiceStability,
     programacaoId: v.programacaoId,
     criativoNome: v.criativoNome,
     temAudio: Boolean(v.storageKey),
@@ -139,6 +182,7 @@ export async function listVinhetasLab(opts: {
   const rows = await prisma.vinheta.findMany({
     where,
     orderBy: [{ updatedAt: "desc" }],
+    select: await labRowSelect(),
   });
   return Promise.all(rows.map(mapLabRow));
 }
@@ -155,6 +199,7 @@ export async function createVinhetaLabDraft(input: {
 }): Promise<VinhetaLabRow> {
   const nome = input.nome.trim();
   if (!nome) throw new Error("nome_obrigatorio");
+  const hasIa = await hasVinhetaIaParamsColumns();
   const row = await prisma.vinheta.create({
     data: {
       nome: nome.slice(0, 160),
@@ -167,10 +212,15 @@ export async function createVinhetaLabDraft(input: {
       trilhaVinhetaId: input.trilhaVinhetaId || null,
       criativoUserId: input.criativoUserId,
       criativoNome: input.criativoNome.slice(0, 120),
-      iaBedVolume: VINHETA_IA_DEFAULT_BED_VOLUME,
-      iaVoiceSpeed: VINHETA_IA_DEFAULT_VOICE_SPEED,
-      iaVoiceStability: VINHETA_IA_DEFAULT_VOICE_STABILITY,
+      ...(hasIa ?
+        {
+          iaBedVolume: VINHETA_IA_DEFAULT_BED_VOLUME,
+          iaVoiceSpeed: VINHETA_IA_DEFAULT_VOICE_SPEED,
+          iaVoiceStability: VINHETA_IA_DEFAULT_VOICE_STABILITY,
+        }
+      : {}),
     },
+    select: await labRowSelect(),
   });
   return mapLabRow(row);
 }
@@ -194,7 +244,11 @@ export async function updateVinhetaLabDraft(
   if (patch.trilhaMusicaId !== undefined) data.trilhaMusicaId = patch.trilhaMusicaId || null;
   if (patch.trilhaVinhetaId !== undefined) data.trilhaVinhetaId = patch.trilhaVinhetaId || null;
   if (Object.keys(data).length === 0) throw new Error("nada_para_atualizar");
-  const row = await prisma.vinheta.update({ where: { id }, data });
+  const row = await prisma.vinheta.update({
+    where: { id },
+    data,
+    select: await labRowSelect(),
+  });
   return mapLabRow(row);
 }
 
@@ -243,11 +297,13 @@ export async function tweakAndRegenerateVinhetaLab(
     await updateVinhetaLabDraft(id, draftPatch);
   }
 
-  const fresh = await prisma.vinheta.findUnique({ where: { id } });
+  const fresh = await prisma.vinheta.findUnique({ where: { id }, select: await labRowSelect() });
   if (!fresh) throw new Error("vinheta_nao_encontrada");
 
-  const next = applyTweakToParams(fresh, action);
-  await prisma.vinheta.update({ where: { id }, data: next });
+  const next = applyTweakToParams(iaParamsFromRow(fresh), action);
+  if (await hasVinhetaIaParamsColumns()) {
+    await prisma.vinheta.update({ where: { id }, data: next });
+  }
   return generateVinhetaLab(id, sessionEmail);
 }
 
@@ -270,13 +326,14 @@ export async function regenerateVinhetaLabWithDraft(
 }
 
 export async function generateVinhetaLab(id: string, sessionEmail: string): Promise<VinhetaLabRow> {
-  const row = await prisma.vinheta.findUnique({ where: { id } });
+  const row = await prisma.vinheta.findUnique({ where: { id }, select: await labRowSelect() });
   if (!row || row.tipo !== "ia") throw new Error("vinheta_nao_encontrada");
   if (row.status === "aprovada") throw new Error("vinheta_ja_aprovada");
   if (!row.texto.trim()) throw new Error("texto_obrigatorio");
   if (!row.voz.trim()) throw new Error("voz_obrigatoria");
   if (!row.trilhaVinhetaId && !row.trilhaMusicaId) throw new Error("trilha_obrigatoria");
 
+  const ia = iaParamsFromRow(row);
   const apiKey = await resolveElevenLabsApiKey(sessionEmail);
   if (!apiKey) throw new Error("elevenlabs_nao_configurado");
 
@@ -287,15 +344,15 @@ export async function generateVinhetaLab(id: string, sessionEmail: string): Prom
       apiKey,
       voiceId: row.voz,
       text: row.texto,
-      stability: row.iaVoiceStability,
-      speed: row.iaVoiceSpeed,
+      stability: ia.iaVoiceStability,
+      speed: ia.iaVoiceSpeed,
     });
 
     const { token } = signVinhetaUpload(id);
     const fd = new FormData();
     fd.append("token", token);
     fd.append("voice", new Blob([new Uint8Array(voiceMp3)], { type: "audio/mpeg" }), "voice.mp3");
-    fd.append("bedVolume", String(row.iaBedVolume));
+    fd.append("bedVolume", String(ia.iaBedVolume));
     if (row.trilhaVinhetaId) fd.append("trilhaVinhetaId", row.trilhaVinhetaId);
     else if (row.trilhaMusicaId) fd.append("trilhaMusicaId", row.trilhaMusicaId);
 
@@ -308,6 +365,7 @@ export async function generateVinhetaLab(id: string, sessionEmail: string): Prom
     const updated = await prisma.vinheta.update({
       where: { id },
       data: { status: "preview" },
+      select: await labRowSelect(),
     });
     return mapLabRow(updated);
   } catch (e) {
@@ -323,6 +381,7 @@ export async function aprovarVinhetaLab(id: string): Promise<VinhetaLabRow> {
   const updated = await prisma.vinheta.update({
     where: { id },
     data: { status: "aprovada", aprovadaEm: new Date() },
+    select: await labRowSelect(),
   });
   return mapLabRow(updated);
 }
@@ -331,7 +390,7 @@ export async function anexarVinhetaLabEmProgramacao(
   vinhetaId: string,
   programacaoId: string,
 ): Promise<{ id: string; nome: string }> {
-  const src = await prisma.vinheta.findUnique({ where: { id: vinhetaId } });
+  const src = await prisma.vinheta.findUnique({ where: { id: vinhetaId }, select: await labCloneSourceSelect() });
   if (!src || src.tipo !== "ia" || src.status !== "aprovada" || !src.storageKey) {
     throw new Error("vinheta_indisponivel");
   }
@@ -341,6 +400,8 @@ export async function anexarVinhetaLabEmProgramacao(
   });
   if (!prog) throw new Error("programacao_nao_encontrada");
 
+  const hasIa = await hasVinhetaIaParamsColumns();
+  const ia = iaParamsFromRow(src);
   const clone = await prisma.vinheta.create({
     data: {
       programacaoId,
@@ -355,9 +416,13 @@ export async function anexarVinhetaLabEmProgramacao(
       trilhaStorageKey: src.trilhaStorageKey,
       criativoUserId: src.criativoUserId,
       criativoNome: src.criativoNome,
-      iaBedVolume: src.iaBedVolume,
-      iaVoiceSpeed: src.iaVoiceSpeed,
-      iaVoiceStability: src.iaVoiceStability,
+      ...(hasIa ?
+        {
+          iaBedVolume: ia.iaBedVolume,
+          iaVoiceSpeed: ia.iaVoiceSpeed,
+          iaVoiceStability: ia.iaVoiceStability,
+        }
+      : {}),
       aprovadaEm: new Date(),
     },
     select: { id: true, nome: true },

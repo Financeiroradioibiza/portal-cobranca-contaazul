@@ -60,13 +60,6 @@ function readableText(hex: string): string {
   return lum > 0.6 ? "#1e293b" : "#ffffff";
 }
 
-function formatCriativoTagsLine(tags: ManualTag[]): string {
-  if (tags.length === 0) return "—";
-  return tags
-    .map((t) => `${t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}${t.nome}`)
-    .join(" · ");
-}
-
 const STATUS_LABEL: Record<string, string> = {
   pendente: "Pendente",
   processando: "Processando",
@@ -450,7 +443,8 @@ export function BibliotecaMusicalPanel() {
       : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {viewMode === "slim" ?
             <>
-              <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50">
+              <div className="grid grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50">
+                <span />
                 <span>Música</span>
                 <span>Banda</span>
                 <span>Tag criativo</span>
@@ -460,14 +454,47 @@ export function BibliotecaMusicalPanel() {
                 {musicas.map((m) => (
                   <li
                     key={m.id}
-                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] items-center gap-2 px-3 py-1"
+                    className="grid grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] items-center gap-2 px-3 py-1"
                   >
+                    {m.previewUrl ?
+                      <MusicaPreviewButton
+                        track={{
+                          id: m.id,
+                          titulo: m.titulo,
+                          artista: m.artista,
+                          previewUrl: m.previewUrl,
+                          durationMs: m.durationMs,
+                        }}
+                        className="h-7 w-7 text-sm"
+                      />
+                    : <div className="flex h-7 w-7 items-center justify-center rounded bg-slate-100 text-xs text-slate-300 dark:bg-slate-800">
+                        🎵
+                      </div>
+                    }
                     <div className="min-w-0 truncate text-xs font-medium text-slate-900 dark:text-slate-100">
                       {m.titulo || "(sem título)"}
                     </div>
                     <div className="min-w-0 truncate text-xs text-slate-500">{m.artista || "—"}</div>
-                    <div className="min-w-0 truncate text-[11px] text-slate-600 dark:text-slate-300" title={formatCriativoTagsLine(m.tagsManuais)}>
-                      {formatCriativoTagsLine(m.tagsManuais)}
+                    <div className="flex min-w-0 flex-wrap items-center gap-0.5 overflow-hidden">
+                      {m.tagsManuais.length === 0 ?
+                        <span className="truncate text-[11px] text-slate-400">—</span>
+                      : m.tagsManuais.map((t) => (
+                          <span
+                            key={t.id}
+                            className={
+                              "inline-flex max-w-full truncate rounded font-bold " +
+                              (isUploadCompetenciaTag(t.nome) ?
+                                "px-1 py-0 text-[7px] opacity-90"
+                              : "px-1.5 py-0 text-[9px]")
+                            }
+                            style={{ background: t.cor, color: readableText(t.cor) }}
+                            title={t.criativoNome ? `${t.criativoNome} · ${t.nome}` : t.nome}
+                          >
+                            {t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}
+                            {t.nome}
+                          </span>
+                        ))
+                      }
                     </div>
                     <div className="text-right text-[11px] tabular-nums text-slate-500">
                       {formatDuration(m.durationMs)}

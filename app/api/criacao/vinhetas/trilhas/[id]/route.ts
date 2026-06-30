@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { getPortalSession, requirePortalSession, requireVinhetaConfigSession } from "@/lib/auth/portalAccess";
 import { deleteVinhetaTrilha } from "@/lib/criacao/vinhetaTrilhaService";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    requirePortalSession(await getPortalSession());
+    await requireVinhetaConfigSession();
     const { id } = await params;
     await deleteVinhetaTrilha(id);
     return NextResponse.json({ ok: true });

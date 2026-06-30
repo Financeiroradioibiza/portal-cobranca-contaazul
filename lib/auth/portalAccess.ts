@@ -12,6 +12,7 @@ import {
   verifyPortalSessionToken,
   type PortalSessionPayload,
 } from "@/lib/auth/sessionToken";
+import { isVinhetaConfigAdmin } from "@/lib/criacao/vinhetaConfigAccess";
 
 export async function getPortalSession(): Promise<PortalSessionPayload | null> {
   const jar = await cookies();
@@ -41,6 +42,21 @@ export function requireMaster(session: PortalSessionPayload): void {
 export async function requireMasterSession(): Promise<PortalSessionPayload> {
   const session = requirePortalSession(await getPortalSession());
   requireMaster(session);
+  return session;
+}
+
+export function requireVinhetaConfigAdmin(session: PortalSessionPayload): void {
+  if (!isVinhetaConfigAdmin(session)) {
+    throw new Response(JSON.stringify({ error: "forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+export async function requireVinhetaConfigSession(): Promise<PortalSessionPayload> {
+  const session = requirePortalSession(await getPortalSession());
+  requireVinhetaConfigAdmin(session);
   return session;
 }
 

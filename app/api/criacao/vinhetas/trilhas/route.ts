@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { getPortalSession, requirePortalSession, requireVinhetaConfigSession } from "@/lib/auth/portalAccess";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { createVinhetaTrilha, listVinhetaTrilhas } from "@/lib/criacao/vinhetaTrilhaService";
 
@@ -20,7 +20,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const session = requirePortalSession(await getPortalSession());
+    const session = await requireVinhetaConfigSession();
     const body = (await request.json().catch(() => ({}))) as { nome?: string };
     const payload = await createVinhetaTrilha({
       nome: body.nome ?? "",

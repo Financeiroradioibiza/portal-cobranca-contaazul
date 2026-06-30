@@ -108,6 +108,47 @@ async function finishItemDuplicata(item: ClaimedItem, existenteId: string): Prom
   await maybeFinishJob(item.job_id);
 }
 
+/** Hash idêntico — confirma duplicata; garante mix/128 na faixa existente se faltar. */
+async function refreshMixOrProduceOnDuplicate(
+  item: ClaimedItem,
+  existenteId: string,
+  inputPath: string,
+): Promise<void> {
+  const r = await portalQuery<{ hasUso: boolean }>(
+    `SELECT EXISTS(
+       SELECT 1 FROM musica_versao
+        WHERE musica_id = $1 AND formato = 'mp3_128_mono'
+     ) AS "hasUso"`,
+    [existenteId],
+  );
+  if (!r.rows[0]?.hasUso) {
+    await stepProduce(item, existenteId, inputPath);
+    await fsp.rm(workDir(item.id), { recursive: true, force: true }).catch(() => {});
+    await fsp.unlink(inputPath).catch(() => {});
+    return;
+  }
+
+  const { mixSegundosFinais, trimFimMs, trimInicioMs } = await detectMixAndTrim(inputPath);
+  const mix =
+    mixSegundosFinais > 0 ? mixSegundosFinais : criacaoConfig.defaultMixSegundos;
+  await portalQuery(
+    `UPDATE musica_biblioteca
+        SET mix_segundos_finais = $2,
+            trim_inicio_ms = $3,
+            trim_fim_ms = $4,
+            updated_at = now()
+      WHERE id = $1
+        AND mix_auto = true
+        AND (mix_segundos_finais IS NULL OR mix_segundos_finais = 0)`,
+    [existenteId, mix, trimInicioMs, trimFimMs],
+  );
+  pipelineLog(
+    { itemId: item.id, jobId: item.job_id, musicaId: existenteId, etapa: 'ponto_mix' },
+    'mix_trim_duplicata_atualizado',
+    { mixSegundos: mix, trimFimMs, trimInicioMs },
+  );
+}
+
 /** Hash idêntico — confirma duplicata sem revisão humana; aplica tag na faixa existente. */
 async function finishItemDuplicataAutoConfirmada(item: ClaimedItem, existenteId: string): Promise<void> {
   await portalQuery(
@@ -251,6 +292,7 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
     if (dup.kind === 'duplicata') {
       pipelineLog(ctx, 'duplicata', { via: dup.via, existenteId: dup.existenteId });
       if (dup.via === 'content_hash') {
+        await refreshMixOrProduceOnDuplicate(item, dup.existenteId, inputPath);
         await finishItemDuplicataAutoConfirmada(item, dup.existenteId);
       } else {
         await finishItemDuplicata(item, dup.existenteId);
@@ -282,7 +324,9 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
 
   await pipelineTimed({ ...ctx, etapa: 'ponto_mix' }, async () => {
     await setItemEtapa(item.id, 'ponto_mix');
-    const { mixSegundosFinais, trimFimMs, trimInicioMs } = await detectMixAndTrim(inputPath);
+    const { mixSegundosFinais: detectedMix, trimFimMs, trimInicioMs } = await detectMixAndTrim(inputPath);
+    const mixSegundosFinais =
+      detectedMix > 0 ? detectedMix : criacaoConfig.defaultMixSegundos;
     await portalQuery(
       `UPDATE musica_biblioteca
           SET mix_segundos_finais = $2,
