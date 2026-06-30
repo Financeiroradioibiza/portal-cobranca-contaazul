@@ -23,10 +23,13 @@ export function VinhetaAudioControls({
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
 
-  if (tipo !== "audio") return null;
+  const manualUpload = tipo === "audio";
+  const canPlay = Boolean(temAudio && previewUrl);
+
+  if (tipo !== "audio" && tipo !== "ia") return null;
 
   async function onFile(file: File | undefined) {
-    if (!file || busy) return;
+    if (!file || busy || !manualUpload) return;
     setBusy(true);
     try {
       await uploadVinhetaAudio(vinhetaId, file);
@@ -55,18 +58,20 @@ export function VinhetaAudioControls({
   return (
     <>
       <audio ref={audioRef} className="hidden" onEnded={() => setPlaying(false)} onPause={() => setPlaying(false)} />
-      <input
-        ref={inputRef}
-        type="file"
-        accept="audio/mpeg,.mp3"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          void onFile(f);
-          e.target.value = "";
-        }}
-      />
-      {temAudio && previewUrl ?
+      {manualUpload ?
+        <input
+          ref={inputRef}
+          type="file"
+          accept="audio/mpeg,.mp3"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            void onFile(f);
+            e.target.value = "";
+          }}
+        />
+      : null}
+      {canPlay ?
         <button
           type="button"
           onClick={togglePlay}
@@ -81,20 +86,22 @@ export function VinhetaAudioControls({
           {playing ? "⏸" : "▶"}
         </button>
       : null}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => inputRef.current?.click()}
-        className={
-          `shrink-0 rounded border font-semibold ${btn} ` +
-          (temAudio ?
-            "border-slate-300 text-slate-600 hover:border-slate-400 dark:border-slate-600 dark:text-slate-300"
-          : "border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200")
-        }
-        title={temAudio ? "Trocar MP3" : "Enviar MP3"}
-      >
-        {busy ? "…" : temAudio ? "trocar" : "MP3"}
-      </button>
+      {manualUpload ?
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          className={
+            `shrink-0 rounded border font-semibold ${btn} ` +
+            (temAudio ?
+              "border-slate-300 text-slate-600 hover:border-slate-400 dark:border-slate-600 dark:text-slate-300"
+            : "border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200")
+          }
+          title={temAudio ? "Trocar MP3" : "Enviar MP3"}
+        >
+          {busy ? "…" : temAudio ? "trocar" : "MP3"}
+        </button>
+      : null}
     </>
   );
 }

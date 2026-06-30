@@ -541,6 +541,11 @@ export function VinhetasPanel() {
                   Trilha: {ativo.trilhaArtista} — {ativo.trilhaTitulo}
                 </p>
               : null}
+              {!ativo.temAudio && ativo.status !== "gerando" ?
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Ainda sem áudio — clique em <strong>Gerar edição</strong> para criar a locução com trilha.
+                </p>
+              : null}
               <VinhetaAudioControls
                 vinhetaId={ativo.id}
                 tipo="ia"
@@ -598,15 +603,40 @@ export function VinhetasPanel() {
         {rascunhos.length > 0 ?
           <>
             <h3 className="mt-4 text-xs font-bold uppercase text-slate-500">Rascunhos</h3>
-            <ul className="mt-2 space-y-1 text-xs">
+            <ul className="mt-2 space-y-2">
               {rascunhos.map((v) => (
-                <li key={v.id}>
-                  <button type="button" className="text-violet-600 hover:underline" onClick={() => setAtivo(v)}>
-                    {v.nome} ({v.status})
-                  </button>
+                <li
+                  key={v.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium">{v.nome}</span>
+                    <span className="ml-2 text-[10px] uppercase text-slate-400">{v.status}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <VinhetaAudioControls
+                      vinhetaId={v.id}
+                      tipo="ia"
+                      temAudio={v.temAudio}
+                      previewUrl={v.previewUrl}
+                      compact
+                      onUploaded={() => void loadList()}
+                    />
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-violet-600 hover:underline"
+                      onClick={() => setAtivo(v)}
+                    >
+                      Abrir
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
+            <p className="mt-2 text-[10px] text-slate-500">
+              Rascunho novo: clique em <strong>Abrir</strong> → <strong>Gerar edição</strong> → ouça com ▶ →{" "}
+              <strong>Aprovar e salvar</strong>.
+            </p>
           </>
         : null}
       </section>
