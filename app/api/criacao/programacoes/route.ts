@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { resolveTagCriativoUser } from "@/lib/criacao/criativoUserService";
+import { resolveRequiredDonoUser } from "@/lib/criacao/criativoUserService";
 import { createProgramacao, listProgramacoes } from "@/lib/criacao/programacaoService";
 
 export const runtime = "nodejs";
@@ -22,28 +22,34 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const session = requirePortalSession(await getPortalSession());
+    requirePortalSession(await getPortalSession());
     const body = (await request.json().catch(() => ({}))) as {
       clienteRef?: string;
       clienteNome?: string;
       nome?: string;
       formatoPadrao?: string;
+      donoUserId?: string;
       tagCriativoUserId?: string;
     };
-    const tagCriativo = await resolveTagCriativoUser(body.tagCriativoUserId, session.email);
+    const dono = await resolveRequiredDonoUser(body.donoUserId ?? body.tagCriativoUserId);
     const created = await createProgramacao({
       clienteRef: body.clienteRef ?? "",
       clienteNome: body.clienteNome ?? "",
       nome: body.nome ?? "",
       formatoPadrao: body.formatoPadrao,
-      criativoUserId: tagCriativo.email,
-      criativoNome: tagCriativo.displayName,
+      criativoUserId: dono.email,
+      criativoNome: dono.displayName,
     });
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
-    if (msg === "nome_obrigatorio" || msg === "cliente_obrigatorio") {
+    if (
+      msg === "nome_obrigatorio" ||
+      msg === "cliente_obrigatorio" ||
+      msg === "dono_obrigatorio" ||
+      msg === "dono_invalido"
+    ) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
     console.error("[criacao/programacoes POST]", e);

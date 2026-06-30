@@ -155,10 +155,16 @@ async function finishItemErro(item: ClaimedItem, msg: string): Promise<void> {
 }
 
 async function maybeFinishJob(jobId: string): Promise<void> {
-  const r = await portalQuery<{ pending: number; erros: number; tipo: string }>(
+  const r = await portalQuery<{
+    pending: number;
+    erros: number;
+    duplicatas: number;
+    tipo: string;
+  }>(
     `SELECT
        count(*) FILTER (WHERE status IN ('aguardando', 'processando'))::int AS pending,
        count(*) FILTER (WHERE status = 'erro')::int AS erros,
+       count(*) FILTER (WHERE status = 'duplicata')::int AS duplicatas,
        (SELECT tipo::text FROM processamento_job WHERE id = $1) AS tipo
        FROM processamento_item
       WHERE job_id = $1`,
@@ -168,16 +174,65 @@ async function maybeFinishJob(jobId: string): Promise<void> {
   if ((row?.pending ?? 0) > 0) return;
   const status =
     (row?.erros ?? 0) > 0 ? 'erro'
-    : row?.tipo === 'upload_pasta' ? 'revisao'
+    : (row?.duplicatas ?? 0) > 0 ? 'revisao'
     : 'concluido';
   await portalQuery(
     `UPDATE processamento_job
         SET status = $2::"JobStatus", etapa_atual = 'armazenamento',
-            finished_at = CASE WHEN $2::text = 'concluido' THEN now() ELSE finished_at END,
+            finished_at = CASE WHEN $2::text IN ('concluido', 'erro') THEN now() ELSE finished_at END,
             updated_at = now()
       WHERE id = $1`,
     [jobId, status],
   );
+  if (status === 'concluido' && row?.tipo === 'upload_pasta') {
+    await applyPastaUploadsForJob(jobId);
+  }
+}
+
+/** Coloca faixas processadas na pasta do job — espelha applyPendingPastaUploads do portal. */
+async function applyPastaUploadsForJob(jobId: string): Promise<void> {
+  const pending = await portalQuery<{
+    musicaId: string;
+    pastaId: string;
+    programacaoId: string;
+  }>(
+    `SELECT pi.musica_id AS "musicaId",
+            j.pasta_id AS "pastaId",
+            p.programacao_id AS "programacaoId"
+       FROM processamento_item pi
+       JOIN processamento_job j ON j.id = pi.job_id
+       JOIN pasta p ON p.id = j.pasta_id
+      WHERE pi.job_id = $1
+        AND pi.status = 'concluido'
+        AND pi.musica_id IS NOT NULL
+        AND j.pasta_id IS NOT NULL
+        AND j.status = 'concluido'
+        AND NOT EXISTS (
+          SELECT 1 FROM pasta_musica pm
+            JOIN pasta pa ON pa.id = pm.pasta_id
+           WHERE pa.programacao_id = p.programacao_id
+             AND pm.musica_id = pi.musica_id
+        )`,
+    [jobId],
+  );
+
+  for (const row of pending.rows) {
+    const last = await portalQuery<{ sortOrder: number | null }>(
+      `SELECT sort_order AS "sortOrder"
+         FROM pasta_musica
+        WHERE pasta_id = $1
+        ORDER BY sort_order DESC
+        LIMIT 1`,
+      [row.pastaId],
+    );
+    const nextOrder = (last.rows[0]?.sortOrder ?? -1) + 1;
+    await portalQuery(
+      `INSERT INTO pasta_musica (pasta_id, musica_id, sort_order, added_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (pasta_id, musica_id) DO NOTHING`,
+      [row.pastaId, row.musicaId, nextOrder],
+    );
+  }
 }
 
 function resolveInputPath(item: ClaimedItem): string {

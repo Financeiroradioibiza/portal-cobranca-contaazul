@@ -24,6 +24,20 @@ export async function listCriativosForTag(): Promise<CriativoTagOption[]> {
   }));
 }
 
+/** Dono da programação — obrigatório na criação; sem fallback. */
+export async function resolveRequiredDonoUser(
+  requested: string | undefined,
+): Promise<{ email: string; displayName: string }> {
+  const tryEmail = normalizePortalEmail((requested || "").trim());
+  if (!tryEmail) throw new Error("dono_obrigatorio");
+  const user = await prisma.portalUser.findUnique({
+    where: { email: tryEmail },
+    select: { email: true, displayName: true, active: true },
+  });
+  if (!user?.active) throw new Error("dono_invalido");
+  return { email: user.email, displayName: user.displayName || user.email };
+}
+
 /** Valida o criativo escolhido para tag (iniciais/cor); fallback = usuário logado. */
 export async function resolveTagCriativoUser(
   requested: string | undefined,

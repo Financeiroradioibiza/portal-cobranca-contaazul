@@ -10,6 +10,7 @@ type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: stri
 type TagCriativo = { id: string; nome: string; cor: string; criativoNome: string; usoCount: number };
 type FacetTag = TagCriativo;
 type ListFilter = "all" | "unused" | "leastUsed";
+type ViewMode = "full" | "slim";
 
 const CORES_SUGERIDAS = [
   "#eab308", "#f97316", "#ef4444", "#ec4899", "#a855f7",
@@ -59,6 +60,13 @@ function readableText(hex: string): string {
   return lum > 0.6 ? "#1e293b" : "#ffffff";
 }
 
+function formatCriativoTagsLine(tags: ManualTag[]): string {
+  if (tags.length === 0) return "—";
+  return tags
+    .map((t) => `${t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}${t.nome}`)
+    .join(" · ");
+}
+
 const STATUS_LABEL: Record<string, string> = {
   pendente: "Pendente",
   processando: "Processando",
@@ -87,6 +95,7 @@ export function BibliotecaMusicalPanel() {
   const [refreshingTagId, setRefreshingTagId] = useState<string | null>(null);
   const [checkingGeminiId, setCheckingGeminiId] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("full");
 
   const loadTags = useCallback(async () => {
     try {
@@ -261,6 +270,34 @@ export function BibliotecaMusicalPanel() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div
+            className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700"
+            role="group"
+            aria-label="Modo de listagem"
+          >
+            <button
+              type="button"
+              onClick={() => setViewMode("full")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                viewMode === "full" ?
+                  "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              Completa
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("slim")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                viewMode === "slim" ?
+                  "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              Lista slim
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setShowTagManager(true)}
@@ -411,6 +448,35 @@ export function BibliotecaMusicalPanel() {
           </p>
         </div>
       : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          {viewMode === "slim" ?
+            <>
+              <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50">
+                <span>Música</span>
+                <span>Banda</span>
+                <span>Tag criativo</span>
+                <span className="text-right">⏱</span>
+              </div>
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {musicas.map((m) => (
+                  <li
+                    key={m.id}
+                    className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] items-center gap-2 px-3 py-1"
+                  >
+                    <div className="min-w-0 truncate text-xs font-medium text-slate-900 dark:text-slate-100">
+                      {m.titulo || "(sem título)"}
+                    </div>
+                    <div className="min-w-0 truncate text-xs text-slate-500">{m.artista || "—"}</div>
+                    <div className="min-w-0 truncate text-[11px] text-slate-600 dark:text-slate-300" title={formatCriativoTagsLine(m.tagsManuais)}>
+                      {formatCriativoTagsLine(m.tagsManuais)}
+                    </div>
+                    <div className="text-right text-[11px] tabular-nums text-slate-500">
+                      {formatDuration(m.durationMs)}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          : <>
           <div className="hidden grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 lg:grid">
             <span />
             <span>Título</span>
@@ -552,6 +618,8 @@ export function BibliotecaMusicalPanel() {
               </li>
             ))}
           </ul>
+          </>
+          }
         </div>
       }
 

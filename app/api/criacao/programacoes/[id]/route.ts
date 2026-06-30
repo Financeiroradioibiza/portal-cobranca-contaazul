@@ -35,6 +35,10 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return NextResponse.json({ ok });
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "server_error";
+    if (msg === "dono_obrigatorio") {
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
     console.error("[criacao/programacoes/:id PATCH]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }

@@ -357,6 +357,8 @@ export type AtualizacaoAbertaRow = {
   abertaEm: string;
   abertaPor: string;
   publicada: boolean;
+  criativoUserId: string | null;
+  criativoNome: string;
 };
 
 export async function abrirAtualizacao(
@@ -399,6 +401,8 @@ export async function listAtualizacoesAbertas(): Promise<AtualizacaoAbertaRow[]>
       publicada: true,
       atualizacaoAbertaEm: true,
       atualizacaoAbertaPor: true,
+      criativoUserId: true,
+      criativoNome: true,
     },
   });
 
@@ -412,6 +416,8 @@ export async function listAtualizacoesAbertas(): Promise<AtualizacaoAbertaRow[]>
       abertaEm: r.atualizacaoAbertaEm!.toISOString(),
       abertaPor: r.atualizacaoAbertaPor,
       publicada: r.publicada,
+      criativoUserId: r.criativoUserId ?? null,
+      criativoNome: r.criativoNome ?? "",
     }));
 }
 

@@ -21,13 +21,15 @@ export function ProgramacaoDonoInlineSelect({
   dono,
   onAssign,
   onClear,
+  allowClear = false,
 }: {
   programacaoId: string;
   criativos: Criativo[];
   loading?: boolean;
   dono: ProgramacaoDono | null;
   onAssign: (criativo: Criativo) => void;
-  onClear: () => void;
+  onClear?: () => void;
+  allowClear?: boolean;
 }) {
   const value = dono?.criativoEmail ?? "";
   const selected = criativos.find((c) => c.email === value) ?? null;
@@ -66,7 +68,7 @@ export function ProgramacaoDonoInlineSelect({
           onChange={(e) => {
             const email = e.target.value;
             if (!email) {
-              onClear();
+              if (allowClear) onClear?.();
               return;
             }
             const criativo = criativos.find((c) => c.email === email);
@@ -75,7 +77,11 @@ export function ProgramacaoDonoInlineSelect({
           className="absolute inset-0 w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
           aria-label={hoverTitle}
         >
-          <option value="">{loading ? "…" : "sem dono"}</option>
+          {allowClear ?
+            <option value="">{loading ? "…" : "sem dono"}</option>
+          : !selected ?
+            <option value="">{loading ? "…" : disabled ? "—" : "escolher"}</option>
+          : null}
           {criativos.map((c) => (
             <option key={c.email} value={c.email} title={c.displayName}>
               {siglaLabel(c)}

@@ -10,7 +10,7 @@ import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAvis
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { CronogramaAlvoBadges, DOW, diasLabel } from "@/components/criacao/CronogramaAlvoBadges";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
-import { formatPastaMusicaAddedAt } from "@/lib/criacao/pastaMusicaUi";
+import { formatPastaMusicaAddedAt, isMusicaNovaNaAtualizacao } from "@/lib/criacao/pastaMusicaUi";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -130,8 +130,8 @@ function ProgramacaoEditor({
     }
   }, [id]);
 
-  /** Recarrega pastas (e metadados) sem piscar a tela inteira — usado pelo cronograma. */
-  const reloadPastasParaCronograma = useCallback(async () => {
+  /** Recarrega pastas (e metadados) sem piscar a tela inteira — usado pelo cronograma e poll da fila. */
+  const reloadSilently = useCallback(async () => {
     try {
       const res = await fetch(`/api/criacao/programacoes/${id}`);
       if (!res.ok) return;
@@ -142,9 +142,28 @@ function ProgramacaoEditor({
     }
   }, [id]);
 
+  /** Recarrega pastas (e metadados) sem piscar a tela inteira — usado pelo cronograma. */
+  const reloadPastasParaCronograma = reloadSilently;
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Com atualização aberta, puxa faixas da fila (ATL CRICA / upload) e atualiza destaque verde. */
+  useEffect(() => {
+    if (!prog?.atualizacaoAberta) return;
+    const tick = async () => {
+      try {
+        await fetch("/api/criacao/fila/sync-pending", { method: "POST" });
+      } catch {
+        /* ignore */
+      }
+      await reloadSilently();
+    };
+    void tick();
+    const t = window.setInterval(() => void tick(), 8000);
+    return () => window.clearInterval(t);
+  }, [prog?.atualizacaoAberta, reloadSilently]);
 
   async function patchProg(patch: Record<string, unknown>) {
     await registrarEdicao();
@@ -454,7 +473,13 @@ function ProgramacaoEditor({
                 </div>
               : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                   {pasta.musicas.map((m, idx) => {
-                    const isNova = sessionAddedIds.has(m.id);
+                    const isNova = isMusicaNovaNaAtualizacao({
+                      musicaId: m.id,
+                      addedAt: m.addedAt,
+                      atualizacaoAberta: prog.atualizacaoAberta,
+                      atualizacaoAbertaEm: prog.atualizacaoAbertaEm,
+                      sessionAddedIds,
+                    });
                     return (
                     <li
                       key={m.id}

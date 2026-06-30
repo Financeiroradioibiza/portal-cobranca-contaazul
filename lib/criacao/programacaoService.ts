@@ -205,8 +205,11 @@ export async function createProgramacao(input: {
 }) {
   const nome = (input.nome || "").trim();
   const clienteRef = (input.clienteRef || "").trim();
+  const criativoUserId = (input.criativoUserId || "").trim();
+  const criativoNome = (input.criativoNome ?? "").trim();
   if (!nome) throw new Error("nome_obrigatorio");
   if (!clienteRef) throw new Error("cliente_obrigatorio");
+  if (!criativoUserId || !criativoNome) throw new Error("dono_obrigatorio");
 
   return prisma.programacao.create({
     data: {
@@ -214,8 +217,8 @@ export async function createProgramacao(input: {
       clienteNome: (input.clienteNome ?? "").slice(0, 200),
       nome: nome.slice(0, 120),
       formatoPadrao: isFormato(input.formatoPadrao) ? input.formatoPadrao : "mp3_128_mono",
-      criativoUserId: input.criativoUserId?.slice(0, 200) || null,
-      criativoNome: (input.criativoNome ?? "").slice(0, 120),
+      criativoUserId: criativoUserId.slice(0, 200),
+      criativoNome: criativoNome.slice(0, 120),
     },
     select: { id: true },
   });
@@ -354,11 +357,14 @@ export async function updateProgramacao(
     data.publishedAt = patch.publicada ? new Date() : null;
   }
   if (patch.criativoUserId !== undefined) {
-    data.criativoUserId =
-      patch.criativoUserId?.trim() ? patch.criativoUserId.trim().slice(0, 200) : null;
+    const nextDono = patch.criativoUserId?.trim() ?? "";
+    if (!nextDono) throw new Error("dono_obrigatorio");
+    data.criativoUserId = nextDono.slice(0, 200);
   }
   if (typeof patch.criativoNome === "string") {
-    data.criativoNome = patch.criativoNome.slice(0, 120);
+    const nextNome = patch.criativoNome.trim();
+    if (patch.criativoUserId !== undefined && !nextNome) throw new Error("dono_obrigatorio");
+    if (nextNome) data.criativoNome = nextNome.slice(0, 120);
   }
   if (Object.keys(data).length === 0) return false;
   await prisma.programacao.update({ where: { id }, data });

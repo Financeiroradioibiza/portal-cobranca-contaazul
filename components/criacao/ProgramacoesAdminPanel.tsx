@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FORMATO_LABEL } from "@/lib/criacao/programacaoService";
-import { CriativoTagSelect } from "@/components/criacao/CriativoTagSelect";
 import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
 import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
 import { printAtualizacaoLogPdf } from "@/lib/criacao/atualizacaoLogExport";
@@ -18,6 +17,7 @@ import { ProgramacaoDonoInlineSelect } from "@/components/criacao/ProgramacaoDon
 import { persistProgramacaoDonoToServer } from "@/lib/criacao/atlCricaDonoPersist";
 import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
+import { donoDisplayLabel, type ProgramacaoDono } from "@/lib/criacao/programacaoDonoLocal";
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
@@ -40,6 +40,8 @@ type ArvoreProg = {
   atualizacaoAberta: boolean;
   atualizacaoAbertaEm: string | null;
   atualizacaoAbertaPor: string;
+  criativoUserId: string | null;
+  criativoNome: string;
   pastas: ArvorePasta[];
   vinhetas: ArvoreVinheta[];
   agendamentos: AgendamentoRow[];
@@ -53,6 +55,8 @@ type AtualizacaoAbertaRow = {
   abertaEm: string;
   abertaPor: string;
   publicada: boolean;
+  criativoUserId: string | null;
+  criativoNome: string;
 };
 
 type PdvProgramacaoRow = {
@@ -74,8 +78,44 @@ function progEncerrada(prog: Pick<ArvoreProg, "publicada" | "atualizacaoAberta">
   return prog.publicada && !prog.atualizacaoAberta;
 }
 
+function resolveDonoLabel(
+  row: Pick<AtualizacaoAbertaRow, "programacaoId" | "criativoNome" | "criativoUserId">,
+  donoMap: Record<string, ProgramacaoDono>,
+  criativos: Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>,
+): string {
+  const db = row.criativoNome.trim();
+  if (db) return db;
+  const local = donoMap[row.programacaoId];
+  if (local) return donoDisplayLabel(local);
+  const email = row.criativoUserId?.trim();
+  if (email) {
+    const c = criativos.find((x) => x.email === email);
+    if (c) return c.displayName;
+  }
+  return "Sem dono";
+}
+
+function resolveDonoFromProg(
+  prog: Pick<ArvoreProg, "id" | "criativoUserId" | "criativoNome">,
+  donoMap: Record<string, ProgramacaoDono>,
+  criativos: Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>,
+): ProgramacaoDono | null {
+  const local = donoMap[prog.id];
+  if (local) return local;
+  const email = prog.criativoUserId?.trim();
+  if (!email) return null;
+  const c = criativos.find((x) => x.email === email);
+  return {
+    criativoEmail: email,
+    criativoNome: c?.displayName || prog.criativoNome || email,
+    criativoIniciais: c?.tagIniciais ?? "",
+    criativoCor: c?.tagCor ?? "#6366f1",
+    updatedAt: "",
+  };
+}
+
 export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (programacaoId: string) => void }) {
-  const { map, assignDono, removeDono } = useProgramacaoDonoMap();
+  const { map, assignDono, getDono } = useProgramacaoDonoMap();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [criativos, setCriativos] = useState<
     Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>
@@ -187,6 +227,15 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
     [arvore],
   );
 
+  const atualizacoesAtlCrica = useMemo(
+    () => atualizacoesAbertas.filter((a) => isAtlCricaAbertura(a.abertaPor)),
+    [atualizacoesAbertas],
+  );
+  const atualizacoesManuais = useMemo(
+    () => atualizacoesAbertas.filter((a) => !isAtlCricaAbertura(a.abertaPor)),
+    [atualizacoesAbertas],
+  );
+
   const marcouAbertaIds = useRef(new Set<string>());
 
   async function marcarEdicaoProgramacao(progId: string) {
@@ -260,13 +309,54 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
         </p>
       </div>
 
-      {atualizacoesAbertas.length > 0 ?
+      {atualizacoesAtlCrica.length > 0 ?
+        <div className="mb-4 rounded-xl border border-violet-300 bg-violet-50/90 px-4 py-3 shadow-sm dark:border-violet-800 dark:bg-violet-950/40">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-violet-900 dark:text-violet-200">
+            ATL CRICA — atualizações abertas
+          </div>
+          <p className="mt-1 text-[11px] text-violet-800 dark:text-violet-300">
+            Multi-envio pela fila ATL CRICA. Cada tile mostra o dono da programação.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {atualizacoesAtlCrica.map((a) => {
+              const ativo = clienteSel?.ref === a.clienteRef && focusProgId === a.programacaoId;
+              const dono = resolveDonoLabel(a, map, criativos);
+              return (
+                <button
+                  key={a.programacaoId}
+                  type="button"
+                  onClick={() => irParaAtualizacaoAberta(a)}
+                  className={
+                    "rounded-lg border px-3 py-1.5 text-left text-xs font-semibold transition " +
+                    (ativo ?
+                      "border-violet-600 bg-violet-600 text-white"
+                    : "border-violet-300 bg-white text-violet-900 hover:border-violet-400 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/50")
+                  }
+                >
+                  <span className="block truncate">{a.programacaoNome}</span>
+                  <span className="block truncate text-[10px] font-normal opacity-80">{a.clienteNome}</span>
+                  <span
+                    className={
+                      "block truncate text-[10px] font-semibold " +
+                      (ativo ? "text-violet-100" : "text-violet-700 dark:text-violet-300")
+                    }
+                  >
+                    Dono: {dono}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      : null}
+
+      {atualizacoesManuais.length > 0 ?
         <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50/90 px-4 py-3 shadow-sm dark:border-orange-900/60 dark:bg-orange-950/30">
           <div className="text-[10px] font-bold uppercase tracking-widest text-orange-800 dark:text-orange-300">
             Atualizações abertas
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
-            {atualizacoesAbertas.map((a) => {
+            {atualizacoesManuais.map((a) => {
               const ativo = clienteSel?.ref === a.clienteRef && focusProgId === a.programacaoId;
               return (
                 <button
@@ -385,6 +475,9 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
               {showNovaProg ?
                 <NovaProgramacaoInline
                   cliente={clienteSel}
+                  criativos={criativos}
+                  loadingCriativos={loadingCriativos}
+                  assignDono={assignDono}
                   onClose={() => setShowNovaProg(false)}
                   onCreated={async () => {
                     setShowNovaProg(false);
@@ -442,17 +535,13 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                               programacaoId={prog.id}
                               criativos={criativos}
                               loading={loadingCriativos}
-                              dono={map[prog.id] ?? null}
+                              dono={resolveDonoFromProg(prog, map, criativos)}
                               onAssign={(criativo) => {
                                 assignDono(prog.id, criativo);
                                 void persistProgramacaoDonoToServer(prog.id, {
                                   email: criativo.email,
                                   displayName: criativo.displayName,
                                 });
-                              }}
-                              onClear={() => {
-                                removeDono(prog.id);
-                                void persistProgramacaoDonoToServer(prog.id, null);
                               }}
                             />
                           </div>
@@ -509,6 +598,11 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                           <AtlCricaAberturaAviso
                             abertaPor={prog.atualizacaoAbertaPor}
                             abertaEm={prog.atualizacaoAbertaEm}
+                            criativoNomeDb={
+                              prog.criativoNome.trim() ||
+                              getDono(prog.id)?.criativoNome ||
+                              undefined
+                            }
                             compact
                           />
                         </div>
@@ -824,21 +918,34 @@ function PdvProgramacaoColumn({
 
 function NovaProgramacaoInline({
   cliente,
+  criativos,
+  loadingCriativos,
+  assignDono,
   onClose,
   onCreated,
 }: {
   cliente: Cliente;
+  criativos: Array<{ email: string; displayName: string; tagIniciais: string; tagCor: string }>;
+  loadingCriativos: boolean;
+  assignDono: (
+    programacaoId: string,
+    criativo: { email: string; displayName: string; tagIniciais: string; tagCor: string },
+  ) => void;
   onClose: () => void;
   onCreated: () => void | Promise<void>;
 }) {
   const [nome, setNome] = useState("");
   const [formato, setFormato] = useState("mp3_128_mono");
-  const [tagCriativoUserId, setTagCriativoUserId] = useState("");
+  const [donoUserId, setDonoUserId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const canSubmit = Boolean(nome.trim() && donoUserId.trim() && !busy && !loadingCriativos);
 
   async function submit() {
-    if (!nome.trim() || busy) return;
+    if (!canSubmit) return;
     setBusy(true);
+    setErro(null);
     try {
       const res = await fetch("/api/criacao/programacoes", {
         method: "POST",
@@ -848,11 +955,23 @@ function NovaProgramacaoInline({
           clienteNome: cliente.nome,
           nome: nome.trim(),
           formatoPadrao: formato,
-          tagCriativoUserId: tagCriativoUserId || undefined,
+          donoUserId: donoUserId.trim(),
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (data.error === "dono_obrigatorio" || data.error === "dono_invalido") {
+          setErro("Escolha um dono criativo válido.");
+        } else {
+          setErro("Não foi possível criar a programação.");
+        }
+        return;
+      }
+      const data = (await res.json()) as { id: string };
+      const criativo = criativos.find((c) => c.email === donoUserId.trim());
+      if (criativo) assignDono(data.id, criativo);
       setNome("");
+      setDonoUserId("");
       await onCreated();
     } finally {
       setBusy(false);
@@ -872,13 +991,24 @@ function NovaProgramacaoInline({
             className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
           />
         </label>
-        <CriativoTagSelect
-          value={tagCriativoUserId}
-          onChange={setTagCriativoUserId}
-          label="Estilo de"
-          help="Criativo responsável pelo estilo desta programação."
-          className="min-w-[200px] flex-1"
-        />
+        <label className="min-w-[200px] flex-1 text-sm">
+          <span className="mb-1 block text-[10px] font-semibold text-orange-700 dark:text-orange-300">
+            Dono <span className="text-red-600">*</span>
+          </span>
+          <select
+            value={donoUserId}
+            disabled={loadingCriativos || criativos.length === 0}
+            onChange={(e) => setDonoUserId(e.target.value)}
+            className="w-full rounded-lg border-2 border-orange-300 bg-white px-3 py-1.5 text-sm dark:border-orange-700 dark:bg-slate-950"
+          >
+            <option value="">{loadingCriativos ? "Carregando…" : "Escolher dono…"}</option>
+            {criativos.map((c) => (
+              <option key={c.email} value={c.email}>
+                [{c.tagIniciais || "?"}] {c.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-sm">
           <span className="mb-1 block text-[10px] font-semibold text-slate-500">Formato</span>
           <select
@@ -895,7 +1025,7 @@ function NovaProgramacaoInline({
         </label>
         <button
           type="button"
-          disabled={busy}
+          disabled={!canSubmit}
           onClick={() => void submit()}
           className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
         >
@@ -905,6 +1035,9 @@ function NovaProgramacaoInline({
           cancelar
         </button>
       </div>
+      {erro ?
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{erro}</p>
+      : null}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { atlCricaCriativoNome, isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
+import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 
 function fmtWhen(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -24,7 +24,7 @@ export function AtlCricaAberturaAviso({
   compact?: boolean;
 }) {
   if (!isAtlCricaAbertura(abertaPor)) return null;
-  const criativo = atlCricaCriativoNome(abertaPor) || criativoNomeDb || "Criativo";
+  const dono = criativoNomeDb?.trim() || "Sem dono";
   return (
     <div
       className={
@@ -34,14 +34,14 @@ export function AtlCricaAberturaAviso({
     >
       <div className="font-bold text-violet-900 dark:text-violet-100">Abertura via ATL CRICA</div>
       <div className="mt-0.5 text-violet-800 dark:text-violet-200">
-        Criativo: <strong>{criativo}</strong>
+        Dono: <strong>{dono}</strong>
         {abertaEm ?
           <span className="text-violet-700 dark:text-violet-300"> · {fmtWhen(abertaEm)}</span>
         : null}
       </div>
       {!compact ?
         <p className="mt-1 text-[10px] text-violet-700 dark:text-violet-300">
-          Produção: após deduplicada na fila, feche a programação aqui.
+          Produção: faixas entram nas pastas após a fila (só revise se houver duplicata). Feche a programação aqui.
         </p>
       : null}
     </div>
