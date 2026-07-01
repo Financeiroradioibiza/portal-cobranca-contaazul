@@ -28,7 +28,7 @@ export async function getValidAccessToken(): Promise<string | null> {
       },
     });
     return json.access_token;
-  } catch (e) {
+  } catch {
     // Outro request serverless pode ter renovado entre a leitura e o refresh.
     const again = await prisma.contaAzulToken.findUnique({
       where: { id: TOKEN_ID },
@@ -36,11 +36,7 @@ export async function getValidAccessToken(): Promise<string | null> {
     if (again && again.expiresAt.getTime() > Date.now() + SKEW_MS) {
       return again.accessToken;
     }
-
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/invalid_grant|invalid refresh|revoked|expired.*refresh/i.test(msg)) {
-      await prisma.contaAzulToken.deleteMany({ where: { id: TOKEN_ID } });
-    }
+    // Não apaga o token — reconectar só via «Desconectar» ou novo OAuth explícito.
     return null;
   }
 }
