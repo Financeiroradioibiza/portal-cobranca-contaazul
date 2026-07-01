@@ -10,12 +10,12 @@ function basicAuthHeader(clientId: string, clientSecret: string) {
   return `Basic ${Buffer.from(raw).toString("base64")}`;
 }
 
-export function buildAuthorizeUrl(state: string) {
-  const { clientId, redirectUri } = getContaAzulOAuthConfig();
+export function buildAuthorizeUrl(state: string, redirectUri?: string) {
+  const { clientId, redirectUri: uri } = getContaAzulOAuthConfig(redirectUri);
   const u = new URL(CONTA_AZUL_AUTH_LOGIN);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", clientId);
-  u.searchParams.set("redirect_uri", redirectUri);
+  u.searchParams.set("redirect_uri", uri);
   u.searchParams.set("state", state);
   // Espaços → "+" na query (x-www-form-urlencoded). Não passar "+" manual:
   // vira %2B e a Conta Azul responde invalid_scope.
@@ -30,12 +30,15 @@ export type TokenResponse = {
   token_type: string;
 };
 
-export async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
-  const { clientId, clientSecret, redirectUri } = getContaAzulOAuthConfig();
+export async function exchangeCodeForTokens(
+  code: string,
+  redirectUri?: string,
+): Promise<TokenResponse> {
+  const { clientId, clientSecret, redirectUri: uri } = getContaAzulOAuthConfig(redirectUri);
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
-    redirect_uri: redirectUri,
+    redirect_uri: uri,
   });
   const res = await fetch(CONTA_AZUL_TOKEN_URL, {
     method: "POST",

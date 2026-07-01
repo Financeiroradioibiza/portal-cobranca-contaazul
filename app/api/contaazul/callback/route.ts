@@ -24,15 +24,21 @@ export async function GET(request: Request) {
   }
 
   const jar = await cookies();
+  const redirectUri = jar.get("ca_oauth_redirect")?.value;
   const expected = jar.get("ca_oauth_state")?.value;
+  jar.delete("ca_oauth_redirect");
   jar.delete("ca_oauth_state");
 
   if (!expected || expected !== state) {
     return NextResponse.redirect(`${site}${AFTER_OAUTH}?oauth_error=invalid_state`);
   }
 
+  if (!redirectUri) {
+    return NextResponse.redirect(`${site}${AFTER_OAUTH}?oauth_error=missing_redirect_uri`);
+  }
+
   try {
-    const json = await exchangeCodeForTokens(code);
+    const json = await exchangeCodeForTokens(code, redirectUri);
     await saveTokens(json);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "token_error";

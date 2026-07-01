@@ -29,6 +29,7 @@ export function CobrancaDashboard() {
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [oauthBanner, setOauthBanner] = useState<string | null>(null);
+  const [oauthSetupHint, setOauthSetupHint] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [sortClientsBy, setSortClientsBy] = useState<ClientSortMode>("parcelas_desc");
@@ -321,6 +322,27 @@ export function CobrancaDashboard() {
       void loadStatus();
     });
   }, [loadStatus]);
+
+  useEffect(() => {
+    if (status?.connected) {
+      setOauthSetupHint(null);
+      return;
+    }
+    let canceled = false;
+    void (async () => {
+      const res = await fetch("/api/contaazul/oauth-setup", { credentials: "include" });
+      const data = (await res.json().catch(() => ({}))) as { redirectUri?: string; error?: string };
+      if (canceled) return;
+      if (data.redirectUri) {
+        setOauthSetupHint(data.redirectUri);
+      } else if (data.error) {
+        setOauthSetupHint(data.error);
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [status?.connected]);
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -773,6 +795,18 @@ export function CobrancaDashboard() {
           {oauthBanner}
         </div>
       ) : null}
+
+      {!connected && oauthSetupHint ?
+        <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+          <strong>URL de callback OAuth deste site:</strong>{" "}
+          <code className="break-all">{oauthSetupHint}</code>
+          <p className="mt-1">
+            Se a Conta Azul mostra «An error was encountered», cadastre essa URL exatamente igual no{" "}
+            <strong>Portal do Desenvolvedor Conta Azul</strong> (app de produção) e confira{" "}
+            <code>CONTA_AZUL_REDIRECT_URI</code> na Netlify.
+          </p>
+        </div>
+      : null}
 
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
