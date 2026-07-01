@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FinanceiroOverviewPayload } from "@/lib/financeiro/financeiroOverviewService";
 import { formatBRL } from "@/lib/format";
@@ -90,17 +91,12 @@ export function FinanceiroVisaoGeralPanel() {
 
   if (notConnected) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950/40">
-        <p className="font-semibold text-amber-900 dark:text-amber-100">Conta Azul não conectado</p>
-        <p className="mt-1 text-sm text-amber-800/90 dark:text-amber-200/80">
-          Conecte a integração para ver os totais de receitas e atrasos.
-        </p>
-        <a
-          href="/api/contaazul/login"
-          className="mt-3 inline-flex rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
-        >
-          Conectar Conta Azul →
-        </a>
+      <div className="rounded-lg border border-slate-600 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
+        Sessão Conta Azul ausente. Reconecte em{" "}
+        <Link href="/financeiro/vencidos" className="font-semibold text-sky-400 underline">
+          Vencidos
+        </Link>{" "}
+        e clique em <strong>Atualizar</strong> aqui.
       </div>
     );
   }

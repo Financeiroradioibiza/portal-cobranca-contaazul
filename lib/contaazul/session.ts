@@ -29,7 +29,12 @@ export async function getValidAccessToken(): Promise<string | null> {
     });
     return json.access_token;
   } catch {
-    await prisma.contaAzulToken.deleteMany({ where: { id: TOKEN_ID } });
+    const again = await prisma.contaAzulToken.findUnique({
+      where: { id: TOKEN_ID },
+    });
+    if (again && again.expiresAt.getTime() > Date.now() + SKEW_MS) {
+      return again.accessToken;
+    }
     return null;
   }
 }

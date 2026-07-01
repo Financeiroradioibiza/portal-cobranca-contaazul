@@ -1,26 +1,20 @@
-import { randomBytes } from "crypto";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { buildAuthorizeUrl } from "@/lib/contaazul/oauth";
-import { getContaAzulOAuthConfig } from "@/lib/contaazul/config";
+import { getContaAzulOAuthConfig, siteUrlFromRequest } from "@/lib/contaazul/config";
+import { createCaOAuthState } from "@/lib/contaazul/oauthState";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const site = siteUrlFromRequest(request);
+
   try {
     getContaAzulOAuthConfig();
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Config OAuth inválida";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.redirect(
+      `${site}/financeiro/vencidos?oauth_error=${encodeURIComponent(msg.slice(0, 500))}`,
+    );
   }
 
-  const state = randomBytes(24).toString("hex");
-  const jar = await cookies();
-  jar.set("ca_oauth_state", state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 600,
-  });
-
+  const state = createCaOAuthState();
   return NextResponse.redirect(buildAuthorizeUrl(state));
 }

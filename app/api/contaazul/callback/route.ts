@@ -1,8 +1,10 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { siteUrlFromRequest } from "@/lib/contaazul/config";
 import { exchangeCodeForTokens } from "@/lib/contaazul/oauth";
+import { verifyCaOAuthState } from "@/lib/contaazul/oauthState";
 import { saveTokens } from "@/lib/contaazul/session";
+
+const AFTER_OAUTH = "/financeiro/vencidos";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -13,20 +15,16 @@ export async function GET(request: Request) {
 
   if (oauthError) {
     return NextResponse.redirect(
-      `${site}/?oauth_error=${encodeURIComponent(oauthError)}`,
+      `${site}${AFTER_OAUTH}?oauth_error=${encodeURIComponent(oauthError)}`,
     );
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(`${site}/?oauth_error=missing_code`);
+    return NextResponse.redirect(`${site}${AFTER_OAUTH}?oauth_error=missing_code`);
   }
 
-  const jar = await cookies();
-  const expected = jar.get("ca_oauth_state")?.value;
-  jar.delete("ca_oauth_state");
-
-  if (!expected || expected !== state) {
-    return NextResponse.redirect(`${site}/?oauth_error=invalid_state`);
+  if (!verifyCaOAuthState(state)) {
+    return NextResponse.redirect(`${site}${AFTER_OAUTH}?oauth_error=invalid_state`);
   }
 
   try {
@@ -35,9 +33,9 @@ export async function GET(request: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "token_error";
     return NextResponse.redirect(
-      `${site}/?oauth_error=${encodeURIComponent(msg.slice(0, 500))}`,
+      `${site}${AFTER_OAUTH}?oauth_error=${encodeURIComponent(msg.slice(0, 500))}`,
     );
   }
 
-  return NextResponse.redirect(`${site}/?connected=1`);
+  return NextResponse.redirect(`${site}${AFTER_OAUTH}?connected=1`);
 }
