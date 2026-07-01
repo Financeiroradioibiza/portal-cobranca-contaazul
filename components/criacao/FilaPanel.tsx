@@ -373,7 +373,7 @@ export function FilaPanel() {
                       </p>
                     : null}
                     {!(j.status === "revisao" && j.duplicatas > 0 && items[j.id] && jobMeta[j.id]) ?
-                    <>
+                      <>
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap gap-1.5">
                         {Object.entries(ETAPA_LABEL_UI).map(([key, label]) => (
@@ -468,8 +468,8 @@ export function FilaPanel() {
                         ))}
                       </ul>
                     }
-                    </>
-                    }
+                      </>
+                    : null}
                   </div>
                 : null}
               </li>
