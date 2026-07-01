@@ -6,7 +6,7 @@ import { criacaoConfig } from './config.js';
 import { findDuplicate } from './dedupe.js';
 import { analyzeAudio } from './analyze.js';
 import { produceMasterAndUso, probeBpmFromFile, probeIsrcFromFile } from './ffmpeg.js';
-import { detectMixAndTrim } from './mixTrimDetect.js';
+import { persistMixTrimForMusica, resolveMixTrim } from './mixTrimApply.js';
 import { parseMp3Filename } from './parseFilename.js';
 import { portalQuery } from './portalDb.js';
 import { pipelineLog, pipelineTimed } from './pipelineLogger.js';
@@ -128,24 +128,18 @@ async function refreshMixOrProduceOnDuplicate(
     return;
   }
 
-  const { mixSegundosFinais, trimFimMs, trimInicioMs } = await detectMixAndTrim(inputPath);
-  const mix =
-    mixSegundosFinais > 0 ? mixSegundosFinais : criacaoConfig.defaultMixSegundos;
-  await portalQuery(
-    `UPDATE musica_biblioteca
-        SET mix_segundos_finais = $2,
-            trim_inicio_ms = $3,
-            trim_fim_ms = $4,
-            updated_at = now()
-      WHERE id = $1
-        AND mix_auto = true
-        AND (mix_segundos_finais IS NULL OR mix_segundos_finais = 0)`,
-    [existenteId, mix, trimInicioMs, trimFimMs],
-  );
+  const resolved = await resolveMixTrim(inputPath);
+  await persistMixTrimForMusica(existenteId, resolved, true, true);
   pipelineLog(
     { itemId: item.id, jobId: item.job_id, musicaId: existenteId, etapa: 'ponto_mix' },
     'mix_trim_duplicata_atualizado',
-    { mixSegundos: mix, trimFimMs, trimInicioMs },
+    {
+      mixSegundos: resolved.appliedMixSegundos,
+      detectedMix: resolved.mixSegundosFinais,
+      quietOutro: resolved.quietOutro,
+      trimFimMs: resolved.trimFimMs,
+      trimInicioMs: resolved.trimInicioMs,
+    },
   );
 }
 
@@ -324,22 +318,19 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
 
   await pipelineTimed({ ...ctx, etapa: 'ponto_mix' }, async () => {
     await setItemEtapa(item.id, 'ponto_mix');
-    const { mixSegundosFinais: detectedMix, trimFimMs, trimInicioMs } = await detectMixAndTrim(inputPath);
-    const mixSegundosFinais =
-      detectedMix > 0 ? detectedMix : criacaoConfig.defaultMixSegundos;
-    await portalQuery(
-      `UPDATE musica_biblioteca
-          SET mix_segundos_finais = $2,
-              trim_inicio_ms = $3,
-              trim_fim_ms = $4,
-              updated_at = now()
-        WHERE id = $1 AND mix_auto = true`,
-      [musicaId, mixSegundosFinais, trimInicioMs, trimFimMs],
-    );
+    const resolved = await resolveMixTrim(inputPath);
+    await persistMixTrimForMusica(musicaId, resolved, true, false);
     pipelineLog(
       { ...ctx, etapa: 'ponto_mix' },
       'mix_trim_detectado',
-      { mixSegundos: mixSegundosFinais, trimFimMs, trimInicioMs },
+      {
+        mixSegundos: resolved.appliedMixSegundos,
+        detectedMix: resolved.mixSegundosFinais,
+        quietOutro: resolved.quietOutro,
+        envelopeOk: resolved.envelopeOk,
+        trimFimMs: resolved.trimFimMs,
+        trimInicioMs: resolved.trimInicioMs,
+      },
     );
   });
 
@@ -474,7 +465,7 @@ export async function runPipelineLoop(): Promise<void> {
       component: 'criacao-worker',
       msg: 'iniciado',
       pollMs: criacaoConfig.workerPollMs,
-      mixPadraoSeg: criacaoConfig.defaultMixSegundos,
+      mixRegras: 'fade_2s_outro_quieto_0',
       rib: criacaoConfig.ribSecret.length >= 16,
     }),
   );

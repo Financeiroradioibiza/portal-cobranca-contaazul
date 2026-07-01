@@ -21,9 +21,21 @@ type Faixa = {
   trimInicioMs: number;
   trimFimMs: number;
   previewUrl: string | null;
+  createdAt: string;
   tagsManuais: ManualTag[];
   tagsAuto: AutoTag[];
 };
+
+function formatUploadWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function fmt(s: number): string {
   if (!Number.isFinite(s) || s < 0) s = 0;
@@ -99,6 +111,9 @@ export function EdicaoPanel() {
   const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
   const [allTags, setAllTags] = useState<TagChip[]>([]);
   const [sel, setSel] = useState<Faixa | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/criacao/tags")
@@ -129,7 +144,76 @@ export function EdicaoPanel() {
 
   useEffect(() => {
     void load();
+    setSelected(new Set());
   }, [load]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(draft), 300);
+    return () => clearTimeout(t);
+  }, [draft]);
+
+  const allPageSelected = faixas.length > 0 && faixas.every((f) => selected.has(f.id));
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllPage() {
+    if (allPageSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(faixas.map((f) => f.id)));
+    }
+  }
+
+  async function reanalisarSelected() {
+    if (selected.size === 0) return;
+    if (
+      !window.confirm(
+        `Detectar mix e trim automaticamente em ${selected.size} faixa(s)? Valores atuais serão substituídos.`,
+      )
+    ) {
+      return;
+    }
+    setReanalyzing(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch("/api/criacao/edicao/reanalisar-mix-trim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ musicaIds: [...selected] }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        okCount?: number;
+        failCount?: number;
+        fallback?: boolean;
+        message?: string;
+      };
+      if (!res.ok) {
+        setBulkMsg("Não foi possível reanalisar — tente de novo.");
+        return;
+      }
+      const ok = data.okCount ?? 0;
+      const fail = data.failCount ?? 0;
+      setBulkMsg(
+        data.fallback ?
+          "Servidor de áudio indisponível."
+        : fail > 0 ?
+          `${ok} reanalisada(s), ${fail} sem upload bruto no servidor.`
+        : `${ok} faixa(s) reanalisada(s) ✓`,
+      );
+      await load();
+    } catch {
+      setBulkMsg("Erro de rede ao reanalisar.");
+    } finally {
+      setReanalyzing(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[1400px] px-3 py-6 sm:px-4">
@@ -197,8 +281,35 @@ export function EdicaoPanel() {
         </div>
       : null}
       <p className="mb-4 text-[11px] text-slate-500">
-        Dica: busque pelo <strong>nome da pasta</strong> ou da <strong>programação</strong> para listar todas as faixas da playlist.
+        Ordenado por <strong>upload mais recente</strong>. Dica: busque pelo nome da pasta ou programação para listar uma playlist inteira.
       </p>
+
+      {faixas.length > 0 ?
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={allPageSelected}
+              onChange={toggleSelectAllPage}
+              className="rounded border-slate-300"
+            />
+            Marcar todas da página ({faixas.length})
+          </label>
+          <span className="text-xs text-slate-400">·</span>
+          <span className="text-xs text-slate-500">{selected.size} selecionada(s)</span>
+          <button
+            type="button"
+            disabled={selected.size === 0 || reanalyzing}
+            onClick={() => void reanalisarSelected()}
+            className="ml-auto rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-600 disabled:opacity-40"
+          >
+            {reanalyzing ? "Analisando…" : "Detectar mix/trim automaticamente"}
+          </button>
+          {bulkMsg ?
+            <span className="w-full text-xs text-emerald-700 dark:text-emerald-300">{bulkMsg}</span>
+          : null}
+        </div>
+      : null}
 
       {loading ?
         <div className="py-10 text-sm text-slate-500">Carregando faixas e waveforms…</div>
@@ -210,13 +321,15 @@ export function EdicaoPanel() {
         </div>
       : <>
           <div className={`overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-sm dark:border-slate-800${sel ? " pb-52 md:pb-64" : ""}`}>
-            <div className="hidden border-b border-slate-800 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 md:grid md:grid-cols-[minmax(0,1fr)_minmax(220px,340px)] md:gap-4">
+            <div className="hidden border-b border-slate-800 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 md:grid md:grid-cols-[auto_minmax(0,1fr)_minmax(220px,340px)] md:gap-4">
+              <span className="w-6" />
               <span>Forma de onda</span>
               <span>Faixa · tags</span>
             </div>
             <ul className="divide-y divide-slate-800">
               {faixas.map((f) => {
                 const active = sel?.id === f.id;
+                const checked = selected.has(f.id);
                 const hasTrim = f.trimInicioMs > 0 || f.trimFimMs > 0;
                 const hasManualMix = !f.mixAuto;
                 return (
@@ -232,10 +345,20 @@ export function EdicaoPanel() {
                         }
                       }}
                       className={
-                        "grid w-full cursor-pointer grid-cols-1 gap-3 px-3 py-3 text-left transition md:grid-cols-[minmax(0,1fr)_minmax(220px,340px)] md:items-center md:gap-4 md:px-4 " +
+                        "grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)] gap-2 px-3 py-3 text-left transition md:grid-cols-[auto_minmax(0,1fr)_minmax(220px,340px)] md:items-center md:gap-4 md:px-4 " +
                         (active ? "bg-slate-800/80 ring-1 ring-inset ring-amber-500/40" : "hover:bg-slate-900/60")
                       }
                     >
+                      <div className="flex items-start pt-1 md:items-center md:pt-0">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelected(f.id)}
+                          aria-label={`Selecionar ${f.titulo}`}
+                          className="rounded border-slate-600 bg-slate-900"
+                        />
+                      </div>
                       <div className="relative min-w-0">
                         <LazyWaveformBars previewUrl={f.previewUrl} height={44} barCount={120} barColor="rgba(255,255,255,0.7)" />
                         <WaveformEditBadges hasTrim={hasTrim} hasManualMix={hasManualMix} />
@@ -247,6 +370,7 @@ export function EdicaoPanel() {
                           {f.durationMs ? ` · ${fmt(f.durationMs / 1000)}` : ""}
                           {f.mixSegundosFinais != null ? ` · mix ${f.mixSegundosFinais}s` : ""}
                           {hasTrim ? " · trim ✂" : ""}
+                          {f.createdAt ? ` · ↑ ${formatUploadWhen(f.createdAt)}` : ""}
                         </div>
                         <TagChips faixa={f} max={5} />
                       </div>

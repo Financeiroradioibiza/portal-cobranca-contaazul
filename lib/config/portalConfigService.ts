@@ -21,7 +21,7 @@ export async function setConfig(chave: string, valor: string, updatedBy: string)
   });
 }
 
-/** Ponto de mix padrão (segundos finais de fadeout) aplicado no upload. */
+/** @deprecated Não usado no pipeline — mix vem só da detecção (fade/outro quieto). */
 export async function getPontoMixPadraoSeg(): Promise<number> {
   const raw = await getConfig(CONFIG_KEYS.pontoMixPadraoSeg);
   const n = Number(raw);

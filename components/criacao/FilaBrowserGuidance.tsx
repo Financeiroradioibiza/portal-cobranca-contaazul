@@ -34,8 +34,8 @@ const PHASE: Record<
   },
   "fila-revisao": {
     icon: "◷",
-    title: "Pode fechar — volte depois para aprovar",
-    body: "O processamento automático deste lote já terminou. Feche se quiser; quando voltar, abra o job em Revisão, confira duplicatas, mix/trim e clique em Aprovar lote.",
+    title: "Revise as duplicatas",
+    body: "Este lote tem possíveis duplicatas para comparar. Resolva cada uma abaixo; o restante já foi processado automaticamente.",
     tone:
       "border-amber-200 bg-amber-50/80 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
   },
@@ -81,9 +81,9 @@ export function FilaBrowserGuidanceOverview({ compact = false }: { compact?: boo
       sim: "Aguardando / Processando — roda no servidor; pode fechar.",
     },
     {
-      label: "3. Revisão e aprovação",
+      label: "3. Revisão (só se necessário)",
       nao: "—",
-      sim: "Pode fechar e voltar depois para aprovar o lote.",
+      sim: "Duplicatas ou erros — demais lotes concluem sozinhos; pode fechar.",
     },
   ];
 

@@ -87,6 +87,7 @@ export function FilaPanel() {
   const [jobMeta, setJobMeta] = useState<Record<string, JobDetailMeta>>({});
   const [itemView, setItemView] = useState<"kanban" | "lista">("kanban");
   const lastSyncPendingAt = useRef(0);
+  const autoFinishedRef = useRef<Set<string>>(new Set());
 
   const syncPending = useCallback(async () => {
     const now = Date.now();
@@ -98,6 +99,22 @@ export function FilaPanel() {
       /* ignore */
     }
   }, []);
+
+  const finishJobIfReady = useCallback(async (jobId: string) => {
+    if (autoFinishedRef.current.has(jobId)) return;
+    autoFinishedRef.current.add(jobId);
+    try {
+      await fetch(`/api/criacao/fila/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "finish" }),
+      });
+      lastSyncPendingAt.current = 0;
+      await syncPending();
+    } catch {
+      autoFinishedRef.current.delete(jobId);
+    }
+  }, [syncPending]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -161,6 +178,23 @@ export function FilaPanel() {
     return () => clearInterval(t);
   }, [autoRefresh, openId, load, loadItems, syncPending]);
 
+  useEffect(() => {
+    for (const j of jobs) {
+      if (j.status === "revisao" && j.duplicatas === 0 && j.erros === 0) {
+        void finishJobIfReady(j.id);
+      }
+    }
+  }, [jobs, finishJobIfReady]);
+
+  useEffect(() => {
+    if (openId) {
+      const j = jobs.find((x) => x.id === openId);
+      if (j?.status === "revisao" && j.duplicatas === 0 && j.erros === 0) {
+        void finishJobIfReady(j.id).then(() => load());
+      }
+    }
+  }, [openId, jobs, finishJobIfReady, load]);
+
   function toggle(id: string) {
     if (openId === id) {
       setOpenId(null);
@@ -201,8 +235,7 @@ export function FilaPanel() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Fila de processamento</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Cada pasta ou tag vira um job na fila. Após o processamento automático, revise duplicatas,
-            mix/trim e tags antes de aprovar e publicar.
+            Cada pasta ou tag vira um job na fila. Duplicatas e erros pedem revisão; demais lotes concluem sozinhos.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -303,9 +336,15 @@ export function FilaPanel() {
                 {open ?
                   <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
                     <div className="mb-3">
-                      <FilaBrowserGuidance phase={filaPhaseFromJobStatus(j.status)} />
+                      <FilaBrowserGuidance
+                        phase={
+                          j.status === "revisao" && j.duplicatas > 0 ?
+                            "fila-revisao"
+                          : filaPhaseFromJobStatus(j.status)
+                        }
+                      />
                     </div>
-                    {j.status === "revisao" && items[j.id] && jobMeta[j.id] ?
+                    {j.status === "revisao" && j.duplicatas > 0 && items[j.id] && jobMeta[j.id] ?
                       <FilaRevisaoWorkflow
                         jobId={j.id}
                         items={items[j.id]!}
@@ -317,14 +356,24 @@ export function FilaPanel() {
                           await loadItems(j.id);
                           await load();
                         }}
-                        onApproved={() => {
+                        onFinished={() => {
                           lastSyncPendingAt.current = 0;
                           void syncPending();
                           void load();
                           void loadItems(j.id);
                         }}
                       />
-                    : <>
+                    : j.status === "revisao" && j.duplicatas === 0 && j.erros === 0 ?
+                      <p className="mb-3 text-sm text-emerald-700 dark:text-emerald-300">
+                        Processamento concluído — finalizando lote automaticamente…
+                      </p>
+                    : j.status === "erro" || j.erros > 0 ?
+                      <p className="mb-3 text-sm text-red-600">
+                        {j.erros} faixa(s) com erro — confira os itens abaixo e reenvie se necessário.
+                      </p>
+                    : null}
+                    {!(j.status === "revisao" && j.duplicatas > 0 && items[j.id] && jobMeta[j.id]) ?
+                    <>
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap gap-1.5">
                         {Object.entries(ETAPA_LABEL_UI).map(([key, label]) => (

@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
+import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
 export type UploadArquivo = { nome: string; sizeBytes?: number };
 
@@ -110,14 +112,43 @@ export async function listJobs(opts: { status?: string; limit?: number }): Promi
     where,
     orderBy: { createdAt: "desc" },
     take: Math.min(200, Math.max(1, opts.limit ?? 100)),
-    include: {
-      itens: { select: { status: true } },
+    select: {
+      id: true,
+      tipo: true,
+      status: true,
+      etapaAtual: true,
+      titulo: true,
+      clienteNome: true,
+      criativoNome: true,
+      totalItens: true,
+      itensFeitos: true,
+      erroMsg: true,
+      createdAt: true,
+      startedAt: true,
+      finishedAt: true,
     },
   });
 
+  if (jobs.length === 0) return [];
+
+  const jobIds = jobs.map((j) => j.id);
+  const itemCounts = await prisma.processamentoItem.groupBy({
+    by: ["jobId", "status"],
+    where: { jobId: { in: jobIds } },
+    _count: { _all: true },
+  });
+
+  const dupeMap = new Map<string, number>();
+  const erroMap = new Map<string, number>();
+  for (const row of itemCounts) {
+    const n = row._count._all;
+    if (row.status === "duplicata") dupeMap.set(row.jobId, (dupeMap.get(row.jobId) ?? 0) + n);
+    if (row.status === "erro") erroMap.set(row.jobId, (erroMap.get(row.jobId) ?? 0) + n);
+  }
+
   return jobs.map((j) => {
-    const duplicatas = j.itens.filter((i) => i.status === "duplicata").length;
-    const erros = j.itens.filter((i) => i.status === "erro").length;
+    const duplicatas = dupeMap.get(j.id) ?? 0;
+    const erros = erroMap.get(j.id) ?? 0;
     return {
       id: j.id,
       tipo: j.tipo,
@@ -201,30 +232,78 @@ export async function cancelJob(id: string): Promise<boolean> {
   return true;
 }
 
-/** Aprova lote após revisão humana — libera tag na biblioteca e faixas na pasta. */
-export async function approveJob(id: string): Promise<{ ok: boolean; reason?: string }> {
+/** Recalcula status do job quando itens terminam (espelha maybeFinishJob do cloud2). */
+export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status: string }> {
   const job = await prisma.processamentoJob.findUnique({
-    where: { id },
+    where: { id: jobId },
     select: { status: true, tipo: true },
   });
-  if (!job) return { ok: false, reason: "not_found" };
-  if (job.status !== "revisao") return { ok: false, reason: "not_in_revisao" };
+  if (!job) return { ok: false, status: "not_found" };
 
-  const dupes = await prisma.processamentoItem.count({
-    where: { jobId: id, status: "duplicata" },
-  });
-  if (dupes > 0) return { ok: false, reason: "duplicatas_pendentes" };
+  const [dupes, pending, erros] = await Promise.all([
+    prisma.processamentoItem.count({ where: { jobId, status: "duplicata" } }),
+    prisma.processamentoItem.count({
+      where: { jobId, status: { in: ["aguardando", "processando"] } },
+    }),
+    prisma.processamentoItem.count({ where: { jobId, status: "erro" } }),
+  ]);
 
-  const pendentes = await prisma.processamentoItem.count({
-    where: { jobId: id, status: { in: ["aguardando", "processando"] } },
-  });
-  if (pendentes > 0) return { ok: false, reason: "processamento_pendente" };
+  if (pending > 0) return { ok: false, status: job.status };
 
-  await prisma.processamentoJob.update({
-    where: { id },
-    data: { status: "concluido", finishedAt: new Date(), etapaAtual: "armazenamento" },
+  const nextStatus = erros > 0 ? "erro" : dupes > 0 ? "revisao" : "concluido";
+
+  if (job.status !== nextStatus) {
+    await prisma.processamentoJob.update({
+      where: { id: jobId },
+      data: {
+        status: nextStatus,
+        etapaAtual: "armazenamento",
+        finishedAt: nextStatus === "concluido" || nextStatus === "erro" ? new Date() : null,
+      },
+    });
+  }
+
+  if (nextStatus === "concluido") {
+    await applyPendingUploadTags(200).catch(() => {});
+    await applyPendingPastaUploads(200).catch(() => {});
+  }
+
+  return { ok: nextStatus === "concluido", status: nextStatus };
+}
+
+/** Jobs em revisão sem duplicatas pendentes → concluído automaticamente. */
+export async function autoFinishJobsReady(): Promise<number> {
+  const jobs = await prisma.processamentoJob.findMany({
+    where: { status: "revisao" },
+    select: { id: true },
+    take: 50,
   });
-  return { ok: true };
+  let finished = 0;
+  for (const j of jobs) {
+    const dupes = await prisma.processamentoItem.count({
+      where: { jobId: j.id, status: "duplicata" },
+    });
+    if (dupes > 0) continue;
+    const r = await tryFinishJob(j.id);
+    if (r.status === "concluido") finished += 1;
+  }
+  return finished;
+}
+
+/** Aprova lote após revisão humana — libera tag na biblioteca e faixas na pasta. */
+export async function approveJob(id: string): Promise<{ ok: boolean; reason?: string }> {
+  const result = await tryFinishJob(id);
+  if (result.status === "concluido") return { ok: true };
+  if (result.status === "revisao") {
+    const dupes = await prisma.processamentoItem.count({
+      where: { jobId: id, status: "duplicata" },
+    });
+    if (dupes > 0) return { ok: false, reason: "duplicatas_pendentes" };
+  }
+  if (result.status === "processando" || result.status === "aguardando") {
+    return { ok: false, reason: "processamento_pendente" };
+  }
+  return { ok: false, reason: "not_in_revisao" };
 }
 
 /** Resolução manual de duplicata: "nova" mantém como faixa nova; "existente" descarta o item. */
@@ -243,6 +322,9 @@ export async function resolveDuplicata(itemId: string, decision: "nova" | "exist
       ...(decision === "nova" ? { musicaId: null } : {}),
     },
   });
+  if (decision === "existente") {
+    await tryFinishJob(item.jobId).catch(() => {});
+  }
   return true;
 }
 
@@ -258,6 +340,9 @@ export async function resolveDuplicatasBulk(
       erroMsg: decision === "existente" ? "Descartada (duplicata confirmada)" : "",
     },
   });
+  if (decision === "existente") {
+    await tryFinishJob(jobId).catch(() => {});
+  }
   return result.count;
 }
 

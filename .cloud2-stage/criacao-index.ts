@@ -8,6 +8,7 @@ import { registerPlayerRegistryRoutes } from "./player-registry.js";
 import { registerApagarMusicaRoutes } from "./apagar-musica.js";
 import { registerRefreshTagsRoutes } from "./refresh-tags.js";
 import { registerReprocessEdicaoRoutes } from "./reprocess-edicao.js";
+import { registerReanalisarMixTrimRoutes } from "./reanalisar-mix-trim.js";
 import { registerUploadAudioRoutes } from "./upload-audio.js";
 import { registerDownloadProcessRoutes } from "./download-process.js";
 
@@ -25,5 +26,6 @@ export async function registerCriacaoRoutes(app: FastifyInstance): Promise<void>
   await registerApagarMusicaRoutes(app, CRIACAO_PREFIX);
   await registerRefreshTagsRoutes(app, CRIACAO_PREFIX);
   await registerReprocessEdicaoRoutes(app, CRIACAO_PREFIX);
+  await registerReanalisarMixTrimRoutes(app, CRIACAO_PREFIX);
   await registerPlayerRegistryRoutes(app, CRIACAO_PREFIX);
 }

@@ -1,224 +1,337 @@
 # Onde estamos — Radio Ibiza (portal + produção)
 
-Documento de referência do estado do projeto em **28/05/2026**.  
-Atualize este arquivo quando houver marco importante (deploy, servidor Envyron, piloto de players).
+Documento de **handoff entre conversas**. Leia isto no início de um chat novo para continuar de onde paramos.
 
-**Site em produção (portal admin):** https://site-vencidos-ibiza.netlify.app  
-**Repositório GitHub:** `Financeiroradioibiza/portal-cobranca-contaazul` (branch `main`)
-
----
-
-## 1. Visão geral — o que estamos construindo
-
-Um **portal único de operação** (Next.js + Postgres/Neon) que reúne:
-
-| Área | Foco | Fonte de verdade |
-|------|------|------------------|
-| **Cobrança / financeiro** | Conta Azul, cobranças, OC, planilha por competência | API Conta Azul + `rio_comp_*` |
-| **Cadastros** | Cruzar cobrança (Rio) com produção musical (layout editorial) | Planilha Rio + vínculos legado |
-| **Produção** | Base operacional dos PDVs (dashboard, suporte) | Postgres + cadastro produção |
-| **Webservice players** *(futuro, separado)* | Música, playlist, ping — ~4.000 players hoje no Cake | Legado Cake → depois `portal-ibiza` na Envyron |
-
-**Regra de ouro:** Planilha Rio manda **quem paga** (cliente, CNPJ, valor, contrato).  
-Produção musical organiza **o que toca** (programação, playlist, player) — hierarquia diferente.
+**Última atualização:** 30/06/2026  
+**Branch:** `main` (limpa, em sync com `origin/main`)  
+**Último commit:** `11e06c4` — `fix(criacao): biblioteca slim, mix ATL CRICA, vinhetas lab e config admin`
 
 ---
 
-## 2. Mapa do portal (Netlify)
+## Como retomar em um chat novo
 
-### Cobrança — `/cobranca/*`
+Cole algo neste formato:
 
-| Rota | Função |
-|------|--------|
-| `/cobranca/vencidos` | Clientes com parcelas vencidas/em aberto (Conta Azul) |
-| `/cobranca/planilha-rio` | Planilha Rio por competência (MARCA, PDVs, sync CA, virada) |
-| `/cobranca/envios-oc` | Envios manuais de pedido de OC (e-mail + anexo) |
-| `/cobranca/consulta-painel` | Consulta ao painel legado Cake (cliente/PDV por nome ou ID) |
+> Estamos no repo `portal-cobranca-contaazul`. Leia `docs/ONDE-ESTAMOS.md` e continue de onde paramos.  
+> [descreva a tarefa do dia]
 
-URLs antigas (`/`, `/planilha-rio`, `/manual`) redirecionam para estas rotas.
+**Arquivos que o agente deve ler primeiro:**
 
-### Cadastros — `/cadastros/*`
+| Prioridade | Arquivo | Por quê |
+|------------|---------|---------|
+| 1 | Este arquivo | Estado geral e pendências |
+| 2 | `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload → biblioteca (cloud2) |
+| 3 | `docs/CRIACAO-ATUALIZACAO-PROGRAMACAO.md` | Publicação / atualização de programações |
+| 4 | `AGENTS.md` | Next.js deste repo tem APIs diferentes do training data |
 
-| Rota | Função |
-|------|--------|
-| `/cadastros/grupos` | Layout produção: Rio (cobrança) × grupos editoriais (HERING, etc.) |
-| `/cadastros/vinculos` | Lista e gestão de vínculos Rio PDV ↔ painel legado (`painel_pdv_id`) |
-
-### Produção — `/producao/*`
-
-| Rota | Função |
-|------|--------|
-| `/producao/dashboard` | Visão dos clientes/PDVs de produção (lotes, expandir, versão player) |
-| `/producao/suporte` | Contatos e dados operacionais por PDV |
+**Transcript da conversa que gerou este estado:**  
+`.cursor/projects/.../agent-transcripts/ce8978ef-4b2f-4219-90be-4c1aa8ab60be.jsonl`
 
 ---
 
-## 3. Legado em produção (não mexer sem plano)
+## URLs e ambientes
+
+| Ambiente | URL | Deploy |
+|----------|-----|--------|
+| **Portal Criação / Produção musical** | https://portal.radioibiza.app.br | Netlify, branch `main` |
+| **Portal cobrança (legado URL)** | https://site-vencidos-ibiza.netlify.app | Mesmo repo Netlify |
+| **Processamento de áudio (cloud2)** | https://cloud2.radioibiza.app.br | VM Envyron — repo `portal-ibiza`, pasta `.cloud2-stage/` |
+| **Repositório** | `Financeiroradioibiza/portal-cobranca-contaazul` | GitHub |
+
+**Banco:** Neon Postgres (`DATABASE_URL` no `.env` local e no Netlify).  
+**Migrations pendentes de conferir no Neon:** ver seção [Migrations](#migrations-neon).
+
+---
+
+## Visão geral do que estamos construindo
+
+Portal único (Next.js + Neon) com várias áreas:
+
+| Área | Rotas | Status |
+|------|-------|--------|
+| Cobrança / Conta Azul | `/cobranca/*` | Em produção |
+| Cadastros Rio × produção | `/cadastros/*` | Em produção |
+| Produção PDV / chamados | `/producao/*` | Em produção — dashboard com chamados no topo |
+| **Criação musical** | `/criacao/*` | **Foco atual** — upload, biblioteca, programações, ATL CRICA, vinhetas IA, fila |
+| Player 5 / gateway | Integração parcial | Ver `docs/PLAYER5-INTEGRACAO.md` |
+
+**Regra de ouro (cobrança):** Planilha Rio manda quem paga. **Criação** organiza o que toca (programação → pastas → faixas).
+
+---
+
+## Módulo Criação — estado funcional (30/06/2026)
+
+### Submenus principais (`/criacao`)
+
+| Submenu | O que faz |
+|---------|-----------|
+| **PRODUÇÃO** (ex-Atualizações) | Central de programações, painéis de atualização, chamados |
+| **Programações** | Editor de pastas/playlists, dono obrigatório, destaque faixas novas |
+| **Biblioteca musical** | Acervo processado; view completa e **lista slim** (play + tags coloridas) |
+| **Upload** | Enfileira MP3 por pasta ou biblioteca |
+| **Fila** | Revisão de duplicatas chromaprint, status do worker |
+| **ATL CRICA** | Fluxo mensal por competência: upload por cliente/pasta, export/import hierarquia ZIP |
+| **Vinhetas IA** | ElevenLabs + trilha ambiente; lab de rascunho/preview/aprovação |
+
+### ATL CRICA — como funciona hoje
+
+1. Abrir programação(ões) na competência (`/api/criacao/atl-crica/abrir`).
+2. Usuário monta lotes por pasta (arquivos locais e/ou faixas já na biblioteca).
+3. `submitAtlCricaFileUpload` → `POST /api/criacao/upload` → browser envia MP3 **direto ao cloud2** (ticket HMAC).
+4. Worker (`/.cloud2-stage/criacao/pipeline.ts`) processa: dedupe → mix/trim → 128 mono + LUFS → tags → `musica_biblioteca`.
+5. Job `upload_pasta` concluído → `applyPastaUploadsForJob` coloca faixa na **pasta da programação**.
+6. Portal aplica tag criativa = **nome da pasta** (`buildAtlCricaPastaUploadTag`) via `uploadTagService`.
+7. `marcar-subido` fecha o ciclo ATL CRICA na UI.
+
+**Export/import hierarquia:** ZIP com `atl-manifest.json` — ver `AtlCricaImportExportSection`, `atlCricaHierarquiaService`, `atlCricaImportService`.
+
+**Cliente de teste usado nas conversas:** `Teste portal` → `Prog Teste 002` → pasta `jazz` (7 MP3 jazz enviados em 30/06/2026).
+
+### Vinhetas IA — como funciona hoje
+
+- Rascunho → gerar (ElevenLabs + mix trilha no cloud2) → preview editável → aprovar → puxar em programações.
+- Parâmetros ajustáveis: volume trilha (~18%), velocidade voz, estabilidade ElevenLabs; botões “trilha −10%”, “ralentar”, etc.
+- **Menu ⚙ Config** (colapsável): Conta ElevenLabs, vozes fixas admin, upload trilhas ambiente — **somente Rafael Gasparian** (`rafael@radioibiza.com.br` ou nome contendo “Rafael Gasparian”). Ver `lib/criacao/vinhetaConfigAccess.ts`.
+- Demais usuários: escolhem voz/trilha nos dropdowns de “Nova vinheta”; não veem Config.
+
+### Dono da programação
+
+- Obrigatório ao criar programação (UI + API).
+- PATCH não remove dono.
+- Persistência ao atribuir dono na Central (`atlCricaDonoPersist`).
+
+### Destaque faixas novas (verde)
+
+- `pasta_musica.added_at` vs `programacao.atualizacao_aberta_em` — ver `lib/criacao/pastaMusicaUi.ts`, poll em `ProgramacoesPanel.tsx`.
+- Caixa **ATL CRICA — atualizações abertas** (violeta) no topo da Central; laranja só aberturas manuais.
+
+---
+
+## Commits recentes relevantes (jun/2026)
+
+| Commit | Resumo |
+|--------|--------|
+| `11e06c4` | Biblioteca slim play+tags; fix vinhetas lab (schema compat); menu Config vinhetas; worker mix duplicata+fallback |
+| `919f867` | Vinhetas reeditáveis; dashboard produção com chamados no topo |
+| `499e5cc` | Dono obrigatório; ATL CRICA UI; fila auto concluída; faixas novas via `addedAt` |
+| `9cc7957` | Preview áudio vinhetas IA |
+| `1f811d7` | Import ATL CRICA via manifest; tag por pasta/dono |
+| `8ffa1c2` | Export/import hierarquia ATL CRICA (ZIP) |
+| `3762a0f` | Catálogo fixo vozes/trilhas vinhetas |
+| `4dfe97e` | Submenu Vinhetas IA + mix cloud2 |
+
+---
+
+## Pendências manuais (importante)
+
+### 1. Redeploy do worker cloud2
+
+Mudanças em **`.cloud2-stage/criacao/pipeline.ts`** só valem após redeploy no **portal-ibiza** (Envyron), separado do Netlify.
+
+**O que o commit `11e06c4` adicionou no worker (ainda precisa ir pro ar):**
+
+- Duplicata `content_hash`: se faixa existente não tem `mp3_128_mono`, roda produção completa; se tem mix 0, reanalisa upload e atualiza mix/trim.
+- Fallback: detecção de fade = 0 → usa `CRIACAO_DEFAULT_MIX_SEG` (default **1 s**).
+
+**Diagnóstico:** `scripts/diagnose-criacao-cloud2.sh`
+
+### 2. Migrations Neon
+
+Rodar localmente (com `DATABASE_URL` no `.env`):
+
+```bash
+npx prisma migrate deploy
+```
+
+Migration **crítica para vinhetas** (colunas `ia_bed_volume`, `ia_voice_speed`, `ia_voice_stability`):
+
+- `prisma/migrations/20260703160000_vinheta_ia_lab_params/migration.sql`
+
+**Workaround já no código:** `lib/criacao/vinhetaSchemaCompat.ts` — lab vinhetas funciona **com ou sem** essa migration. Mesmo assim, aplicar no Neon é recomendado.
+
+Outras migrations recentes de criação:
+
+- `20260703140000_pasta_musica_added_at` — destaque faixas novas
+- `20260703120000_vinheta_trilha` — trilhas ambiente vinhetas
+- `20260702120000_vinheta_ia_lab` — tabela/lab vinhetas IA
+
+### 3. Faixas já processadas com mix 0
+
+Uploads de 30/06 (ex.: pasta jazz Teste portal) entraram na biblioteca com **mix 0** porque o worker em produção ainda não tinha o fallback/redeploy. Reprocessar: re-upload ou job manual após redeploy cloud2.
+
+---
+
+## Investigações e armadilhas conhecidas
+
+### “ATL CRICA não entrou na biblioteca”
+
+**Conferido no Neon em 30/06/2026:** as 7 faixas do job `ATL CRICA · jazz` (cliente `Teste portal`) **estão na biblioteca** (`status: pronta`), com tag `jazz`, versão `mp3_128_mono`, LUFS −14, e na pasta `jazz` de `Prog Teste 002`.
+
+| Arquivo | Biblioteca | Observação |
+|---------|------------|------------|
+| Emilie-Claire Barlow — *These Boots…* | ✅ | Duplicata hash → reutilizou faixa de 26/06 |
+| Emmaline — *Old Soul Love* | ✅ | Duplicata hash |
+| Flora — *Amapola* | ✅ | Duplicata hash |
+| Erin Boheme — *Let's Do It* | ✅ | Nova 30/06 |
+| Flora — *La Puñalada…* | ✅ | Nova 30/06 |
+| Flora — *Cielito Lindo…* | ✅ | Nova 30/06 |
+| Flora Martinez — *You Belong…* | ✅ | Nova 30/06 |
+
+**Por que parece que “sumiu” na UI:**
+
+1. **Filtro “Não usadas”** na biblioteca — ATL CRICA coloca a faixa **direto na programação**; filtro `listFilter=unused` esconde tudo que já está em alguma pasta.
+2. **Ordem alfabética** — biblioteca ordena por artista, não por data de upload.
+3. **Timing** — upload ~14:17, processamento até ~14:23, tags ~14:39, pasta ~14:50 (30/06).
+4. **Duplicatas** — 3 arquivos não criaram linha nova; reutilizaram faixa existente (mesmo ID, nova tag `jazz`).
+
+**Como achar:** Biblioteca → Status “Todos” → desligar “Não usadas” → filtrar tag **`jazz`** ou buscar `Flora` / `Erin`.
+
+### Mix 0 / sem trim
+
+- INSERT inicial grava `mix_segundos_finais = 0`; só atualiza em `stepProduce` se worker rodar.
+- Detecção de fade (`mixTrimDetect.ts`) retorna 0 em faixas sem fade de rádio típico (normal em jazz).
+- Duplicata hash **pulava** `stepProduce` antes do fix `11e06c4` (no código local; redeploy pendente).
+
+### Erro 500 em `/api/criacao/vinhetas/lab`
+
+- Causa: migration `20260703160000` não aplicada → Prisma lia colunas `ia_*` inexistentes.
+- Fix: `vinhetaSchemaCompat.ts` + selects condicionais em `vinhetaLabService.ts` (commit `11e06c4`).
+
+---
+
+## Mapa de arquivos — Criação (referência rápida)
+
+### UI
+
+| Arquivo | Papel |
+|---------|--------|
+| `components/criacao/AtlCricaPanel.tsx` | Board ATL CRICA + upload por pasta |
+| `components/criacao/AtlCricaImportExportSection.tsx` | ZIP export/import hierarquia |
+| `components/criacao/BibliotecaMusicalPanel.tsx` | Biblioteca (full + slim com play/tags) |
+| `components/criacao/ProgramacoesPanel.tsx` | Editor programações + destaque verde |
+| `components/criacao/ProgramacoesAdminPanel.tsx` | Central PRODUÇÃO |
+| `components/criacao/VinhetasPanel.tsx` | Vinhetas IA + menu Config |
+| `components/criacao/FilaPanel.tsx` | Fila de processamento |
+
+### Portal (API + serviços)
+
+| Arquivo | Papel |
+|---------|--------|
+| `lib/criacao/filaService.ts` | Cria jobs `upload_pasta` |
+| `lib/criacao/pastaUploadService.ts` | `applyPendingPastaUploads` (fallback portal) |
+| `lib/criacao/uploadTagService.ts` | Tags pós-processamento |
+| `lib/criacao/bibliotecaService.ts` | Listagem biblioteca |
+| `lib/criacao/atlCricaUploadClient.ts` | Client upload ATL CRICA |
+| `lib/criacao/atlCricaUploadTag.ts` | Tag = nome da pasta |
+| `lib/criacao/vinhetaLabService.ts` | CRUD lab vinhetas |
+| `lib/criacao/vinhetaConfigAccess.ts` | ACL Config vinhetas (Rafael) |
+| `lib/criacao/vinhetaSchemaCompat.ts` | Compat colunas `ia_*` |
+| `app/api/criacao/upload/route.ts` | Enfileira upload + tickets |
+
+### Worker cloud2 (redeploy separado)
+
+| Arquivo | Papel |
+|---------|--------|
+| `.cloud2-stage/criacao/pipeline.ts` | Pipeline principal |
+| `.cloud2-stage/criacao/mixTrimDetect.ts` | Ponto de mix + trim fim |
+| `.cloud2-stage/criacao/dedupe.ts` | content_hash + chromaprint |
+| `.cloud2-stage/criacao/config.ts` | `CRIACAO_DEFAULT_MIX_SEG`, LUFS, etc. |
+
+---
+
+## Melhorias sugeridas (não implementadas)
+
+Pedidas ou discutidas, **ainda não feitas**:
+
+1. **UX biblioteca pós-ATL CRICA:** aviso quando filtro “Não usadas” esconde uploads; link “Ver tag jazz”; ordenação **Recentes**.
+2. **Reprocessar em lote** faixas com mix 0 antigas.
+3. **Expor LUFS/formato** na biblioteca para conferência visual.
+4. **Conferir** se migration `20260703160000` foi aplicada no Neon de produção.
+
+---
+
+## Deploy e operação
+
+### Portal (Netlify)
+
+```bash
+git push origin main   # deploy automático
+```
+
+Variáveis críticas: `DATABASE_URL`, `CRIACAO_INGEST_SECRET`, `CRIACAO_INGEST_URL`, `ELEVENLABS_API_KEY` (vinhetas).
+
+### Worker (cloud2)
+
+- Código espelhado em `.cloud2-stage/` deste repo.
+- Deploy no servidor Envyron / projeto `portal-ibiza` — **não** via Netlify.
+- Env: `PORTAL_DATABASE_URL`, `CRIACAO_STORAGE_ROOT`, `CRIACAO_RIB_SECRET`, `CRIACAO_DEFAULT_MIX_SEG`, `GEMINI_API_KEY`, etc.
+
+### Banco
+
+```bash
+npx prisma migrate deploy
+npx prisma studio   # inspeção local
+```
+
+---
+
+## Legado e outros trilhos (contexto)
 
 | Sistema | Onde | Papel |
 |---------|------|--------|
-| **Painel admin Cake** | `painel.radioibiza.com.br` | CRUD clientes, PDVs, programação, playlists (~15 anos) |
-| **Webservice players Cake** | `cloud.radioibiza.com.br` / `envyron.radioibiza.com.br` | ~4.000 players: login, playlist, ping, músicas |
-| **MySQL legado** | Digital Ocean (mesmo ecossistema Cake) | Banco do painel legado |
-| **Player 4 produção** | Netlify (`player4.radioibiza.com.br`) | Aponta para **Cake** — **não alterar** sem aprovação |
+| Painel Cake | `painel.radioibiza.com.br` | CRUD legado ~4000 players |
+| Webservice Cake | `cloud.radioibiza.com.br` | Players antigos |
+| **portal-ibiza** (Envyron) | cloud2 + gateway novo | Processamento áudio + Player 5 |
+| Player 4 produção | Netlify | Aponta Cake — **não alterar** sem plano |
 
-Código legado analisado: extraído de `www.zip` → `/Users/rafaelagasparian/Documents/radioibiza-legacy-www/www`  
-Controller principal dos players: `services/app/Controller/WebserviceController.php`
-
----
-
-## 4. Projetos locais (Mac)
+Projetos locais no Mac:
 
 | Pasta | Conteúdo |
 |-------|----------|
-| `~/Documents/portal-cobranca-contaazul` | **Este repo** — portal admin (cobrança, cadastros, produção UI) |
-| `~/Documents/playeribiza2015-2026/portal-ibiza` | API nova compatível com protocolo do webservice legado |
-| `~/Documents/playeribiza2015-2026/radio-ibiza-player-4` | Player novo (PWA/Electron) + docs de protocolo |
-| `~/Documents/radioibiza-legacy-www` | Cópia do CakePHP legado (referência) |
-| `~/Documents/portal-cobranca-contaazul/data/export-clientes.csv` | Export do painel para busca por nome (atualizar e redeploy) |
-
-Documentação do player: `radio-ibiza-player-4/PROTOCOLO_WEBSERVICE.md`, `DECISIONS.md`, `infra/portal-sandbox/docker-compose.yml`
+| `~/Documents/portal-cobranca-contaazul` | **Este repo** |
+| `~/Documents/playeribiza2015-2026/portal-ibiza` | API cloud2 + deploy worker |
+| `~/Documents/playeribiza2015-2026/radio-ibiza-player-4` | Player + protocolo |
 
 ---
 
-## 5. Banco de dados (Neon Postgres — portal)
+## Usuários e permissões
 
-Principais tabelas:
+Ver `docs/PORTAL-USUARIOS-PERMISSOES.md`.
 
-| Grupo | Tabelas | Uso |
-|-------|---------|-----|
-| Conta Azul | `ContaAzulToken`, `ClientPortalMeta` | OAuth, obs/contrato no painel vencidos |
-| Envios OC | `ManualReminder*`, `OcEmailTemplate` | Planilha envios manuais |
-| Cobrança aberta | `CobrancaAbertaEmailTemplate` | E-mail agregado vencidos |
-| Planilha Rio | `rio_comp_*` | Competência, MARCA, clientes, PDVs |
-| Ponte legado | `painel_pdv_link` | Rio PDV ↔ ID painel Cake |
-| Produção | `cadastro_producao_layout`, `producao_pdv_cadastro` | Layout editorial + ficha PDV |
-
-**Importante:** o Postgres do portal **não** é o MySQL do Cake. **Não** compartilhar banco com `portal-ibiza` no Envyron (Postgres local ao Docker lá).
+| Pessoa | E-mail | Notas |
+|--------|--------|-------|
+| Rafael Gasparian | `rafael@radioibiza.com.br` | `master`; único com Config vinhetas IA |
+| Demais criativos | cadastro `portal_user` | Tags com iniciais/cor por usuário |
 
 ---
 
-## 6. Estratégia acordada — dois trilhos em paralelo
-
-```
-HOJE (produção musical)
-  Players antigos (~4000) ──► Cake (DO) ──► MySQL legado
-
-PORTAL ADMIN (já no ar)
-  Equipe financeira/operação ──► Netlify ──► Neon Postgres
-
-PRÓXIMO PASSO (aguardando servidor Envyron)
-  portal-ibiza (Docker) ──► Postgres SÓ DELE ──► subdomínio NOVO
-  Players NOVOS entram aqui aos poucos
-  Cake continua intocado para os antigos
-```
-
-### Cinco ilhas — não misturar
-
-1. Cake legado (DO) — produção musical hoje  
-2. Player 4 produção (Netlify) — aponta Cake  
-3. Portal cobrança/cadastros/produção (Netlify) — Neon  
-4. Webservice novo (`portal-ibiza` na Envyron) — ilha nova  
-5. Player teste (opcional, Netlify separado) — só quando quiser piloto  
-
-**Evitar:** alterar `netlify.toml` do player4; usar Neon do cobrança no webservice de música; deploy que toque tudo junto.
-
----
-
-## 7. O que já está pronto vs pendente
-
-### Feito (portal Netlify)
-
-- OAuth Conta Azul, painel vencidos, e-mail cobrança, contratos  
-- Planilha Rio v2: sync CA, MARCA, PDVs, virada, import CSV, export mês, export PDV por cliente  
-- Envios manuais OC (SMTP, anexo, cron opcional)  
-- Consulta painel (scraping + CSV export-clientes)  
-- Módulo Cobrança em `/cobranca/*`  
-- Cadastros: grupos & clientes, vínculos Rio ↔ painel  
-- Produção: dashboard + suporte  
-- Visão Fase 2: `docs/FASE-2-PRODUCAO-MUSICAL.md`
-
-### Pendente (próximo marco)
-
-| Item | Dependência |
-|------|-------------|
-| Servidor Envyron (Ubuntu + Docker) | IP, SSH, subdomínio, HTTPS |
-| Deploy **só** `portal-ibiza` no Envyron | Servidor acima |
-| Health + login via curl no staging | Deploy acima |
-| Piloto com 1 player novo no trilho novo | Aprovação explícita |
-| Gateway compat completo (playlist, ping, …) | Fase 2.3 do doc FASE-2 |
-| Sync portal-cobranca ↔ portal-ibiza | Muito depois — bancos separados |
-
-**Quando o servidor estiver pronto, enviar:** IP, usuário SSH, subdomínio, quem configura HTTPS.
-
----
-
-## 8. Hierarquias (dois mundos)
-
-### Cobrança — Planilha Rio
-
-```
-MARCA (bloco faturamento)
- └── Cliente (Conta Azul / contrato)
-      ├── 1 PDV
-      └── N PDVs
-```
-
-### Criação — produção musical
-
-```
-Cliente operacional
- └── Programação musical (playlist)
-      └── PDVs agrupados por programação
-```
-
-**Processamento de faixas (upload → biblioteca):** ver [`docs/CRIACAO-PROCESSAMENTO-MUSICAL.md`](CRIACAO-PROCESSAMENTO-MUSICAL.md) — arquitetura cloud2, 4 filas lógicas, workers paralelos e roadmap teste → produção.
-
-**Cadastros** = cruzamento: mesmo PDV físico, duas organizações diferentes.
-
----
-
-## 9. Deploy e operação
-
-- **Portal:** push em `main` → Netlify build automático  
-- **Migrations:** `npx prisma migrate deploy` (Neon)  
-- **Scripts pesados Rio:** `npm run rio:apply-marca-layout`, `npm run rio:revert-sync` (local)  
-- **Backup:** `docs/BACKUP-E-RESTAURACAO.md` e `scripts/backup-radio-ibiza-local.sh`
-
----
-
-## 10. Histórico de decisões relevantes
-
-| Data | Decisão |
-|------|---------|
-| 2026-05 | Portal cobrança em Netlify + Neon; Conta Azul OAuth |
-| 2026-05 | Planilha Rio v2 (`rio_comp_*`) |
-| 2026-05 | Análise `www.zip` — mapa Cake + webservice players |
-| 2026-05 | Cadastros — `painel_pdv_link`, layout produção |
-| 2026-05 | Produção dashboard + suporte |
-| 2026-05-28 | FASE-2 documentada; migração paralela legado + trilho novo |
-| 2026-05 (sexta) | Envyron: Ubuntu + Docker; deploy isolado `portal-ibiza` |
-| 2026-05 (sexta) | Separar ambientes — não misturar player4, Neon e API nova |
-| Pendente | SSH Envyron → primeiro deploy staging |
-| 2026-06-15 | Doc usuários/papéis — `docs/PORTAL-USUARIOS-PERMISSOES.md` (mind map Portal Ibiza 2026) |
-| 2026-06-19 | Doc pipeline criação musical — `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` (filas, workers, escala) |
-| 2026-06-18 | **Integração Player 5 (código portal + `.cloud2-stage/`)** — IDs, logins, serial, sync gateway, publicar, cronogramas/vinhetas, avisos, save_atualizadas, logotipo, programa/PDV, piloto. Falta: `migrate deploy` Neon + deploy cloud2 + build Player 5 (`VITE_*`). |
-
----
-
-## 11. Documentos relacionados
+## Documentos relacionados
 
 | Arquivo | Conteúdo |
 |---------|----------|
+| `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload, filas, workers, escala |
+| `docs/CRIACAO-ATUALIZACAO-PROGRAMACAO.md` | Publicação programações / painéis |
 | `docs/FASE-2-PRODUCAO-MUSICAL.md` | Visão arquitetura produção + webservice |
-| `docs/PLAYER5-INTEGRACAO.md` | **Hub Player 5** — sync, tokens, flags, publicar, checklist |
-| `docs/PLAYER5-PILOTO.md` | Passo a passo piloto end-to-end |
-| `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload, filas, workers cloud2, escala |
-| `docs/BACKUP-E-RESTAURACAO.md` | Backup código, banco e configs |
-| `docs/PORTAL-USUARIOS-PERMISSOES.md` | Papéis, equipe, auditoria |
-| `README.md` | Variáveis de ambiente e fluxos técnicos |
-| `playeribiza2015-2026/.../PROTOCOLO_WEBSERVICE.md` | Contrato HTTP player ↔ painel |
+| `docs/PLAYER5-INTEGRACAO.md` | Sync Player 5, tokens, publicar |
+| `docs/PLAYER5-PILOTO.md` | Piloto end-to-end |
+| `docs/PORTAL-USUARIOS-PERMISSOES.md` | Papéis e equipe |
+| `docs/BACKUP-E-RESTAURACAO.md` | Backup código e banco |
+| `README.md` | Variáveis de ambiente |
 
 ---
 
-*Última atualização: 18/06/2026. Mantenha este arquivo como referência entre conversas.*
+## Histórico de decisões (marcos)
+
+| Data | Decisão |
+|------|---------|
+| 2026-05 | Portal cobrança Netlify + Neon; Planilha Rio v2 |
+| 2026-06-17 | Fase 0 criação musical — biblioteca, fila, upload |
+| 2026-06-18 | Player 5 integração (código portal + cloud2) |
+| 2026-06-19 | Doc pipeline criação — `CRIACAO-PROCESSAMENTO-MUSICAL.md` |
+| 2026-06-28 | ATL CRICA export/import ZIP + hierarquia local |
+| 2026-06-30 | Dono obrigatório; vinhetas lab reeditável; Config vinhetas só Rafael; fix mix duplicata (código, redeploy pendente) |
+| **Pendente** | Redeploy cloud2 com pipeline `11e06c4`; confirmar migrations Neon vinhetas |
+
+---
+
+*Mantenha este arquivo atualizado após cada marco (deploy, migration, investigação importante).*

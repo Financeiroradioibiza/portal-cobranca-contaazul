@@ -60,13 +60,16 @@ export function PortalErrorReporter() {
         return res;
       } catch (err) {
         if (!isIgnoredUrl(url)) {
-          reportClientError({
-            source: "api",
-            method,
-            message: `Falha de rede em ${method} ${stripOrigin(url)}`,
-            stack: err instanceof Error ? err.stack : undefined,
-            path: stripOrigin(url),
-          });
+          const isAbort = err instanceof Error && err.name === "AbortError";
+          if (!isAbort) {
+            reportClientError({
+              source: "api",
+              method,
+              message: `Falha de rede em ${method} ${stripOrigin(url)}`,
+              stack: err instanceof Error ? err.stack : undefined,
+              path: stripOrigin(url),
+            });
+          }
         }
         throw err;
       }

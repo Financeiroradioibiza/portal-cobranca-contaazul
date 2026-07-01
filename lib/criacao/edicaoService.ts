@@ -23,6 +23,7 @@ export type FaixaEdicaoRow = {
   trimInicioMs: number;
   trimFimMs: number;
   previewUrl: string | null;
+  createdAt: string;
   tagsManuais: MusicaTagManualView[];
   tagsAuto: AutoTag[];
 };
@@ -54,7 +55,7 @@ export async function listFaixasEdicao(opts: {
 
   const items = await prisma.musicaBiblioteca.findMany({
     where,
-    orderBy: [{ artista: "asc" }, { titulo: "asc" }],
+    orderBy: [{ createdAt: "desc" }],
     take: Math.min(300, Math.max(1, opts.limit ?? 200)),
     select: {
       id: true,
@@ -69,6 +70,7 @@ export async function listFaixasEdicao(opts: {
       tagsAuto: true,
       bpm: true,
       energia: true,
+      createdAt: true,
       versoes: { select: { formato: true } },
       tagsManuais: { include: { tag: true } },
     },
@@ -105,6 +107,7 @@ export async function listFaixasEdicao(opts: {
       trimInicioMs: m.trimInicioMs ?? 0,
       trimFimMs: m.trimFimMs ?? 0,
       previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
+      createdAt: m.createdAt.toISOString(),
       tagsManuais: m.tagsManuais.map((tm) => {
         const u = tm.tag.criativoUserId ? criativoUserMap.get(tm.tag.criativoUserId) : undefined;
         const criativoNome = tm.tag.criativoNome || u?.displayName || "";

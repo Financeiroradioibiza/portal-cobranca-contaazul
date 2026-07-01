@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { approveJob, cancelJob, getJobDetail, resolveDuplicatasBulk } from "@/lib/criacao/filaService";
-import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
-import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
+import { approveJob, cancelJob, getJobDetail, resolveDuplicatasBulk, tryFinishJob } from "@/lib/criacao/filaService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -39,18 +37,17 @@ export async function PATCH(request: Request, ctx: Ctx) {
         return NextResponse.json({ error: "invalid_decision" }, { status: 400 });
       }
       const count = await resolveDuplicatasBulk(id, body.decision);
-      return NextResponse.json({ ok: true, count });
+      const finished = await tryFinishJob(id);
+      return NextResponse.json({ ok: true, count, status: finished.status });
+    }
+    if (body.action === "finish") {
+      const result = await tryFinishJob(id);
+      return NextResponse.json({ ok: result.ok, status: result.status });
     }
     if (body.action === "approve") {
       const result = await approveJob(id);
       if (!result.ok) {
         return NextResponse.json({ ok: false, reason: result.reason }, { status: 400 });
-      }
-      try {
-        await applyPendingUploadTags(200);
-        await applyPendingPastaUploads(200);
-      } catch (e) {
-        console.error("[criacao/fila/:id approve sync]", e);
       }
       return NextResponse.json({ ok: true });
     }

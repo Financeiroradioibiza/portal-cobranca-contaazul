@@ -73,7 +73,7 @@ export function CriacaoErrorDock() {
     try {
       const [errRes, filaRes] = await Promise.all([
         fetch("/api/criacao/error-log?pageSize=15"),
-        fetch("/api/criacao/fila"),
+        fetch("/api/criacao/fila?limit=40"),
       ]);
       if (errRes.ok) {
         const data = (await errRes.json()) as { logs: ErrorRow[] };
@@ -93,7 +93,7 @@ export function CriacaoErrorDock() {
 
   useEffect(() => {
     void load();
-    const t = setInterval(() => void load(), 4000);
+    const t = setInterval(() => void load(), 8000);
     return () => clearInterval(t);
   }, [load]);
 
@@ -302,7 +302,7 @@ export function CriacaoErrorDock() {
 
         {!minimized ?
           <p className="border-t border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-400 dark:border-slate-800 dark:bg-slate-900">
-            Atualiza a cada 4 segundos · exporte e me envie se algo falhar
+            Atualiza a cada 8 segundos · exporte e me envie se algo falhar
           </p>
         : null}
       </div>

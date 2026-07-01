@@ -10,11 +10,15 @@ const HOP = 1102;
 const HOP_SEC = HOP / SR;
 
 export type MixTrimResult = {
-  /** Segundos finais onde começa o crossfade (0 = sem ponto de mix). */
+  /** Segundos finais onde começa o crossfade (0 = sem fade de rádio detectado). */
   mixSegundosFinais: number;
   /** Corta silêncio morto após fim abrupto (ms). Início nunca é alterado automaticamente. */
   trimFimMs: number;
   trimInicioMs: 0;
+  /** Outro contínuo baixo no fim (violão/voz baixa, ex. What's Up) — mix fica 0. */
+  quietOutro: boolean;
+  /** ffmpeg decodificou o arquivo para análise. */
+  envelopeOk: boolean;
 };
 
 /** Decodifica mono PCM para envelope RMS. */
@@ -23,7 +27,7 @@ async function loadEnvelope(inputPath: string): Promise<Float32Array | null> {
     const { stdout } = await pexec(
       'ffmpeg',
       ['-v', 'quiet', '-i', inputPath, '-ac', '1', '-ar', String(SR), '-f', 'f32le', '-'],
-      { maxBuffer: 128 * 1024 * 1024, encoding: 'buffer' } as Parameters<typeof pexec>[2],
+      { maxBuffer: 256 * 1024 * 1024, encoding: 'buffer' } as Parameters<typeof pexec>[2],
     );
     const buf = stdout as unknown as Buffer;
     const samples = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 4));
@@ -85,8 +89,36 @@ export function detectTrimFimMs(env: Float32Array): number {
 }
 
 /**
+ * Outro contínuo baixo no fim (violão/voz baixa, ex. What's Up) — mix deve ficar 0.
+ * Só usado quando nenhum fade de rádio foi detectado.
+ */
+export function isQuietOutroTail(env: Float32Array, trimFimMs: number, body: number): boolean {
+  if (body <= 0) return false;
+
+  const trimFrames = Math.floor(trimFimMs / 1000 / HOP_SEC);
+  const endIdx = Math.max(0, env.length - 1 - trimFrames);
+  const tailLen = Math.floor(24 / HOP_SEC);
+  const tailStart = Math.max(0, endIdx - tailLen);
+  const tail = env.subarray(tailStart, endIdx + 1);
+  if (tail.length < Math.floor(4 / HOP_SEC)) return false;
+
+  const quietWin = Math.min(tail.length, Math.floor(12 / HOP_SEC));
+  const quietSlice = tail.subarray(tail.length - quietWin);
+  let qMax = 0;
+  let qSum = 0;
+  for (const v of quietSlice) {
+    qMax = Math.max(qMax, v);
+    qSum += v;
+  }
+  const qAvg = qSum / quietSlice.length;
+
+  /** Limiar mais estrito que o corpo — só classifica outro realmente baixo. */
+  return qMax < body * 0.32 && qAvg < body * 0.2;
+}
+
+/**
  * Ponto de mix: 2 s depois do início de um fade de rádio (platô alto → queda).
- * Quiet outro contínuo (violão/voz baixa no fim, ex. What's Up) → 0.
+ * Procura fade antes de decidir outro quieto.
  */
 export function detectMixSegundos(env: Float32Array, trimFimMs: number): number {
   const body = bodyRms(env);
@@ -99,19 +131,8 @@ export function detectMixSegundos(env: Float32Array, trimFimMs: number): number 
   const tail = env.subarray(tailStart, endIdx + 1);
   if (tail.length < Math.floor(4 / HOP_SEC)) return 0;
 
-  const quietWin = Math.min(tail.length, Math.floor(20 / HOP_SEC));
-  const quietSlice = tail.subarray(tail.length - quietWin);
-  let qMax = 0;
-  let qSum = 0;
-  for (const v of quietSlice) {
-    qMax = Math.max(qMax, v);
-    qSum += v;
-  }
-  const qAvg = qSum / quietSlice.length;
-  if (qMax < body * 0.4 && qAvg < body * 0.26) return 0;
-
-  const plateauMinFrames = Math.floor(1.6 / HOP_SEC);
-  const fadeMinFrames = Math.floor(2.5 / HOP_SEC);
+  const plateauMinFrames = Math.floor(1.4 / HOP_SEC);
+  const fadeMinFrames = Math.floor(2.0 / HOP_SEC);
   /** Fade de rádio costuma começar nos últimos ~14 s (não outro longo de 30 s). */
   const maxFadeStartFromEndFrames = Math.floor(14 / HOP_SEC);
   const minFadeStartIdx = Math.max(3, tail.length - 1 - maxFadeStartFromEndFrames);
@@ -121,13 +142,13 @@ export function detectMixSegundos(env: Float32Array, trimFimMs: number): number 
 
   for (let fadeStart = tail.length - 2; fadeStart >= minFadeStartIdx; fadeStart--) {
     const ref = tail[fadeStart];
-    if (ref < body * 0.46) continue;
+    if (ref < body * 0.38) continue;
 
     let plateauStart = fadeStart;
     while (
       plateauStart > 0 &&
-      tail[plateauStart - 1] >= ref * 0.87 &&
-      tail[plateauStart - 1] <= ref * 1.13
+      tail[plateauStart - 1] >= ref * 0.85 &&
+      tail[plateauStart - 1] <= ref * 1.15
     ) {
       plateauStart--;
     }
@@ -138,15 +159,16 @@ export function detectMixSegundos(env: Float32Array, trimFimMs: number): number 
 
     let dec = 0;
     for (let j = 1; j < fadeSeg.length; j++) {
-      if (fadeSeg[j] <= fadeSeg[j - 1] * 1.04) dec++;
+      if (fadeSeg[j] <= fadeSeg[j - 1] * 1.05) dec++;
     }
     const decRatio = dec / (fadeSeg.length - 1);
-    if (decRatio < 0.58) continue;
-    if (fadeSeg[fadeSeg.length - 1] > ref * 0.34) continue;
+    if (decRatio < 0.5) continue;
+    if (fadeSeg[fadeSeg.length - 1] > ref * 0.38) continue;
 
     const fadeFromEndSec = (tail.length - 1 - fadeStart) * HOP_SEC;
-    const mix = Math.round(fadeFromEndSec - 2);
-    if (mix < 3 || mix > 22) continue;
+    /** 2 s após o início do fade (regra acordada). */
+    const mix = Math.max(1, Math.round(fadeFromEndSec - 2));
+    if (mix > 22) continue;
 
     const score = decRatio * (ref / body) * Math.min(1, (fadeStart - plateauStart) / plateauMinFrames);
     if (score > bestScore) {
@@ -162,13 +184,15 @@ export function detectMixSegundos(env: Float32Array, trimFimMs: number): number 
 export async function detectMixAndTrim(inputPath: string): Promise<MixTrimResult> {
   const env = await loadEnvelope(inputPath);
   if (!env) {
-    return { mixSegundosFinais: 0, trimFimMs: 0, trimInicioMs: 0 };
+    return { mixSegundosFinais: 0, trimFimMs: 0, trimInicioMs: 0, quietOutro: false, envelopeOk: false };
   }
 
+  const body = bodyRms(env);
   const trimFimMs = detectTrimFimMs(env);
   const mixSegundosFinais = detectMixSegundos(env, trimFimMs);
+  const quietOutro = mixSegundosFinais <= 0 && isQuietOutroTail(env, trimFimMs, body);
 
-  return { mixSegundosFinais, trimFimMs, trimInicioMs: 0 };
+  return { mixSegundosFinais, trimFimMs, trimInicioMs: 0, quietOutro, envelopeOk: true };
 }
 
 /** @deprecated Use detectMixAndTrim — mantido para compat. */

@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireMasterSession } from "@/lib/auth/portalAccess";
-import {
-  CONFIG_KEYS,
-  clampPontoMix,
-  getPontoMixPadraoSeg,
-  setConfig,
-} from "@/lib/config/portalConfigService";
 
+/** Parâmetros globais — ponto de mix fixo removido; regras automáticas no worker cloud2. */
 export async function GET() {
   try {
     await requireMasterSession();
-    const pontoMixPadraoSeg = await getPontoMixPadraoSeg();
-    return NextResponse.json({ pontoMixPadraoSeg });
+    return NextResponse.json({ ok: true, mixAutomatico: true });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[config/parametros GET]", e);
@@ -19,23 +13,10 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: Request) {
+export async function PATCH() {
   try {
-    const session = await requireMasterSession();
-    let body: { pontoMixPadraoSeg?: number };
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return NextResponse.json({ error: "invalid_body" }, { status: 400 });
-    }
-
-    if (typeof body.pontoMixPadraoSeg === "number") {
-      const v = clampPontoMix(body.pontoMixPadraoSeg);
-      await setConfig(CONFIG_KEYS.pontoMixPadraoSeg, String(v), session.email);
-    }
-
-    const pontoMixPadraoSeg = await getPontoMixPadraoSeg();
-    return NextResponse.json({ ok: true, pontoMixPadraoSeg });
+    await requireMasterSession();
+    return NextResponse.json({ ok: true, mixAutomatico: true });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[config/parametros PATCH]", e);

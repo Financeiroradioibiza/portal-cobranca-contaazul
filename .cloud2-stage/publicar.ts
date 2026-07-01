@@ -264,7 +264,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
                 safeFileName(m.artista, m.titulo),
                 m.size_bytes ?? 0,
                 Math.round((m.duration_ms ?? 0) / 1000),
-                m.mix_segundos_finais ?? criacaoConfig.defaultMixSegundos,
+                m.mix_segundos_finais ?? 0,
                 m.storage_key,
                 m.musica_id,
               ],

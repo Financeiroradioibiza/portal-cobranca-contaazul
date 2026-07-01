@@ -30,17 +30,15 @@ export function FilaRevisaoWorkflow({
   jobMeta,
   onResolveDuplicata,
   onItemsChanged,
-  onApproved,
+  onFinished,
 }: {
   jobId: string;
   items: JobItem[];
   jobMeta: JobMeta;
   onResolveDuplicata: (itemId: string, decision: "nova" | "existente") => Promise<void>;
   onItemsChanged?: () => Promise<void>;
-  onApproved: () => void;
+  onFinished?: () => void;
 }) {
-  const [approving, setApproving] = useState(false);
-  const [approveErr, setApproveErr] = useState<string | null>(null);
   const [selDupeId, setSelDupeId] = useState<string | null>(null);
   const [dupeCompare, setDupeCompare] = useState<DuplicataCompareData | null>(null);
   const [loadingCompare, setLoadingCompare] = useState(false);
@@ -120,39 +118,24 @@ export function FilaRevisaoWorkflow({
       setSelDupeId(null);
       setDupeCompare(null);
       await onItemsChanged?.();
+      onFinished?.();
     } finally {
       setBulkResolving(false);
     }
   }
 
-  async function approve() {
-    setApproving(true);
-    setApproveErr(null);
-    try {
-      const res = await fetch(`/api/criacao/fila/${jobId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve" }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string };
-      if (!res.ok || !data.ok) {
-        setApproveErr(
-          data.reason === "duplicatas_pendentes" ? "Resolva todas as duplicatas primeiro."
-          : data.reason === "processamento_pendente" ? "Ainda há faixas processando."
-          : "Não foi possível aprovar.",
-        );
-        return;
-      }
-      onApproved();
-    } finally {
-      setApproving(false);
-    }
+  if (dupes.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        Nenhuma duplicata pendente neste lote — o job será concluído automaticamente.
+      </p>
+    );
   }
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
-        <div className="font-semibold text-amber-900 dark:text-amber-200">Revisão do lote — {jobMeta.titulo}</div>
+        <div className="font-semibold text-amber-900 dark:text-amber-200">Duplicatas — {jobMeta.titulo}</div>
         <div className="text-xs text-amber-800/80 dark:text-amber-300/80">Destino: {destinoLabel}</div>
         {jobMeta.uploadTagNome ?
           <div className="mt-1 text-xs text-amber-800/90 dark:text-amber-200/90">
@@ -165,81 +148,65 @@ export function FilaRevisaoWorkflow({
           </div>
         : null}
         <p className="mt-2 text-xs text-amber-800/70 dark:text-amber-300/70">
-          Mix, trim e tags extras não são revisados aqui — ajuste depois em Edição de música, se necessário.
+          Resolva cada possível duplicata abaixo. Mix e trim podem ser ajustados depois em Edição de música.
         </p>
       </div>
 
-      {dupes.length > 0 ?
-        <>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-slate-500">
-              {dupes.length} possível{dupes.length === 1 ? "" : "is"} duplicata{dupes.length === 1 ? "" : "s"} — compare as ondas
-            </span>
-            <button
-              type="button"
-              disabled={bulkResolving || resolvingDupe}
-              onClick={() => void resolveAll("existente")}
-              className="rounded-lg border border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200 disabled:opacity-40 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200"
-            >
-              {bulkResolving ? "Processando…" : "Descartar todas (é a mesma)"}
-            </button>
-            <button
-              type="button"
-              disabled={bulkResolving || resolvingDupe}
-              onClick={() => void resolveAll("nova")}
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
-            >
-              Manter todas como novas
-            </button>
-          </div>
-          <ul className="space-y-2">
-            {dupes.map((it) => (
-              <li key={it.id}>
-                <button
-                  type="button"
-                  onClick={() => void selectDupe(it.id)}
-                  className={
-                    "flex w-full flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition " +
-                    (selDupeId === it.id ?
-                      "border-amber-500 bg-amber-50 ring-1 ring-amber-400/50 dark:border-amber-600 dark:bg-amber-950/40"
-                    : "border-amber-200 bg-white hover:bg-amber-50/50 dark:border-amber-900 dark:bg-slate-900 dark:hover:bg-amber-950/20")
-                  }
-                >
-                  <span className="min-w-0 flex-1 truncate font-medium">{it.arquivoNome}</span>
-                  <span className="text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400">
-                    {selDupeId === it.id ? "Comparando ▲" : "Comparar ▼"}
-                  </span>
-                </button>
-                {selDupeId === it.id ?
-                  <div ref={compareRef}>
-                    {loadingCompare ?
-                      <p className="mt-2 text-xs text-slate-500">Carregando comparação…</p>
-                    : dupeCompare ?
-                      <DuplicataComparePanel
-                        compare={dupeCompare}
-                        resolving={resolvingDupe}
-                        onResolve={(decision) => void resolveOne(it.id, decision)}
-                      />
-                    : <p className="mt-2 text-xs text-red-600">Não foi possível carregar a comparação.</p>}
-                  </div>
-                : null}
-              </li>
-            ))}
-          </ul>
-        </>
-      : <p className="text-sm text-slate-500">Nenhuma duplicata pendente — pode aprovar o lote.</p>}
-
-      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-slate-500">
+          {dupes.length} possível{dupes.length === 1 ? "" : "is"} duplicata{dupes.length === 1 ? "" : "s"} — compare as ondas
+        </span>
         <button
           type="button"
-          disabled={approving || dupes.length > 0}
-          onClick={() => void approve()}
-          className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+          disabled={bulkResolving || resolvingDupe}
+          onClick={() => void resolveAll("existente")}
+          className="rounded-lg border border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200 disabled:opacity-40 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200"
         >
-          {approving ? "Aprovando…" : "Aprovar lote e publicar"}
+          {bulkResolving ? "Processando…" : "Descartar todas (é a mesma)"}
         </button>
-        {approveErr ? <span className="text-sm text-red-600">{approveErr}</span> : null}
+        <button
+          type="button"
+          disabled={bulkResolving || resolvingDupe}
+          onClick={() => void resolveAll("nova")}
+          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
+        >
+          Manter todas como novas
+        </button>
       </div>
+      <ul className="space-y-2">
+        {dupes.map((it) => (
+          <li key={it.id}>
+            <button
+              type="button"
+              onClick={() => void selectDupe(it.id)}
+              className={
+                "flex w-full flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition " +
+                (selDupeId === it.id ?
+                  "border-amber-500 bg-amber-50 ring-1 ring-amber-400/50 dark:border-amber-600 dark:bg-amber-950/40"
+                : "border-amber-200 bg-white hover:bg-amber-50/50 dark:border-amber-900 dark:bg-slate-900 dark:hover:bg-amber-950/20")
+              }
+            >
+              <span className="min-w-0 flex-1 truncate font-medium">{it.arquivoNome}</span>
+              <span className="text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400">
+                {selDupeId === it.id ? "Comparando ▲" : "Comparar ▼"}
+              </span>
+            </button>
+            {selDupeId === it.id ?
+              <div ref={compareRef}>
+                {loadingCompare ?
+                  <p className="mt-2 text-xs text-slate-500">Carregando comparação…</p>
+                : dupeCompare ?
+                  <DuplicataComparePanel
+                    compare={dupeCompare}
+                    resolving={resolvingDupe}
+                    onResolve={(decision) => void resolveOne(it.id, decision)}
+                  />
+                : <p className="mt-2 text-xs text-red-600">Não foi possível carregar a comparação.</p>}
+              </div>
+            : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
