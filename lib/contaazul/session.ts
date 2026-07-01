@@ -28,8 +28,19 @@ export async function getValidAccessToken(): Promise<string | null> {
       },
     });
     return json.access_token;
-  } catch {
-    await prisma.contaAzulToken.deleteMany({ where: { id: TOKEN_ID } });
+  } catch (e) {
+    // Outro request serverless pode ter renovado entre a leitura e o refresh.
+    const again = await prisma.contaAzulToken.findUnique({
+      where: { id: TOKEN_ID },
+    });
+    if (again && again.expiresAt.getTime() > Date.now() + SKEW_MS) {
+      return again.accessToken;
+    }
+
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/invalid_grant|invalid refresh|revoked|expired.*refresh/i.test(msg)) {
+      await prisma.contaAzulToken.deleteMany({ where: { id: TOKEN_ID } });
+    }
     return null;
   }
 }

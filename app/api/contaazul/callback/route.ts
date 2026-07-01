@@ -2,13 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { siteUrlFromRequest } from "@/lib/contaazul/config";
 import { exchangeCodeForTokens } from "@/lib/contaazul/oauth";
-import { appendOAuthQuery, safeContaAzulReturnPath } from "@/lib/contaazul/oauthNav";
 import { saveTokens } from "@/lib/contaazul/session";
-
-function oauthRedirect(site: string, returnPath: string, key: "connected" | "oauth_error", value: string) {
-  const dest = appendOAuthQuery(returnPath, key, value);
-  return NextResponse.redirect(`${site}${dest}`);
-}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -17,23 +11,22 @@ export async function GET(request: Request) {
   const oauthError = searchParams.get("error");
   const site = siteUrlFromRequest(request);
 
-  const jar = await cookies();
-  const returnPath = safeContaAzulReturnPath(jar.get("ca_oauth_return")?.value);
-  jar.delete("ca_oauth_return");
-
   if (oauthError) {
-    return oauthRedirect(site, returnPath, "oauth_error", oauthError);
+    return NextResponse.redirect(
+      `${site}/?oauth_error=${encodeURIComponent(oauthError)}`,
+    );
   }
 
   if (!code || !state) {
-    return oauthRedirect(site, returnPath, "oauth_error", "missing_code");
+    return NextResponse.redirect(`${site}/?oauth_error=missing_code`);
   }
 
+  const jar = await cookies();
   const expected = jar.get("ca_oauth_state")?.value;
   jar.delete("ca_oauth_state");
 
   if (!expected || expected !== state) {
-    return oauthRedirect(site, returnPath, "oauth_error", "invalid_state");
+    return NextResponse.redirect(`${site}/?oauth_error=invalid_state`);
   }
 
   try {
@@ -41,8 +34,10 @@ export async function GET(request: Request) {
     await saveTokens(json);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "token_error";
-    return oauthRedirect(site, returnPath, "oauth_error", msg.slice(0, 500));
+    return NextResponse.redirect(
+      `${site}/?oauth_error=${encodeURIComponent(msg.slice(0, 500))}`,
+    );
   }
 
-  return oauthRedirect(site, returnPath, "connected", "1");
+  return NextResponse.redirect(`${site}/?connected=1`);
 }

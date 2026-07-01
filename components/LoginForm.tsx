@@ -1,6 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { COMPANY_NAME } from "@/lib/brand";
@@ -8,6 +8,7 @@ import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
 
 export function LoginForm() {
+  const router = useRouter();
   const sp = useSearchParams();
   const err = sp.get("error");
   const next = safeInternalPath(sp.get("next"));
@@ -46,7 +47,7 @@ export function LoginForm() {
       const data = parsed.data;
 
       if (data.disabled) {
-        window.location.assign(next);
+        router.replace(next);
         return;
       }
 
@@ -63,7 +64,8 @@ export function LoginForm() {
         return;
       }
 
-      window.location.assign(next);
+      router.replace(next);
+      router.refresh();
     } catch {
       setFormError("Falha de rede. Tente novamente.");
     } finally {

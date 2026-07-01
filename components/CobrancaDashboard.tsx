@@ -10,8 +10,6 @@ import type { ClientRow } from "@/lib/types";
 
 import { CONTRACTS_REFRESH_BATCH_SIZE } from "@/lib/clientPortalContracts";
 import { composePersistClienteNote, formatPortalNoteForDisplay } from "@/lib/portalClienteNote";
-import { useContaAzulOAuthBanner } from "@/components/contaazul/useContaAzulOAuthBanner";
-import { contaAzulLoginHref } from "@/lib/contaazul/oauthNav";
 
 type ConnStatus = {
   connected: boolean;
@@ -30,7 +28,7 @@ export function CobrancaDashboard() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const oauthBanner = useContaAzulOAuthBanner();
+  const [oauthBanner, setOauthBanner] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [sortClientsBy, setSortClientsBy] = useState<ClientSortMode>("parcelas_desc");
@@ -325,6 +323,21 @@ export function CobrancaDashboard() {
   }, [loadStatus]);
 
   useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const c = sp.get("connected");
+    const err = sp.get("oauth_error");
+    queueMicrotask(() => {
+      if (c === "1") {
+        setOauthBanner("Conta Azul conectada com sucesso.");
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (err) {
+        setOauthBanner(`OAuth: ${decodeURIComponent(err)}`);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     queueMicrotask(() => {
       if (status?.connected) {
         void loadReceivables();
@@ -350,6 +363,7 @@ export function CobrancaDashboard() {
   const onDisconnect = useCallback(async () => {
     await fetch("/api/contaazul/disconnect", { method: "POST" });
     setClients([]);
+    setOauthBanner(null);
     await loadStatus();
   }, [loadStatus]);
 
@@ -797,14 +811,14 @@ export function CobrancaDashboard() {
             )}
             {connected ? (
               <a
-                href={contaAzulLoginHref("/financeiro/vencidos")}
+                href="/api/contaazul/login"
                 className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 Reautorizar
               </a>
             ) : (
               <a
-                href={contaAzulLoginHref("/financeiro/vencidos")}
+                href="/api/contaazul/login"
                 className="rounded-lg bg-[#0066cc] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-105 dark:bg-sky-600"
               >
                 Conectar Conta Azul
