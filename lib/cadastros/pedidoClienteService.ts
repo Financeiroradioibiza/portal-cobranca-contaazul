@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createChamado, getChamadoUserContext } from "@/lib/chamados/chamadoService";
 import type { PedidoPdvView } from "@/lib/cadastros/prospectTypes";
 import { updatePdvCadastro } from "@/lib/cadastros/producaoPdvCadastroService";
+import { rioPdvBelongsToLinha } from "@/lib/cadastros/pedidoPdvLookupService";
 import { createRioCompPdv } from "@/lib/rio/rioClienteCompService";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
@@ -240,11 +241,8 @@ export async function syncPedidoToProducaoCadastro(id: string): Promise<PedidoPd
   const view = pedidoToView(existing);
   validatePedidoForProducaoSync(view);
 
-  const pdv = await prisma.rioCompPdv.findFirst({
-    where: { id: view.rioPdvId!, clienteId: view.rioLinhaId! },
-    select: { id: true },
-  });
-  if (!pdv) throw new Error("pdv_rio_invalido");
+  const ok = await rioPdvBelongsToLinha(view.rioLinhaId!, view.rioPdvId!);
+  if (!ok) throw new Error("pdv_rio_invalido");
 
   await updatePdvCadastro(view.rioPdvId!, {
     nome: view.nomeFantasia.trim(),

@@ -67,6 +67,8 @@ export function rioCaRefreshBatchLimit(opts?: { includeContracts?: boolean }): n
 export type RioCaLinhaRefreshOptions = {
   includePersonDetails?: boolean;
   includeContracts?: boolean;
+  /** Só linhas vinculadas com `contratos_ativos_texto` vazio (retomada pós-timeout). */
+  onlyMissingContracts?: boolean;
   /** Nome da listagem CA ao vincular (busca no modal). */
   caNomeLista?: string;
 };
@@ -102,9 +104,12 @@ function buildBatchProgress(
   };
 }
 
-async function linkedLinhasOrdered(monthId: string) {
+async function linkedLinhasOrdered(monthId: string, opts?: { onlyMissingContracts?: boolean }) {
   const linhas = await prisma.rioCompClienteLinha.findMany({
-    where: { monthId },
+    where: {
+      monthId,
+      ...(opts?.onlyMissingContracts ? { contratosAtivosTexto: "" } : {}),
+    },
     select: { id: true, caPersonId: true },
     orderBy: [{ nomeFantasia: "asc" }, { id: "asc" }],
   });
@@ -286,7 +291,9 @@ export async function refreshRioMonthLinkedFromCaBatch(
   progress: RioCaBatchProgress;
   updatedLinhas: RioCompLinhaOut[];
 }> {
-  const linked = await linkedLinhasOrdered(monthId);
+  const linked = await linkedLinhasOrdered(monthId, {
+    onlyMissingContracts: options?.onlyMissingContracts,
+  });
   const globalTotal = linked.length;
   const slice = linked.slice(offset, offset + limit);
   const progress = buildBatchProgress(offset, limit, globalTotal, slice.length);
@@ -295,6 +302,13 @@ export async function refreshRioMonthLinkedFromCaBatch(
   let failed = 0;
   const updatedLinhas: RioCompLinhaOut[] = [];
 
+  const applyOpts: RioCaLinhaRefreshOptions = {
+    ...options,
+    ...(options?.onlyMissingContracts ?
+      { includePersonDetails: false, includeContracts: true }
+    : {}),
+  };
+
   for (const l of slice) {
     try {
       const out = await applyCaPersonToRioLinha(
@@ -302,7 +316,7 @@ export async function refreshRioMonthLinkedFromCaBatch(
         monthId,
         l.caPersonId,
         accessToken,
-        options,
+        applyOpts,
       );
       updatedLinhas.push(out);
       updated += 1;

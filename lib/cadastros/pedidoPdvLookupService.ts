@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { isLinhaAsPdvKey } from "@/lib/cadastros/producaoHierarchy";
+import {
+  isLinhaAsPdvKey,
+  linhaAsPdvKey,
+  linhaIdFromAsPdvKey,
+} from "@/lib/cadastros/producaoHierarchy";
 import { pickVigenteRioYearMonth } from "@/lib/cadastros/vigenteRioMonth";
 import { currentBrazilYearMonth } from "@/lib/manualReminders/yearMonth";
 import { fetchContatosCaForLinha } from "@/lib/cadastros/producaoPdvCadastroService";
@@ -15,6 +19,8 @@ export type RioPdvOption = {
   id: string;
   nome: string;
   documento: string | null;
+  /** Cliente Rio sem PDVs filhos — o próprio cliente é o PDV na Planilha. */
+  isLinhaProxy?: boolean;
 };
 
 export type PedidoPdvPrefill = {
@@ -82,16 +88,57 @@ export async function listRioClientesForPedido(yearMonth?: number): Promise<{
 }
 
 export async function listRioPdvsForLinha(linhaId: string): Promise<RioPdvOption[]> {
-  const pdvs = await prisma.rioCompPdv.findMany({
-    where: { clienteId: linhaId, movimento: { not: "saida" } },
-    orderBy: [{ nome: "asc" }, { id: "asc" }],
-    select: { id: true, nome: true, documento: true },
+  const [linha, pdvs] = await Promise.all([
+    prisma.rioCompClienteLinha.findUnique({
+      where: { id: linhaId },
+      select: {
+        id: true,
+        nomeFantasia: true,
+        razaoSocial: true,
+        grupoSite: true,
+        documento: true,
+        movimento: true,
+      },
+    }),
+    prisma.rioCompPdv.findMany({
+      where: { clienteId: linhaId, movimento: { not: "saida" } },
+      orderBy: [{ nome: "asc" }, { id: "asc" }],
+      select: { id: true, nome: true, documento: true },
+    }),
+  ]);
+
+  if (!linha || linha.movimento === "saida") return [];
+
+  if (pdvs.length > 0) {
+    return pdvs.map((p) => ({
+      id: p.id,
+      nome: p.nome.trim() || "Sem nome",
+      documento: p.documento,
+    }));
+  }
+
+  const nome =
+    linha.nomeFantasia.trim() || linha.grupoSite.trim() || linha.razaoSocial.trim() || "Sem nome";
+  return [
+    {
+      id: linhaAsPdvKey(linhaId),
+      nome,
+      documento: linha.documento,
+      isLinhaProxy: true,
+    },
+  ];
+}
+
+/** Valida PDV real ou proxy «cliente = PDV» na linha Rio. */
+export async function rioPdvBelongsToLinha(rioLinhaId: string, rioPdvId: string): Promise<boolean> {
+  if (isLinhaAsPdvKey(rioPdvId)) {
+    return linhaIdFromAsPdvKey(rioPdvId) === rioLinhaId;
+  }
+  const pdv = await prisma.rioCompPdv.findFirst({
+    where: { id: rioPdvId, clienteId: rioLinhaId, movimento: { not: "saida" } },
+    select: { id: true },
   });
-  return pdvs.map((p) => ({
-    id: p.id,
-    nome: p.nome.trim() || "Sem nome",
-    documento: p.documento,
-  }));
+  return Boolean(pdv);
 }
 
 function pick(...values: (string | null | undefined)[]): string {
@@ -145,25 +192,34 @@ export async function getPedidoPrefillForRioPdv(
   rioLinhaId: string,
   rioPdvId: string,
 ): Promise<PedidoPdvPrefill | null> {
+  const linhaAsPdv = isLinhaAsPdvKey(rioPdvId);
+  const proxyLinhaId = linhaAsPdv ? linhaIdFromAsPdvKey(rioPdvId) : null;
+  if (linhaAsPdv && proxyLinhaId !== rioLinhaId) return null;
+
   const [linha, pdv, cadastro, contatosCa] = await Promise.all([
     prisma.rioCompClienteLinha.findUnique({
       where: { id: rioLinhaId },
       select: { id: true, nomeFantasia: true, razaoSocial: true, documento: true, grupoSite: true },
     }),
-    prisma.rioCompPdv.findFirst({
-      where: { id: rioPdvId, clienteId: rioLinhaId },
-      select: { id: true, nome: true, documento: true },
-    }),
+    linhaAsPdv ?
+      Promise.resolve(null)
+    : prisma.rioCompPdv.findFirst({
+        where: { id: rioPdvId, clienteId: rioLinhaId },
+        select: { id: true, nome: true, documento: true },
+      }),
     prisma.producaoPdvCadastro.findUnique({ where: { rioPdvKey: rioPdvId } }),
     fetchContatosCaForLinha(rioLinhaId),
   ]);
 
   const cobranca = contatosCa.cobranca;
 
-  if (!linha || !pdv) return null;
+  if (!linha) return null;
+  if (!linhaAsPdv && !pdv) return null;
 
   const clienteNome =
     linha.nomeFantasia.trim() || linha.grupoSite.trim() || linha.razaoSocial.trim() || "Sem nome";
+  const pdvNome = linhaAsPdv ? clienteNome : (pdv!.nome.trim() || clienteNome);
+  const pdvDocumento = linhaAsPdv ? linha.documento : pdv!.documento;
 
   const fromProducao = Boolean(cadastro);
 
@@ -171,7 +227,7 @@ export async function getPedidoPrefillForRioPdv(
     rioLinhaId,
     rioPdvId,
     clienteNome,
-    nomeFantasia: pick(cadastro?.nome, pdv.nome),
+    nomeFantasia: pick(cadastro?.nome, pdvNome),
     razaoSocial: razaoSocialForPedidoPrefill({
       rioPdvId,
       linhaRazaoSocial: linha.razaoSocial,
@@ -181,7 +237,7 @@ export async function getPedidoPrefillForRioPdv(
     }),
     documento: documentoForPedidoPrefill({
       rioPdvId,
-      pdvDocumento: pdv.documento,
+      pdvDocumento,
       linhaDocumento: linha.documento,
       cadastroCnpj: cadastro?.cnpj,
     }),

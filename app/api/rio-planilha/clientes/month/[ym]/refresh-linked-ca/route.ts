@@ -34,6 +34,7 @@ export async function POST(req: Request, context: Ctx) {
   let mode: "refresh" | "match" = "refresh";
   let includePersonDetails = true;
   let includeContracts = true;
+  let onlyMissingContracts = false;
   try {
     const b = (await req.json()) as {
       offset?: unknown;
@@ -41,6 +42,7 @@ export async function POST(req: Request, context: Ctx) {
       mode?: unknown;
       includePersonDetails?: unknown;
       includeContracts?: unknown;
+      onlyMissingContracts?: unknown;
       /** legado */
       matchByDocument?: unknown;
     };
@@ -58,8 +60,15 @@ export async function POST(req: Request, context: Ctx) {
     if ("includeContracts" in (b ?? {})) {
       includeContracts = Boolean(b?.includeContracts);
     }
+    if (b?.onlyMissingContracts === true) {
+      onlyMissingContracts = true;
+      includePersonDetails = false;
+      includeContracts = true;
+    }
     const maxBatch =
-      mode === "refresh" ? rioCaRefreshBatchLimit({ includeContracts }) : RIO_CA_REFRESH_BATCH_SIZE;
+      mode === "refresh" ?
+        rioCaRefreshBatchLimit({ includeContracts: onlyMissingContracts || includeContracts })
+      : RIO_CA_REFRESH_BATCH_SIZE;
     limit = Math.min(25, Math.max(1, limit || maxBatch), maxBatch);
   } catch {
     /* defaults */
@@ -102,6 +111,7 @@ export async function POST(req: Request, context: Ctx) {
     const batch = await refreshRioMonthLinkedFromCaBatch(month.id, token, offset, limit, {
       includePersonDetails,
       includeContracts,
+      onlyMissingContracts,
     });
     return NextResponse.json({
       ok: true,

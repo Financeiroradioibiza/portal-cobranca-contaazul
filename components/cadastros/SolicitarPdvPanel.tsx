@@ -12,7 +12,7 @@ const inputClass =
   "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950";
 
 type RioClienteOption = { id: string; nome: string; razaoSocial: string; documento: string | null };
-type RioPdvOption = { id: string; nome: string; documento: string | null };
+type RioPdvOption = { id: string; nome: string; documento: string | null; isLinhaProxy?: boolean };
 
 function parsePedido(data: unknown): PedidoPdvView | null {
   if (!data || typeof data !== "object" || !("pedido" in data)) return null;
@@ -598,6 +598,7 @@ export function SolicitarPdvPanel({ pedidoId, prospectId }: { pedidoId?: string;
             {pdvs.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nome}
+                {p.isLinhaProxy ? " (cliente = PDV)" : ""}
                 {p.documento ? ` — ${p.documento}` : ""}
               </option>
             ))}

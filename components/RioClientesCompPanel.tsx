@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RIO_CA_REFRESH_BATCH_SIZE,
   RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS,
+  isRioCaPersonLinked,
   rioCaRefreshBatchLimit,
 } from "@/lib/rio/rioCaPersonLink";
 import { COBRANCA_HOME_HREF } from "@/lib/portal/cobrancaNav";
@@ -288,15 +289,25 @@ export function RioClientesCompPanel() {
       opts?: {
         includePersonDetails?: boolean;
         includeContracts?: boolean;
+        onlyMissingContracts?: boolean;
         progressLabel?: string;
       },
     ) => {
       let offset = 0;
+      const onlyMissing = opts?.onlyMissingContracts === true;
       const limit =
         mode === "refresh" ?
-          rioCaRefreshBatchLimit({ includeContracts: opts?.includeContracts ?? true })
+          rioCaRefreshBatchLimit({
+            includeContracts: onlyMissing || (opts?.includeContracts ?? true),
+          })
         : RIO_CA_REFRESH_BATCH_SIZE;
-      const progressLabel = opts?.progressLabel ?? (mode === "match" ? "Casar CNPJ → CA" : "Atualizar vinculados CA");
+      const progressLabel =
+        opts?.progressLabel ??
+        (onlyMissing ?
+          "Contratos faltantes"
+        : mode === "match" ?
+          "Casar CNPJ → CA"
+        : "Atualizar vinculados CA");
 
       while (true) {
         if (caRefreshRunId.current !== runId) return;
@@ -311,8 +322,9 @@ export function RioClientesCompPanel() {
             mode,
             ...(mode === "refresh" ?
               {
-                includePersonDetails: opts?.includePersonDetails ?? true,
-                includeContracts: opts?.includeContracts ?? true,
+                includePersonDetails: onlyMissing ? false : (opts?.includePersonDetails ?? true),
+                includeContracts: onlyMissing ? true : (opts?.includeContracts ?? true),
+                ...(onlyMissing ? { onlyMissingContracts: true } : {}),
               }
             : {}),
           }),
@@ -1570,6 +1582,45 @@ export function RioClientesCompPanel() {
     [runCaBatchPhase, syncIncludeContracts, syncIncludePersonDetails],
   );
 
+  const missingContractsCount = useMemo(
+    () =>
+      linhas.filter(
+        (l) =>
+          l.movimento !== "saida" &&
+          isRioCaPersonLinked(l.caPersonId) &&
+          !l.contratosAtivosTexto.trim(),
+      ).length,
+    [linhas],
+  );
+
+  const refreshMissingContracts = useCallback(async () => {
+    if (missingContractsCount === 0) {
+      setMsg("Todos os clientes vinculados já têm contrato preenchido (ou vazio confirmado na CA).");
+      return;
+    }
+    const runId = ++caRefreshRunId.current;
+    setRefreshingCa(true);
+    setMsg(null);
+    const acc = { updated: 0, failed: 0, matched: 0, ambiguous: 0, notFound: 0 };
+    try {
+      await runCaBatchPhase("refresh", runId, acc, {
+        onlyMissingContracts: true,
+        progressLabel: "Contratos faltantes",
+      });
+      if (caRefreshRunId.current !== runId) return;
+      setMsg(
+        `Contratos faltantes: ${acc.updated} atualizado(s)${acc.failed ? `, ${acc.failed} falha` : ""}. ` +
+          "Linhas que continuam vazias não têm contrato ATIVO na Conta Azul.",
+      );
+    } catch (e) {
+      if (caRefreshRunId.current === runId) {
+        setMsg(e instanceof Error ? e.message : "Falha ao atualizar contratos faltantes.");
+      }
+    } finally {
+      if (caRefreshRunId.current === runId) setRefreshingCa(false);
+    }
+  }, [missingContractsCount, runCaBatchPhase]);
+
   const criarMarca = useCallback(async () => {
     const raw = window.prompt("Nome da MARCA (tipo coluna MARCA no PDF):");
     if (raw === null) return;
@@ -2103,6 +2154,17 @@ export function RioClientesCompPanel() {
           title={`Atualiza linhas vinculadas — ${RIO_CA_REFRESH_BATCH_SIZE} (ou ${RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS} com Contratos) por vez`}
         >
           {refreshingCa ? "Atualizando CA…" : "Atualizar vinculados CA"}
+        </button>
+        <button
+          type="button"
+          disabled={refreshingCa || missingContractsCount === 0}
+          className="rounded-lg border border-amber-700 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100"
+          onClick={() => void refreshMissingContracts()}
+          title={`Só clientes vinculados sem número de contrato — lotes de ${RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS}`}
+        >
+          {refreshingCa ?
+            "Atualizando…"
+          : `Contratos faltantes (${missingContractsCount})`}
         </button>
         <button
           type="button"
