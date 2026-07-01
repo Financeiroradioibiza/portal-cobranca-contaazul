@@ -1,11 +1,13 @@
 import fsp from 'node:fs/promises';
 import { persistMixTrimForMusica, resolveMixTrim } from './mixTrimApply.js';
-import { reprocessMusicaEdicao } from './reprocessEdicao.js';
+import { findMusicaSourceMp3, reprocessMusicaEdicao } from './reprocessEdicao.js';
 import { portalQuery } from './portalDb.js';
-import { uploadPath } from './storage.js';
+import { ensureStorageDirs, uploadPath, workDir } from './storage.js';
 
 export type ReanalisarMixTrimResult = {
   musicaId: string;
+  titulo?: string;
+  artista?: string;
   ok: boolean;
   error?: string;
   mixSegundos?: number;
@@ -34,13 +36,25 @@ async function findUploadPath(musicaId: string): Promise<string | null> {
   }
 }
 
-/** Reanalisa mix/trim a partir do MP3 bruto do upload (se ainda existir no disco). */
+/** Reanalisa mix/trim a partir do áudio disponível no disco/B2. */
 export async function reanalisarMixTrimForMusica(musicaId: string): Promise<ReanalisarMixTrimResult> {
   const id = musicaId.trim();
   if (!id) return { musicaId: id, ok: false, error: 'id_invalido' };
 
-  const inputPath = await findUploadPath(id);
-  if (!inputPath) return { musicaId: id, ok: false, error: 'upload_ausente' };
+  let inputPath = await findUploadPath(id);
+  let scratchWork: string | null = null;
+
+  if (!inputPath) {
+    ensureStorageDirs();
+    scratchWork = workDir(`mixtrim-${id.slice(0, 8)}`);
+    await fsp.mkdir(scratchWork, { recursive: true });
+    inputPath = await findMusicaSourceMp3(id, scratchWork);
+  }
+
+  if (!inputPath) {
+    if (scratchWork) await fsp.rm(scratchWork, { recursive: true, force: true }).catch(() => null);
+    return { musicaId: id, ok: false, error: 'audio_ausente' };
+  }
 
   try {
     const resolved = await resolveMixTrim(inputPath);
@@ -62,6 +76,8 @@ export async function reanalisarMixTrimForMusica(musicaId: string): Promise<Rean
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     return { musicaId: id, ok: false, error: detail || 'falha_analise' };
+  } finally {
+    if (scratchWork) await fsp.rm(scratchWork, { recursive: true, force: true }).catch(() => null);
   }
 }
 
@@ -70,6 +86,28 @@ export async function reanalisarMixTrimBulk(musicaIds: string[]): Promise<Reanal
   const results: ReanalisarMixTrimResult[] = [];
   for (const id of unique) {
     results.push(await reanalisarMixTrimForMusica(id));
+  }
+  return results;
+}
+
+/** Reanalisa faixas prontas com mix_auto e mix=0 (útil pós-deploy do algoritmo). */
+export async function reanalisarMixTrimAutoZeroBulk(limit = 100): Promise<ReanalisarMixTrimResult[]> {
+  const cap = Math.min(500, Math.max(1, limit));
+  const rows = await portalQuery<{ id: string; titulo: string; artista: string }>(
+    `SELECT id, titulo, artista
+       FROM musica_biblioteca
+      WHERE status = 'pronta'
+        AND mix_auto = true
+        AND COALESCE(mix_segundos_finais, 0) = 0
+      ORDER BY updated_at DESC
+      LIMIT $1`,
+    [cap],
+  );
+
+  const results: ReanalisarMixTrimResult[] = [];
+  for (const m of rows.rows) {
+    const r = await reanalisarMixTrimForMusica(m.id);
+    results.push({ ...r, titulo: m.titulo, artista: m.artista });
   }
   return results;
 }

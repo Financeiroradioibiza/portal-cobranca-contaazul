@@ -23,7 +23,8 @@ type MusicaRow = {
 
 const FORMATO_USO = 'mp3_128_mono';
 
-async function resolveSourceMp3(musicaId: string, work: string): Promise<string | null> {
+/** MP3 de análise: master B2/local ou versão de uso (quando upload bruto já foi apagado). */
+export async function findMusicaSourceMp3(musicaId: string, work: string): Promise<string | null> {
   const masterDest = path.join(work, 'master.mp3');
   if (await downloadMasterToFile(musicaId, masterDest)) return masterDest;
 
@@ -75,7 +76,7 @@ export async function reprocessMusicaEdicao(musicaId: string): Promise<{ duratio
   const work = workDir(`edicao-${musicaId}`);
   await fsp.mkdir(work, { recursive: true });
 
-  const source = await resolveSourceMp3(musicaId, work);
+  const source = await findMusicaSourceMp3(musicaId, work);
   if (!source) throw new Error('fonte_ausente');
 
   const trimIni = Math.max(0, m.trim_inicio_ms ?? 0);

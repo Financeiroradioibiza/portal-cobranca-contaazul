@@ -1,9 +1,11 @@
 #!/usr/bin/env npx tsx
 /**
  * Reanalisa mix/trim de faixas com mix=0 e mix_auto=true.
- * Rodar NO SERVIDOR cloud2 (acesso ao disco de upload/uso e Neon).
  *
- *   cd /opt/portal-ibiza/app && npx tsx scripts/reanalisar-mix-biblioteca.ts [--limit=50]
+ * Preferir (do Mac, sem SSH manual):
+ *   bash scripts/reanalisar-mix-biblioteca-remote.sh [--limit=50]
+ *
+ * Ou pelo portal: Criação → Edição → marcar faixas → Detectar mix/trim automaticamente.
  */
 import { resolveMixTrim, persistMixTrimForMusica } from '../.cloud2-stage/criacao/mixTrimApply.js';
 import { portalQuery } from '../.cloud2-stage/criacao/portalDb.js';
