@@ -4,7 +4,6 @@ import {
   bodyRms,
   detectMixSegundos,
   detectTrimFimMs,
-  findContentEndIdx,
   HOP_SEC,
   isQuietOutroTail,
 } from './mixTrimDetect.js';
@@ -82,8 +81,8 @@ function synthQuietOutro(totalSec = 240): Float32Array {
   return env;
 }
 
-/** Silêncio morto ≥1,5 s após música. */
-function synthDeadAir(totalSec = 200, deadSec = 1.5): Float32Array {
+/** Silêncio morto ≥2 s após música. */
+function synthDeadAir(totalSec = 200, deadSec = 2.5): Float32Array {
   const n = frames(totalSec);
   const env = new Float32Array(n);
   for (let i = 0; i < n - frames(deadSec); i++) env[i] = 0.4;
@@ -108,24 +107,30 @@ test('fade curto It Had To Be You mix ~4', () => {
   assert.ok(mix >= 3 && mix <= 6, `mix=${mix}`);
 });
 
-test('And so It Goes trim ~6 e mix ~3', () => {
+test('And so It Goes trim 0 e mix ~3 (fade no fim, sem trim)', () => {
   const env = synthFadePlusThinTail();
   const body = bodyRms(env);
   const trim = detectTrimFimMs(env, body);
   const mix = detectMixSegundos(env, trim, body);
-  assert.ok(trim >= 4000, `trim=${trim}`);
-  assert.ok(mix >= 2 && mix <= 5, `mix=${mix}`);
+  assert.equal(trim, 0, `trim=${trim}`);
+  assert.ok(mix >= 2, `mix=${mix}`);
 });
 
-test('Lullaby trim ~27 s e mix ~4', () => {
-  const env = synthMusicPlusRumble();
+test('fade longo tipo Seasons — trim 0 e mix > 0', () => {
+  const env = synthRadioFade(166, 9);
   const body = bodyRms(env);
-  const contentEnd = findContentEndIdx(env, body);
   const trim = detectTrimFimMs(env, body);
   const mix = detectMixSegundos(env, trim, body);
-  assert.ok(trim >= 20_000, `trim=${trim}`);
-  assert.ok(mix >= 3 && mix <= 6, `mix=${mix}`);
-  assert.ok(contentEnd < env.length - frames(20), 'contentEnd antes da cauda');
+  assert.equal(trim, 0, `trim=${trim}`);
+  assert.ok(mix >= 5, `mix=${mix}`);
+});
+
+test('Lullaby — trim automático desligado; mix detectado', () => {
+  const env = synthMusicPlusRumble();
+  const body = bodyRms(env);
+  const mix = detectMixSegundos(env, 0, body);
+  assert.equal(detectTrimFimMs(env, body), 0, 'trim auto desligado');
+  assert.ok(mix >= 3 && mix <= 14, `mix=${mix}`);
 });
 
 test('detectMixSegundos retorna 0 em outro quieto', () => {
@@ -136,10 +141,9 @@ test('detectMixSegundos retorna 0 em outro quieto', () => {
   assert.equal(isQuietOutroTail(env, body, 0), true);
 });
 
-test('detectTrimFimMs corta silêncio morto no final', () => {
-  const env = synthDeadAir();
-  const trim = detectTrimFimMs(env);
-  assert.ok(trim >= 1200, `trim=${trim}`);
+test('trim automático sempre desligado', () => {
+  assert.equal(detectTrimFimMs(synthDeadAir()), 0);
+  assert.equal(detectTrimFimMs(synthMusicPlusRumble()), 0);
 });
 
 test('fade suave não é bloqueado por outro quieto', () => {

@@ -1,8 +1,16 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import type { FastifyReply } from 'fastify';
-import { decryptRib, isRibFile } from './rib.js';
-import { usoPath, usoRelFromStorageKey, vinhetaIdFromStorageKey, vinhetaPath, vinhetaTrilhaIdFromStorageKey, vinhetaTrilhaPath } from './storage.js';
+import { decryptRib, isRibFile, ribEnabled } from './rib.js';
+import {
+  usoPath,
+  usoRelFromStorageKey,
+  usoStorageKey,
+  vinhetaIdFromStorageKey,
+  vinhetaPath,
+  vinhetaTrilhaIdFromStorageKey,
+  vinhetaTrilhaPath,
+} from './storage.js';
 
 type ResolvedAudio = {
   /** Arquivo legível no disco (mp3 ou .rib). */
@@ -11,6 +19,28 @@ type ResolvedAudio = {
   mp3Buffer: Buffer | null;
   contentLength: number;
 };
+
+const FORMATO_USO_FALLBACK = 'mp3_128_mono';
+
+/** Resolve áudio de uso pelo id da faixa — sem consulta ao Neon (evita 500 por timeout do pool). */
+export async function resolveMusicaUsoAudioById(
+  musicaId: string,
+  formato: string,
+): Promise<ResolvedAudio | null> {
+  const id = musicaId.trim();
+  if (!id) return null;
+
+  const formatos = formato === FORMATO_USO_FALLBACK ? [formato] : [formato, FORMATO_USO_FALLBACK];
+  const exts: Array<'.rib' | '.mp3'> = ribEnabled() ? ['.rib', '.mp3'] : ['.mp3', '.rib'];
+
+  for (const fmt of formatos) {
+    for (const ext of exts) {
+      const resolved = await resolveUsoAudio(usoStorageKey(id, fmt, ext));
+      if (resolved) return resolved;
+    }
+  }
+  return null;
+}
 
 export async function resolveUsoAudio(storageKey: string): Promise<ResolvedAudio | null> {
   try {

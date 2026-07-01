@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import { persistMixTrimForMusica, resolveMixTrim } from './mixTrimApply.js';
-import { findMusicaSourceMp3, reprocessMusicaEdicao } from './reprocessEdicao.js';
+import { findMusicaSourceMp3 } from './reprocessEdicao.js';
 import { portalQuery } from './portalDb.js';
 import { ensureStorageDirs, uploadPath, workDir } from './storage.js';
 
@@ -36,10 +36,9 @@ async function findUploadPath(musicaId: string): Promise<string | null> {
   }
 }
 
-/** Reanalisa mix/trim a partir do áudio disponível no disco/B2. */
-export async function reanalisarMixTrimForMusica(musicaId: string): Promise<ReanalisarMixTrimResult> {
+async function findAnalysisInput(musicaId: string): Promise<{ inputPath: string; scratchWork: string | null } | null> {
   const id = musicaId.trim();
-  if (!id) return { musicaId: id, ok: false, error: 'id_invalido' };
+  if (!id) return null;
 
   let inputPath = await findUploadPath(id);
   let scratchWork: string | null = null;
@@ -53,31 +52,60 @@ export async function reanalisarMixTrimForMusica(musicaId: string): Promise<Rean
 
   if (!inputPath) {
     if (scratchWork) await fsp.rm(scratchWork, { recursive: true, force: true }).catch(() => null);
-    return { musicaId: id, ok: false, error: 'audio_ausente' };
+    return null;
   }
 
+  return { inputPath, scratchWork };
+}
+
+/** Só detecta — não grava no banco (calibração / teste). */
+export async function previewMixTrimForMusica(musicaId: string): Promise<ReanalisarMixTrimResult> {
+  const id = musicaId.trim();
+  if (!id) return { musicaId: id, ok: false, error: 'id_invalido' };
+
+  const found = await findAnalysisInput(id);
+  if (!found) return { musicaId: id, ok: false, error: 'audio_ausente' };
+
   try {
-    const resolved = await resolveMixTrim(inputPath);
-    await persistMixTrimForMusica(id, resolved, false);
-    if (resolved.trimFimMs > 0) {
-      try {
-        await reprocessMusicaEdicao(id);
-      } catch {
-        /* metadata ok; reprocess pode falhar se master ausente */
-      }
-    }
+    const resolved = await resolveMixTrim(found.inputPath);
     return {
       musicaId: id,
       ok: true,
       mixSegundos: resolved.appliedMixSegundos,
-      trimFimMs: resolved.trimFimMs,
+      trimFimMs: 0,
       quietOutro: resolved.quietOutro,
     };
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     return { musicaId: id, ok: false, error: detail || 'falha_analise' };
   } finally {
-    if (scratchWork) await fsp.rm(scratchWork, { recursive: true, force: true }).catch(() => null);
+    if (found.scratchWork) await fsp.rm(found.scratchWork, { recursive: true, force: true }).catch(() => null);
+  }
+}
+
+/** Reanalisa mix/trim a partir do áudio disponível no disco/B2. */
+export async function reanalisarMixTrimForMusica(musicaId: string): Promise<ReanalisarMixTrimResult> {
+  const id = musicaId.trim();
+  if (!id) return { musicaId: id, ok: false, error: 'id_invalido' };
+
+  const found = await findAnalysisInput(id);
+  if (!found) return { musicaId: id, ok: false, error: 'audio_ausente' };
+
+  try {
+    const resolved = await resolveMixTrim(found.inputPath);
+    await persistMixTrimForMusica(id, resolved, false);
+    return {
+      musicaId: id,
+      ok: true,
+      mixSegundos: resolved.appliedMixSegundos,
+      trimFimMs: 0,
+      quietOutro: resolved.quietOutro,
+    };
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    return { musicaId: id, ok: false, error: detail || 'falha_analise' };
+  } finally {
+    if (found.scratchWork) await fsp.rm(found.scratchWork, { recursive: true, force: true }).catch(() => null);
   }
 }
 

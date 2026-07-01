@@ -132,13 +132,10 @@ async function refreshMixOrProduceOnDuplicate(
   await persistMixTrimForMusica(existenteId, resolved, true, true);
   pipelineLog(
     { itemId: item.id, jobId: item.job_id, musicaId: existenteId, etapa: 'ponto_mix' },
-    'mix_trim_duplicata_atualizado',
+    'mix_detectado_duplicata',
     {
       mixSegundos: resolved.appliedMixSegundos,
-      detectedMix: resolved.mixSegundosFinais,
       quietOutro: resolved.quietOutro,
-      trimFimMs: resolved.trimFimMs,
-      trimInicioMs: resolved.trimInicioMs,
     },
   );
 }
@@ -322,14 +319,12 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
     await persistMixTrimForMusica(musicaId, resolved, true, false);
     pipelineLog(
       { ...ctx, etapa: 'ponto_mix' },
-      'mix_trim_detectado',
+      'mix_detectado',
       {
         mixSegundos: resolved.appliedMixSegundos,
         detectedMix: resolved.mixSegundosFinais,
         quietOutro: resolved.quietOutro,
         envelopeOk: resolved.envelopeOk,
-        trimFimMs: resolved.trimFimMs,
-        trimInicioMs: resolved.trimInicioMs,
       },
     );
   });

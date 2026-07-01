@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { verifyStreamToken } from '../../criacao/ingestToken.js';
-import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
-import { portalQuery } from '../../criacao/portalDb.js';
+import { resolveMusicaUsoAudioById, sendAudioReply } from '../../criacao/audioDelivery.js';
 
 type AudioParams = { musicaId: string };
 type AudioQuery = { f?: string; exp?: string; token?: string };
@@ -22,28 +21,14 @@ export async function registerAudioRoutes(app: FastifyInstance, prefix: string):
         return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
       }
 
-      const r = await portalQuery<{ storage_key: string }>(
-        `SELECT storage_key FROM musica_versao
-          WHERE musica_id = $1 AND formato::text = $2
-          LIMIT 1`,
-        [musicaId, formato],
-      );
-      let key = r.rows[0]?.storage_key;
-      if (!key) {
-        const fb = await portalQuery<{ storage_key: string }>(
-          `SELECT storage_key FROM musica_versao
-            WHERE musica_id = $1 AND formato::text = $2
-            LIMIT 1`,
-          [musicaId, FORMATO_FALLBACK],
-        );
-        key = fb.rows[0]?.storage_key;
+      try {
+        const resolved = await resolveMusicaUsoAudioById(musicaId, formato);
+        if (!resolved) return reply.code(404).send({ ok: false, error: 'arquivo_ausente' });
+        return sendAudioReply(reply, resolved, req.headers.range, 'private, max-age=3600');
+      } catch (e) {
+        req.log.error({ err: e, musicaId, formato }, 'audio_stream_falhou');
+        return reply.code(503).send({ ok: false, error: 'stream_indisponivel' });
       }
-      if (!key) return reply.code(404).send({ ok: false, error: 'versao_ausente' });
-
-      const resolved = await resolveUsoAudio(key);
-      if (!resolved) return reply.code(404).send({ ok: false, error: 'arquivo_ausente' });
-
-      return sendAudioReply(reply, resolved, req.headers.range, 'private, max-age=3600');
     },
   );
 }

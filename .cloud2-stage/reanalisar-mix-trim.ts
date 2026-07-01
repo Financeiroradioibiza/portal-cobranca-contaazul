@@ -15,7 +15,7 @@ function authorized(req: { headers: Record<string, unknown> }): boolean {
   }
 }
 
-/** POST /criacao/reanalisar-mix-trim — detecta ponto de mix e trim a partir do upload bruto. */
+/** POST /criacao/reanalisar-mix-trim — detecta ponto de mix (fade) das faixas pedidas. */
 export async function registerReanalisarMixTrimRoutes(app: FastifyInstance, prefix: string): Promise<void> {
   app.post<{ Body: { musicaIds?: string[] } }>(`${prefix}/reanalisar-mix-trim`, async (req, reply) => {
     if (!authorized(req)) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });

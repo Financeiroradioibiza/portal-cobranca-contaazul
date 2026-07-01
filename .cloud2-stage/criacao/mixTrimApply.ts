@@ -8,14 +8,19 @@ export type ResolvedMixTrim = MixTrimResult & {
 
 /**
  * Regras acordadas (sem fallback de Config):
- * - Fade de rádio → mix = 2 s após início do fade
+ * - Fade de rádio → mix generoso no início do fade
  * - Outro quieto contínuo (What's Up) → mix 0
  * - Sem fade detectado → mix 0
- * - Trim fim → silêncio morto ≥ 1,2 s; trim início → 0
+ * - Trim → sempre manual em Edição de música (nunca automático)
  */
 export async function resolveMixTrim(inputPath: string): Promise<ResolvedMixTrim> {
   const detected = await detectMixAndTrim(inputPath);
-  return { ...detected, appliedMixSegundos: detected.mixSegundosFinais };
+  return {
+    ...detected,
+    trimFimMs: 0,
+    trimInicioMs: 0,
+    appliedMixSegundos: detected.mixSegundosFinais,
+  };
 }
 
 export async function persistMixTrimForMusica(
@@ -29,13 +34,13 @@ export async function persistMixTrimForMusica(
     await portalQuery(
       `UPDATE musica_biblioteca
           SET mix_segundos_finais = $2,
-              trim_inicio_ms = $3,
-              trim_fim_ms = $4,
+              trim_inicio_ms = 0,
+              trim_fim_ms = 0,
               updated_at = now()
         WHERE id = $1
           AND mix_auto = true
           AND (mix_segundos_finais IS NULL OR mix_segundos_finais = 0)`,
-      [musicaId, mix, resolved.trimInicioMs, resolved.trimFimMs],
+      [musicaId, mix],
     );
     return;
   }
@@ -44,11 +49,11 @@ export async function persistMixTrimForMusica(
     await portalQuery(
       `UPDATE musica_biblioteca
           SET mix_segundos_finais = $2,
-              trim_inicio_ms = $3,
-              trim_fim_ms = $4,
+              trim_inicio_ms = 0,
+              trim_fim_ms = 0,
               updated_at = now()
         WHERE id = $1 AND mix_auto = true`,
-      [musicaId, mix, resolved.trimInicioMs, resolved.trimFimMs],
+      [musicaId, mix],
     );
     return;
   }
@@ -56,11 +61,11 @@ export async function persistMixTrimForMusica(
   await portalQuery(
     `UPDATE musica_biblioteca
         SET mix_segundos_finais = $2,
-            trim_inicio_ms = $3,
-            trim_fim_ms = $4,
+            trim_inicio_ms = 0,
+            trim_fim_ms = 0,
             mix_auto = true,
             updated_at = now()
       WHERE id = $1`,
-    [musicaId, mix, resolved.trimInicioMs, resolved.trimFimMs],
+    [musicaId, mix],
   );
 }
