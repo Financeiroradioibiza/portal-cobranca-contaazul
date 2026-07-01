@@ -9,6 +9,8 @@ import {
   rioCaRefreshBatchLimit,
 } from "@/lib/rio/rioCaPersonLink";
 import { COBRANCA_HOME_HREF } from "@/lib/portal/cobrancaNav";
+import { contaAzulLoginHref } from "@/lib/contaazul/oauthNav";
+import { useContaAzulOAuthBanner } from "@/components/contaazul/useContaAzulOAuthBanner";
 import { COMPANY_NAME } from "@/lib/brand";
 import {
   ClienteMarcaBlock,
@@ -136,6 +138,7 @@ export function RioClientesCompPanel() {
   /** Import CSV: cruzar com mês anterior → entrada/saída como no sync pela API */
   const [importInferMovement, setImportInferMovement] = useState(true);
   const [caServerConnected, setCaServerConnected] = useState<boolean | null>(null);
+  const oauthBanner = useContaAzulOAuthBanner();
   const [linkModalLinha, setLinkModalLinha] = useState<RioLinha | null>(null);
   const [buscaCa, setBuscaCa] = useState("");
   const [hitsCa, setHitsCa] = useState<{ id: string; nome: string; documento?: string | null }[]>([]);
@@ -218,7 +221,7 @@ export function RioClientesCompPanel() {
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [oauthBanner]);
 
   useEffect(() => {
     if (!linkModalLinha) {
@@ -1935,6 +1938,12 @@ export function RioClientesCompPanel() {
         onGoToClashLine={scrollToRioLinha}
       />
 
+      {oauthBanner ?
+        <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+          {oauthBanner}
+        </div>
+      : null}
+
       {rioConfigOpen ?
         <div className="mb-4 space-y-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/40">
           <div>
@@ -1986,11 +1995,13 @@ export function RioClientesCompPanel() {
 
       {caServerConnected === false ?
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40">
-          <strong>Conta Azul desconectada.</strong> Vincular e atualizar e-mails exige OAuth no{" "}
-          <Link href={COBRANCA_HOME_HREF} className="font-semibold underline">
-            vencidos
-          </Link>
-          .
+          <strong>Conta Azul desconectada.</strong> Vincular e atualizar e-mails exige OAuth neste servidor.
+          <a
+            href={contaAzulLoginHref("/financeiro/planilha-rio")}
+            className="ml-2 inline-flex rounded-md bg-amber-700 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-800"
+          >
+            Conectar Conta Azul
+          </a>
         </div>
       : null}
 

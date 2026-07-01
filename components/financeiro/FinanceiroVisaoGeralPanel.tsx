@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FinanceiroOverviewPayload } from "@/lib/financeiro/financeiroOverviewService";
 import { formatBRL } from "@/lib/format";
+import { useContaAzulOAuthBanner } from "@/components/contaazul/useContaAzulOAuthBanner";
+import { contaAzulLoginHref } from "@/lib/contaazul/oauthNav";
 
 function KpiCard({
   title,
@@ -53,6 +55,7 @@ export function FinanceiroVisaoGeralPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notConnected, setNotConnected] = useState(false);
+  const oauthBanner = useContaAzulOAuthBanner();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -84,23 +87,36 @@ export function FinanceiroVisaoGeralPanel() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (oauthBanner?.includes("sucesso")) {
+      void load();
+    }
+  }, [oauthBanner, load]);
+
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando indicadores do Conta Azul…</p>;
   }
 
   if (notConnected) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950/40">
-        <p className="font-semibold text-amber-900 dark:text-amber-100">Conta Azul não conectado</p>
-        <p className="mt-1 text-sm text-amber-800/90 dark:text-amber-200/80">
-          Conecte a integração para ver os totais de receitas e atrasos.
-        </p>
-        <a
-          href="/api/contaazul/login"
-          className="mt-3 inline-flex rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
-        >
-          Conectar Conta Azul →
-        </a>
+      <div className="space-y-3">
+        {oauthBanner ?
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+            {oauthBanner}
+          </div>
+        : null}
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="font-semibold text-amber-900 dark:text-amber-100">Conta Azul não conectado</p>
+          <p className="mt-1 text-sm text-amber-800/90 dark:text-amber-200/80">
+            Conecte a integração para ver os totais de receitas e atrasos.
+          </p>
+          <a
+            href={contaAzulLoginHref("/financeiro/visao-geral")}
+            className="mt-3 inline-flex rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Conectar Conta Azul →
+          </a>
+        </div>
       </div>
     );
   }

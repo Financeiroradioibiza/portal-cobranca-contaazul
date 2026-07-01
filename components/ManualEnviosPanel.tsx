@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { COBRANCA_HOME_HREF } from "@/lib/portal/cobrancaNav";
+import { contaAzulLoginHref } from "@/lib/contaazul/oauthNav";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { COMPANY_NAME } from "@/lib/brand";
 import { readJsonFromResponse } from "@/lib/safeHttpJson";
@@ -816,11 +817,14 @@ export function ManualEnviosPanel() {
           role="alert"
           className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-50"
         >
-          <strong className="font-semibold">OAuth Conta Azul ausente neste servidor.</strong> Para buscar cliente e copiar e-mail de cobrança, abra{" "}
-          <Link href={COBRANCA_HOME_HREF} className="font-semibold text-sky-800 underline decoration-sky-800/70 hover:text-sky-900 dark:text-sky-300 dark:decoration-sky-400/70">
-            vencidos
-          </Link>{" "}
-          neste mesmo domínio (use «Conectar Conta Azul» ou «Reautorizar»), depois volte em Envios manuais.
+          <strong className="font-semibold">OAuth Conta Azul ausente neste servidor.</strong> Para buscar cliente e copiar
+          e-mail de cobrança, conecte aqui:
+          <a
+            href={contaAzulLoginHref("/financeiro/envios-oc")}
+            className="ml-2 inline-flex rounded-md bg-amber-700 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-800"
+          >
+            Conectar Conta Azul
+          </a>
         </div>
       ) : caServerConnected === true ? (
         <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-50">
