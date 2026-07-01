@@ -398,7 +398,7 @@ export async function listMusicasBiblioteca(opts: {
     [items, total] = await Promise.all([
       prisma.musicaBiblioteca.findMany({
         where,
-        orderBy: [{ artista: "asc" }, { titulo: "asc" }],
+        orderBy: [{ createdAt: "desc" }],
         skip,
         take: pageSize,
         include: musicaInclude,

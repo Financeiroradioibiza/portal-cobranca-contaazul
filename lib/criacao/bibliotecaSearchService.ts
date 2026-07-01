@@ -91,8 +91,8 @@ export async function listMusicaIdsByUsageFilter(
   const whereSql = Prisma.join(conditions, " AND ");
   const orderSql =
     opts.listFilter === "leastUsed" ?
-      Prisma.sql`COALESCE(u.n, 0) ASC, m.artista ASC, m.titulo ASC`
-    : Prisma.sql`m.artista ASC, m.titulo ASC`;
+      Prisma.sql`COALESCE(u.n, 0) ASC, m.created_at DESC`
+    : Prisma.sql`m.created_at DESC`;
 
   const [idRows, countRows] = await Promise.all([
     prisma.$queryRaw<{ id: string }[]>`
