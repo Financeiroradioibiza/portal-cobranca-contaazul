@@ -12,11 +12,11 @@ export function requireEnv(name: string): string {
   return v.trim();
 }
 
-export function getContaAzulOAuthConfig(redirectUri?: string) {
+export function getContaAzulOAuthConfig() {
   return {
     clientId: requireEnv("CONTA_AZUL_CLIENT_ID"),
     clientSecret: requireEnv("CONTA_AZUL_CLIENT_SECRET"),
-    redirectUri: redirectUri ?? requireEnv("CONTA_AZUL_REDIRECT_URI").trim(),
+    redirectUri: requireEnv("CONTA_AZUL_REDIRECT_URI"),
   };
 }
 

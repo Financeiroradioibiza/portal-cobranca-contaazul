@@ -4,8 +4,6 @@ import { siteUrlFromRequest } from "@/lib/contaazul/config";
 import { exchangeCodeForTokens } from "@/lib/contaazul/oauth";
 import { saveTokens } from "@/lib/contaazul/session";
 
-const AFTER_OAUTH = "/financeiro/vencidos";
-
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
@@ -15,37 +13,31 @@ export async function GET(request: Request) {
 
   if (oauthError) {
     return NextResponse.redirect(
-      `${site}${AFTER_OAUTH}?oauth_error=${encodeURIComponent(oauthError)}`,
+      `${site}/?oauth_error=${encodeURIComponent(oauthError)}`,
     );
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(`${site}${AFTER_OAUTH}?oauth_error=missing_code`);
+    return NextResponse.redirect(`${site}/?oauth_error=missing_code`);
   }
 
   const jar = await cookies();
-  const redirectUri = jar.get("ca_oauth_redirect")?.value;
   const expected = jar.get("ca_oauth_state")?.value;
-  jar.delete("ca_oauth_redirect");
   jar.delete("ca_oauth_state");
 
   if (!expected || expected !== state) {
-    return NextResponse.redirect(`${site}${AFTER_OAUTH}?oauth_error=invalid_state`);
-  }
-
-  if (!redirectUri) {
-    return NextResponse.redirect(`${site}${AFTER_OAUTH}?oauth_error=missing_redirect_uri`);
+    return NextResponse.redirect(`${site}/?oauth_error=invalid_state`);
   }
 
   try {
-    const json = await exchangeCodeForTokens(code, redirectUri);
+    const json = await exchangeCodeForTokens(code);
     await saveTokens(json);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "token_error";
     return NextResponse.redirect(
-      `${site}${AFTER_OAUTH}?oauth_error=${encodeURIComponent(msg.slice(0, 500))}`,
+      `${site}/?oauth_error=${encodeURIComponent(msg.slice(0, 500))}`,
     );
   }
 
-  return NextResponse.redirect(`${site}${AFTER_OAUTH}?connected=1`);
+  return NextResponse.redirect(`${site}/?connected=1`);
 }

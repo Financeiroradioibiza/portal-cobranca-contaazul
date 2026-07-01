@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { FinanceiroOverviewPayload } from "@/lib/financeiro/financeiroOverviewService";
 import { formatBRL } from "@/lib/format";
@@ -91,15 +90,17 @@ export function FinanceiroVisaoGeralPanel() {
 
   if (notConnected) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/40">
-        <p className="font-semibold text-amber-900 dark:text-amber-100">Indicadores temporariamente indisponíveis</p>
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950/40">
+        <p className="font-semibold text-amber-900 dark:text-amber-100">Conta Azul não conectado</p>
         <p className="mt-1 text-sm text-amber-800/90 dark:text-amber-200/80">
-          A sessão OAuth da Conta Azul expirou neste servidor. Abra{" "}
-          <Link href="/financeiro/vencidos" className="font-semibold underline">
-            Vencidos
-          </Link>{" "}
-          e clique em <strong>Conectar Conta Azul</strong> — depois volte aqui e clique em Atualizar.
+          Conecte a integração para ver os totais de receitas e atrasos.
         </p>
+        <a
+          href="/api/contaazul/login"
+          className="mt-3 inline-flex rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
+        >
+          Conectar Conta Azul →
+        </a>
       </div>
     );
   }

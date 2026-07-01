@@ -29,14 +29,7 @@ export async function getValidAccessToken(): Promise<string | null> {
     });
     return json.access_token;
   } catch {
-    // Outro request serverless pode ter renovado entre a leitura e o refresh.
-    const again = await prisma.contaAzulToken.findUnique({
-      where: { id: TOKEN_ID },
-    });
-    if (again && again.expiresAt.getTime() > Date.now() + SKEW_MS) {
-      return again.accessToken;
-    }
-    // Não apaga o token — reconectar só via «Desconectar» ou novo OAuth explícito.
+    await prisma.contaAzulToken.deleteMany({ where: { id: TOKEN_ID } });
     return null;
   }
 }
