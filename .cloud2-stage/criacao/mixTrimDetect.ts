@@ -341,9 +341,6 @@ export async function detectMixAndTrim(inputPath: string): Promise<MixTrimResult
 
   const body = bodyRms(env);
   const trimFimMs = detectTrimFimMs(env, body);
-  const trimFrames = Math.floor(trimFimMs / 1000 / HOP_SEC);
-  const analysisEnd = Math.max(0, env.length - 1 - trimFrames);
-  const contentEnd = Math.min(findContentEndIdx(env, body), analysisEnd);
   const quietOutro = isQuietOutroTail(env, body, trimFimMs);
   const mixSegundosFinais = quietOutro ? 0 : detectMixSegundos(env, trimFimMs, body);
 

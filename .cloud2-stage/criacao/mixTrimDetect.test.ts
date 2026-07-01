@@ -55,7 +55,7 @@ function synthFadePlusThinTail(totalSec = 151, fadeSec = 5, tailSec = 6): Float3
 }
 
 /** Música + rumble longo — ex. Lullaby trim ~27 mix ~4. */
-function synthMusicPlusRumble(totalSec = 145, musicSec = 118, rumbleSec = 27): Float32Array {
+function synthMusicPlusRumble(totalSec = 145, musicSec = 118, _rumbleSec = 27): Float32Array {
   const n = frames(totalSec);
   const env = new Float32Array(n);
   const body = 0.48;
