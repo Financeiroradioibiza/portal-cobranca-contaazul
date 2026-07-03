@@ -1,0 +1,68 @@
+[
+  {
+    "label": "Paloma Negra",
+    "search": "Paloma Negra",
+    "artistHint": "Flora",
+    "expectMix": 6,
+    "notes": "Fade + silêncio — só mix automático"
+  },
+  {
+    "label": "Seasons",
+    "search": "Seasons",
+    "artistHint": "Lauren Henderson",
+    "expectMix": 8,
+    "notes": "Fade longo — mix, trim manual"
+  },
+  {
+    "label": "Greta Mirall — Accendi",
+    "search": "Accendi una luna",
+    "expectMix": 8,
+    "notes": "Fade longo de rádio"
+  },
+  {
+    "label": "Chez moi",
+    "search": "Chez moi",
+    "expectMix": 5,
+    "notes": "Referência que já acertou"
+  },
+  {
+    "label": "It Had To Be You",
+    "search": "It Had To Be You",
+    "expectMix": 4,
+    "notes": "Fade curto"
+  },
+  {
+    "label": "And so It Goes",
+    "search": "And so It Goes",
+    "expectMix": 3,
+    "notes": "Só fade"
+  },
+  {
+    "label": "Lullaby",
+    "search": "Lullaby",
+    "artistHint": "Gabi Hartmann",
+    "expectMix": 4,
+    "notes": "Fade antes de cauda — trim manual"
+  },
+  {
+    "label": "Harvest Moon",
+    "search": "Harvest Moon",
+    "artistHint": "Jane Birkin",
+    "expectMix": 9,
+    "notes": "Fade longo gradual — mix no meio (~9 s)"
+  },
+  {
+    "label": "Be My Man",
+    "search": "Be My Man",
+    "artistHint": "Jill Barber",
+    "expectMix": 8,
+    "notes": "Fade longo gradual"
+  },
+  {
+    "label": "Sunday Morning With You",
+    "search": "Sunday Morning With You",
+    "artistHint": "Heather Rigdon",
+    "expectMix": 3,
+    "notes": "Clímax + fade curto — não antecipar 18 s"
+  }
+]

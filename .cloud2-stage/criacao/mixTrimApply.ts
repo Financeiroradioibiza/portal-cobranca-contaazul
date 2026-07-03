@@ -8,7 +8,7 @@ export type ResolvedMixTrim = MixTrimResult & {
 
 /**
  * Regras acordadas (sem fallback de Config):
- * - Fade de rádio → mix generoso no início do fade
+ * - Fade de rádio → mix na 2.ª metade do fade (~50% da duração detectada)
  * - Outro quieto contínuo (What's Up) → mix 0
  * - Sem fade detectado → mix 0
  * - Trim → sempre manual em Edição de música (nunca automático)

@@ -148,7 +148,7 @@ export function FilaRevisaoWorkflow({
           </div>
         : null}
         <p className="mt-2 text-xs text-amber-800/70 dark:text-amber-300/70">
-          Resolva cada possível duplicata abaixo. Mix e trim podem ser ajustados depois em Edição de música.
+          Resolva cada possível duplicata abaixo. Ponto de mix e trim podem ser ajustados depois em Edição de música.
         </p>
       </div>
 

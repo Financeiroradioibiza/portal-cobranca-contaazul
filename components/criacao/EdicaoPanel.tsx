@@ -171,11 +171,75 @@ export function EdicaoPanel() {
     }
   }
 
+  async function detectarMixTrim(musicaIds: string[]): Promise<boolean> {
+    const ids = [...new Set(musicaIds)].filter(Boolean);
+    if (ids.length === 0) return false;
+
+    const res = await fetch("/api/criacao/edicao/reanalisar-mix-trim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ musicaIds: ids }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      okCount?: number;
+      failCount?: number;
+      results?: Array<{
+        musicaId: string;
+        ok: boolean;
+        error?: string;
+        mixSegundos?: number;
+        trimFimMs?: number;
+      }>;
+    };
+    if (!res.ok) {
+      setBulkMsg("Não foi possível analisar — servidor de áudio indisponível.");
+      return false;
+    }
+
+    const results = data.results ?? [];
+    for (const r of results) {
+      if (!r.ok) continue;
+      setFaixas((prev) =>
+        prev.map((f) =>
+          f.id === r.musicaId ?
+            {
+              ...f,
+              mixSegundosFinais: r.mixSegundos ?? 0,
+              mixAuto: true,
+            }
+          : f,
+        ),
+      );
+      setSel((prev) =>
+        prev?.id === r.musicaId ?
+          {
+            ...prev,
+            mixSegundosFinais: r.mixSegundos ?? 0,
+            mixAuto: true,
+          }
+        : prev,
+      );
+    }
+
+    const ok = data.okCount ?? results.filter((r) => r.ok).length;
+    const fail = data.failCount ?? results.filter((r) => !r.ok).length;
+    if (fail > 0 && ok === 0) {
+      setBulkMsg("Não foi possível analisar — áudio ausente no servidor.");
+    } else if (fail > 0) {
+      setBulkMsg(`${ok} analisada(s) agora · ${fail} sem áudio no servidor`);
+    } else {
+      setBulkMsg(`${ok} faixa(s) — ponto de mix atualizado ✓`);
+    }
+
+    await load();
+    return ok > 0;
+  }
+
   async function reanalisarSelected() {
     if (selected.size === 0) return;
     if (
       !window.confirm(
-        `Detectar mix e trim automaticamente em ${selected.size} faixa(s)? Valores atuais serão substituídos.`,
+        `Detectar ponto de mix em ${selected.size} faixa(s) selecionada(s)?\n\nO sistema analisa o fade no servidor e atualiza só o ponto de mix. Trim continua manual.`,
       )
     ) {
       return;
@@ -183,33 +247,9 @@ export function EdicaoPanel() {
     setReanalyzing(true);
     setBulkMsg(null);
     try {
-      const res = await fetch("/api/criacao/edicao/reanalisar-mix-trim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ musicaIds: [...selected] }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        okCount?: number;
-        failCount?: number;
-        fallback?: boolean;
-        message?: string;
-      };
-      if (!res.ok) {
-        setBulkMsg("Não foi possível reanalisar — tente de novo.");
-        return;
-      }
-      const ok = data.okCount ?? 0;
-      const fail = data.failCount ?? 0;
-      setBulkMsg(
-        data.fallback ?
-          "Servidor de áudio indisponível."
-        : fail > 0 ?
-          `${ok} reanalisada(s), ${fail} sem upload bruto no servidor.`
-        : `${ok} faixa(s) reanalisada(s) ✓`,
-      );
-      await load();
+      await detectarMixTrim([...selected]);
     } catch {
-      setBulkMsg("Erro de rede ao reanalisar.");
+      setBulkMsg("Erro de rede ao analisar.");
     } finally {
       setReanalyzing(false);
     }
@@ -222,7 +262,7 @@ export function EdicaoPanel() {
         <h1 className="text-2xl font-bold tracking-tight">Edição de música</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
           Veja a <strong>forma de onda</strong> de cada faixa — silêncio no início ou fim aparece como espaço vazio.
-          Clique numa faixa para ajustar mix/trim; no editor, <strong>clique na waveform</strong> para tocar a partir daquele ponto.
+          Clique numa faixa para ajustar <strong>ponto de mix</strong> e <strong>trim manual</strong>; no editor, <strong>clique na waveform</strong> para tocar a partir daquele ponto.
         </p>
       </div>
 
@@ -302,9 +342,13 @@ export function EdicaoPanel() {
             disabled={selected.size === 0 || reanalyzing}
             onClick={() => void reanalisarSelected()}
             className="ml-auto rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-600 disabled:opacity-40"
+            title="Detecta só o ponto de mix (fade) no servidor — trim é manual"
           >
-            {reanalyzing ? "Analisando…" : "Detectar mix/trim automaticamente"}
+            {reanalyzing ? "Analisando fade…" : "Detectar ponto de mix"}
           </button>
+          <p className="w-full text-[11px] text-slate-500">
+            Marque faixas e clique acima para detectar o <strong>ponto de mix</strong>. Cortes (trim) você faz manualmente no editor abaixo.
+          </p>
           {bulkMsg ?
             <span className="w-full text-xs text-emerald-700 dark:text-emerald-300">{bulkMsg}</span>
           : null}
@@ -389,6 +433,7 @@ export function EdicaoPanel() {
                   faixa={sel}
                   docked
                   onClose={() => setSel(null)}
+                  onDetect={() => detectarMixTrim([sel.id])}
                   onSaved={(updated) => {
                     setFaixas((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
                     setSel(updated);
@@ -406,11 +451,13 @@ export function EdicaoPanel() {
 function FaixaEditor({
   faixa,
   onSaved,
+  onDetect,
   onClose,
   docked = false,
 }: {
   faixa: Faixa;
   onSaved: (f: Faixa) => void;
+  onDetect: () => Promise<boolean>;
   onClose: () => void;
   docked?: boolean;
 }) {
@@ -419,6 +466,7 @@ function FaixaEditor({
   const [trimIni, setTrimIni] = useState<number>(faixa.trimInicioMs / 1000);
   const [trimFim, setTrimFim] = useState<number>(faixa.trimFimMs / 1000);
   const [saving, setSaving] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -475,6 +523,24 @@ function FaixaEditor({
     const a = audioRef.current;
     if (!a) return;
     setCur(a.currentTime);
+  }
+
+  async function detectAgain() {
+    setDetecting(true);
+    setSavedMsg(null);
+    try {
+      const ok = await onDetect();
+      if (ok) {
+        setSavedMsg("Ponto de mix detectado ✓");
+        setTimeout(() => setSavedMsg(null), 2500);
+      } else {
+        setSavedMsg("Não foi possível analisar esta faixa");
+      }
+    } catch {
+      setSavedMsg("Erro de rede ao analisar");
+    } finally {
+      setDetecting(false);
+    }
   }
 
   async function save() {
@@ -644,16 +710,28 @@ function FaixaEditor({
         </label>
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void detectAgain()}
+          disabled={detecting || saving}
+          className="rounded-lg border border-sky-600 bg-sky-950/40 px-4 py-2 text-sm font-semibold text-sky-300 hover:bg-sky-900/50 disabled:opacity-40"
+        >
+          {detecting ? "Analisando fade…" : "Detectar ponto de mix"}
+        </button>
         <button
           type="button"
           onClick={() => void save()}
-          disabled={saving}
+          disabled={saving || detecting}
           className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
         >
-          {saving ? "Salvando…" : "Salvar ajustes"}
+          {saving ? "Salvando…" : "Salvar ajustes manuais"}
         </button>
-        {savedMsg ? <span className="text-sm text-emerald-600">{savedMsg}</span> : null}
+        {savedMsg ?
+          <span className={`text-sm ${savedMsg.includes("Não") || savedMsg.includes("Erro") ? "text-amber-400" : "text-emerald-400"}`}>
+            {savedMsg}
+          </span>
+        : null}
       </div>
     </div>
   );

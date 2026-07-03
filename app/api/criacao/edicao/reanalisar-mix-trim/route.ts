@@ -12,7 +12,7 @@ type Cloud2Result = {
   trimFimMs?: number;
 };
 
-/** POST — reanalisa mix/trim das faixas selecionadas no cloud2 (detecção por fade/outro quieto/trim). */
+/** POST — reanalisa ponto de mix (fade) das faixas selecionadas no cloud2. Trim é manual. */
 export async function POST(request: Request) {
   try {
     requirePortalSession(await getPortalSession());
