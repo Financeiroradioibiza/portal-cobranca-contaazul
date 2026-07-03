@@ -277,10 +277,19 @@ export function AtualizacoesPanel() {
                       <td className="px-1 py-1 text-center">
                         {row.subidaFila ?
                           <span
-                            className="inline-flex h-6 w-6 items-center justify-center rounded bg-sky-100 text-[11px] font-bold text-sky-700 dark:bg-sky-950 dark:text-sky-200"
-                            title={`${row.subidaFilaPor} · ${fmtWhen(row.subidaFilaEm)}`}
+                            className={
+                              "inline-flex h-6 items-center justify-center rounded px-1 text-[11px] font-bold " +
+                              (row.subidaFilaTemDuplicata ?
+                                "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                              : "w-6 bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-200")
+                            }
+                            title={
+                              row.subidaFilaTemDuplicata ?
+                                `Duplicata pendente · ${row.subidaFilaPor} · ${fmtWhen(row.subidaFilaEm)}`
+                              : `${row.subidaFilaPor} · ${fmtWhen(row.subidaFilaEm)}`
+                            }
                           >
-                            ✓
+                            {row.subidaFilaTemDuplicata ? "⚠ dup" : "✓"}
                           </span>
                         : <span className="inline-block h-6 w-6 text-center leading-6 text-slate-300">·</span>}
                       </td>

@@ -333,8 +333,8 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                     : "border-violet-300 bg-white text-violet-900 hover:border-violet-400 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/50")
                   }
                 >
-                  <span className="block truncate">{a.programacaoNome}</span>
                   <span className="block truncate text-[10px] font-normal opacity-80">{a.clienteNome}</span>
+                  <span className="block truncate">{a.programacaoNome}</span>
                   <span
                     className={
                       "block truncate text-[10px] font-semibold " +
@@ -370,8 +370,8 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                     : "border-orange-300 bg-white text-orange-900 hover:border-orange-400 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-100 dark:hover:bg-orange-900/40")
                   }
                 >
-                  <span className="block truncate">{a.programacaoNome}</span>
                   <span className="block truncate text-[10px] font-normal opacity-80">{a.clienteNome}</span>
+                  <span className="block truncate">{a.programacaoNome}</span>
                 </button>
               );
             })}
@@ -1209,9 +1209,9 @@ function NovaVinhetaInline({
   );
 }
 
-type FaixaDiff = { musicaId: string; titulo: string; artista: string; pastaNome: string };
+export type FaixaDiff = { musicaId: string; titulo: string; artista: string; pastaNome: string };
 
-const DISPARO_ERROR: Record<string, string> = {
+export const DISPARO_ERROR: Record<string, string> = {
   nenhum_pdv_amarrado: "Nenhum PDV amarrado a esta programação. Escolha os PDVs na coluna do meio.",
   cliente_gateway_nao_configurado:
     "Cliente ainda sem ID no Player. Configure o login/ID do cliente na produção antes de disparar.",
@@ -1230,7 +1230,7 @@ const DISPARO_ERROR: Record<string, string> = {
   disparo_falhou: "Falha ao disparar a atualização.",
 };
 
-function FecharAtualizacaoModal({
+export function FecharAtualizacaoModal({
   programacaoId,
   programacaoNome,
   clienteRef,

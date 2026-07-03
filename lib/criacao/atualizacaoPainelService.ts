@@ -21,6 +21,7 @@ export type PainelRow = {
   subidaFila: boolean;
   subidaFilaEm: string | null;
   subidaFilaPor: string;
+  subidaFilaTemDuplicata: boolean;
   fechamentos: FechamentoPainelItem[];
 };
 
@@ -87,6 +88,7 @@ export async function listPainelCompetencia(competencia: string): Promise<Painel
     subidaFila: false,
     subidaFilaEm: null,
     subidaFilaPor: "",
+    subidaFilaTemDuplicata: false,
     fechamentos: [],
   });
 
@@ -98,6 +100,18 @@ export async function listPainelCompetencia(competencia: string): Promise<Painel
     where: { competencia },
   });
   const byProg = new Map(painelRows.map((r) => [r.programacaoId, r]));
+
+  // Programações com ao menos um item em status duplicata pendente
+  const dupProgIds = await prisma.processamentoItem
+    .findMany({
+      where: {
+        status: "duplicata",
+        job: { programacaoId: { in: programacoes.map((p) => p.id) } },
+      },
+      select: { job: { select: { programacaoId: true } } },
+      distinct: ["jobId"],
+    })
+    .then((items) => new Set(items.map((i) => i.job.programacaoId).filter(Boolean) as string[]));
 
   return programacoes.map((p) => {
     const row = byProg.get(p.id);
@@ -113,6 +127,7 @@ export async function listPainelCompetencia(competencia: string): Promise<Painel
       subidaFila: Boolean(row?.subidaFilaEm),
       subidaFilaEm: row?.subidaFilaEm?.toISOString() ?? null,
       subidaFilaPor: row?.subidaFilaPor ?? "",
+      subidaFilaTemDuplicata: dupProgIds.has(p.id),
       fechamentos,
     };
   });
@@ -153,8 +168,39 @@ export async function toggleCriativoEntregue(
     subidaFila: Boolean(updated.subidaFilaEm),
     subidaFilaEm: updated.subidaFilaEm?.toISOString() ?? null,
     subidaFilaPor: updated.subidaFilaPor,
+    subidaFilaTemDuplicata: false,
     fechamentos: parseFechamentos(updated.fechamentosJson),
   };
+}
+
+/**
+ * Marca criativoEntregue automaticamente quando o usuário envia músicas para uma pasta
+ * via Upload ou ATL CRICA. Só marca se ainda não tiver sido marcado naquela competência.
+ */
+export async function markCriativoEntregueAuto(
+  programacaoId: string,
+  por: string,
+  when = new Date(),
+): Promise<void> {
+  if (!(await hasAtualizacaoPainelTable())) return;
+
+  const prog = await prisma.programacao.findUnique({
+    where: { id: programacaoId },
+    select: { id: true, nome: true, clienteRef: true, clienteNome: true },
+  });
+  if (!prog) return;
+
+  const competencia = competenciaFromDate(when);
+  const row = await ensurePainelRow(competencia, prog);
+  if (row.criativoEntregueEm) return; // já marcado, não sobrescreve
+
+  await prisma.criacaoAtualizacaoPainel.update({
+    where: { id: row.id },
+    data: {
+      criativoEntregueEm: when,
+      criativoEntreguePor: por.slice(0, 200),
+    },
+  });
 }
 
 export async function markSubidaFilaPainel(

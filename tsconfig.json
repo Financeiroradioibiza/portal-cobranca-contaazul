@@ -33,6 +33,7 @@
   "exclude": [
     "node_modules",
     ".cloud2-stage",
+    "tools",
     "scripts/reanalisar-mix-biblioteca.ts"
   ]
 }

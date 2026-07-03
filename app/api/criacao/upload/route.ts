@@ -7,7 +7,7 @@ import {
   type UploadArquivo,
   type UploadLoteInput,
 } from "@/lib/criacao/filaService";
-import { markSubidaFilaPainel } from "@/lib/criacao/atualizacaoPainelService";
+import { markCriativoEntregueAuto, markSubidaFilaPainel } from "@/lib/criacao/atualizacaoPainelService";
 import { CRIACAO_INGEST_URL, ingestEnabled, signTicket } from "@/lib/criacao/ingestTicket";
 
 export const runtime = "nodejs";
@@ -95,6 +95,7 @@ export async function POST(request: Request) {
       for (const job of jobs) {
         if (job.programacaoId) {
           await markSubidaFilaPainel(job.programacaoId, job.id, uploaderNome);
+          await markCriativoEntregueAuto(job.programacaoId, uploaderNome);
         }
       }
       return NextResponse.json({
@@ -132,6 +133,7 @@ export async function POST(request: Request) {
 
     if (job.programacaoId) {
       await markSubidaFilaPainel(job.programacaoId, job.id, uploaderNome);
+      await markCriativoEntregueAuto(job.programacaoId, uploaderNome);
     }
 
     return NextResponse.json({

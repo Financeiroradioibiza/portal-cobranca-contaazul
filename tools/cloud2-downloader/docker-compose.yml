@@ -1,0 +1,73 @@
+version: "3.9"
+
+# Docker Compose para cloud2:
+#   - cloud2-downloader (este worker)
+#   - Spotizerr (download Spotify)
+#   - Deemix (download Deezer)        ← opcional
+#
+# Execute: docker compose up -d
+# Variáveis: copie .env.example → .env e preencha.
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Spotizerr — converte links Spotify em MP3
+  # https://github.com/Shamann93/Spotizerr (fork compatível)
+  # -------------------------------------------------------------------------
+  spotizerr:
+    image: mrbuffoon/spotizerr:latest   # ou sua imagem customizada
+    container_name: spotizerr
+    restart: unless-stopped
+    environment:
+      - SPOTIZERR_PORT=7171
+    volumes:
+      # Spotizerr salva downloads aqui; o worker lê deste mesmo volume.
+      - spotizerr_data:/app/data
+      # Config do Spotizerr (credenciais Spotify/cookies)
+      - ./spotizerr-config:/app/config
+    ports:
+      - "7171:7171"
+
+  # -------------------------------------------------------------------------
+  # Deemix — converte links Deezer em MP3/FLAC  (comentado por default)
+  # -------------------------------------------------------------------------
+  # deemix:
+  #   image: registry.gitlab.com/bockiii/deemix-docker:latest
+  #   container_name: deemix
+  #   restart: unless-stopped
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - DEEMIX_SINGLE_USER=true
+  #   volumes:
+  #     - deemix_data:/data
+  #     - ./deemix-config:/config
+  #   ports:
+  #     - "6595:6595"
+
+  # -------------------------------------------------------------------------
+  # Cloud2 Downloader — este worker (Node.js)
+  # -------------------------------------------------------------------------
+  cloud2-downloader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cloud2-downloader
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - CRIACAO_SPOTIZERR_URL=http://spotizerr:7171
+      # - CRIACAO_DEEMIX_URL=http://deemix:6595
+      - CRIACAO_DOWNLOAD_STAGING_DIR=/data/staging
+    volumes:
+      # Compartilha o volume do Spotizerr para ler os arquivos baixados
+      - spotizerr_data:/data/staging:ro
+    ports:
+      - "3002:3002"
+    depends_on:
+      - spotizerr
+
+volumes:
+  spotizerr_data:
+  # deemix_data:

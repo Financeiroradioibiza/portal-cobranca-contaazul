@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ProgramacoesAdminPanel } from "@/components/criacao/ProgramacoesAdminPanel";
+import { FecharAtualizacaoModal, ProgramacoesAdminPanel } from "@/components/criacao/ProgramacoesAdminPanel";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
 import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vinhetaUploadClient";
@@ -11,6 +11,8 @@ import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { CronogramaAlvoBadges, DOW, diasLabel } from "@/components/criacao/CronogramaAlvoBadges";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { formatPastaMusicaAddedAt, isMusicaNovaNaAtualizacao } from "@/lib/criacao/pastaMusicaUi";
+
+type SortKey = "titulo" | "artista" | "addedAt";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -91,6 +93,12 @@ function ProgramacaoEditor({
   const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
   /** Faixas adicionadas nesta sessão do editor — destaque até fechar a programação. */
   const [sessionAddedIds, setSessionAddedIds] = useState<Set<string>>(() => new Set());
+  /** Pastas colapsadas (abertas por padrão quando o usuario clica no chevron). */
+  const [expandedPastas, setExpandedPastas] = useState<Set<string>>(() => new Set());
+  /** Ordenação por pasta. */
+  const [sortByPasta, setSortByPasta] = useState<Record<string, SortKey>>({});
+  /** Fechar atualização modal. */
+  const [showFechar, setShowFechar] = useState(false);
   const marcouAberta = useRef(false);
 
   async function registrarEdicao() {
@@ -271,21 +279,23 @@ function ProgramacaoEditor({
     await load();
   }
 
-  async function moveMusica(pasta: PastaView, index: number, dir: -1 | 1) {
-    const next = [...pasta.musicas];
-    const j = index + dir;
-    if (j < 0 || j >= next.length) return;
-    [next[index], next[j]] = [next[j], next[index]];
-    setProg((prev) =>
-      prev
-        ? { ...prev, pastas: prev.pastas.map((f) => (f.id === pasta.id ? { ...f, musicas: next } : f)) }
-        : prev,
-    );
-    await registrarEdicao();
-    await fetch(`/api/criacao/pastas/${pasta.id}/musicas`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ musicaIds: next.map((m) => m.id) }),
+  function sortedMusicas(pasta: PastaView): PastaMusicaView[] {
+    const key = sortByPasta[pasta.id];
+    if (!key) return pasta.musicas;
+    return [...pasta.musicas].sort((a, b) => {
+      if (key === "titulo") return (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
+      if (key === "artista") return (a.artista || "").localeCompare(b.artista || "", "pt-BR");
+      if (key === "addedAt") return (a.addedAt ?? "").localeCompare(b.addedAt ?? "");
+      return 0;
+    });
+  }
+
+  function togglePastaExpand(pastaId: string) {
+    setExpandedPastas((prev) => {
+      const n = new Set(prev);
+      if (n.has(pastaId)) n.delete(pastaId);
+      else n.add(pastaId);
+      return n;
     });
   }
 
@@ -294,9 +304,37 @@ function ProgramacaoEditor({
 
   return (
     <>
-      <button type="button" onClick={onBack} className="mb-4 text-sm text-slate-500 hover:text-slate-700">
-        ← Voltar para programações
-      </button>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <button type="button" onClick={onBack} className="text-sm text-slate-500 hover:text-slate-700">
+          ← Voltar para programações
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowFechar(true)}
+          className={
+            "rounded-lg border px-3 py-1.5 text-xs font-semibold transition " +
+            (prog.atualizacaoAberta ?
+              "border-orange-600 bg-orange-500 text-white hover:bg-orange-600"
+            : "border-slate-300 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:text-slate-400")
+          }
+        >
+          Fechar atualização
+        </button>
+      </div>
+
+      {showFechar ?
+        <FecharAtualizacaoModal
+          programacaoId={prog.id}
+          programacaoNome={prog.nome}
+          clienteRef={prog.clienteRef}
+          clienteNome={prog.clienteNome}
+          onClose={() => setShowFechar(false)}
+          onDone={async () => {
+            setShowFechar(false);
+            await load();
+          }}
+        />
+      : null}
 
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="min-w-0">
@@ -373,13 +411,15 @@ function ProgramacaoEditor({
         <div className="rounded-xl border border-dashed border-slate-300 px-4 py-12 text-center text-sm text-slate-500 dark:border-slate-700">
           Crie a primeira pasta (playlist) e adicione faixas da biblioteca.
         </div>
-      : <div className="space-y-4">
+      : <div className="space-y-3">
           {prog.pastas.map((pasta) => {
+            const isOpen = expandedPastas.has(pasta.id);
             const selected = selectedByPasta[pasta.id] ?? new Set<string>();
             const selectedCount = selected.size;
-            const allSelected =
-              pasta.musicas.length > 0 && pasta.musicas.every((m) => selected.has(m.id));
+            const musicas = sortedMusicas(pasta);
+            const allSelected = musicas.length > 0 && musicas.every((m) => selected.has(m.id));
             const someSelected = selectedCount > 0 && !allSelected;
+            const currentSort = sortByPasta[pasta.id] ?? null;
 
             return (
             <div
@@ -388,20 +428,32 @@ function ProgramacaoEditor({
             >
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5 dark:border-slate-800 dark:bg-slate-800/50">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-                  {pasta.musicas.length > 0 ?
+                  <button
+                    type="button"
+                    onClick={() => togglePastaExpand(pasta.id)}
+                    className="shrink-0 text-slate-400 hover:text-slate-700"
+                    aria-label={isOpen ? "Fechar pasta" : "Abrir pasta"}
+                  >
+                    {isOpen ? "▾" : "▸"}
+                  </button>
+                  {isOpen && pasta.musicas.length > 0 ?
                     <input
                       type="checkbox"
                       checked={allSelected}
-                      ref={(el) => {
-                        if (el) el.indeterminate = someSelected;
-                      }}
+                      ref={(el) => { if (el) el.indeterminate = someSelected; }}
                       onChange={() => toggleSelectAllPasta(pasta)}
                       className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-950"
                       title={allSelected ? "Desmarcar todas" : "Selecionar todas"}
                       aria-label={`Selecionar todas as faixas de ${pasta.nome}`}
                     />
                   : null}
-                  <span className="text-sm font-bold">{pasta.nome}</span>
+                  <button
+                    type="button"
+                    onClick={() => togglePastaExpand(pasta.id)}
+                    className="text-sm font-bold text-slate-800 hover:text-slate-600 dark:text-slate-100"
+                  >
+                    {pasta.nome}
+                  </button>
                   {pasta.selecionavel ?
                     <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-950/60 dark:text-violet-200">
                       Selecionável
@@ -410,13 +462,13 @@ function ProgramacaoEditor({
                   <CronogramaAlvoBadges ags={ags} alvoTipo="pasta" alvoId={pasta.id} />
                   <span className="text-xs text-slate-400">
                     {pasta.musicas.length} faixa{pasta.musicas.length === 1 ? "" : "s"}
-                    {selectedCount > 0 ?
+                    {isOpen && selectedCount > 0 ?
                       ` · ${selectedCount} selecionada${selectedCount === 1 ? "" : "s"}`
                     : null}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {selectedCount > 0 ?
+                  {isOpen && selectedCount > 0 ?
                     <button
                       type="button"
                       onClick={() => void removeSelectedMusicas(pasta)}
@@ -424,6 +476,27 @@ function ProgramacaoEditor({
                     >
                       Remover ({selectedCount})
                     </button>
+                  : null}
+                  {isOpen ?
+                    <select
+                      value={currentSort ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value as SortKey | "";
+                        setSortByPasta((prev) => {
+                          const next = { ...prev };
+                          if (v) next[pasta.id] = v;
+                          else delete next[pasta.id];
+                          return next;
+                        });
+                      }}
+                      className="rounded border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
+                      title="Ordenar músicas"
+                    >
+                      <option value="">Ordem padrão</option>
+                      <option value="titulo">Por título</option>
+                      <option value="artista">Por artista</option>
+                      <option value="addedAt">Por data de entrada</option>
+                    </select>
                   : null}
                   <label
                     className="flex items-center gap-1.5 rounded border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100"
@@ -437,18 +510,6 @@ function ProgramacaoEditor({
                     />
                     Selecionável
                   </label>
-                  <select
-                    value={pasta.velocidade}
-                    onChange={(e) => void setVelocidade(pasta.id, e.target.value)}
-                    className="rounded border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
-                    title="Ritmo da pasta"
-                  >
-                    {Object.entries(VELOCIDADE_LABEL).map(([v, l]) => (
-                      <option key={v} value={v}>
-                        Ritmo: {l}
-                      </option>
-                    ))}
-                  </select>
                   <button
                     type="button"
                     onClick={() => setAddTo(pasta)}
@@ -467,12 +528,13 @@ function ProgramacaoEditor({
                 </div>
               </div>
 
-              {pasta.musicas.length === 0 ?
-                <div className="px-4 py-6 text-center text-xs text-slate-400">
-                  Pasta vazia — clique em “+ Músicas” para adicionar da biblioteca.
-                </div>
-              : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {pasta.musicas.map((m, idx) => {
+              {isOpen ?
+                pasta.musicas.length === 0 ?
+                  <div className="px-4 py-6 text-center text-xs text-slate-400">
+                    Pasta vazia — clique em “+ Músicas” para adicionar da biblioteca.
+                  </div>
+                : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {musicas.map((m, idx) => {
                     const isNova = isMusicaNovaNaAtualizacao({
                       musicaId: m.id,
                       addedAt: m.addedAt,
@@ -496,26 +558,6 @@ function ProgramacaoEditor({
                         className="h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-950"
                         aria-label={`Selecionar ${m.titulo}`}
                       />
-                      <div className="flex flex-col text-slate-300">
-                        <button
-                          type="button"
-                          onClick={() => void moveMusica(pasta, idx, -1)}
-                          disabled={idx === 0}
-                          className="leading-none hover:text-slate-600 disabled:opacity-20"
-                          title="Subir"
-                        >
-                          ▲
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void moveMusica(pasta, idx, 1)}
-                          disabled={idx === pasta.musicas.length - 1}
-                          className="leading-none hover:text-slate-600 disabled:opacity-20"
-                          title="Descer"
-                        >
-                          ▼
-                        </button>
-                      </div>
                       {m.previewUrl ?
                         <MusicaPreviewButton
                           track={{
@@ -561,7 +603,7 @@ function ProgramacaoEditor({
                     );
                   })}
                 </ul>
-              }
+              : null}
             </div>
             );
           })}
