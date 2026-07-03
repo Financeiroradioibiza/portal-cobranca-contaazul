@@ -95,6 +95,7 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
       { href: "/suporte", icon: "🎧", label: "Central de suporte", exact: true },
       { href: "/suporte/logins-clientes", icon: "🔑", label: "Logins clientes" },
       { href: "/suporte/avisos-player", icon: "📢", label: "Avisos player" },
+      { href: "/suporte/instalacao", icon: "📦", label: "Instalação" },
     ],
   },
   chamados: {

@@ -362,6 +362,43 @@ model PlayerAvisoOperador {
   @@map("player_aviso_operador")
 }
 
+/// Senha temporária de uso único para instalação de um PDV (Suporte → Instalação).
+/// Validada pelo cloud2 (SQL direto): ao instalar, marca `usada_em` e `ativa=false`.
+model PdvInstalacaoSenhaTemp {
+  id              String    @id @default(cuid())
+  portalClienteId Int       @map("portal_cliente_id")
+  portalPdvId     Int       @map("portal_pdv_id")
+  /// SHA-256 hex da senha normalizada (cloud2 recomputa e compara).
+  senhaHash       String    @map("senha_hash") @db.VarChar(128)
+  ativa           Boolean   @default(true)
+  usadaEm         DateTime? @map("usada_em")
+  criadaPor       String    @default("") @map("criada_por") @db.VarChar(120)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([portalClienteId, portalPdvId])
+  @@map("pdv_instalacao_senha_temp")
+}
+
+/// Log de envios de link de instalação (Suporte → Instalação).
+model PdvInstalacaoEnvio {
+  id              String   @id @default(cuid())
+  portalClienteId Int      @map("portal_cliente_id")
+  portalPdvId     Int      @map("portal_pdv_id")
+  /// padrao_cliente | pdv_login | pdv_senha_temp
+  tipo            String   @db.VarChar(24)
+  /// windows | mobile
+  plataforma      String   @db.VarChar(16)
+  /// email | link (copiado)
+  canal           String   @db.VarChar(16)
+  destinoEmail    String   @default("") @map("destino_email") @db.Text
+  link            String   @default("") @db.Text
+  enviadoPor      String   @default("") @map("enviado_por") @db.VarChar(120)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([portalClienteId, portalPdvId])
+  @@map("pdv_instalacao_envio")
+}
+
 /// Logotipo JPEG do cliente no Player 5 (sync → gateway `clientes.logotipo_jpeg`).
 model PlayerClienteLogotipo {
   portalClienteId Int      @id @map("portal_cliente_id")

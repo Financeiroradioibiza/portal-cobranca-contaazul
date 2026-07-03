@@ -11,6 +11,7 @@ import { registerVinhetasAgendadasRoutes } from './webservice/vinhetasAgendadas.
 import { registerUpdatePdvInstaladoRoutes, registerStubRoutes } from './webservice/stubs.js';
 import { registerSaveAtualizadasRoutes } from './webservice/saveAtualizadas.js';
 import { registerPlayerAvisosRoutes } from './webservice/playerAvisos.js';
+import { registerLoginPdvSenhaTempRoutes } from './webservice/loginPdvSenhaTemp.js';
 import { registerLogotipoClienteRoutes } from './webservice/logotipoCliente.js';
 import { registerSetAgendaAtualizadaRoutes } from './webservice/setAgendaAtualizada.js';
 import {
@@ -35,6 +36,7 @@ export async function registerWebserviceRoutes(app: FastifyInstance): Promise<vo
   await registerStubRoutes(app, WS_PREFIX);
   await registerSaveAtualizadasRoutes(app, WS_PREFIX);
   await registerPlayerAvisosRoutes(app, WS_PREFIX);
+  await registerLoginPdvSenhaTempRoutes(app, WS_PREFIX);
   await registerLogotipoClienteRoutes(app, WS_PREFIX);
   await registerSetAgendaAtualizadaRoutes(app, WS_PREFIX);
   await registerPlayerFeedbackRoutes(app, WS_PREFIX);
