@@ -6,6 +6,7 @@ import {
   DOWNLOAD_PROVIDER_HINT,
   DOWNLOAD_PROVIDER_LABEL,
   type DownloadProviderId,
+  type PortalDownloadProviderId,
 } from "@/lib/criacao/downloadParse";
 import type { DownloadItemRow, DownloadJobRow, StagingFileRow } from "@/lib/criacao/downloadService";
 
@@ -17,8 +18,7 @@ type JobDetail = {
   itens: DownloadItemRow[];
 };
 
-const TABS: { id: DownloadProviderId; icon: string }[] = [
-  { id: "spotizerr", icon: "🟢" },
+const TABS: { id: PortalDownloadProviderId; icon: string }[] = [
   { id: "deemix", icon: "🟣" },
   { id: "youtube", icon: "▶️" },
 ];
@@ -56,15 +56,14 @@ function formatBytes(b: number | null): string {
 }
 
 export function DownloadLinkPanel() {
-  const [tab, setTab] = useState<DownloadProviderId>("spotizerr");
+  const [tab, setTab] = useState<PortalDownloadProviderId>("deemix");
   const [titulo, setTitulo] = useState("");
   const [linhas, setLinhas] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [jobs, setJobs] = useState<DownloadJobRow[]>([]);
   const [staging, setStaging] = useState<StagingFileRow[]>([]);
-  const [config, setConfig] = useState<Record<DownloadProviderId, boolean>>({
-    spotizerr: false,
+  const [config, setConfig] = useState<Record<PortalDownloadProviderId, boolean>>({
     deemix: false,
     youtube: false,
   });
@@ -88,7 +87,7 @@ export function DownloadLinkPanel() {
       if (jobsRes.ok) {
         const data = (await jobsRes.json()) as {
           jobs?: DownloadJobRow[];
-          config?: Record<DownloadProviderId, boolean>;
+          config?: Record<PortalDownloadProviderId, boolean>;
         };
         setJobs(data.jobs ?? []);
         if (data.config) setConfig(data.config);
@@ -130,7 +129,13 @@ export function DownloadLinkPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: tab, titulo: titulo.trim() || undefined, linhas }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; totalItens?: number; processingTriggered?: boolean };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        totalItens?: number;
+        processingTriggered?: boolean;
+        processingError?: string | null;
+      };
       if (!res.ok) {
         setMsg(
           data.error === "nenhuma_linha" ? "Nenhuma linha válida no texto."
@@ -143,7 +148,11 @@ export function DownloadLinkPanel() {
       setTitulo("");
       setMsg(
         `${data.totalItens ?? 0} faixa(s) na fila.` +
-          (data.processingTriggered ? " Download iniciado no servidor." : " Worker cloud2 ainda não configurado — itens ficam aguardando."),
+          (data.processingTriggered ?
+            " Download iniciado no servidor."
+          : data.processingError ?
+            ` Worker cloud2: ${data.processingError}`
+          : " Worker cloud2 ainda não configurado — falta CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL no Netlify."),
       );
       await load();
     } finally {
@@ -224,9 +233,7 @@ export function DownloadLinkPanel() {
               onChange={(e) => setLinhas(e.target.value)}
               rows={10}
               placeholder={
-                tab === "spotizerr" ?
-                  "https://open.spotify.com/track/…\nArtista - Nome da música"
-                : tab === "deemix" ?
+                tab === "deemix" ?
                   "https://www.deezer.com/track/…\nArtista - Nome da música"
                 : "https://www.youtube.com/watch?v=…\nArtista - Nome da música"
               }

@@ -202,11 +202,18 @@ export async function cancelDownloadJob(id: string): Promise<boolean> {
   return true;
 }
 
-export async function triggerDownloadProcessing(limit = 20): Promise<{ triggered: boolean; processed?: number }> {
+export async function triggerDownloadProcessing(
+  limit = 20,
+): Promise<{ triggered: boolean; processed?: number; error?: string }> {
   const { getDownloadServiceConfig } = await import("@/lib/criacao/downloadConfig");
   const cfg = getDownloadServiceConfig();
   const url = cfg.cloud2ProcessUrl;
-  if (!url) return { triggered: false };
+  if (!url) {
+    return {
+      triggered: false,
+      error: "Configure CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL no Netlify.",
+    };
+  }
 
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -218,11 +225,17 @@ export async function triggerDownloadProcessing(limit = 20): Promise<{ triggered
       body: JSON.stringify({ limit }),
       signal: AbortSignal.timeout(120_000),
     });
-    if (!res.ok) return { triggered: false };
-    const data = (await res.json()) as { processed?: number };
+    const data = (await res.json().catch(() => ({}))) as { processed?: number; error?: string };
+    if (!res.ok) {
+      return {
+        triggered: false,
+        error: data.error ?? `cloud2 respondeu HTTP ${res.status}`,
+      };
+    }
     return { triggered: true, processed: data.processed ?? 0 };
-  } catch {
-    return { triggered: false };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "erro_rede";
+    return { triggered: false, error: msg };
   }
 }
 

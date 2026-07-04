@@ -19,18 +19,179 @@ type DownloadEnv = {
   spotizerrUrl: string;
   spotizerrToken: string;
   deemixUrl: string;
+  deemixArl: string;
+  deemixMusicUrl: string;
   youtubeDlUrl: string;
   youtubeDlApiKey: string;
 };
 
+type DeemixFileEntry = string | { filename?: string; path?: string };
+
+type DeemixQueueItem = {
+  uuid?: string;
+  downloaded?: number;
+  errors?: number;
+  files?: DeemixFileEntry[];
+  title?: string;
+  artist?: string;
+};
+
+const DEEMIX_BITRATE = Number(process.env.CRIACAO_DEEMIX_BITRATE ?? '1') || 1;
+const DEEMIX_POLL_MS = 3000;
+const DEEMIX_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+
 function env(): DownloadEnv {
+  const deemixUrl = (process.env.CRIACAO_DEEMIX_URL ?? '').replace(/\/$/, '');
+  let deemixMusicUrl = (process.env.CRIACAO_DEEMIX_MUSIC_URL ?? '').replace(/\/$/, '');
+  if (!deemixMusicUrl && deemixUrl) {
+    try {
+      const u = new URL(deemixUrl);
+      u.port = '6596';
+      deemixMusicUrl = u.origin;
+    } catch {
+      /* ignore */
+    }
+  }
   return {
     spotizerrUrl: (process.env.CRIACAO_SPOTIZERR_URL ?? '').replace(/\/$/, ''),
     spotizerrToken: process.env.CRIACAO_SPOTIZERR_TOKEN ?? '',
-    deemixUrl: (process.env.CRIACAO_DEEMIX_URL ?? '').replace(/\/$/, ''),
+    deemixUrl,
+    deemixArl: (process.env.CRIACAO_DEEMIX_ARL ?? '').replace(/\s+/g, ''),
+    deemixMusicUrl,
     youtubeDlUrl: (process.env.CRIACAO_YOUTUBE_DL_URL ?? '').replace(/\/$/, ''),
     youtubeDlApiKey: process.env.CRIACAO_YOUTUBE_DL_API_KEY ?? '',
   };
+}
+
+function deemixCookieHeader(res: Response): string {
+  const parts = res.headers.getSetCookie?.() ?? [];
+  if (parts.length > 0) {
+    return parts.map((c) => c.split(';')[0]!.trim()).filter(Boolean).join('; ');
+  }
+  const raw = res.headers.get('set-cookie');
+  if (!raw) return '';
+  return raw
+    .split(/,(?=[^;]+=)/)
+    .map((c) => c.split(';')[0]!.trim())
+    .filter(Boolean)
+    .join('; ');
+}
+
+async function deemixFetch(
+  baseUrl: string,
+  apiPath: string,
+  init: RequestInit & { cookie?: string } = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (init.cookie) headers.set('Cookie', init.cookie);
+  return fetch(`${baseUrl}/api${apiPath}`, { ...init, headers });
+}
+
+async function deemixEnsureSession(cfg: DownloadEnv): Promise<string> {
+  if (!cfg.deemixArl) {
+    throw new Error('CRIACAO_DEEMIX_ARL não configurado no cloud2 (mesmo ARL da UI do Deemix)');
+  }
+  const res = await deemixFetch(cfg.deemixUrl, '/loginArl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ arl: cfg.deemixArl }),
+  });
+  const cookie = deemixCookieHeader(res);
+  const data = (await res.json()) as { status?: number; error?: string };
+  if (!res.ok || data.status === 0 || data.status === -1) {
+    throw new Error(
+      data.error === 'invalidArl' ?
+        'Deemix rejeitou o ARL — cole só o valor hex do cookie deezer.com'
+      : 'Deemix loginArl falhou — verifique CRIACAO_DEEMIX_ARL no cloud2',
+    );
+  }
+  return cookie;
+}
+
+function normalizeDeemixSearchLine(line: string): string {
+  let s = line.trim();
+  s = s.replace(/\.(mp3|flac|m4a|wav)$/i, '');
+  s = s.replace(/~\d+$/i, '');
+  s = s.replace(/\s*\(\d+\)\s*$/i, '');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+function deemixSearchQueries(line: string): string[] {
+  const base = normalizeDeemixSearchLine(line);
+  const out: string[] = [];
+  const push = (q: string) => {
+    const t = q.trim();
+    if (t && !out.includes(t)) out.push(t);
+  };
+
+  push(base);
+  const dash = base.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+  if (dash) {
+    const artist = dash[1]!.trim();
+    const title = dash[2]!.trim();
+    push(title);
+    push(`${artist} ${title}`);
+    push(`${title} ${artist}`);
+    push(title.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim());
+  }
+  return out;
+}
+
+async function deemixResolveTrackUrl(cfg: DownloadEnv, line: string, cookie: string): Promise<string> {
+  if (/^https?:\/\/(?:www\.)?deezer\.com\//i.test(line)) return line.trim();
+
+  for (const query of deemixSearchQueries(line)) {
+    const res = await deemixFetch(
+      cfg.deemixUrl,
+      `/search?term=${encodeURIComponent(query)}&type=track`,
+      { cookie },
+    );
+    if (!res.ok) continue;
+    const data = (await res.json()) as { data?: { link?: string }[] };
+    const link = data.data?.[0]?.link;
+    if (link) return link;
+  }
+
+  throw new Error('Nenhuma faixa encontrada no Deezer — use link deezer.com/track/… ou «Artista - Música»');
+}
+
+async function deemixWaitQueueItem(
+  cfg: DownloadEnv,
+  uuid: string,
+  cookie: string,
+): Promise<DeemixQueueItem> {
+  const deadline = Date.now() + DEEMIX_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const res = await deemixFetch(cfg.deemixUrl, '/getQueue', { cookie });
+    if (!res.ok) throw new Error(`Deemix getQueue falhou (${res.status})`);
+    const data = (await res.json()) as { queue?: Record<string, DeemixQueueItem> };
+    const item = data.queue?.[uuid];
+    if (!item) throw new Error(`UUID ${uuid} não encontrado na fila do Deemix`);
+    if ((item.errors ?? 0) > 0) throw new Error('Deemix reportou erro no download');
+    if ((item.downloaded ?? 0) > 0) return item;
+    await new Promise((r) => setTimeout(r, DEEMIX_POLL_MS));
+  }
+  throw new Error('Timeout aguardando Deemix');
+}
+
+function deemixRelativeFile(entry: DeemixFileEntry | undefined): string | null {
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry.replace(/^\/downloads\/\/?/, '');
+  const fromPath = entry.path?.replace(/^\/downloads\/\/?/, '').trim();
+  if (fromPath) return fromPath;
+  return entry.filename?.trim() || null;
+}
+
+function deemixMusicFileUrl(cfg: DownloadEnv, relPath: string): string {
+  if (!cfg.deemixMusicUrl) {
+    throw new Error('CRIACAO_DEEMIX_MUSIC_URL não configurado (HTTP dos MP3 no Oracle, porta 6596)');
+  }
+  const encoded = relPath
+    .split('/')
+    .map((seg) => encodeURIComponent(seg))
+    .join('/');
+  return `${cfg.deemixMusicUrl}/${encoded}`;
 }
 
 function sanitizeFilename(name: string): string {
@@ -171,40 +332,74 @@ async function downloadDeemix(item: PendingItem, cfg: DownloadEnv): Promise<void
     return;
   }
 
-  const q = encodeURIComponent(item.linha_original);
-  const res = await fetch(`${cfg.deemixUrl}/api/search?q=${q}&limit=1`, {
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) {
-    await failItem(item.id, item.job_id, `Deemix busca falhou (${res.status}) — verifique API do container`);
-    return;
+  try {
+    const cookie = await deemixEnsureSession(cfg);
+    const trackUrl = await deemixResolveTrackUrl(cfg, item.linha_original, cookie);
+
+    const queueRes = await deemixFetch(cfg.deemixUrl, '/addToQueue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: trackUrl, bitrate: DEEMIX_BITRATE }),
+      cookie,
+    });
+    const queueData = (await queueRes.json()) as {
+      result?: boolean;
+      errid?: string;
+      data?: { obj?: { uuid?: string } | Array<{ uuid?: string }> };
+    };
+    if (!queueData.result) {
+      const err =
+        queueData.errid === 'NotLoggedIn' ?
+          'Deemix não logado — configure CRIACAO_DEEMIX_ARL no cloud2'
+        : queueData.errid === 'CantStream' ?
+          'Deemix: qualidade indisponível na conta Deezer (use bitrate 128k)'
+        : `Deemix addToQueue falhou (${queueData.errid ?? 'erro'})`;
+      await failItem(item.id, item.job_id, err);
+      return;
+    }
+
+    const obj = queueData.data?.obj;
+    const uuid =
+      Array.isArray(obj) ? obj[0]?.uuid
+      : obj && typeof obj === 'object' ? obj.uuid
+      : undefined;
+    if (!uuid) {
+      await failItem(item.id, item.job_id, 'Deemix não retornou uuid na fila');
+      return;
+    }
+
+    const done = await deemixWaitQueueItem(cfg, uuid, cookie);
+    const relFile = deemixRelativeFile(done.files?.[0]);
+    if (!relFile) {
+      await failItem(item.id, item.job_id, 'Deemix concluiu sem caminho de arquivo');
+      return;
+    }
+
+    const fileRes = await fetch(deemixMusicFileUrl(cfg, relFile), { signal: AbortSignal.timeout(120_000) });
+    if (!fileRes.ok) {
+      await failItem(
+        item.id,
+        item.job_id,
+        `MP3 não acessível em ${cfg.deemixMusicUrl} (HTTP ${fileRes.status}) — libere porta 6596 no Oracle`,
+      );
+      return;
+    }
+
+    ensureStorageDirs();
+    const dest = downloadStagingPath(item.id);
+    await fsp.writeFile(dest, Buffer.from(await fileRes.arrayBuffer()));
+
+    const titulo = done.title ?? item.linha_original;
+    const artista = typeof done.artist === 'string' ? done.artist : '';
+    await completeItem(item.id, item.job_id, dest, {
+      titulo,
+      artista,
+      arquivoNome: sanitizeFilename(path.basename(relFile) || `${artista} - ${titulo}.mp3`),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'erro_deemix';
+    await failItem(item.id, item.job_id, msg);
   }
-
-  const data = (await res.json()) as { data?: { id?: number; title?: string; artist?: { name?: string } }[] };
-  const track = data.data?.[0];
-  if (!track?.id) {
-    await failItem(item.id, item.job_id, 'Nenhuma faixa encontrada no Deezer');
-    return;
-  }
-
-  const dl = await fetch(`${cfg.deemixUrl}/api/download/${track.id}`, { method: 'POST' });
-  if (!dl.ok) {
-    await failItem(item.id, item.job_id, `Deemix download falhou (${dl.status})`);
-    return;
-  }
-
-  const fileBuf = Buffer.from(await dl.arrayBuffer());
-  ensureStorageDirs();
-  const dest = downloadStagingPath(item.id);
-  await fsp.writeFile(dest, fileBuf);
-
-  const titulo = track.title ?? item.linha_original;
-  const artista = track.artist?.name ?? '';
-  await completeItem(item.id, item.job_id, dest, {
-    titulo,
-    artista,
-    arquivoNome: sanitizeFilename(`${artista} - ${titulo}.mp3`),
-  });
 }
 
 async function downloadYoutube(item: PendingItem, cfg: DownloadEnv): Promise<void> {
@@ -312,9 +507,9 @@ export async function processPendingDownloads(limit = 10): Promise<number> {
      )
      UPDATE download_item i
         SET status = 'processando', updated_at = now()
-       FROM picked p
-       JOIN download_job dj ON dj.id = i.job_id
+       FROM picked p, download_job dj
       WHERE i.id = p.id
+        AND dj.id = i.job_id
       RETURNING i.id, i.job_id, dj.provider::text AS provider, i.linha_original, i.input_tipo`,
     [Math.min(50, Math.max(1, limit))],
   );

@@ -1,5 +1,10 @@
 export type DownloadProviderId = "spotizerr" | "deemix" | "youtube";
 
+/** Motores exibidos no portal (Download link). Spotizerr fica só no worker/legado. */
+export const PORTAL_DOWNLOAD_PROVIDERS = ["deemix", "youtube"] as const satisfies readonly DownloadProviderId[];
+
+export type PortalDownloadProviderId = (typeof PORTAL_DOWNLOAD_PROVIDERS)[number];
+
 export const DOWNLOAD_PROVIDER_LABEL: Record<DownloadProviderId, string> = {
   spotizerr: "Spotizerr (Spotify)",
   deemix: "Deemix (Deezer)",
@@ -10,7 +15,7 @@ export const DOWNLOAD_PROVIDER_HINT: Record<DownloadProviderId, string> = {
   spotizerr:
     "Uma linha por faixa: link Spotify (track/album/playlist) ou «Artista - Música». Download no servidor via Spotizerr.",
   deemix:
-    "Uma linha por faixa: link Deezer ou «Artista - Música». Requer Deemix no cloud2 (perfil admin).",
+    "Uma linha por faixa: link Deezer (deezer.com/track/…) ou «Artista - Música». Nomes de arquivo (.mp3) também funcionam se tiverem artista e título.",
   youtube:
     "Uma linha por faixa: link YouTube ou «Artista - Música». Download 100% no servidor (yt-dlp API).",
 };

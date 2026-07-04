@@ -7,12 +7,12 @@ import {
   listStagingFiles,
   triggerDownloadProcessing,
 } from "@/lib/criacao/downloadService";
-import type { DownloadProviderId } from "@/lib/criacao/downloadParse";
+import { PORTAL_DOWNLOAD_PROVIDERS, type PortalDownloadProviderId } from "@/lib/criacao/downloadParse";
 
-const PROVIDERS: DownloadProviderId[] = ["spotizerr", "deemix", "youtube"];
-
-function parseProvider(v: string | null): DownloadProviderId | undefined {
-  if (v && PROVIDERS.includes(v as DownloadProviderId)) return v as DownloadProviderId;
+function parseProvider(v: string | null): PortalDownloadProviderId | undefined {
+  if (v && (PORTAL_DOWNLOAD_PROVIDERS as readonly string[]).includes(v)) {
+    return v as PortalDownloadProviderId;
+  }
   return undefined;
 }
 
@@ -29,11 +29,9 @@ export async function GET(request: Request) {
     }
 
     const jobs = await listDownloadJobs({ provider, limit: 50 });
-    const config = {
-      spotizerr: providerConfigured("spotizerr"),
-      deemix: providerConfigured("deemix"),
-      youtube: providerConfigured("youtube"),
-    };
+    const config = Object.fromEntries(
+      PORTAL_DOWNLOAD_PROVIDERS.map((p) => [p, providerConfigured(p)]),
+    ) as Record<PortalDownloadProviderId, boolean>;
     return NextResponse.json({ jobs, config });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -79,6 +77,7 @@ export async function POST(request: Request) {
       jobId: job.id,
       totalItens: job.totalItens,
       processingTriggered: proc.triggered,
+      processingError: proc.error ?? null,
     });
   } catch (e) {
     if (e instanceof Response) return e;
