@@ -23,10 +23,12 @@ export type PortalModuleId =
   | "config";
 
 export type PortalSidebarItem = {
-  href: string;
-  icon: string;
-  label: string;
+  href?: string;
+  icon?: string;
+  label?: string;
   soon?: boolean;
+  /** Linha fina entre blocos do submenu (ex.: criação vs produção). */
+  separator?: boolean;
   /** Só marca ativo na URL exata (ex.: /suporte vs /suporte/avisos-player). */
   exact?: boolean;
 };
@@ -82,12 +84,16 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
   },
   criacao: {
     section: "Criação",
-    items: CRIACAO_SIDEBAR.map((x) => ({
-      href: x.href,
-      icon: x.icon,
-      label: x.label,
-      soon: "soon" in x ? (x as { soon?: boolean }).soon : undefined,
-    })),
+    items: CRIACAO_SIDEBAR.map((x) =>
+      x.type === "separator"
+        ? { separator: true as const }
+        : {
+            href: x.href,
+            icon: x.icon,
+            label: x.label,
+            soon: "soon" in x ? (x as { soon?: boolean }).soon : undefined,
+          },
+    ),
   },
   suporte: {
     section: "Suporte",
@@ -133,6 +139,6 @@ export function isSidebarActive(pathname: string, href: string, exact?: boolean)
 export function topNavHref(item: PortalTopNavItem): string {
   if (item.id === "dashboard") return PORTAL_HOME_HREF;
   const sidebar = PORTAL_SIDEBARS[item.id];
-  const first = sidebar.items.find((x) => !x.soon);
+  const first = sidebar.items.find((x) => !x.soon && !x.separator && x.href);
   return first?.href ?? item.href;
 }

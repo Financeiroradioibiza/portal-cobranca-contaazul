@@ -88,13 +88,28 @@ export function PortalSidebar() {
 
   return (
     <aside className="portal-sidebar" aria-label="Submenu">
-      <div className="portal-sidebar-section">
+      <div
+        className={
+          "portal-sidebar-section" + (moduleId === "criacao" ? " portal-sidebar-section--criacao" : "")
+        }
+      >
         <div className="portal-sidebar-heading">{menu.section}</div>
-        {menu.items.map((item) => {
-          const active = isSidebarActive(pathname, item.href, item.exact);
+        {menu.items.map((item, idx) => {
+          if (item.separator) {
+            return (
+              <div
+                key={`sep-${idx}`}
+                className="portal-sidebar-separator"
+                role="separator"
+                aria-hidden
+              />
+            );
+          }
+          const href = item.href ?? "#";
+          const active = isSidebarActive(pathname, href, item.exact);
           if (item.soon) {
             return (
-              <span key={item.href} className="portal-sidebar-item portal-sidebar-item--disabled" title="Em breve">
+              <span key={href} className="portal-sidebar-item portal-sidebar-item--disabled" title="Em breve">
                 <span className="portal-sidebar-icon" aria-hidden>
                   {item.icon}
                 </span>
@@ -104,15 +119,15 @@ export function PortalSidebar() {
           }
           return (
             <Link
-              key={item.href}
-              href={item.href}
+              key={href}
+              href={href}
               className={"portal-sidebar-item" + (active ? " portal-sidebar-item--active" : "")}
             >
               <span className="portal-sidebar-icon" aria-hidden>
                 {item.icon}
               </span>
               <span className="portal-sidebar-item-label">{item.label}</span>
-              {item.href === "/cadastros/atualizacoes" && atlCadastrosPendentes > 0 ?
+              {href === "/cadastros/atualizacoes" && atlCadastrosPendentes > 0 ?
                 <span className="portal-sidebar-item-badge" aria-label={`${atlCadastrosPendentes} pendente(s)`}>
                   {atlCadastrosPendentes > 99 ? "99+" : atlCadastrosPendentes}
                 </span>
