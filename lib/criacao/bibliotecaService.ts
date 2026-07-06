@@ -10,13 +10,7 @@ import {
   isGeminiExplicitTagged,
   type ExplicitApiStatus,
 } from "@/lib/criacao/explicitContentCore";
-import {
-  computeLegacyMotivos,
-  type LegacyMotivo,
-  LEGACY_MOTIVO_LABEL,
-} from "@/lib/criacao/legacyMusicaCriteria";
-
-export { LEGACY_MOTIVO_LABEL, type LegacyMotivo };
+import { computeLegacyMotivos, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {

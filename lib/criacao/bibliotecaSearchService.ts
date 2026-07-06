@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { LEGACY_MUSICA_SQL } from "@/lib/criacao/legacyMusicaCriteria";
+import { LEGACY_MUSICA_SQL } from "@/lib/criacao/legacyMusicaSql";
 
 export type BibliotecaListFilter = "all" | "unused" | "leastUsed" | "legacy";
 

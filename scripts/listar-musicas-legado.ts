@@ -6,7 +6,7 @@
  *   npx tsx scripts/listar-musicas-legado.ts --delete
  */
 import { prisma } from "../lib/prisma";
-import { LEGACY_MUSICA_SQL } from "../lib/criacao/legacyMusicaCriteria";
+import { LEGACY_MUSICA_SQL } from "../lib/criacao/legacyMusicaSql";
 import { deleteAllLegacyMusicas } from "../lib/criacao/bibliotecaService";
 
 const doDelete = process.argv.includes("--delete");

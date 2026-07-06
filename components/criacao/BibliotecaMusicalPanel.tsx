@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { TAG_SOURCE_LABEL, LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/bibliotecaService";
+import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 
