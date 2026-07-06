@@ -10,6 +10,13 @@ import {
   isGeminiExplicitTagged,
   type ExplicitApiStatus,
 } from "@/lib/criacao/explicitContentCore";
+import {
+  computeLegacyMotivos,
+  type LegacyMotivo,
+  LEGACY_MOTIVO_LABEL,
+} from "@/lib/criacao/legacyMusicaCriteria";
+
+export { LEGACY_MOTIVO_LABEL, type LegacyMotivo };
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -57,6 +64,8 @@ export type MusicaBibliotecaRow = {
   rejeicoesCount: number;
   /** Em quantas programações (clientes) a faixa aparece em pastas. */
   programacoesCount: number;
+  /** Pipeline antigo — sem 128 mono, LUFS ou master completo. */
+  legacyMotivos: LegacyMotivo[];
 };
 
 export function parseAutoTagsFromJson(raw: Prisma.JsonValue | null): AutoTag[] {
@@ -146,6 +155,8 @@ type MusicaDbRow = {
   energia: number | null;
   status: string;
   mixSegundosFinais: number | null;
+  loudnessLufs: number | null;
+  masterStorageKey: string | null;
   tagsAuto: Prisma.JsonValue;
   tagsManuais: Array<{
     tag: {
@@ -302,6 +313,7 @@ function mapMusicaToRow(
     previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
     rejeicoesCount: rejMap.get(m.id) ?? 0,
     programacoesCount: progMap.get(m.id) ?? 0,
+    legacyMotivos: computeLegacyMotivos(m),
   };
 }
 
@@ -394,6 +406,29 @@ export async function listMusicasBiblioteca(opts: {
         .map((id) => byId.get(id))
         .filter((m): m is NonNullable<typeof m> => m != null) as MusicaDbRow[];
     }
+  } else if (listFilter === "legacy") {
+    const { listMusicaIdsByLegacyFilter } = await import("@/lib/criacao/bibliotecaSearchService");
+    const legacy = await listMusicaIdsByLegacyFilter({
+      page,
+      pageSize,
+      search: opts.search,
+      status: opts.status,
+      tagId: opts.tagId,
+      gravadora: opts.gravadora,
+    });
+    total = legacy.total;
+    if (legacy.ids.length === 0) {
+      items = [];
+    } else {
+      const fetched = await prisma.musicaBiblioteca.findMany({
+        where: { id: { in: legacy.ids } },
+        include: musicaInclude,
+      });
+      const byId = new Map(fetched.map((m) => [m.id, m]));
+      items = legacy.ids
+        .map((id) => byId.get(id))
+        .filter((m): m is NonNullable<typeof m> => m != null) as MusicaDbRow[];
+    }
   } else {
     [items, total] = await Promise.all([
       prisma.musicaBiblioteca.findMany({
@@ -482,6 +517,29 @@ export async function deleteMusicaBiblioteca(musicaId: string): Promise<void> {
   }
 
   await prisma.musicaBiblioteca.delete({ where: { id: musicaId } });
+}
+
+export type BulkDeleteResult = { deleted: number; failed: number };
+
+export async function bulkDeleteMusicasBiblioteca(ids: string[]): Promise<BulkDeleteResult> {
+  let deleted = 0;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await deleteMusicaBiblioteca(id);
+      deleted += 1;
+    } catch (e) {
+      failed += 1;
+      console.warn("[bulkDeleteMusicasBiblioteca]", id, e);
+    }
+  }
+  return { deleted, failed };
+}
+
+export async function deleteAllLegacyMusicas(): Promise<BulkDeleteResult> {
+  const { listAllLegacyMusicaIds } = await import("@/lib/criacao/bibliotecaSearchService");
+  const ids = await listAllLegacyMusicaIds();
+  return bulkDeleteMusicasBiblioteca(ids);
 }
 
 export async function refreshMusicaInternetTags(

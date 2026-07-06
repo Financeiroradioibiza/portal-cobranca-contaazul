@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { TAG_SOURCE_LABEL, LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/bibliotecaService";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 
@@ -9,7 +9,7 @@ type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
 type TagCriativo = { id: string; nome: string; cor: string; criativoNome: string; usoCount: number };
 type FacetTag = TagCriativo;
-type ListFilter = "all" | "unused" | "leastUsed";
+type ListFilter = "all" | "unused" | "leastUsed" | "legacy";
 type ViewMode = "full" | "slim";
 
 const CORES_SUGERIDAS = [
@@ -38,6 +38,7 @@ type Musica = {
   previewUrl: string | null;
   rejeicoesCount: number;
   programacoesCount: number;
+  legacyMotivos: LegacyMotivo[];
 };
 
 function formatDuration(ms: number | null): string {
@@ -80,6 +81,8 @@ export function BibliotecaMusicalPanel() {
   const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
   const [gravadoraFilter, setGravadoraFilter] = useState("");
   const [topTags, setTopTags] = useState<FacetTag[]>([]);
+  const [legacyCount, setLegacyCount] = useState(0);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [tags, setTags] = useState<TagCriativo[]>([]);
   const [showTagManager, setShowTagManager] = useState(false);
   const [tagFor, setTagFor] = useState<Musica | null>(null);
@@ -107,8 +110,9 @@ export function BibliotecaMusicalPanel() {
       try {
         const res = await fetch("/api/criacao/biblioteca/facets");
         if (!res.ok) return;
-        const data = (await res.json()) as { topTags?: FacetTag[] };
+        const data = (await res.json()) as { topTags?: FacetTag[]; legacyCount?: number };
         setTopTags(data.topTags ?? []);
+        setLegacyCount(data.legacyCount ?? 0);
       } catch {
         /* silencioso */
       }
@@ -250,6 +254,86 @@ export function BibliotecaMusicalPanel() {
     [],
   );
 
+  const apagarTodasLegadas = useCallback(async () => {
+    let emProgramacoes = 0;
+    let emPastas = 0;
+    let legacyTotal = legacyCount;
+    try {
+      const res = await fetch("/api/criacao/biblioteca/bulk-delete");
+      if (res.ok) {
+        const stats = (await res.json()) as {
+          total?: number;
+          emProgramacoes?: number;
+          emPastas?: number;
+        };
+        legacyTotal = stats.total ?? legacyCount;
+        emProgramacoes = stats.emProgramacoes ?? 0;
+        emPastas = stats.emPastas ?? 0;
+      }
+    } catch {
+      /* preview opcional */
+    }
+
+    const avisoProg =
+      emProgramacoes > 0 ?
+        `\n\n${legacyTotal} faixa(s) legada(s) · ${emPastas} pasta(s) em ${emProgramacoes} programação(ões) — serão removidas delas também.`
+      : "";
+
+    if (
+      !window.confirm(
+        `Apagar TODAS as ${legacyTotal} faixa(s) legadas (pipeline antigo, sem 128 mono / LUFS / master)?${avisoProg}\n\nRemove metadados e arquivos no servidor. Não dá para desfazer.`,
+      )
+    ) {
+      return;
+    }
+
+    setBulkDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/criacao/biblioteca/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "legacy" }),
+      });
+      if (!res.ok) throw new Error("bulk_delete_failed");
+      const data = (await res.json()) as { deleted?: number; failed?: number };
+      try {
+        const facetsRes = await fetch("/api/criacao/biblioteca/facets");
+        if (facetsRes.ok) {
+          const facets = (await facetsRes.json()) as { legacyCount?: number };
+          setLegacyCount(facets.legacyCount ?? 0);
+        } else {
+          setLegacyCount(0);
+        }
+      } catch {
+        setLegacyCount(0);
+      }
+      setListFilter("all");
+      await load({ silent: true });
+      setRowMsg(
+        `Removidas ${data.deleted ?? 0} faixa(s) legada(s)` +
+          (data.failed ? ` · ${data.failed} falha(s)` : "") +
+          ".",
+      );
+    } catch {
+      setError("Não foi possível apagar as faixas legadas.");
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [legacyCount, load]);
+
+  function LegacyBadge({ motivos }: { motivos: LegacyMotivo[] }) {
+    if (motivos.length === 0) return null;
+    return (
+      <span
+        className="ml-2 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-900 dark:bg-orange-950 dark:text-orange-200"
+        title={`Pipeline antigo: ${motivos.map((m) => LEGACY_MOTIVO_LABEL[m]).join(" · ")}`}
+      >
+        legado · {motivos.map((m) => LEGACY_MOTIVO_LABEL[m]).join(" · ")}
+      </span>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -307,6 +391,25 @@ export function BibliotecaMusicalPanel() {
       {rowMsg ?
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
           {rowMsg}
+        </div>
+      : null}
+
+      {listFilter === "legacy" ?
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 dark:border-orange-900 dark:bg-orange-950/40">
+          <div className="text-sm text-orange-950 dark:text-orange-100">
+            <strong>Faixas legadas</strong> — uploads anteriores ao pipeline atual (128 kbps mono, LUFS, master).
+            Ordenadas da mais antiga para a mais recente. Podem causar erro ou descompasso no player.
+          </div>
+          {legacyCount > 0 ?
+            <button
+              type="button"
+              disabled={bulkDeleting}
+              onClick={() => void apagarTodasLegadas()}
+              className="shrink-0 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:bg-red-950 dark:text-red-200 dark:hover:bg-red-900"
+            >
+              {bulkDeleting ? "Apagando…" : `Apagar todas as legadas (${legacyCount})`}
+            </button>
+          : null}
         </div>
       : null}
 
@@ -409,6 +512,20 @@ export function BibliotecaMusicalPanel() {
           >
             Top 10 menos usadas
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTagIdFilter(null);
+              setListFilter(listFilter === "legacy" ? "all" : "legacy");
+            }}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+              listFilter === "legacy" ?
+                "border-orange-400 bg-orange-50 text-orange-900 dark:border-orange-700 dark:bg-orange-950 dark:text-orange-200"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
+            }`}
+          >
+            Legado · sem pipeline novo{legacyCount > 0 ? ` (${legacyCount})` : ""}
+          </button>
           {(tagIdFilter || listFilter !== "all" || gravadoraFilter.trim()) ?
             <button
               type="button"
@@ -473,6 +590,11 @@ export function BibliotecaMusicalPanel() {
                     }
                     <div className="min-w-0 truncate text-xs font-medium text-slate-900 dark:text-slate-100">
                       {m.titulo || "(sem título)"}
+                      {m.legacyMotivos.length > 0 ?
+                        <span className="ml-1 text-[9px] font-semibold text-orange-700 dark:text-orange-300">
+                          legado
+                        </span>
+                      : null}
                     </div>
                     <div className="min-w-0 truncate text-xs text-slate-500">{m.artista || "—"}</div>
                     <div className="flex min-w-0 flex-wrap items-center gap-0.5 overflow-hidden">
@@ -546,6 +668,7 @@ export function BibliotecaMusicalPanel() {
                         {STATUS_LABEL[m.status] ?? m.status}
                       </span>
                     : null}
+                    <LegacyBadge motivos={m.legacyMotivos} />
                     {m.rejeicoesCount > 0 ?
                       <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">
                         rejeitada ×{m.rejeicoesCount}

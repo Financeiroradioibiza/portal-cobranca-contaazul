@@ -15,7 +15,9 @@ export async function GET(request: Request) {
     const gravadora = url.searchParams.get("gravadora") ?? undefined;
     const listFilterRaw = url.searchParams.get("listFilter");
     const listFilter =
-      listFilterRaw === "unused" || listFilterRaw === "leastUsed" ? listFilterRaw : "all";
+      listFilterRaw === "unused" || listFilterRaw === "leastUsed" || listFilterRaw === "legacy" ?
+        listFilterRaw
+      : "all";
 
     const { rows, total } = await listMusicasBiblioteca({
       page: Number.isFinite(page) ? page : 1,
