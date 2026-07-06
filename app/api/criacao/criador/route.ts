@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { listAgendamentosByProgramacaoIds, type AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { prisma } from "@/lib/prisma";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 
@@ -28,6 +29,7 @@ export type CriadorProg = {
   nome: string;
   publicada: boolean;
   atualizacaoAberta: boolean;
+  agendamentos: AgendamentoRow[];
   pastas: CriadorPasta[];
 };
 
@@ -88,6 +90,9 @@ export async function GET() {
           },
         });
 
+    const progIds = progsRaw.map((p) => p.id);
+    const agsByProg = await listAgendamentosByProgramacaoIds(progIds);
+
     // Agrupa por cliente
     const clienteMap = new Map<string, CriadorCliente>();
     for (const p of progsRaw) {
@@ -102,6 +107,7 @@ export async function GET() {
         nome: p.nome,
         publicada: p.publicada,
         atualizacaoAberta: abertaEm instanceof Date,
+        agendamentos: agsByProg.get(p.id) ?? [],
         pastas: p.pastas.map((f) => ({
           id: f.id,
           nome: f.nome,
