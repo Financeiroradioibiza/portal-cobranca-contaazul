@@ -1,4 +1,4 @@
-/** Sidebar do módulo Criação — ordem criação (1–5) · produção (6–12). */
+/** Sidebar do módulo Criação — ordem criação (1–6) · produção (7–13). */
 export type CriacaoSidebarEntry =
   | { type: "item"; href: string; label: string; icon: string }
   | { type: "separator" };
@@ -6,6 +6,7 @@ export type CriacaoSidebarEntry =
 export const CRIACAO_SIDEBAR: CriacaoSidebarEntry[] = [
   { type: "item", href: "/criacao/criador", label: "Criador", icon: "🎧" },
   { type: "item", href: "/criacao/biblioteca", label: "Biblioteca musical", icon: "🎵" },
+  { type: "item", href: "/criacao/programacoes", label: "Programações", icon: "🎼" },
   { type: "item", href: "/criacao/atl-crica", label: "ATL Crica", icon: "📅" },
   { type: "item", href: "/criacao/edicao", label: "Edição de música", icon: "✂️" },
   { type: "item", href: "/criacao/relatorios", label: "Relatórios", icon: "📊" },
