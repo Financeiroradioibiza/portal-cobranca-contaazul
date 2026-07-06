@@ -275,7 +275,7 @@ export function CriadorPanel() {
                           </span>
                         : prog.publicada ?
                           <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                            Encerrada
+                            Atualizada
                           </span>
                         : <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-slate-800">
                             Rascunho

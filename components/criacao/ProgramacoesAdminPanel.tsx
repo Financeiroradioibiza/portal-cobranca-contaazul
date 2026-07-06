@@ -521,7 +521,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                               </span>
                             : progEncerrada(prog) ?
                               <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                                Encerrada
+                                Atualizada
                               </span>
                             : <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 dark:bg-slate-800">
                                 Rascunho
@@ -811,7 +811,7 @@ function PdvProgramacaoColumn({
         </div>
         <p className="mt-1 text-[10px] leading-snug text-slate-500">
           Escolha qual programação musical fica amarrada em cada loja. Laranja = atualização aberta; verde = enviada e
-          encerrada.
+          atualizada.
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
