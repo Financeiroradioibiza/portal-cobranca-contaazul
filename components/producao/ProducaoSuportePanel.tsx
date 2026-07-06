@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatPlayerVersionLabel } from "@/lib/player/formatPlayerVersionLabel";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
 import {
@@ -827,7 +828,7 @@ function PdvRow({
             </td>
           : null}
           <td className="w-[3.25rem] whitespace-nowrap px-1.5 py-1.5 align-top text-[10px] text-slate-500">
-            {row.telemetry.playerVersion ?? row.playerVersion ?? "—"}
+            {formatPlayerVersionLabel(row.telemetry.playerVersion ?? row.playerVersion) ?? "—"}
           </td>
           <td className="w-[5.25rem] whitespace-nowrap px-1.5 py-1.5 align-top text-[10px] text-slate-500">
             {fmtPing(row.telemetry.firstPingAt)}
