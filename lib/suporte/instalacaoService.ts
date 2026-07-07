@@ -79,13 +79,14 @@ export function buildInstallLink(
   if (tipo === "padrao_cliente") {
     return plataforma === "mobile" ? `${base}/m/instalar.html` : `${base}/instalar.html`;
   }
-  const mode =
-    tipo === "pdv_senha_temp_migracao" ? "migrate" : tipo === "pdv_senha_temp" ? "temp" : "login";
   const params = new URLSearchParams({
     c: String(ctx.portalClienteId),
     p: String(ctx.portalPdvId),
-    mode,
+    mode: tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao" ? "temp" : "login",
   });
+  if (tipo === "pdv_senha_temp_migracao") {
+    params.set("migrate", "1");
+  }
   if (plataforma === "mobile") params.set("m", "1");
   return `${base}/instalar-pdv.html?${params.toString()}`;
 }
