@@ -30,6 +30,10 @@ function plataformaLabel(p: InstalacaoPlataforma): string {
   return p === "mobile" ? "Celular / Tablet" : "Computador Windows";
 }
 
+function usaSenhaTemporaria(tipo: InstalacaoTipo): boolean {
+  return tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao";
+}
+
 /** Passos de instalação por plataforma (texto simples). */
 function passos(plataforma: InstalacaoPlataforma, tipo: InstalacaoTipo, senha?: string): string[] {
   const abrir =
@@ -45,9 +49,11 @@ function passos(plataforma: InstalacaoPlataforma, tipo: InstalacaoTipo, senha?: 
 
   if (tipo === "pdv_login") {
     passos.push("Ao abrir o Player, entre com o e-mail e a senha do cliente. O ponto de venda já vem selecionado — não é preciso escolher na lista.");
-  } else if (tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") {
+  } else if (usaSenhaTemporaria(tipo)) {
     passos.push(
-      `Ao abrir o Player, digite a senha temporária: ${senha ?? "(enviada abaixo)"}. Essa senha funciona apenas uma vez, nesta instalação.`,
+      senha
+        ? "Na tela do Player, digite a senha temporária destacada acima neste e-mail. Ela funciona apenas uma vez, nesta instalação."
+        : "Na tela do Player, digite a senha temporária enviada neste e-mail (uso único).",
     );
     if (tipo === "pdv_senha_temp_migracao" && plataforma === "windows") {
       passos.push(
@@ -81,8 +87,8 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
     ``,
   ];
 
-  if ((tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") && senhaTemporaria) {
-    textParts.push(`Senha temporária (uso único): ${senhaTemporaria}`, ``);
+  if (usaSenhaTemporaria(tipo) && senhaTemporaria) {
+    textParts.push(`━━━━━━━━━━━━━━━━━━━━━━━━`, `Senha temporária (copie aqui):`, senhaTemporaria, `━━━━━━━━━━━━━━━━━━━━━━━━`, ``);
   }
 
   textParts.push(`Passo a passo:`);
@@ -92,10 +98,17 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
   const text = textParts.join("\n");
 
   const senhaBlockHtml =
-    tipo === "pdv_senha_temp" && senhaTemporaria
-      ? `<tr><td style="padding:16px 0;">
-           <div style="font-size:13px;color:#52525b;margin-bottom:6px;">Senha temporária (uso único)</div>
-           <div style="font-family:monospace;font-size:26px;letter-spacing:4px;font-weight:700;color:#0f172a;background:#f1f5f9;border-radius:10px;padding:14px 18px;display:inline-block;">${esc(senhaTemporaria)}</div>
+    usaSenhaTemporaria(tipo) && senhaTemporaria
+      ? `<tr><td style="padding:8px 0 20px;">
+           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #d946ef;border-radius:14px;background:linear-gradient(180deg,#fdf4ff 0%,#faf5ff 100%);">
+             <tr><td style="padding:18px 20px;text-align:center;">
+               <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#a21caf;margin-bottom:10px;">Senha temporária · uso único</div>
+               <div style="font-family:Consolas,Monaco,'Courier New',monospace;font-size:34px;letter-spacing:0.28em;font-weight:800;color:#701a75;background:#ffffff;border:1px solid #f0abfc;border-radius:10px;padding:16px 22px;display:inline-block;-webkit-user-select:all;user-select:all;cursor:text;">${esc(senhaTemporaria)}</div>
+               <div style="margin-top:12px;font-size:12px;line-height:1.55;color:#6b7280;max-width:420px;margin-left:auto;margin-right:auto;">
+                 <strong style="color:#374151;">Copiar:</strong> clique ou toque na senha para selecionar tudo → depois <strong style="color:#374151;">Ctrl+C</strong> (Windows) ou <strong style="color:#374151;">Cmd+C</strong> (Mac) e cole no Player.
+               </div>
+             </td></tr>
+           </table>
          </td></tr>`
       : "";
 
@@ -125,11 +138,11 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
               <div style="margin-top:4px;"><strong style="color:#0f172a;">Plataforma:</strong> ${esc(plataformaLabel(plataforma))}</div>
             </td></tr>
           </table>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${senhaBlockHtml}</table>
           <div style="text-align:center;margin:26px 0;">
             <a href="${esc(link)}" style="background:#7c3aed;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 30px;border-radius:12px;display:inline-block;">Abrir instalação</a>
           </div>
           <div style="font-size:12px;color:#94a3b8;word-break:break-all;text-align:center;margin-bottom:8px;">${esc(link)}</div>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${senhaBlockHtml}</table>
           <h3 style="font-size:14px;color:#0f172a;margin:20px 0 8px;">Passo a passo</h3>
           <ol style="margin:0;padding-left:20px;">${passosHtml}</ol>
           <p style="margin:22px 0 0;color:#64748b;font-size:13px;">Qualquer dúvida, é só responder este e-mail.</p>

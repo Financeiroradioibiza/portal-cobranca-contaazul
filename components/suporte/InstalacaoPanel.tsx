@@ -341,6 +341,16 @@ export function InstalacaoPanel() {
     }
   }
 
+  async function handleCopiarSenha() {
+    if (!senhaTemp) return;
+    try {
+      await navigator.clipboard.writeText(senhaTemp.trim());
+      setStatus({ kind: "ok", text: "Senha copiada." });
+    } catch {
+      setStatus({ kind: "err", text: "Não foi possível copiar a senha." });
+    }
+  }
+
   async function handleEnviarEmail() {
     if (!selected) return;
     const destino = destinatario === "loja" ? contexto?.contatoLojaEmail ?? "" : emailNovo.trim();
@@ -468,13 +478,22 @@ export function InstalacaoPanel() {
                 </button>
               ) : null}
               {link && senhaTemp ? (
-                <button
-                  type="button"
-                  onClick={handleCopiarPacoteTemp}
-                  className="rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
-                >
-                  Copiar link + senha
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleCopiarSenha}
+                    className="rounded-lg border border-fuchsia-600/60 bg-fuchsia-950/30 px-4 py-2 text-sm text-fuchsia-200 hover:bg-fuchsia-950/50"
+                  >
+                    Copiar senha
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopiarPacoteTemp}
+                    className="rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  >
+                    Copiar link + senha
+                  </button>
+                </>
               ) : null}
             </div>
 
@@ -482,12 +501,29 @@ export function InstalacaoPanel() {
               <div className="mt-3 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950 p-3">
                 <p className="break-all font-mono text-[12px] text-emerald-300">{link.trim()}</p>
                 {senhaTemp ? (
-                  <p className="text-sm text-zinc-200">
-                    Senha temporária (uso único):{" "}
-                    <span className="font-mono text-lg font-bold tracking-widest text-fuchsia-300">
-                      {senhaTemp}
-                    </span>
-                  </p>
+                  <div className="rounded-lg border border-fuchsia-600/50 bg-fuchsia-950/20 px-3 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-300/90">
+                      Senha temporária (uso único)
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopiarSenha()}
+                        title="Copiar senha temporária"
+                        className="select-all rounded-lg border border-fuchsia-500/40 bg-zinc-950 px-4 py-2 font-mono text-2xl font-bold tracking-[0.28em] text-fuchsia-200 transition hover:border-fuchsia-400 hover:bg-fuchsia-950/40"
+                      >
+                        {senhaTemp}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCopiarSenha}
+                        className="rounded-lg border border-fuchsia-600/60 bg-fuchsia-900/40 px-3 py-2 text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-900/60"
+                      >
+                        Copiar senha
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[11px] text-zinc-400">Toque na senha roxa ou use «Copiar senha».</p>
+                  </div>
                 ) : null}
               </div>
             ) : null}
