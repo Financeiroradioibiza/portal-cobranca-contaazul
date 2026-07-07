@@ -4,7 +4,7 @@ import { listPortalPlayerRows } from "@/lib/player/listPortalPlayerRows";
 import { ensurePdvInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
 import { formatPortalPdvIdDisplay, portalClienteIdFromPdvId } from "@/lib/player/portalPlayerIds";
 
-export type InstalacaoTipo = "padrao_cliente" | "pdv_login" | "pdv_senha_temp";
+export type InstalacaoTipo = "padrao_cliente" | "pdv_login" | "pdv_senha_temp" | "pdv_senha_temp_migracao";
 export type InstalacaoPlataforma = "windows" | "mobile";
 export type InstalacaoCanal = "email" | "link";
 
@@ -68,7 +68,7 @@ export async function resolveInstalacaoPdv(
 /**
  * Monta o link de instalação.
  * - padrao_cliente → guia PWA padrão (instalar.html / m/instalar.html) — não embarca PDV.
- * - pdv_login / pdv_senha_temp → página leve instalar-pdv.html que embarca cliente+PDV.
+ * - pdv_login / pdv_senha_temp / pdv_senha_temp_migracao → instalar-pdv.html que embarca cliente+PDV.
  */
 export function buildInstallLink(
   tipo: InstalacaoTipo,
@@ -79,7 +79,8 @@ export function buildInstallLink(
   if (tipo === "padrao_cliente") {
     return plataforma === "mobile" ? `${base}/m/instalar.html` : `${base}/instalar.html`;
   }
-  const mode = tipo === "pdv_senha_temp" ? "temp" : "login";
+  const mode =
+    tipo === "pdv_senha_temp_migracao" ? "migrate" : tipo === "pdv_senha_temp" ? "temp" : "login";
   const params = new URLSearchParams({
     c: String(ctx.portalClienteId),
     p: String(ctx.portalPdvId),

@@ -32,7 +32,7 @@ type LogRow = {
   createdAt: string;
 };
 
-type Tipo = "padrao_cliente" | "pdv_login" | "pdv_senha_temp";
+type Tipo = "padrao_cliente" | "pdv_login" | "pdv_senha_temp" | "pdv_senha_temp_migracao";
 type Plataforma = "windows" | "mobile";
 
 const inputClass =
@@ -55,6 +55,11 @@ const TIPOS: { id: Tipo; label: string; desc: string }[] = [
     id: "pdv_senha_temp",
     label: "3 · Instalação do PDV com senha temporária",
     desc: "Link com o PDV embutido + senha de uso único. Vale só uma instalação; depois é preciso gerar outra.",
+  },
+  {
+    id: "pdv_senha_temp_migracao",
+    label: "4 · Atualização Player 5 + remover player antigo",
+    desc: "Igual ao tipo 3 (senha temporária). Após instalar o Player 5, o cliente recebe um passo para desinstalar a Rádio Ibiza antiga no Windows (.bat).",
   },
 ];
 
@@ -89,6 +94,7 @@ async function postInstalacao(body: Record<string, unknown>) {
 function tipoLabel(t: string): string {
   if (t === "pdv_login") return "PDV com login";
   if (t === "pdv_senha_temp") return "PDV senha temporária";
+  if (t === "pdv_senha_temp_migracao") return "Atualização + remover antigo";
   return "Padrão cliente";
 }
 

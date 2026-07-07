@@ -27,7 +27,12 @@ function parseId(raw: unknown): number | null {
 }
 
 function parseTipo(raw: unknown): InstalacaoTipo | null {
-  return raw === "padrao_cliente" || raw === "pdv_login" || raw === "pdv_senha_temp" ? raw : null;
+  return raw === "padrao_cliente" ||
+    raw === "pdv_login" ||
+    raw === "pdv_senha_temp" ||
+    raw === "pdv_senha_temp_migracao"
+    ? raw
+    : null;
 }
 
 function parsePlataforma(raw: unknown): InstalacaoPlataforma | null {
@@ -121,7 +126,7 @@ export async function POST(request: Request) {
 
     if (action === "gerar_link") {
       let senhaTemporaria: string | undefined;
-      if (tipo === "pdv_senha_temp") {
+      if (tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") {
         senhaTemporaria = await gerarSenhaTemporaria(portalClienteId, portalPdvId, actorFrom(session));
       }
       return NextResponse.json({ ok: true, link, senhaTemporaria });
@@ -156,7 +161,7 @@ export async function POST(request: Request) {
       const senhaTemporaria =
         typeof body.senhaTemporaria === "string" && body.senhaTemporaria.trim()
           ? body.senhaTemporaria.trim()
-          : tipo === "pdv_senha_temp"
+          : tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao"
             ? await gerarSenhaTemporaria(portalClienteId, portalPdvId, actorFrom(session))
             : undefined;
 

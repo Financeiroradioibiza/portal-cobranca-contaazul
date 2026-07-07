@@ -8,7 +8,7 @@ export type InstalacaoEmailInput = {
   pdvNome: string;
   codigoDisplay: string;
   link: string;
-  /** Só para tipo pdv_senha_temp. */
+  /** Só para tipos pdv_senha_temp e pdv_senha_temp_migracao. */
   senhaTemporaria?: string;
 };
 
@@ -45,10 +45,15 @@ function passos(plataforma: InstalacaoPlataforma, tipo: InstalacaoTipo, senha?: 
 
   if (tipo === "pdv_login") {
     passos.push("Ao abrir o Player, entre com o e-mail e a senha do cliente. O ponto de venda já vem selecionado — não é preciso escolher na lista.");
-  } else if (tipo === "pdv_senha_temp") {
+  } else if (tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") {
     passos.push(
       `Ao abrir o Player, digite a senha temporária: ${senha ?? "(enviada abaixo)"}. Essa senha funciona apenas uma vez, nesta instalação.`,
     );
+    if (tipo === "pdv_senha_temp_migracao" && plataforma === "windows") {
+      passos.push(
+        "Depois de baixar a programação e confirmar os dados da loja, siga o passo na tela para desinstalar o player antigo (ficheiro .bat na pasta Downloads).",
+      );
+    }
   } else {
     passos.push("Ao abrir o Player, entre com o e-mail e a senha do cliente e escolha o ponto de venda na lista.");
   }
@@ -76,7 +81,7 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
     ``,
   ];
 
-  if (tipo === "pdv_senha_temp" && senhaTemporaria) {
+  if ((tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") && senhaTemporaria) {
     textParts.push(`Senha temporária (uso único): ${senhaTemporaria}`, ``);
   }
 
