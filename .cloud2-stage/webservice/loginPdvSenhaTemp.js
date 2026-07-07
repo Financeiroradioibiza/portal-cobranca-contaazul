@@ -66,7 +66,9 @@ export async function registerLoginPdvSenhaTempRoutes(app, prefix = '/api') {
       // Busca o token do PDV ANTES de consumir — não queima a senha se faltar token.
       const pool = getPool();
       const tok = await pool.query(
-        `SELECT token FROM tokens WHERE pdv_id = $1 ORDER BY data_inicio DESC LIMIT 1`,
+        `SELECT token FROM tokens
+         WHERE pdv_id = $1 AND COALESCE(status, 'A') = 'A'
+         ORDER BY data_inicio DESC LIMIT 1`,
         [p],
       );
       const token = String(tok.rows?.[0]?.token ?? '').trim();
