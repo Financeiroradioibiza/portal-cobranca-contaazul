@@ -304,10 +304,9 @@ export function InstalacaoPanel() {
 
   async function handleCopiar() {
     if (!link) return;
+    const url = link.trim();
     try {
-      await navigator.clipboard.writeText(
-        senhaTemp ? `${link}\nSenha temporária: ${senhaTemp}` : link,
-      );
+      await navigator.clipboard.writeText(url);
       setStatus({ kind: "ok", text: "Link copiado." });
     } catch {
       setStatus({ kind: "err", text: "Não foi possível copiar automaticamente." });
@@ -319,8 +318,20 @@ export function InstalacaoPanel() {
         portalPdvId: selected.portalPdvId,
         tipo,
         plataforma,
+        link: url,
       });
       void refreshLog();
+    }
+  }
+
+  async function handleCopiarPacoteTemp() {
+    if (!link || !senhaTemp) return;
+    const url = link.trim();
+    try {
+      await navigator.clipboard.writeText(`${url}\nSenha temporária: ${senhaTemp.trim()}`);
+      setStatus({ kind: "ok", text: "Link e senha copiados." });
+    } catch {
+      setStatus({ kind: "err", text: "Não foi possível copiar automaticamente." });
     }
   }
 
@@ -347,8 +358,9 @@ export function InstalacaoPanel() {
         setStatus({ kind: "err", text: mapErr(data) });
         return;
       }
-      const d = data as { to?: string; senhaTemporaria?: string };
+      const d = data as { to?: string; senhaTemporaria?: string; link?: string };
       if (d.senhaTemporaria) setSenhaTemp(d.senhaTemporaria);
+      if (typeof d.link === "string" && d.link.trim()) setLink(d.link.trim());
       setStatus({ kind: "ok", text: `E-mail enviado para ${d.to ?? destino}.` });
       void refreshLog();
     } finally {
@@ -449,11 +461,20 @@ export function InstalacaoPanel() {
                   Copiar link
                 </button>
               ) : null}
+              {link && senhaTemp ? (
+                <button
+                  type="button"
+                  onClick={handleCopiarPacoteTemp}
+                  className="rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                >
+                  Copiar link + senha
+                </button>
+              ) : null}
             </div>
 
             {link ? (
               <div className="mt-3 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950 p-3">
-                <p className="break-all font-mono text-[12px] text-emerald-300">{link}</p>
+                <p className="break-all font-mono text-[12px] text-emerald-300">{link.trim()}</p>
                 {senhaTemp ? (
                   <p className="text-sm text-zinc-200">
                     Senha temporária (uso único):{" "}

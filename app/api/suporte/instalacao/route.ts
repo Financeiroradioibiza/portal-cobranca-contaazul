@@ -128,6 +128,8 @@ export async function POST(request: Request) {
     }
 
     if (action === "registrar_copia") {
+      const linkInformado =
+        typeof body.link === "string" && body.link.trim() ? body.link.trim() : link;
       await registrarEnvio({
         portalClienteId,
         portalPdvId,
@@ -135,10 +137,10 @@ export async function POST(request: Request) {
         plataforma,
         canal: "link",
         destinoEmail: "",
-        link,
+        link: linkInformado,
         enviadoPor: actorFrom(session),
       });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, link: linkInformado });
     }
 
     if (action === "enviar_email") {
@@ -186,7 +188,7 @@ export async function POST(request: Request) {
         enviadoPor: actorFrom(session),
       });
 
-      return NextResponse.json({ ok: true, to: destino, senhaTemporaria });
+      return NextResponse.json({ ok: true, to: destino, senhaTemporaria, link });
     }
 
     return NextResponse.json({ ok: false, error: "acao_desconhecida" }, { status: 400 });
