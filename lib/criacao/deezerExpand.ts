@@ -4,6 +4,7 @@ import {
   resolveDeezerShareUrl,
   toCanonicalDeemixUrl,
 } from "@/lib/criacao/deezerCanonical";
+import { resolveDeezerTrackUrlFromText } from "@/lib/criacao/deezerTrackMatch";
 
 type DeezerTrackLink = { link?: string; title?: string; artist?: { name?: string } };
 
@@ -44,7 +45,7 @@ async function fetchDeezerPaginatedTracks(path: string, maxTracks = 300): Promis
  * - link.deezer.com → URL canônica www.deezer.com/…
  * - playlist/album → uma linha por faixa (URLs track canônicas)
  * - track → URL canônica
- * - texto livre → inalterado (busca no Deemix)
+ * - texto «Artista - Música» → URL track via API Deezer (exige match de artista)
  */
 export async function expandDeezerDownloadLines(lines: ParsedDownloadLine[]): Promise<ParsedDownloadLine[]> {
   const out: ParsedDownloadLine[] = [];
@@ -82,8 +83,24 @@ export async function expandDeezerDownloadLines(lines: ParsedDownloadLine[]): Pr
       continue;
     }
 
-    const normalized =
-      canonical?.kind === "track" ? canonical.url : await normalizeForDeemixInput(line.linhaOriginal);
+    if (canonical?.kind === "track") {
+      const key = canonical.url.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ linhaOriginal: canonical.url, inputTipo: "url" });
+      continue;
+    }
+
+    if (line.inputTipo === "texto") {
+      const trackUrl = await resolveDeezerTrackUrlFromText(line.linhaOriginal);
+      const key = trackUrl.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ linhaOriginal: trackUrl, inputTipo: "url" });
+      continue;
+    }
+
+    const normalized = await normalizeForDeemixInput(line.linhaOriginal);
     const key = normalized.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

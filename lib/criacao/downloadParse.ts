@@ -15,7 +15,7 @@ export const DOWNLOAD_PROVIDER_HINT: Record<DownloadProviderId, string> = {
   spotizerr:
     "Uma linha por faixa: link Spotify (track/album/playlist) ou «Artista - Música». Download no servidor via Spotizerr.",
   deemix:
-    "O Deemix só aceita www.deezer.com/track|playlist|album/… (não link.deezer.com). Aqui você pode colar link curto, playlist inteira (vira uma linha por faixa) ou «Artista - Música».",
+    "Uma linha por faixa no formato «Artista - Música» (o artista precisa bater — não buscamos só pelo título). Também aceita link Deezer ou playlist (expandida em faixas).",
   youtube:
     "Uma linha por faixa: link YouTube ou «Artista - Música». Download 100% no servidor (yt-dlp API).",
 };

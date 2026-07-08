@@ -6,6 +6,7 @@ import {
   downloadStagingPath,
   ensureStorageDirs,
 } from './storage.js';
+import { resolveDeezerTrackUrlFromText } from './deezerTrackMatch.js';
 
 type PendingItem = {
   id: string;
@@ -110,36 +111,6 @@ async function deemixEnsureSession(cfg: DownloadEnv): Promise<string> {
   return cookie;
 }
 
-function normalizeDeemixSearchLine(line: string): string {
-  let s = line.trim();
-  s = s.replace(/\.(mp3|flac|m4a|wav)$/i, '');
-  s = s.replace(/~\d+$/i, '');
-  s = s.replace(/\s*\(\d+\)\s*$/i, '');
-  s = s.replace(/\s+/g, ' ').trim();
-  return s;
-}
-
-function deemixSearchQueries(line: string): string[] {
-  const base = normalizeDeemixSearchLine(line);
-  const out: string[] = [];
-  const push = (q: string) => {
-    const t = q.trim();
-    if (t && !out.includes(t)) out.push(t);
-  };
-
-  push(base);
-  const dash = base.match(/^(.+?)\s*[-–—]\s*(.+)$/);
-  if (dash) {
-    const artist = dash[1]!.trim();
-    const title = dash[2]!.trim();
-    push(title);
-    push(`${artist} ${title}`);
-    push(`${title} ${artist}`);
-    push(title.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim());
-  }
-  return out;
-}
-
 const DEEZER_SHARE_RE = /^https?:\/\/link\.deezer\.com\//i;
 
 function toCanonicalDeemixUrl(input: string): string | null {
@@ -182,19 +153,7 @@ async function deemixResolveTrackUrl(cfg: DownloadEnv, line: string, cookie: str
 
   if (canonical?.includes('/track/')) return canonical;
 
-  for (const query of deemixSearchQueries(normalized)) {
-    const res = await deemixFetch(
-      cfg.deemixUrl,
-      `/search?term=${encodeURIComponent(query)}&type=track`,
-      { cookie },
-    );
-    if (!res.ok) continue;
-    const data = (await res.json()) as { data?: { link?: string }[] };
-    const link = data.data?.[0]?.link;
-    if (link) return link;
-  }
-
-  throw new Error('Nenhuma faixa encontrada no Deezer — use link deezer.com/track/… ou «Artista - Música»');
+  return resolveDeezerTrackUrlFromText(normalized);
 }
 
 /** Deemix /getQueue — formatos: { queueList }, { data: { queueList } }, { queue: { queueList } }, { queue: { uuid: item } }. */
