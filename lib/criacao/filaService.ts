@@ -4,7 +4,7 @@ import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag"
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
-export type UploadArquivo = { nome: string; sizeBytes?: number };
+export type UploadArquivo = { nome: string; sizeBytes?: number; downloadItemId?: string };
 
 export type CreateUploadJobInput = {
   titulo: string;

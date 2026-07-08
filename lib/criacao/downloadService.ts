@@ -41,6 +41,7 @@ export type DownloadItemRow = {
 export type StagingFileRow = {
   id: string;
   jobId: string;
+  jobTitulo: string;
   provider: DownloadProviderId;
   arquivoNome: string;
   titulo: string;
@@ -48,6 +49,33 @@ export type StagingFileRow = {
   sizeBytes: number | null;
   finishedAt: string | null;
 };
+
+export type StagingJobGroup = {
+  jobId: string;
+  titulo: string;
+  provider: DownloadProviderId;
+  finishedAt: string | null;
+  tracks: StagingFileRow[];
+};
+
+export function groupStagingByJob(rows: StagingFileRow[]): StagingJobGroup[] {
+  const map = new Map<string, StagingJobGroup>();
+  for (const row of rows) {
+    let group = map.get(row.jobId);
+    if (!group) {
+      group = {
+        jobId: row.jobId,
+        titulo: row.jobTitulo || "Download",
+        provider: row.provider,
+        finishedAt: row.finishedAt,
+        tracks: [],
+      };
+      map.set(row.jobId, group);
+    }
+    group.tracks.push(row);
+  }
+  return Array.from(map.values());
+}
 
 export async function createDownloadJob(input: {
   provider: DownloadProviderId;
@@ -175,18 +203,20 @@ export async function listStagingFiles(opts: {
     where: {
       status: "concluido",
       storageKey: { not: null },
+      NOT: { providerRef: { startsWith: "import:" } },
       ...(opts.provider ? { job: { provider: opts.provider as DownloadProvider } } : {}),
     },
     orderBy: { updatedAt: "desc" },
     take: Math.min(200, Math.max(1, opts.limit ?? 80)),
     include: {
-      job: { select: { provider: true, finishedAt: true } },
+      job: { select: { provider: true, titulo: true, finishedAt: true } },
     },
   });
 
   return items.map((i) => ({
     id: i.id,
     jobId: i.jobId,
+    jobTitulo: i.job.titulo,
     provider: i.job.provider as DownloadProviderId,
     arquivoNome: i.arquivoNome,
     titulo: i.titulo,

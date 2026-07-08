@@ -59,7 +59,7 @@ function env(): DownloadEnv {
     deemixUrl,
     deemixArl: (process.env.CRIACAO_DEEMIX_ARL ?? '').replace(/\s+/g, ''),
     deemixMusicUrl,
-    deemixFilesDir: (process.env.CRIACAO_DEEMIX_FILES_DIR ?? '').replace(/\/$/, ''),
+    deemixFilesDir: (process.env.CRIACAO_DEEMIX_FILES_DIR ?? '/downloads').replace(/\/$/, ''),
     youtubeDlUrl: (process.env.CRIACAO_YOUTUBE_DL_URL ?? '').replace(/\/$/, ''),
     youtubeDlApiKey: process.env.CRIACAO_YOUTUBE_DL_API_KEY ?? '',
   };
@@ -140,10 +140,49 @@ function deemixSearchQueries(line: string): string[] {
   return out;
 }
 
-async function deemixResolveTrackUrl(cfg: DownloadEnv, line: string, cookie: string): Promise<string> {
-  if (/^https?:\/\/(?:www\.)?deezer\.com\//i.test(line)) return line.trim();
+const DEEZER_SHARE_RE = /^https?:\/\/link\.deezer\.com\//i;
 
-  for (const query of deemixSearchQueries(line)) {
+function toCanonicalDeemixUrl(input: string): string | null {
+  const trimmed = input.trim().split('#')[0]?.split('?')[0]?.trim() ?? '';
+  const m = trimmed.match(/deezer\.com\/(?:[a-z]{2}\/)?(track|album|playlist)\/(\d+)/i);
+  if (!m) return null;
+  return `https://www.deezer.com/${m[1]!.toLowerCase()}/${m[2]}`;
+}
+
+async function resolveDeezerShareUrl(input: string): Promise<string> {
+  const trimmed = input.trim();
+  if (!DEEZER_SHARE_RE.test(trimmed)) return trimmed;
+  const res = await fetch(trimmed, {
+    method: 'GET',
+    redirect: 'follow',
+    signal: AbortSignal.timeout(20_000),
+    headers: { Accept: 'text/html,application/json', 'User-Agent': 'RadioIbizaDownload/1.0' },
+  });
+  const canonical = res.url ? toCanonicalDeemixUrl(res.url) : null;
+  if (canonical) return canonical;
+  throw new Error('Link curto deezer.com/s/… — use www.deezer.com/track/… ou Artista - Música');
+}
+
+async function normalizeLineForDeemix(line: string): Promise<string> {
+  const resolved = await resolveDeezerShareUrl(line);
+  const canonical = toCanonicalDeemixUrl(resolved);
+  if (canonical) return canonical;
+  return resolved.trim();
+}
+
+async function deemixResolveTrackUrl(cfg: DownloadEnv, line: string, cookie: string): Promise<string> {
+  const normalized = await normalizeLineForDeemix(line);
+  const canonical = toCanonicalDeemixUrl(normalized);
+
+  if (canonical?.includes('/playlist/') || canonical?.includes('/album/')) {
+    throw new Error(
+      'Playlist/álbum deve ser expandido em faixas pelo portal — cole o link curto ou playlist no Download link (não faixa a faixa no Deemix).',
+    );
+  }
+
+  if (canonical?.includes('/track/')) return canonical;
+
+  for (const query of deemixSearchQueries(normalized)) {
     const res = await deemixFetch(
       cfg.deemixUrl,
       `/search?term=${encodeURIComponent(query)}&type=track`,
@@ -158,14 +197,31 @@ async function deemixResolveTrackUrl(cfg: DownloadEnv, line: string, cookie: str
   throw new Error('Nenhuma faixa encontrada no Deezer — use link deezer.com/track/… ou «Artista - Música»');
 }
 
-/** Deemix /getQueue — formatos já vistos: { queueList }, { queue: { queueList } }, { queue: { uuid: item } }. */
+/** Deemix /getQueue — formatos: { queueList }, { data: { queueList } }, { queue: { queueList } }, { queue: { uuid: item } }. */
 function parseDeemixQueuePayload(raw: unknown): Record<string, DeemixQueueItem> {
   if (!raw || typeof raw !== 'object') return {};
   const data = raw as Record<string, unknown>;
 
-  const queueList = data.queueList;
-  if (queueList && typeof queueList === 'object' && !Array.isArray(queueList)) {
-    return queueList as Record<string, DeemixQueueItem>;
+  const topQueueList = data.queueList;
+  if (topQueueList && typeof topQueueList === 'object' && !Array.isArray(topQueueList)) {
+    return topQueueList as Record<string, DeemixQueueItem>;
+  }
+
+  const wrapped = data.data;
+  if (wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
+    const nested = wrapped as Record<string, unknown>;
+    const wrappedList = nested.queueList;
+    if (wrappedList && typeof wrappedList === 'object' && !Array.isArray(wrappedList)) {
+      return wrappedList as Record<string, DeemixQueueItem>;
+    }
+    const wrappedQueue = nested.queue;
+    if (wrappedQueue && typeof wrappedQueue === 'object' && !Array.isArray(wrappedQueue)) {
+      const q = wrappedQueue as Record<string, unknown>;
+      const qList = q.queueList;
+      if (qList && typeof qList === 'object' && !Array.isArray(qList)) {
+        return qList as Record<string, DeemixQueueItem>;
+      }
+    }
   }
 
   const queue = data.queue;
@@ -190,6 +246,24 @@ function pickUuidFromUnknown(value: unknown): string | undefined {
   if (typeof o.uuid === 'string' && o.uuid.trim()) return o.uuid.trim();
   if (typeof o.id === 'string' && o.id.includes('_')) return o.id.trim();
   return undefined;
+}
+
+/** Deemix usa uuid fixo: `{tipo}_{id}_{bitrate}` (ver deemix-js DownloadObjects). */
+function deemixDeriveUuidFromUrl(trackUrl: string, bitrate: number): string | undefined {
+  const canonical = toCanonicalDeemixUrl(trackUrl);
+  if (!canonical) return undefined;
+  const m = canonical.match(/deezer\.com\/(track|album|playlist)\/(\d+)/i);
+  if (!m) return undefined;
+  return `${m[1]!.toLowerCase()}_${m[2]}_${bitrate}`;
+}
+
+function deemixAddResponseObjEmpty(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const root = raw as Record<string, unknown>;
+  const data = root.data;
+  if (!data || typeof data !== 'object') return false;
+  const obj = (data as Record<string, unknown>).obj;
+  return Array.isArray(obj) && obj.length === 0;
 }
 
 /** Resposta de /addToQueue — formatos: { obj }, { data: { obj } }, { result, data: { obj } }. */
@@ -226,10 +300,18 @@ async function deemixResolveQueueUuidAfterAdd(
   cfg: DownloadEnv,
   cookie: string,
   before: Set<string>,
+  trackUrl?: string,
 ): Promise<string | undefined> {
-  const after = await deemixQueueUuidSet(cfg, cookie);
-  for (const uuid of after) {
-    if (!before.has(uuid)) return uuid;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const after = await deemixQueueUuidSet(cfg, cookie);
+    for (const uuid of after) {
+      if (!before.has(uuid)) return uuid;
+    }
+    if (trackUrl) {
+      const derived = deemixDeriveUuidFromUrl(trackUrl, DEEMIX_BITRATE);
+      if (derived && after.has(derived)) return derived;
+    }
+    if (attempt < 7) await new Promise((r) => setTimeout(r, 400));
   }
   return undefined;
 }
@@ -253,6 +335,18 @@ async function copyDeemixOutputToDest(cfg: DownloadEnv, relFile: string, dest: s
       return;
     } catch {
       errors.push(`disco ${localPath}`);
+    }
+  }
+
+  // Volume Docker comum do Deemix quando CRIACAO_DEEMIX_FILES_DIR não está no .env
+  if (cfg.deemixFilesDir !== '/downloads') {
+    const fallback = path.join('/downloads', rel);
+    try {
+      await fsp.access(fallback);
+      await fsp.copyFile(fallback, dest);
+      return;
+    } catch {
+      errors.push(`disco ${fallback}`);
     }
   }
 
@@ -290,6 +384,7 @@ async function deemixWaitQueueItem(
   cookie: string,
 ): Promise<DeemixQueueItem> {
   const deadline = Date.now() + DEEMIX_POLL_TIMEOUT_MS;
+  let missingAttempts = 0;
   while (Date.now() < deadline) {
     const res = await deemixFetch(cfg.deemixUrl, '/getQueue', { cookie });
     if (!res.ok) throw new Error(`Deemix getQueue falhou (${res.status})`);
@@ -297,6 +392,11 @@ async function deemixWaitQueueItem(
     const queueMap = parseDeemixQueuePayload(data);
     const item = queueMap[uuid];
     if (!item) {
+      missingAttempts++;
+      if (missingAttempts < 10) {
+        await new Promise((r) => setTimeout(r, DEEMIX_POLL_MS));
+        continue;
+      }
       const keys = Object.keys(queueMap);
       throw new Error(
         keys.length > 0 ?
@@ -304,6 +404,7 @@ async function deemixWaitQueueItem(
         : 'Fila do Deemix vazia — addToQueue pode ter falhado silenciosamente',
       );
     }
+    missingAttempts = 0;
     if ((item.errors ?? 0) > 0) {
       throw new Error('Deemix reportou erro no download (conta Deezer, ARL ou qualidade indisponível)');
     }
@@ -503,13 +604,17 @@ async function downloadDeemix(item: PendingItem, cfg: DownloadEnv): Promise<void
 
     let uuid =
       extractUuidFromDeemixAddResponse(queueData) ??
-      (await deemixResolveQueueUuidAfterAdd(cfg, cookie, queueBefore));
+      deemixDeriveUuidFromUrl(trackUrl, DEEMIX_BITRATE) ??
+      (await deemixResolveQueueUuidAfterAdd(cfg, cookie, queueBefore, trackUrl));
     if (!uuid) {
       const hint = rawBody.slice(0, 240).replace(/\s+/g, ' ');
+      const alreadyQueued = deemixAddResponseObjEmpty(queueData);
       await failItem(
         item.id,
         item.job_id,
-        `Deemix não retornou uuid na fila${hint ? ` — resposta: ${hint}` : ''}`,
+        alreadyQueued ?
+          `Deemix não expôs uuid (faixa já na fila?) — tente limpar a fila no Deemix${hint ? ` — ${hint}` : ''}`
+        : `Deemix não retornou uuid na fila${hint ? ` — resposta: ${hint}` : ''}`,
       );
       return;
     }

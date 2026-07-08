@@ -250,6 +250,14 @@ export function DownloadLinkPanel() {
             Novo lote — {DOWNLOAD_PROVIDER_LABEL[tab]}
           </h2>
           <p className="mb-3 text-xs text-slate-500">{DOWNLOAD_PROVIDER_HINT[tab]}</p>
+          {tab === "deemix" ?
+            <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+              No Deemix direto, <strong>link.deezer.com não funciona</strong> — só{" "}
+              <code className="text-[11px]">www.deezer.com/track|playlist|album/…</code>. Aqui você
+              pode colar o link curto ou a playlist: o portal resolve e envia faixa a faixa para o
+              servidor.
+            </p>
+          : null}
 
           <label className="mb-2 block text-xs font-semibold text-slate-500">
             Título do lote (opcional)
@@ -269,7 +277,7 @@ export function DownloadLinkPanel() {
               rows={10}
               placeholder={
                 tab === "deemix" ?
-                  "https://link.deezer.com/s/…\nhttps://www.deezer.com/track/…\nArtista - Nome da música"
+                  "Playlist (link curto ou www.deezer.com/playlist/…)\nArtista - Nome da música\nhttps://www.deezer.com/track/…"
                 : "https://www.youtube.com/watch?v=…\nArtista - Nome da música"
               }
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-950"
@@ -308,8 +316,11 @@ export function DownloadLinkPanel() {
               href="/criacao/upload"
               className="mt-3 inline-block rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-300"
             >
-              Ir para Upload →
+              Importar no Upload →
             </Link>
+            <p className="mt-2 text-[11px] text-slate-500">
+              No Upload, use «Importar do Download link» — as faixas entram no lote sem arrastar MP3 do PC.
+            </p>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">

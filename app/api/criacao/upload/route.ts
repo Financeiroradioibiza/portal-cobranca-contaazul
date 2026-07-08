@@ -9,8 +9,58 @@ import {
 } from "@/lib/criacao/filaService";
 import { markCriativoEntregueAuto, markSubidaFilaPainel } from "@/lib/criacao/atualizacaoPainelService";
 import { CRIACAO_INGEST_URL, ingestEnabled, signTicket } from "@/lib/criacao/ingestTicket";
+import { ingestFromStagingOnCloud2 } from "@/lib/criacao/ingestFromStaging";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+
+async function normalizeUploadArquivos(arquivos: UploadArquivo[]): Promise<UploadArquivo[]> {
+  const out: UploadArquivo[] = [];
+  for (const a of arquivos) {
+    if (!a?.nome?.trim() && !a.downloadItemId) continue;
+    if (a.downloadItemId) {
+      const dl = await prisma.downloadItem.findFirst({
+        where: {
+          id: a.downloadItemId,
+          status: "concluido",
+          storageKey: { not: null },
+          NOT: { providerRef: { startsWith: "import:" } },
+        },
+        select: { id: true, arquivoNome: true, titulo: true, artista: true, sizeBytes: true },
+      });
+      if (!dl) throw new Error("staging_item_invalido");
+      const nome =
+        dl.arquivoNome.trim() ||
+        `${dl.artista.trim() ? `${dl.artista.trim()} - ` : ""}${dl.titulo.trim() || "faixa"}.mp3`;
+      out.push({
+        nome: nome.slice(0, 500),
+        sizeBytes: dl.sizeBytes ?? a.sizeBytes,
+        downloadItemId: dl.id,
+      });
+      continue;
+    }
+    out.push({ nome: a.nome.trim().slice(0, 500), sizeBytes: a.sizeBytes });
+  }
+  return out;
+}
+
+function buildStagingPairs(
+  jobs: Array<{ id: string; itens: { id: string; arquivoNome: string }[] }>,
+  lotes: UploadLoteInput[],
+) {
+  const pairs: { processamentoItemId: string; downloadItemId: string }[] = [];
+  for (let i = 0; i < jobs.length; i++) {
+    const job = jobs[i]!;
+    const arquivos = lotes[i]?.arquivos ?? [];
+    for (let j = 0; j < job.itens.length; j++) {
+      const dlId = arquivos[j]?.downloadItemId;
+      if (dlId) {
+        pairs.push({ processamentoItemId: job.itens[j]!.id, downloadItemId: dlId });
+      }
+    }
+  }
+  return pairs;
+}
 
 type LoteBody = {
   titulo?: string;
@@ -22,6 +72,7 @@ type LoteBody = {
   programacaoId?: string;
   pastaId?: string;
   arquivos?: UploadArquivo[];
+  downloadItemIds?: string[];
 };
 
 function ticketsForJob(jobId: string, itens: { id: string; arquivoNome: string }[]) {
@@ -64,7 +115,15 @@ export async function POST(request: Request) {
     if (rawLotes) {
       const lotes: UploadLoteInput[] = [];
       for (const l of rawLotes) {
-        const arquivos = Array.isArray(l.arquivos) ? l.arquivos.filter((a) => a?.nome?.trim()) : [];
+        let arquivos = Array.isArray(l.arquivos) ? l.arquivos.filter((a) => a?.nome?.trim() || a?.downloadItemId) : [];
+        if (arquivos.length === 0 && Array.isArray(l.downloadItemIds) && l.downloadItemIds.length > 0) {
+          arquivos = l.downloadItemIds.map((id) => ({ nome: "", downloadItemId: id }));
+        }
+        try {
+          arquivos = await normalizeUploadArquivos(arquivos);
+        } catch {
+          return NextResponse.json({ error: "staging_item_invalido" }, { status: 400 });
+        }
         if (arquivos.length === 0) continue;
         const destinoTipo = l.destinoTipo === "biblioteca" ? "biblioteca" : "pasta";
         const tagCriativo = await resolveTagCriativoUser(
@@ -98,13 +157,34 @@ export async function POST(request: Request) {
           await markCriativoEntregueAuto(job.programacaoId, uploaderNome);
         }
       }
+
+      const stagingPairs = buildStagingPairs(jobs, lotes);
+      let stagingImported = 0;
+      let stagingErrors: string[] = [];
+      if (stagingPairs.length > 0) {
+        const stagingResult = await ingestFromStagingOnCloud2(stagingPairs);
+        stagingImported = stagingResult.imported;
+        stagingErrors = stagingResult.errors;
+        if (!stagingResult.ok && stagingImported === 0) {
+          return NextResponse.json(
+            { error: "staging_import_falhou", message: stagingErrors.join(" · ") },
+            { status: 502 },
+          );
+        }
+      }
+
       return NextResponse.json({
         ok: true,
         ingestUrl: CRIACAO_INGEST_URL,
-        jobs: jobs.map((job) => ({
+        stagingImported,
+        stagingErrors,
+        jobs: jobs.map((job, idx) => ({
           jobId: job.id,
           titulo: job.titulo,
-          tickets: ticketsForJob(job.id, job.itens),
+          tickets: ticketsForJob(
+            job.id,
+            job.itens.filter((it, j) => !lotes[idx]?.arquivos[j]?.downloadItemId),
+          ),
         })),
       });
     }

@@ -8,6 +8,11 @@ import {
   FilaBrowserGuidanceOverview,
 } from "@/components/criacao/FilaBrowserGuidance";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
+import {
+  groupStagingByJob,
+  type StagingFileRow,
+  type StagingJobGroup,
+} from "@/lib/criacao/downloadService";
 
 import {
   CriacaoClienteNomeComTag,
@@ -20,7 +25,9 @@ import { rioTagCobrancaRowBgClass } from "@/lib/rio/rioTagCobranca";
 type Cliente = CriacaoClienteRow & { pdvCount: number; tagCobranca?: RioTagCobranca };
 type ArvorePasta = { id: string; nome: string; velocidade: string; musicasCount: number };
 type ArvoreProg = { id: string; nome: string; pastas: ArvorePasta[] };
-type PickedFile = { nome: string; sizeBytes: number; file: File };
+type PickedFile =
+  | { source: "local"; nome: string; sizeBytes: number; file: File }
+  | { source: "staging"; nome: string; sizeBytes: number; downloadItemId: string; label: string };
 type Ticket = { itemId: string; arquivoNome: string; token: string; exp: number };
 type DestinoTipo = "pasta" | "biblioteca";
 
@@ -80,6 +87,8 @@ export function UploadPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; lote?: string } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [stagingGroups, setStagingGroups] = useState<StagingJobGroup[]>([]);
+  const [stagingLoading, setStagingLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingLoteId = useRef<string | null>(null);
 
@@ -95,6 +104,23 @@ export function UploadPanel() {
       cancelled = true;
     };
   }, []);
+
+  const loadStaging = useCallback(async () => {
+    try {
+      const res = await fetch("/api/criacao/download?view=staging");
+      if (!res.ok) return;
+      const data = (await res.json()) as { staging?: StagingFileRow[] };
+      setStagingGroups(groupStagingByJob(data.staging ?? []));
+    } catch {
+      /* ignore */
+    } finally {
+      setStagingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStaging();
+  }, [loadStaging]);
 
   const updateLote = useCallback((id: string, patch: Partial<UploadLote>) => {
     setLotes((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -115,13 +141,47 @@ export function UploadPanel() {
     const next: PickedFile[] = [];
     for (const f of Array.from(list)) {
       if (!/\.mp3$/i.test(f.name) && !f.type.includes("audio")) continue;
-      next.push({ nome: f.name, sizeBytes: f.size, file: f });
+      next.push({ source: "local", nome: f.name, sizeBytes: f.size, file: f });
     }
     setLotes((prev) =>
       prev.map((l) => {
         if (l.id !== loteId) return l;
-        const seen = new Set(l.files.map((p) => p.nome));
-        return { ...l, files: [...l.files, ...next.filter((n) => !seen.has(n.nome))] };
+        const seen = new Set(
+          l.files.map((p) => (p.source === "staging" ? `staging:${p.downloadItemId}` : p.nome)),
+        );
+        return {
+          ...l,
+          files: [
+            ...l.files,
+            ...next.filter((n) => !seen.has(n.source === "staging" ? `staging:${n.downloadItemId}` : n.nome)),
+          ],
+        };
+      }),
+    );
+  }, []);
+
+  const addStagingGroupToLote = useCallback((loteId: string, group: StagingJobGroup) => {
+    setLotes((prev) =>
+      prev.map((l) => {
+        if (l.id !== loteId) return l;
+        const seen = new Set(
+          l.files.map((p) => (p.source === "staging" ? p.downloadItemId : p.nome)),
+        );
+        const next = group.tracks
+          .filter((t) => !seen.has(t.id))
+          .map((t) => {
+            const nome =
+              t.arquivoNome.trim() ||
+              `${t.artista.trim() ? `${t.artista.trim()} - ` : ""}${t.titulo.trim() || "faixa"}.mp3`;
+            return {
+              source: "staging" as const,
+              nome: nome.slice(0, 500),
+              sizeBytes: t.sizeBytes ?? 0,
+              downloadItemId: t.id,
+              label: t.titulo || t.arquivoNome || nome,
+            };
+          });
+        return { ...l, files: [...l.files, ...next] };
       }),
     );
   }, []);
@@ -181,13 +241,31 @@ export function UploadPanel() {
             pastaId: l.pastaSel || undefined,
             uploadTagNome: l.uploadTag.trim() || undefined,
             tagCriativoUserId: l.tagCriativoUserId || undefined,
-            arquivos: l.files.map((f) => ({ nome: f.nome, sizeBytes: f.sizeBytes })),
+            arquivos: l.files.map((f) =>
+              f.source === "staging" ?
+                { nome: f.nome, sizeBytes: f.sizeBytes, downloadItemId: f.downloadItemId }
+              : { nome: f.nome, sizeBytes: f.sizeBytes },
+            ),
           })),
         }),
       });
-      if (!res.ok) throw new Error("upload_failed");
+      if (!res.ok) {
+        const errData = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+        setMsg(
+          errData?.error === "staging_item_invalido" ?
+            "Uma ou mais faixas do servidor já foram importadas ou não existem mais."
+          : errData?.error === "staging_import_falhou" && errData.message ?
+            `Importação do servidor falhou: ${errData.message}`
+          : "Não foi possível criar os jobs de processamento.",
+        );
+        setSubmitting(false);
+        setProgress(null);
+        return;
+      }
       const data = (await res.json()) as {
         ingestUrl: string;
+        stagingImported?: number;
+        stagingErrors?: string[];
         jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
       };
 
@@ -203,6 +281,11 @@ export function UploadPanel() {
         const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
         setProgress({ done, total: totalUpload, lote: loteLabel(lote) });
         for (const f of lote.files) {
+          if (f.source === "staging") {
+            done += 1;
+            setProgress({ done, total: totalUpload, lote: loteLabel(lote) });
+            continue;
+          }
           const ticket = ticketByNome.get(f.nome.slice(0, 500));
           if (!ticket) {
             falhas.push(f.nome);
@@ -231,6 +314,11 @@ export function UploadPanel() {
         setSubmitting(false);
         setProgress(null);
         return;
+      }
+      if ((data.stagingErrors?.length ?? 0) > 0) {
+        setMsg(
+          `${data.stagingImported ?? 0} faixa(s) importadas do servidor. Avisos: ${data.stagingErrors!.slice(0, 3).join(" · ")}`,
+        );
       }
       router.push("/criacao/fila");
     } catch {
@@ -261,8 +349,67 @@ export function UploadPanel() {
         <h1 className="text-2xl font-bold tracking-tight">Upload de músicas 192k</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
           Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um
-          clique. Cada lote vira uma linha separada na fila.
+          clique. Faixas baixadas no Download link podem ser importadas do servidor (sem arrastar MP3 do seu PC).
         </p>
+      </div>
+
+      <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/30">
+        <h2 className="mb-1 text-sm font-bold text-violet-950 dark:text-violet-100">Importar do Download link</h2>
+        <p className="mb-3 text-xs text-violet-900/80 dark:text-violet-200/80">
+          Lotes concluídos no servidor aparecem aqui. Escolha um lote e adicione ao card de upload abaixo — não precisa
+          baixar no seu computador.
+        </p>
+        {stagingLoading ?
+          <p className="text-xs text-violet-800/70 dark:text-violet-300/70">Carregando pastas de download…</p>
+        : stagingGroups.length === 0 ?
+          <p className="text-xs text-violet-800/70 dark:text-violet-300/70">
+            Nenhuma pasta pronta. Baixe faixas em{" "}
+            <a href="/criacao/download" className="font-semibold underline">
+              Download link
+            </a>
+            .
+          </p>
+        : <ul className="space-y-2">
+            {stagingGroups.slice(0, 12).map((group) => (
+              <li
+                key={group.jobId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200/80 bg-white/80 px-3 py-2 dark:border-violet-800 dark:bg-slate-900/60"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    {group.titulo}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {group.tracks.length} faixa(s) · {group.provider}
+                    {group.finishedAt ?
+                      ` · ${new Date(group.finishedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
+                    : null}
+                  </div>
+                </div>
+                <label className="flex shrink-0 items-center gap-2 text-xs">
+                  <span className="text-slate-500">Adicionar ao lote</span>
+                  <select
+                    className="rounded border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-950"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const loteId = e.target.value;
+                      if (!loteId) return;
+                      addStagingGroupToLote(loteId, group);
+                      e.target.value = "";
+                    }}
+                  >
+                    <option value="">Escolher…</option>
+                    {lotes.map((l, i) => (
+                      <option key={l.id} value={l.id}>
+                        Lote {i + 1}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </li>
+            ))}
+          </ul>
+        }
       </div>
 
       <div className="mb-5 space-y-3">
@@ -557,14 +704,32 @@ function LoteCard({
       {lote.files.length > 0 ?
         <ul className="mt-3 max-h-48 divide-y divide-slate-100 overflow-auto rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
           {lote.files.map((f) => (
-            <li key={f.nome} className="flex items-center justify-between px-3 py-1.5 text-sm">
-              <span className="truncate">{f.nome}</span>
+            <li
+              key={f.source === "staging" ? `staging:${f.downloadItemId}` : f.nome}
+              className="flex items-center justify-between px-3 py-1.5 text-sm"
+            >
+              <span className="truncate">
+                {f.source === "staging" ?
+                  <span className="mr-1 rounded bg-violet-100 px-1 text-[10px] font-bold uppercase text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+                    servidor
+                  </span>
+                : null}
+                {f.source === "staging" ? f.label : f.nome}
+              </span>
               <span className="ml-2 flex shrink-0 items-center gap-2">
                 <span className="text-xs text-slate-400">{formatBytes(f.sizeBytes)}</span>
                 <button
                   type="button"
                   onClick={() =>
-                    onUpdate({ files: lote.files.filter((x) => x.nome !== f.nome) })
+                    onUpdate({
+                      files: lote.files.filter((x) =>
+                        f.source === "staging" && x.source === "staging" ?
+                          x.downloadItemId !== f.downloadItemId
+                        : x.source === "local" && f.source === "local" ?
+                          x.nome !== f.nome
+                        : true,
+                      ),
+                    })
                   }
                   className="text-slate-400 hover:text-red-600"
                 >
