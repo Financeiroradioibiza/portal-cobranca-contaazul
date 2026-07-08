@@ -13,6 +13,7 @@ import {
   mp3InvalidReason,
   removeIfExists,
 } from './mp3Validate.js';
+import { resolveDeezerTrackUrlFromText } from './deezerTrackMatch.js';
 
 type PendingItem = {
   id: string;
