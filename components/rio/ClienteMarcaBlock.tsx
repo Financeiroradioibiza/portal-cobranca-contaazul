@@ -117,7 +117,7 @@ export function badgeMov(m: MovRioCb) {
 function ClienteNomeComOrigem({ nome, origem }: { nome: string; origem?: string | null }) {
   const suffix = rioOrigemClienteSuffix(origem);
   return (
-    <span className="inline max-w-full truncate">
+    <span className="rio-cliente-nome inline-block max-w-full">
       {nome}
       {suffix ?
         <span className="font-bold text-red-600 dark:text-red-500"> {suffix}</span>
@@ -219,7 +219,7 @@ function SortClientRow(props: {
           if (rows.length) void onAddPdvsBulk(r.id, rows);
         }}
       >
-        <td className="sticky left-0 z-[1] w-16 border-r border-slate-100 bg-inherit px-0 dark:border-slate-800">
+        <td className="rio-sticky-drag sticky border-r border-slate-100 bg-inherit px-0 dark:border-slate-800">
           <span className="flex items-center">
             <button
               type="button"
@@ -252,13 +252,13 @@ function SortClientRow(props: {
         </td>
         <td
           className={
-            temPdvs ?
-              "border-l border-emerald-800/45 bg-emerald-700/20 px-0.5 py-0 dark:border-emerald-700/55 dark:bg-emerald-900/58"
-            : "border-l border-emerald-900/38 bg-emerald-800/12 px-0.5 py-0 dark:bg-emerald-900/42"
+            (temPdvs ?
+              "rio-sticky-marca sticky border-l border-emerald-800/45 bg-emerald-700/20 px-0.5 py-0 dark:border-emerald-700/55 dark:bg-emerald-900/58"
+            : "rio-sticky-marca sticky border-l border-emerald-900/38 bg-emerald-800/12 px-0.5 py-0 dark:bg-emerald-900/42")
           }
         >
           <select
-            className="box-border h-7 max-w-[8.75rem] truncate rounded border border-emerald-800/40 bg-transparent py-0 pl-1 text-[10px] leading-snug dark:border-emerald-700/65"
+            className="box-border h-7 w-full max-w-full truncate rounded border border-emerald-800/40 bg-transparent py-0 pl-1 text-[10px] leading-snug dark:border-emerald-700/65"
             value={r.rioGrupoId ?? ""}
             onChange={(ev) => onMarcaSel(r.id, ev.target.value)}
             title="Coluna MARCA (PDF)"
@@ -273,20 +273,20 @@ function SortClientRow(props: {
         </td>
         <td
           className={
-            temPdvs ?
-              "max-w-[15rem] min-w-[11rem] border-l border-emerald-800/40 bg-emerald-800/24 px-0.5 py-0 dark:border-emerald-800/50 dark:bg-emerald-950/68"
-            : "max-w-[15rem] min-w-[11rem] border-l border-emerald-900/35 bg-emerald-900/13 px-0.5 py-0 dark:bg-emerald-950/52"
+            (temPdvs ?
+              "rio-sticky-cliente sticky border-l border-emerald-800/40 bg-emerald-800/24 px-1 py-0.5 dark:border-emerald-800/50 dark:bg-emerald-950/68"
+            : "rio-sticky-cliente sticky border-l border-emerald-900/35 bg-emerald-900/13 px-1 py-0.5 dark:bg-emerald-950/52")
           }
         >
           {vinculado ?
-            <div className="flex min-w-0 items-center gap-0.5">
+            <div className="flex min-w-0 items-start gap-0.5">
               <button
                 type="button"
-                className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-emerald-950 underline-offset-2 hover:underline dark:text-emerald-100"
+                className="min-w-0 flex-1 text-left text-[11px] font-semibold text-emerald-950 underline-offset-2 hover:underline dark:text-emerald-100"
                 title={r.nomeFantasia + (rioOrigemClienteSuffix(origem) ? ` ${rioOrigemClienteSuffix(origem)}` : "")}
                 onClick={onExpand}
               >
-                <span className="inline max-w-full truncate">
+                <span className="rio-cliente-nome">
                   <RioTagCobrancaNome nome={r.nomeFantasia} tag={linhaTag} />
                   {rioOrigemClienteSuffix(origem) ?
                     <span className="font-bold text-red-600 dark:text-red-500">
@@ -306,7 +306,7 @@ function SortClientRow(props: {
           : <>
               <div className="flex min-w-0 flex-wrap items-baseline gap-0.5">
               <input
-                className="min-w-0 flex-1 rounded border border-emerald-700/45 bg-white/90 px-1 py-0.5 text-[11px] font-semibold text-emerald-950 dark:border-emerald-600/55 dark:bg-slate-950 dark:text-emerald-100"
+                className="min-w-0 flex-1 rounded border border-emerald-700/45 bg-white/90 px-1 py-0.5 text-[11px] font-semibold leading-snug text-emerald-950 dark:border-emerald-600/55 dark:bg-slate-950 dark:text-emerald-100"
                 defaultValue={r.nomeFantasia}
                 title="Nome antes de vincular à CA — ao vincular, passa a ser o nome fantasia da Conta Azul"
                 onBlur={(e) => {

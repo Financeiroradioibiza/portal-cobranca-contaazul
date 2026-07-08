@@ -597,3 +597,81 @@ body {
   z-index: 25;
 }
 
+/* Planilha Rio — scroll horizontal com colunas fixas (⇅ / Marca / Cliente) */
+.rio-planilha-scroll {
+  --rio-col-drag: 4rem;
+  --rio-col-marca: 9.5rem;
+  --rio-col-cliente-min: clamp(14rem, 28vw, 26rem);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.rio-planilha-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.rio-planilha-scroll::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.85);
+}
+
+.rio-planilha-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+  border-radius: 999px;
+}
+
+.rio-planilha-scroll th.rio-sticky-drag,
+.rio-planilha-scroll td.rio-sticky-drag {
+  position: sticky;
+  left: 0;
+  z-index: 12;
+  width: var(--rio-col-drag);
+  min-width: var(--rio-col-drag);
+  max-width: var(--rio-col-drag);
+  box-shadow: 2px 0 8px -4px rgba(15, 23, 42, 0.12);
+}
+
+.rio-planilha-scroll th.rio-sticky-marca,
+.rio-planilha-scroll td.rio-sticky-marca {
+  position: sticky;
+  left: var(--rio-col-drag);
+  z-index: 11;
+  width: var(--rio-col-marca);
+  min-width: var(--rio-col-marca);
+  max-width: var(--rio-col-marca);
+  box-shadow: 2px 0 8px -4px rgba(15, 23, 42, 0.1);
+}
+
+.rio-planilha-scroll th.rio-sticky-cliente,
+.rio-planilha-scroll td.rio-sticky-cliente {
+  position: sticky;
+  left: calc(var(--rio-col-drag) + var(--rio-col-marca));
+  z-index: 10;
+  min-width: var(--rio-col-cliente-min);
+  max-width: none;
+  box-shadow: 2px 0 8px -4px rgba(15, 23, 42, 0.08);
+}
+
+.rio-planilha-scroll thead th.rio-sticky-drag {
+  z-index: 23;
+}
+
+.rio-planilha-scroll thead th.rio-sticky-marca {
+  z-index: 22;
+}
+
+.rio-planilha-scroll thead th.rio-sticky-cliente {
+  z-index: 21;
+}
+
+.rio-cliente-nome {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+  line-height: 1.35;
+  text-align: left;
+}
+

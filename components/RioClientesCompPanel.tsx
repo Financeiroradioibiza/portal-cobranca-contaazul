@@ -1789,7 +1789,7 @@ export function RioClientesCompPanel() {
   }, [months, activeYm, loadMonths, runCloneDonorBatched]);
 
   return (
-    <div className="mx-auto max-w-[1600px] px-3 py-6 sm:px-5">
+    <div className="w-full min-w-0 max-w-none px-2 py-4 sm:px-3 lg:px-4">
       {linkModalLinha ?
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -2227,17 +2227,17 @@ export function RioClientesCompPanel() {
       : null}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-        <div className="max-h-[min(72vh,calc(100dvh-12rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-        <table className="min-w-[1240px] w-full border-separate border-spacing-0 text-sm">
+        <div className="rio-planilha-scroll max-h-[min(78vh,calc(100dvh-9rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <table className="min-w-[1180px] w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-              <th className="sticky left-0 top-0 z-[3] w-16 border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900 dark:shadow-[0_1px_0_0_rgb(51_65_85)]">
+              <th className="rio-sticky-drag sticky top-0 border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900 dark:shadow-[0_1px_0_0_rgb(51_65_85)]">
                 ⇅ / ⧉
               </th>
-              <th className="sticky top-0 z-[2] border-b border-l border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+              <th className="rio-sticky-marca sticky top-0 border-b border-l border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
                 Marca bloco
               </th>
-              <th className="sticky top-0 z-[2] border-b border-l border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+              <th className="rio-sticky-cliente sticky top-0 border-b border-l border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
                 Cliente
               </th>
               <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
