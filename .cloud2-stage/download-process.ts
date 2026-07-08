@@ -36,7 +36,7 @@ export async function registerDownloadProcessRoutes(app: FastifyInstance, prefix
       ok: true,
       storageRoot: criacaoConfig.storageRoot,
       spotizerr: Boolean(process.env.CRIACAO_SPOTIZERR_URL),
-      deemix: Boolean(process.env.CRIACAO_DEEMIX_URL),
+      deemix: Boolean(process.env.CRIACAO_DEEMIX_ARL),
       youtube: Boolean(process.env.CRIACAO_YOUTUBE_DL_URL),
     });
   });

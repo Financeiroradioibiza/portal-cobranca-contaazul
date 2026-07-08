@@ -541,15 +541,17 @@ export async function refreshMusicaInternetTags(
 ): Promise<{ updated: boolean; gravadora: string }> {
   const m = await prisma.musicaBiblioteca.findUnique({
     where: { id: musicaId },
-    select: { id: true, titulo: true, artista: true, isrc: true, tagsAuto: true },
+    select: { id: true, titulo: true, artista: true, isrc: true, bpm: true, ano: true, tagsAuto: true },
   });
   if (!m) throw new Error("not_found");
 
   const {
     extractGravadoraFromTags,
     fetchDeezerExplicit,
+    fetchExternalTrackMetadata,
     fetchLabelTags,
     fetchMusicBrainzExplicit,
+    isEligibleForExternalTrackMatch,
     mergeExternalTags,
     parseTagsFromJson,
   } = await import("@/lib/criacao/tagEnrichmentCore");
@@ -557,30 +559,62 @@ export async function refreshMusicaInternetTags(
 
   const beforeSig = JSON.stringify(parseTagsFromJson(m.tagsAuto));
   let merged = parseTagsFromJson(m.tagsAuto);
+  let bpm = m.bpm;
+  let isrc = m.isrc;
+  let ano = m.ano;
+  let metaChanged = false;
+
+  if (isEligibleForExternalTrackMatch({ titulo: m.titulo, artista: m.artista })) {
+    const meta = await fetchExternalTrackMetadata({
+      titulo: m.titulo,
+      artista: m.artista,
+      isrc: m.isrc,
+    });
+    if (meta.tags.length > 0) {
+      merged = mergeExternalTags(merged, meta.tags);
+      metaChanged = true;
+    }
+    if (meta.bpm != null && bpm == null) {
+      bpm = meta.bpm;
+      metaChanged = true;
+    }
+    if (meta.isrc && !isrc?.trim()) {
+      isrc = meta.isrc;
+      metaChanged = true;
+    }
+    if (meta.ano && !ano) {
+      ano = meta.ano;
+      metaChanged = true;
+    }
+  }
 
   const labels = await fetchLabelTags({
     titulo: m.titulo,
     artista: m.artista,
-    isrc: m.isrc,
+    isrc,
   });
   if (labels.length > 0) merged = mergeExternalTags(merged, labels);
 
   const deezer = await fetchDeezerExplicit({ titulo: m.titulo, artista: m.artista });
-  const musicbrainz = await fetchMusicBrainzExplicit({
-    titulo: m.titulo,
-    artista: m.artista,
-    isrc: m.isrc,
-  });
+  const musicbrainz =
+    deezer === null ?
+      await fetchMusicBrainzExplicit({ titulo: m.titulo, artista: m.artista, isrc })
+    : null;
   merged = mergeApiExplicitCheck(merged, { deezer, musicbrainz });
 
   const afterSig = JSON.stringify(merged);
-  if (beforeSig === afterSig) {
+  if (beforeSig === afterSig && !metaChanged) {
     return { updated: false, gravadora: extractGravadoraFromTags(merged) };
   }
 
   await prisma.musicaBiblioteca.update({
     where: { id: m.id },
-    data: { tagsAuto: merged as import("@prisma/client").Prisma.InputJsonValue },
+    data: {
+      tagsAuto: merged as import("@prisma/client").Prisma.InputJsonValue,
+      bpm: bpm ?? undefined,
+      isrc: isrc ?? undefined,
+      ano: ano ?? undefined,
+    },
   });
 
   return { updated: true, gravadora: extractGravadoraFromTags(merged) };

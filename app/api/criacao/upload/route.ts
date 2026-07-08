@@ -14,6 +14,19 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
+function stagingProcessamentoNome(dl: {
+  arquivoNome: string;
+  titulo: string;
+  artista: string;
+}): string {
+  const artista = dl.artista.trim();
+  const titulo = dl.titulo.trim();
+  if (artista && titulo) return `${artista} - ${titulo}.mp3`.slice(0, 500);
+  const arquivo = dl.arquivoNome.trim();
+  if (arquivo) return arquivo.slice(0, 500);
+  return `${titulo || "faixa"}.mp3`.slice(0, 500);
+}
+
 async function normalizeUploadArquivos(arquivos: UploadArquivo[]): Promise<UploadArquivo[]> {
   const out: UploadArquivo[] = [];
   for (const a of arquivos) {
@@ -29,11 +42,9 @@ async function normalizeUploadArquivos(arquivos: UploadArquivo[]): Promise<Uploa
         select: { id: true, arquivoNome: true, titulo: true, artista: true, sizeBytes: true },
       });
       if (!dl) throw new Error("staging_item_invalido");
-      const nome =
-        dl.arquivoNome.trim() ||
-        `${dl.artista.trim() ? `${dl.artista.trim()} - ` : ""}${dl.titulo.trim() || "faixa"}.mp3`;
+      const nome = stagingProcessamentoNome(dl);
       out.push({
-        nome: nome.slice(0, 500),
+        nome,
         sizeBytes: dl.sizeBytes ?? a.sizeBytes,
         downloadItemId: dl.id,
       });

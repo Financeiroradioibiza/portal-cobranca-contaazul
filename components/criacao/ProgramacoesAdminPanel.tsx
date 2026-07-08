@@ -186,7 +186,13 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { arvore: ArvoreProg[] };
       setArvore(data.arvore);
-      setExpanded(new Set(data.arvore.map((p) => p.id)));
+      setExpanded((prev) => {
+        const next = new Set([...prev].filter((pid) => data.arvore.some((p) => p.id === pid)));
+        for (const p of data.arvore) {
+          if (p.atualizacaoAberta) next.add(p.id);
+        }
+        return next;
+      });
     } catch {
       setArvore([]);
     } finally {

@@ -168,6 +168,49 @@ export async function probeIsrcFromFile(inputPath: string): Promise<string | nul
   });
 }
 
+/** Artista/título de tags ID3 (TPE1/artist, TIT2/title) ou null se indisponível. */
+export async function probeArtistTitleFromFile(
+  inputPath: string,
+): Promise<{ artista: string; titulo: string } | null> {
+  return new Promise((resolve) => {
+    const proc = spawn(
+      'ffprobe',
+      ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', inputPath],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let out = '';
+    proc.stdout?.on('data', (d) => {
+      out += String(d);
+    });
+    proc.on('error', () => resolve(null));
+    proc.on('close', () => {
+      try {
+        const j = JSON.parse(out) as {
+          format?: { tags?: Record<string, string> };
+          streams?: { tags?: Record<string, string> }[];
+        };
+        const tags = { ...(j.format?.tags ?? {}), ...(j.streams?.[0]?.tags ?? {}) };
+        const pick = (...keys: string[]) => {
+          for (const key of keys) {
+            const v = tags[key]?.trim();
+            if (v) return v;
+          }
+          return '';
+        };
+        const artista = pick('artist', 'ARTIST', 'TPE1', 'tpe1', 'AlbumArtist', 'album_artist');
+        const titulo = pick('title', 'TITLE', 'TIT2', 'tit2');
+        if (!artista && !titulo) {
+          resolve(null);
+          return;
+        }
+        resolve({ artista, titulo: titulo || 'Faixa' });
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
 /** BPM de tags ID3 ou null se indisponível. */
 export async function probeBpmFromFile(inputPath: string): Promise<number | null> {
   return new Promise((resolve) => {

@@ -43,23 +43,20 @@ function mergeGeminiExplicitCheck(
   return out;
 }
 
-async function applyMetadataEnrichment(
-  m: {
-    titulo: string;
-    artista: string;
-    isrc: string | null;
-    bpm: number | null;
-    tags_auto: unknown;
-  },
-  force = false,
-): Promise<{ merged: ExternalAutoTag[]; bpm: number | null; isrc: string | null; ano: number | null; changed: boolean }> {
+async function applyMetadataEnrichment(m: {
+  titulo: string;
+  artista: string;
+  isrc: string | null;
+  bpm: number | null;
+  tags_auto: unknown;
+}): Promise<{ merged: ExternalAutoTag[]; bpm: number | null; isrc: string | null; ano: number | null; changed: boolean }> {
   let merged = parseTagsFromJson(m.tags_auto);
   let changed = false;
   let bpm = m.bpm;
   let isrc = m.isrc;
   let ano: number | null = null;
 
-  if ((force || !isrc?.trim() || bpm == null) && isEligibleForExternalTrackMatch({ titulo: m.titulo, artista: m.artista })) {
+  if ((!isrc?.trim() || bpm == null) && isEligibleForExternalTrackMatch({ titulo: m.titulo, artista: m.artista })) {
     const meta = await fetchExternalTrackMetadata({
       titulo: m.titulo,
       artista: m.artista,
@@ -161,7 +158,7 @@ export async function refreshInternetTagsForMusica(musicaId: string): Promise<{ 
   if (!m) throw new Error('not_found');
 
   const before = JSON.stringify(parseTagsFromJson(m.tags_auto));
-  const meta = await applyMetadataEnrichment(m, true);
+  const meta = await applyMetadataEnrichment(m);
   let merged = meta.merged;
 
   const labels = await fetchLabelTags({
@@ -172,11 +169,14 @@ export async function refreshInternetTagsForMusica(musicaId: string): Promise<{ 
   if (labels.length > 0) merged = mergeExternalTags(merged, labels);
 
   const deezer = await fetchDeezerExplicit({ titulo: m.titulo, artista: m.artista });
-  const musicbrainz = await fetchMusicBrainzExplicit({
-    titulo: m.titulo,
-    artista: m.artista,
-    isrc: meta.isrc,
-  });
+  const musicbrainz =
+    deezer === null ?
+      await fetchMusicBrainzExplicit({
+        titulo: m.titulo,
+        artista: m.artista,
+        isrc: meta.isrc,
+      })
+    : null;
   merged = mergeApiExplicitTags(merged, { deezer, musicbrainz });
 
   const after = JSON.stringify(merged);

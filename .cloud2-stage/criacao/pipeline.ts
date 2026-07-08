@@ -5,7 +5,7 @@ import { uploadMasterToB2 } from './b2.js';
 import { criacaoConfig } from './config.js';
 import { findDuplicate } from './dedupe.js';
 import { analyzeAudio } from './analyze.js';
-import { produceMasterAndUso, probeBpmFromFile, probeIsrcFromFile } from './ffmpeg.js';
+import { produceMasterAndUso, probeArtistTitleFromFile, probeBpmFromFile, probeIsrcFromFile } from './ffmpeg.js';
 import { persistMixTrimForMusica, resolveMixTrim } from './mixTrimApply.js';
 import { parseMp3Filename } from './parseFilename.js';
 import { portalQuery } from './portalDb.js';
@@ -291,7 +291,12 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
       return 'duplicata' as const;
     }
 
-    const { artista, titulo } = parseMp3Filename(item.arquivo_nome);
+    let { artista, titulo } = parseMp3Filename(item.arquivo_nome);
+    if (!artista.trim()) {
+      const id3 = await probeArtistTitleFromFile(inputPath);
+      if (id3?.artista.trim()) artista = id3.artista.trim();
+      if ((!titulo.trim() || titulo === 'Faixa') && id3?.titulo.trim()) titulo = id3.titulo.trim();
+    }
     const musicaId = crypto.randomUUID();
     const ins = await portalQuery<{ id: string }>(
       `INSERT INTO musica_biblioteca

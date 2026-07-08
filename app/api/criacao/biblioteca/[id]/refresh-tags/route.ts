@@ -17,7 +17,7 @@ export async function POST(_request: Request, ctx: Ctx) {
       const res = await cloud2FetchWithTimeout(
         `/biblioteca/${id}/refresh-tags`,
         { method: "POST" },
-        20000,
+        24000,
       );
       if (res?.ok) {
         const data = (await res.json()) as { updated?: boolean; gravadora?: string };

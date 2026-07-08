@@ -72,6 +72,74 @@ function normalizeSearchArtist(artista: string): string {
   return alt || trimmed;
 }
 
+function foldAccents(input: string): string {
+  return input.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+function foldTitleForMatch(titulo: string): string {
+  return foldAccents(normalizeSearchTitle(titulo))
+    .replace(/[.'']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j]!;
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length]!;
+}
+
+function stringSimilarity(a: string, b: string): number {
+  const x = a.trim();
+  const y = b.trim();
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  return 1 - levenshtein(x, y) / Math.max(x.length, y.length);
+}
+
+function normalizeArtistKey(artista: string): string {
+  return foldAccents(normalizeSearchArtist(artista))
+    .replace(/\./g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 0–1 — typo leve no sobrenome (Sabib ≈ Sarbib). */
+export function artistSimilarity(want: string, got: string): number {
+  const variants = [want, normalizeSearchArtist(want)].filter((v, i, a) => v.trim() && a.indexOf(v) === i);
+  let best = 0;
+  for (const variant of variants) {
+    const wKey = normalizeArtistKey(variant);
+    const gKey = normalizeArtistKey(got);
+    if (!wKey || !gKey) continue;
+    best = Math.max(best, stringSimilarity(wKey, gKey));
+    const wParts = wKey.split(/\s+/).filter(Boolean);
+    const gParts = gKey.split(/\s+/).filter(Boolean);
+    const wLast = wParts[wParts.length - 1] ?? "";
+    const gLast = gParts[gParts.length - 1] ?? "";
+    if (wLast.length >= 3 && gLast.length >= 3) best = Math.max(best, stringSimilarity(wLast, gLast));
+    if (wParts[0] && gParts[0] && wParts[0] === gParts[0] && wLast && gLast) {
+      best = Math.max(best, 0.25 + stringSimilarity(wLast, gLast) * 0.75);
+    }
+  }
+  return Math.min(1, best);
+}
+
+const ARTIST_SIM_PICK_MIN = 0.42;
+const DEEZER_HIT_MIN_SCORE = 48;
+
 /** Evita busca externa com nomes genéricos de upload (ex.: Pop.mp3, Satisfy.mp3). */
 export function isEligibleForExternalTrackMatch(input: { titulo: string; artista: string }): boolean {
   const titulo = normalizeSearchTitle(input.titulo).trim();
@@ -84,24 +152,27 @@ export function isEligibleForExternalTrackMatch(input: { titulo: string; artista
   return true;
 }
 
+function titleMatchRatio(want: string, got: string): number {
+  const w = foldTitleForMatch(want);
+  const g = foldTitleForMatch(got);
+  if (!w || !g) return 0;
+  if (w === g) return 1;
+  if (w.length >= 5 && g.includes(w)) return 0.92;
+  if (g.length >= 5 && w.includes(g)) return 0.88;
+  const words = w.split(/\s+/).filter((x) => x.length > 2);
+  if (words.length === 0) return 0;
+  return words.filter((x) => g.includes(x)).length / words.length;
+}
+
 function scoreDeezerHit(input: { titulo: string; artista: string }, hit: DeezerTrackHit): number {
   const hitTitle = hit.title?.trim() ?? "";
   const hitArtist = hit.artist?.name?.trim() ?? "";
   if (!hitTitle || !hitArtist) return 0;
-  const wantTitle = normalizeSearchTitle(input.titulo).toLowerCase();
-  const gotTitle = normalizeSearchTitle(hitTitle).toLowerCase();
-  const wantArtist = normalizeSearchArtist(input.artista).toLowerCase();
-  const gotArtist = normalizeSearchArtist(hitArtist).toLowerCase();
-  const titleOk =
-    wantTitle === gotTitle ||
-    (wantTitle.length >= 5 && gotTitle.includes(wantTitle)) ||
-    (gotTitle.length >= 5 && wantTitle.includes(gotTitle));
-  const artistOk =
-    wantArtist === gotArtist ||
-    (wantArtist.length >= 4 && gotArtist.includes(wantArtist)) ||
-    (gotArtist.length >= 4 && wantArtist.includes(gotArtist));
-  if (!titleOk || !artistOk) return 0;
-  return wantTitle === gotTitle && wantArtist === gotArtist ? 100 : 85;
+  const titleRatio = titleMatchRatio(input.titulo, hitTitle);
+  if (titleRatio < 0.55) return 0;
+  const artistSim = artistSimilarity(input.artista, hitArtist);
+  if (artistSim < ARTIST_SIM_PICK_MIN) return 0;
+  return Math.round(titleRatio * 45 + artistSim * 55);
 }
 
 type DeezerTrackHit = {
@@ -130,8 +201,8 @@ async function searchDeezerTracks(input: { titulo: string; artista: string }): P
   for (const q of queries) {
     const structured = q.includes('"') || q.includes("track:") || q.includes("artist:");
     const path = structured
-      ? `/search?q=${encodeURIComponent(q)}&limit=5`
-      : `/search/track?q=${encodeURIComponent(q)}&limit=5`;
+      ? `/search?q=${encodeURIComponent(q)}&limit=8`
+      : `/search/track?q=${encodeURIComponent(q)}&limit=8`;
     const search = (await dzFetch(path)) as { data?: DeezerTrackHit[] } | null;
     for (const t of search?.data ?? []) {
       if (t.id && !seen.has(t.id)) {
@@ -139,9 +210,55 @@ async function searchDeezerTracks(input: { titulo: string; artista: string }): P
         hits.push(t);
       }
     }
-    if (hits.length > 0) break;
   }
   return hits;
+}
+
+async function searchDeezerByTitle(input: { titulo: string; artista: string }): Promise<DeezerTrackHit[]> {
+  const core = foldTitleForMatch(input.titulo);
+  const words = core.split(/\s+/).filter((w) => w.length > 2).slice(0, 6).join(" ");
+  const queries = [core, words].filter((q, i, a) => Boolean(q?.trim()) && a.indexOf(q) === i);
+  const seen = new Set<number>();
+  const hits: DeezerTrackHit[] = [];
+  for (const q of queries) {
+    const search = (await dzFetch(`/search/track?q=${encodeURIComponent(q)}&limit=12`)) as {
+      data?: DeezerTrackHit[];
+    } | null;
+    for (const t of search?.data ?? []) {
+      if (t.id && !seen.has(t.id)) {
+        seen.add(t.id);
+        hits.push(t);
+      }
+    }
+  }
+  return hits;
+}
+
+function pickDeezerTrackHit(input: { titulo: string; artista: string }, hits: DeezerTrackHit[]) {
+  if (!isEligibleForExternalTrackMatch(input)) return undefined;
+  let best: DeezerTrackHit | undefined;
+  let bestScore = 0;
+  for (const hit of hits) {
+    const score = scoreDeezerHit(input, hit);
+    if (score > bestScore) {
+      bestScore = score;
+      best = hit;
+    }
+  }
+  return bestScore >= DEEZER_HIT_MIN_SCORE ? best : undefined;
+}
+
+async function findBestDeezerTrack(input: { titulo: string; artista: string }): Promise<DeezerTrackHit | undefined> {
+  if (!isEligibleForExternalTrackMatch(input)) return undefined;
+  const seen = new Set<number>();
+  const merged: DeezerTrackHit[] = [];
+  for (const t of [...(await searchDeezerTracks(input)), ...(await searchDeezerByTitle(input))]) {
+    if (t.id && !seen.has(t.id)) {
+      seen.add(t.id);
+      merged.push(t);
+    }
+  }
+  return pickDeezerTrackHit(input, merged);
 }
 
 function pickMbLabel(release: unknown): string | null {
@@ -227,24 +344,9 @@ async function resolveMusicBrainzRecordingId(input: {
   return null;
 }
 
-function pickDeezerTrackHit(input: { titulo: string; artista: string }, hits: DeezerTrackHit[]) {
-  if (!isEligibleForExternalTrackMatch(input)) return undefined;
-  let best: DeezerTrackHit | undefined;
-  let bestScore = 0;
-  for (const hit of hits) {
-    const score = scoreDeezerHit(input, hit);
-    if (score > bestScore) {
-      bestScore = score;
-      best = hit;
-    }
-  }
-  return bestScore >= 85 ? best : undefined;
-}
-
 async function fetchDeezerLabel(input: { titulo: string; artista: string }): Promise<string | null> {
   if (!isEligibleForExternalTrackMatch(input)) return null;
-  const hits = await searchDeezerTracks(input);
-  const hit = pickDeezerTrackHit(input, hits);
+  const hit = await findBestDeezerTrack(input);
   const albumId = hit?.album?.id;
   if (!albumId) return null;
   const album = (await dzFetch(`/album/${albumId}`)) as { label?: string } | null;
@@ -257,8 +359,7 @@ export async function fetchDeezerExplicit(input: {
   artista: string;
 }): Promise<boolean | null> {
   if (!isEligibleForExternalTrackMatch(input)) return null;
-  const hits = await searchDeezerTracks(input);
-  const hit = pickDeezerTrackHit(input, hits);
+  const hit = await findBestDeezerTrack(input);
   if (!hit?.id) return null;
   if (typeof hit.explicit_lyrics === "boolean") return hit.explicit_lyrics;
   const track = (await dzFetch(`/track/${hit.id}`)) as { explicit_lyrics?: boolean } | null;
@@ -354,8 +455,7 @@ async function fetchDeezerTrackMetadata(input: {
   titulo: string;
   artista: string;
 }): Promise<ExternalTrackMetadata> {
-  const hits = await searchDeezerTracks(input);
-  const hit = pickDeezerTrackHit(input, hits);
+  const hit = await findBestDeezerTrack(input);
   if (!hit?.id) return { bpm: null, isrc: null, ano: null, tags: [] };
 
   const full = (await dzFetch(`/track/${hit.id}`)) as {
@@ -447,11 +547,14 @@ export async function fetchExternalTrackMetadata(input: {
   }
 
   const dz = await fetchDeezerTrackMetadata(input);
-  const mb = await fetchMusicBrainzTrackMetadata({
-    titulo: input.titulo,
-    artista: input.artista,
-    isrc: dz.isrc ?? input.isrc,
-  });
+  const needMb = !dz.isrc || !dz.ano;
+  const mb = needMb
+    ? await fetchMusicBrainzTrackMetadata({
+        titulo: input.titulo,
+        artista: input.artista,
+        isrc: dz.isrc ?? input.isrc,
+      })
+    : { bpm: null, isrc: dz.isrc, ano: dz.ano, tags: [] as ExternalAutoTag[] };
 
   const isrc = dz.isrc ?? mb.isrc ?? normalizeIsrc(input.isrc);
   const tags = mergeExternalTags(dz.tags, mb.tags);
@@ -478,11 +581,11 @@ export async function fetchLabelTags(input: {
   isrc: string | null;
 }): Promise<ExternalAutoTag[]> {
   const out: ExternalAutoTag[] = [];
-  const mb = await fetchMusicBrainzLabel(input);
-  if (mb) out.push({ fonte: "musicbrainz", chave: "label", valor: mb });
-  if (!mb) {
-    const dz = await fetchDeezerLabel(input);
-    if (dz) out.push({ fonte: "deezer", chave: "label", valor: dz });
+  const dz = await fetchDeezerLabel(input);
+  if (dz) out.push({ fonte: "deezer", chave: "label", valor: dz });
+  else {
+    const mb = await fetchMusicBrainzLabel(input);
+    if (mb) out.push({ fonte: "musicbrainz", chave: "label", valor: mb });
   }
   return out;
 }
@@ -493,9 +596,8 @@ export async function fetchDeezerCanonicalNames(input: {
   artista: string;
 }): Promise<{ titulo: string; artista: string } | null> {
   if (!isEligibleForExternalTrackMatch(input)) return null;
-  const hits = await searchDeezerTracks(input);
-  const hit = pickDeezerTrackHit(input, hits);
-  if (!hit || scoreDeezerHit(input, hit) < 100) return null;
+  const hit = await findBestDeezerTrack(input);
+  if (!hit || scoreDeezerHit(input, hit) < 85) return null;
   const titulo = hit.title?.trim();
   const artista = hit.artist?.name?.trim();
   if (!titulo || !artista) return null;

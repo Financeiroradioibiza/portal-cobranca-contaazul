@@ -289,6 +289,25 @@ export function UploadPanel() {
         jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
       };
 
+      const pastasByProg = new Map<string, Set<string>>();
+      for (const l of lotesComArquivos) {
+        if (l.destinoTipo === "pasta" && l.progSel && l.pastaSel) {
+          const set = pastasByProg.get(l.progSel) ?? new Set<string>();
+          set.add(l.pastaSel);
+          pastasByProg.set(l.progSel, set);
+        }
+      }
+      for (const [progId, pastaIds] of pastasByProg) {
+        const key = `criacao-pastas-abertas:${progId}`;
+        let prev: string[] = [];
+        try {
+          prev = JSON.parse(sessionStorage.getItem(key) || "[]") as string[];
+        } catch {
+          prev = [];
+        }
+        sessionStorage.setItem(key, JSON.stringify([...new Set([...(Array.isArray(prev) ? prev : []), ...pastaIds])]));
+      }
+
       const falhas: string[] = [];
       let done = 0;
       for (let i = 0; i < lotesComArquivos.length; i++) {
@@ -340,7 +359,12 @@ export function UploadPanel() {
           `${data.stagingImported ?? 0} faixa(s) importadas do servidor. Avisos: ${data.stagingErrors!.slice(0, 3).join(" · ")}`,
         );
       }
-      router.push("/criacao/fila");
+      if (pastasByProg.size === 1) {
+        sessionStorage.setItem("criacao-open-prog", [...pastasByProg.keys()][0]!);
+        router.push("/criacao/programacoes");
+      } else {
+        router.push("/criacao/fila");
+      }
     } catch {
       setMsg("Não foi possível criar os jobs de processamento.");
       setSubmitting(false);

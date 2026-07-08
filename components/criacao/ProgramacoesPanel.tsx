@@ -61,8 +61,36 @@ function formatDuration(ms: number | null): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+const OPEN_PROG_KEY = "criacao-open-prog";
+const pastasAbertasKey = (progId: string) => `criacao-pastas-abertas:${progId}`;
+
+function readPersistedPastasAbertas(progId: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = sessionStorage.getItem(pastasAbertasKey(progId));
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as string[];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writePersistedPastasAbertas(progId: string, ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(pastasAbertasKey(progId), JSON.stringify([...ids]));
+}
+
 export function ProgramacoesPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const open = sessionStorage.getItem(OPEN_PROG_KEY);
+    if (open) {
+      setSelectedId(open);
+      sessionStorage.removeItem(OPEN_PROG_KEY);
+    }
+  }, []);
 
   if (selectedId) {
     return (
@@ -93,8 +121,8 @@ function ProgramacaoEditor({
   const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
   /** Faixas adicionadas nesta sessão do editor — destaque até fechar a programação. */
   const [sessionAddedIds, setSessionAddedIds] = useState<Set<string>>(() => new Set());
-  /** Pastas colapsadas (abertas por padrão quando o usuario clica no chevron). */
-  const [expandedPastas, setExpandedPastas] = useState<Set<string>>(() => new Set());
+  /** Pastas expandidas — persistidas enquanto a atualização estiver aberta. */
+  const [expandedPastas, setExpandedPastas] = useState<Set<string>>(() => readPersistedPastasAbertas(id));
   /** Ordenação por pasta. */
   const [sortByPasta, setSortByPasta] = useState<Record<string, SortKey>>({});
   /** Fechar atualização modal. */
@@ -144,7 +172,32 @@ function ProgramacaoEditor({
       const res = await fetch(`/api/criacao/programacoes/${id}`);
       if (!res.ok) return;
       const data = (await res.json()) as { programacao: ProgramacaoDetail };
-      setProg(data.programacao);
+      setProg((prev) => {
+        if (prev) {
+          const prevByPasta = new Map(prev.pastas.map((p) => [p.id, new Set(p.musicas.map((m) => m.id))]));
+          const expandIds: string[] = [];
+          const newMusicaIds: string[] = [];
+          for (const pasta of data.programacao.pastas) {
+            const before = prevByPasta.get(pasta.id) ?? new Set<string>();
+            for (const m of pasta.musicas) {
+              if (!before.has(m.id)) {
+                expandIds.push(pasta.id);
+                newMusicaIds.push(m.id);
+              }
+            }
+          }
+          if (expandIds.length > 0) {
+            setExpandedPastas((exp) => {
+              const next = new Set(exp);
+              for (const pid of expandIds) next.add(pid);
+              writePersistedPastasAbertas(id, next);
+              return next;
+            });
+            setSessionAddedIds((sess) => new Set([...sess, ...newMusicaIds]));
+          }
+        }
+        return data.programacao;
+      });
     } catch {
       /* silencioso */
     }
@@ -156,6 +209,31 @@ function ProgramacaoEditor({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Com atualização aberta, mantém expandidas as pastas que receberam faixas novas. */
+  useEffect(() => {
+    if (!prog?.atualizacaoAberta) return;
+    setExpandedPastas((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const pasta of prog.pastas) {
+        const hasNova = pasta.musicas.some((m) =>
+          isMusicaNovaNaAtualizacao({
+            musicaId: m.id,
+            addedAt: m.addedAt,
+            atualizacaoAberta: prog.atualizacaoAberta,
+            atualizacaoAbertaEm: prog.atualizacaoAbertaEm,
+          }),
+        );
+        if (hasNova && !next.has(pasta.id)) {
+          next.add(pasta.id);
+          changed = true;
+        }
+      }
+      if (changed) writePersistedPastasAbertas(id, next);
+      return changed ? next : prev;
+    });
+  }, [prog, id]);
 
   /** Com atualização aberta, puxa faixas da fila (ATL CRICA / upload) e atualiza destaque verde. */
   useEffect(() => {
@@ -295,6 +373,7 @@ function ProgramacaoEditor({
       const n = new Set(prev);
       if (n.has(pastaId)) n.delete(pastaId);
       else n.add(pastaId);
+      writePersistedPastasAbertas(id, n);
       return n;
     });
   }

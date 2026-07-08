@@ -81,6 +81,9 @@ elif [[ "$MODE" == "patch" ]]; then
     "$ROOT/.cloud2-stage/deploy/package.build.json" \
     "$REMOTE:$REMOTE_DIR/package.json"
   rsync -avz -e "ssh -o BatchMode=yes" \
+    "$LOCAL/package-lock.json" \
+    "$REMOTE:$REMOTE_DIR/package-lock.json"
+  rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/criacao-index.ts" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/index.ts"
   rsync -avz -e "ssh -o BatchMode=yes" \
