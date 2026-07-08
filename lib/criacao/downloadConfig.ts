@@ -42,7 +42,7 @@ export function providerConfigHint(provider: DownloadProviderId): string {
     case "spotizerr":
       return "Configure CRIACAO_SPOTIZERR_URL no servidor (ex.: http://spotizerr:7171).";
     case "deemix":
-      return "Configure CRIACAO_DEEMIX_URL no servidor (ex.: http://deemix:6595).";
+      return "Configure CRIACAO_DEEMIX_URL no servidor (ex.: http://deemix:6595). No cloud2, defina também CRIACAO_DEEMIX_FILES_DIR (pasta local dos MP3) ou CRIACAO_DEEMIX_MUSIC_URL (porta 6596).";
     case "youtube":
       return "Configure CRIACAO_YOUTUBE_DL_URL no servidor (ex.: http://youtube-dl:5000).";
     default:
