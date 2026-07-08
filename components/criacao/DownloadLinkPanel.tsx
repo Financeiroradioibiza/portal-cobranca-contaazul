@@ -70,6 +70,11 @@ export function DownloadLinkPanel() {
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [diagnostics, setDiagnostics] = useState<{
+    cloud2Configured?: boolean;
+    cloud2Health?: Record<string, unknown> | null;
+    cloud2Error?: string | null;
+  } | null>(null);
 
   async function fetchJobDetail(id: string): Promise<JobDetail | null> {
     const res = await fetch(`/api/criacao/download/${id}`);
@@ -80,9 +85,10 @@ export function DownloadLinkPanel() {
 
   const load = useCallback(async () => {
     try {
-      const [jobsRes, stagingRes] = await Promise.all([
+      const [jobsRes, stagingRes, diagRes] = await Promise.all([
         fetch(`/api/criacao/download?provider=${tab}`),
         fetch("/api/criacao/download?view=staging"),
+        fetch("/api/criacao/download/diagnostics"),
       ]);
       if (jobsRes.ok) {
         const data = (await jobsRes.json()) as {
@@ -95,6 +101,9 @@ export function DownloadLinkPanel() {
       if (stagingRes.ok) {
         const data = (await stagingRes.json()) as { staging?: StagingFileRow[] };
         setStaging(data.staging ?? []);
+      }
+      if (diagRes.ok) {
+        setDiagnostics((await diagRes.json()) as typeof diagnostics);
       }
     } finally {
       setLoading(false);
@@ -132,6 +141,7 @@ export function DownloadLinkPanel() {
       const data = (await res.json()) as {
         ok?: boolean;
         error?: string;
+        message?: string;
         totalItens?: number;
         processingTriggered?: boolean;
         processingError?: string | null;
@@ -140,6 +150,9 @@ export function DownloadLinkPanel() {
         setMsg(
           data.error === "nenhuma_linha" ? "Nenhuma linha válida no texto."
           : data.error === "invalid_provider" ? "Motor inválido."
+          : data.error === "expand_falhou" && data.message ? data.message
+          : data.message ? data.message
+          : data.error ? `Erro: ${data.error}`
           : "Não foi possível criar o lote.",
         );
         return;
@@ -167,7 +180,12 @@ export function DownloadLinkPanel() {
       return;
     }
     setOpenJobId(id);
-    setJobDetail(await fetchJobDetail(id));
+    const detail = await fetchJobDetail(id);
+    setJobDetail(detail);
+  }
+
+  function erroResumoJob(j: DownloadJobRow): string {
+    return j.erroResumo?.trim() || j.erroMsg?.trim() || "";
   }
 
   const stagingFiltered = staging.filter((s) => s.provider === tab);
@@ -205,7 +223,24 @@ export function DownloadLinkPanel() {
 
       {!config[tab] ?
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-          Motor ainda não configurado no servidor — você pode criar lotes; o download começa quando o cloud2 tiver as variáveis de ambiente deste motor.
+          Motor ainda não configurado no Netlify — você pode criar lotes, mas o download só roda quando{" "}
+          <code className="text-xs">CRIACAO_{tab === "deemix" ? "DEEMIX" : "YOUTUBE_DL"}_URL</code> estiver definido.
+        </div>
+      : null}
+
+      {diagnostics?.cloud2Error ?
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          <strong>Worker cloud2:</strong> {diagnostics.cloud2Error}
+        </div>
+      : diagnostics?.cloud2Health ?
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          Cloud2 online
+          {typeof diagnostics.cloud2Health.deemix === "boolean" ?
+            ` · Deemix ${diagnostics.cloud2Health.deemix ? "ok" : "off"}`
+          : null}
+          {typeof diagnostics.cloud2Health.youtube === "boolean" ?
+            ` · YouTube ${diagnostics.cloud2Health.youtube ? "ok" : "off"}`
+          : null}
         </div>
       : null}
 
@@ -234,7 +269,7 @@ export function DownloadLinkPanel() {
               rows={10}
               placeholder={
                 tab === "deemix" ?
-                  "https://www.deezer.com/track/…\nArtista - Nome da música"
+                  "https://link.deezer.com/s/…\nhttps://www.deezer.com/track/…\nArtista - Nome da música"
                 : "https://www.youtube.com/watch?v=…\nArtista - Nome da música"
               }
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-950"
@@ -303,17 +338,30 @@ export function DownloadLinkPanel() {
                         {" · "}
                         {formatWhen(j.createdAt)}
                       </div>
+                      {j.status === "erro" || j.itensErro > 0 ?
+                        erroResumoJob(j) ?
+                          <p className="mt-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] leading-snug text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+                            {erroResumoJob(j)}
+                          </p>
+                        : <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                            Clique para ver o detalhe de cada faixa.
+                          </p>
+                      : null}
                     </button>
                     {openJobId === j.id && jobDetail ?
                       <ul className="mt-2 max-h-40 space-y-1 overflow-auto rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-950">
                         {jobDetail.itens.map((it) => (
-                          <li key={it.id} className="flex flex-wrap gap-2">
-                            <span className="min-w-0 flex-1 truncate">{it.linhaOriginal}</span>
-                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${STATUS_TONE[it.status] ?? ""}`}>
-                              {STATUS_LABEL[it.status] ?? it.status}
-                            </span>
+                          <li key={it.id} className="flex flex-col gap-1 border-b border-slate-200/80 pb-1 last:border-0 dark:border-slate-800">
+                            <div className="flex flex-wrap gap-2">
+                              <span className="min-w-0 flex-1 truncate">{it.linhaOriginal}</span>
+                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${STATUS_TONE[it.status] ?? ""}`}>
+                                {STATUS_LABEL[it.status] ?? it.status}
+                              </span>
+                            </div>
                             {it.erroMsg ?
-                              <span className="w-full text-red-600">{it.erroMsg}</span>
+                              <p className="text-[11px] leading-snug text-red-700 dark:text-red-300">{it.erroMsg}</p>
+                            : it.status === "aguardando" ?
+                              <p className="text-[10px] text-slate-500">Na fila — aguardando worker cloud2.</p>
                             : null}
                           </li>
                         ))}

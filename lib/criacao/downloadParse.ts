@@ -15,7 +15,7 @@ export const DOWNLOAD_PROVIDER_HINT: Record<DownloadProviderId, string> = {
   spotizerr:
     "Uma linha por faixa: link Spotify (track/album/playlist) ou «Artista - Música». Download no servidor via Spotizerr.",
   deemix:
-    "Uma linha por faixa: link Deezer (deezer.com/track/…) ou «Artista - Música». Nomes de arquivo (.mp3) também funcionam se tiverem artista e título.",
+    "Uma linha por faixa: link Deezer (track, album, playlist ou link.deezer.com/s/…) ou «Artista - Música». Playlists são expandidas em faixas automaticamente.",
   youtube:
     "Uma linha por faixa: link YouTube ou «Artista - Música». Download 100% no servidor (yt-dlp API).",
 };
@@ -27,7 +27,8 @@ export type ParsedDownloadLine = {
 
 const SPOTIFY_RE =
   /^https?:\/\/(?:open\.)?spotify\.com\/(?:intl-[a-z]{2}\/)?(track|album|playlist|artist)\/[a-zA-Z0-9]+/i;
-const DEEZER_RE = /^https?:\/\/(?:www\.)?deezer\.com\/(?:[a-z]{2}\/)?(track|album|playlist)\/\d+/i;
+const DEEZER_RE =
+  /^https?:\/\/(?:(?:www|link)\.)?deezer\.com\/(?:[a-z]{2}\/)?(?:track|album|playlist)\/\d+|^https?:\/\/link\.deezer\.com\/s\//i;
 const YOUTUBE_RE =
   /^https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|music\.youtube\.com\/watch\?v=)[\w-]+/i;
 

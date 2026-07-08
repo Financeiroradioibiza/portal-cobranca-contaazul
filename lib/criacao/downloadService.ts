@@ -5,6 +5,7 @@ import {
   parseDownloadLines,
   type DownloadProviderId,
 } from "@/lib/criacao/downloadParse";
+import { expandDeezerDownloadLines } from "@/lib/criacao/deezerExpand";
 import type { DownloadItemStatus } from "@prisma/client";
 
 export type DownloadJobRow = {
@@ -18,6 +19,7 @@ export type DownloadJobRow = {
   itensOk: number;
   itensErro: number;
   erroMsg: string;
+  erroResumo: string;
   createdAt: string;
   finishedAt: string | null;
 };
@@ -54,7 +56,16 @@ export async function createDownloadJob(input: {
   criativoNome: string;
   criativoUserId?: string;
 }) {
-  const parsed = parseDownloadLines(input.linhas, input.provider);
+  const parsedRaw = parseDownloadLines(input.linhas, input.provider);
+  if (parsedRaw.length === 0) {
+    throw new Error("nenhuma_linha");
+  }
+
+  const parsed =
+    input.provider === "deemix" ?
+      await expandDeezerDownloadLines(parsedRaw)
+    : parsedRaw;
+
   if (parsed.length === 0) {
     throw new Error("nenhuma_linha");
   }
@@ -92,13 +103,15 @@ export async function listDownloadJobs(opts: {
     orderBy: { createdAt: "desc" },
     take: Math.min(100, Math.max(1, opts.limit ?? 40)),
     include: {
-      itens: { select: { status: true } },
+      itens: { select: { status: true, erroMsg: true } },
     },
   });
 
   return jobs.map((j) => {
     const itensOk = j.itens.filter((i) => i.status === "concluido").length;
     const itensErro = j.itens.filter((i) => i.status === "erro").length;
+    const firstItemErro = j.itens.find((i) => i.status === "erro" && i.erroMsg.trim())?.erroMsg ?? "";
+    const erroResumo = (j.erroMsg || firstItemErro).trim();
     return {
       id: j.id,
       provider: j.provider as DownloadProviderId,
@@ -110,6 +123,7 @@ export async function listDownloadJobs(opts: {
       itensOk,
       itensErro,
       erroMsg: j.erroMsg,
+      erroResumo,
       createdAt: j.createdAt.toISOString(),
       finishedAt: j.finishedAt?.toISOString() ?? null,
     };
@@ -236,6 +250,54 @@ export async function triggerDownloadProcessing(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "erro_rede";
     return { triggered: false, error: msg };
+  }
+}
+
+export async function getDownloadDiagnostics(): Promise<{
+  cloud2Configured: boolean;
+  cloud2Health: Record<string, unknown> | null;
+  cloud2Error: string | null;
+  providers: Record<DownloadProviderId, boolean>;
+}> {
+  const { getDownloadServiceConfig, providerConfigured } = await import("@/lib/criacao/downloadConfig");
+  const cfg = getDownloadServiceConfig();
+  const providers = {
+    spotizerr: providerConfigured("spotizerr", cfg),
+    deemix: providerConfigured("deemix", cfg),
+    youtube: providerConfigured("youtube", cfg),
+  } as Record<DownloadProviderId, boolean>;
+
+  if (!cfg.cloud2ProcessUrl) {
+    return {
+      cloud2Configured: false,
+      cloud2Health: null,
+      cloud2Error: "CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL não configurado no Netlify.",
+      providers,
+    };
+  }
+
+  const healthUrl = cfg.cloud2ProcessUrl.replace(/\/download\/process\/?$/, "/download/health");
+  try {
+    const headers: Record<string, string> = {};
+    if (cfg.cloud2ProcessSecret) headers.Authorization = `Bearer ${cfg.cloud2ProcessSecret}`;
+    const res = await fetch(healthUrl, { headers, signal: AbortSignal.timeout(12_000) });
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok) {
+      return {
+        cloud2Configured: true,
+        cloud2Health: data,
+        cloud2Error: `cloud2 health HTTP ${res.status}`,
+        providers,
+      };
+    }
+    return { cloud2Configured: true, cloud2Health: data, cloud2Error: null, providers };
+  } catch (e) {
+    return {
+      cloud2Configured: true,
+      cloud2Health: null,
+      cloud2Error: e instanceof Error ? e.message : "erro_rede",
+      providers,
+    };
   }
 }
 

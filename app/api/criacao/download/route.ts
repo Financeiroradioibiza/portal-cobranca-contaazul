@@ -67,6 +67,9 @@ export async function POST(request: Request) {
       if (err instanceof Error && err.message === "nenhuma_linha") {
         return NextResponse.json({ error: "nenhuma_linha" }, { status: 400 });
       }
+      if (err instanceof Error) {
+        return NextResponse.json({ error: "expand_falhou", message: err.message }, { status: 400 });
+      }
       throw err;
     }
 

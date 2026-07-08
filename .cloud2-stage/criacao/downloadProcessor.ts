@@ -156,6 +156,32 @@ async function deemixResolveTrackUrl(cfg: DownloadEnv, line: string, cookie: str
   throw new Error('Nenhuma faixa encontrada no Deezer — use link deezer.com/track/… ou «Artista - Música»');
 }
 
+/** Deemix /getQueue — formatos já vistos: { queueList }, { queue: { queueList } }, { queue: { uuid: item } }. */
+function parseDeemixQueuePayload(raw: unknown): Record<string, DeemixQueueItem> {
+  if (!raw || typeof raw !== 'object') return {};
+  const data = raw as Record<string, unknown>;
+
+  const queueList = data.queueList;
+  if (queueList && typeof queueList === 'object' && !Array.isArray(queueList)) {
+    return queueList as Record<string, DeemixQueueItem>;
+  }
+
+  const queue = data.queue;
+  if (queue && typeof queue === 'object' && !Array.isArray(queue)) {
+    const nested = queue as Record<string, unknown>;
+    const nestedList = nested.queueList;
+    if (nestedList && typeof nestedList === 'object' && !Array.isArray(nestedList)) {
+      return nestedList as Record<string, DeemixQueueItem>;
+    }
+    const hasUuidEntries = Object.values(nested).some(
+      (v) => v && typeof v === 'object' && ('downloaded' in (v as object) || 'errors' in (v as object)),
+    );
+    if (hasUuidEntries) return nested as Record<string, DeemixQueueItem>;
+  }
+
+  return {};
+}
+
 async function deemixWaitQueueItem(
   cfg: DownloadEnv,
   uuid: string,
@@ -165,14 +191,24 @@ async function deemixWaitQueueItem(
   while (Date.now() < deadline) {
     const res = await deemixFetch(cfg.deemixUrl, '/getQueue', { cookie });
     if (!res.ok) throw new Error(`Deemix getQueue falhou (${res.status})`);
-    const data = (await res.json()) as { queue?: Record<string, DeemixQueueItem> };
-    const item = data.queue?.[uuid];
-    if (!item) throw new Error(`UUID ${uuid} não encontrado na fila do Deemix`);
-    if ((item.errors ?? 0) > 0) throw new Error('Deemix reportou erro no download');
+    const data = await res.json();
+    const queueMap = parseDeemixQueuePayload(data);
+    const item = queueMap[uuid];
+    if (!item) {
+      const keys = Object.keys(queueMap);
+      throw new Error(
+        keys.length > 0 ?
+          `UUID ${uuid} não encontrado na fila do Deemix (fila tem ${keys.length} item(ns))`
+        : 'Fila do Deemix vazia — addToQueue pode ter falhado silenciosamente',
+      );
+    }
+    if ((item.errors ?? 0) > 0) {
+      throw new Error('Deemix reportou erro no download (conta Deezer, ARL ou qualidade indisponível)');
+    }
     if ((item.downloaded ?? 0) > 0) return item;
     await new Promise((r) => setTimeout(r, DEEMIX_POLL_MS));
   }
-  throw new Error('Timeout aguardando Deemix');
+  throw new Error('Timeout aguardando Deemix (15 min)');
 }
 
 function deemixRelativeFile(entry: DeemixFileEntry | undefined): string | null {
