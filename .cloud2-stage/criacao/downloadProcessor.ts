@@ -321,13 +321,6 @@ function deemixRelativeFile(entry: DeemixFileEntry | undefined): string | null {
   return entry.filename?.trim() || null;
 }
 
-function deemixMusicFileUrl(cfg: DownloadEnv, relPath: string): string {
-  if (!cfg.deemixMusicUrl) {
-    throw new Error('CRIACAO_DEEMIX_MUSIC_URL não configurado (HTTP dos MP3 no Oracle, porta 6596)');
-  }
-  return `${cfg.deemixMusicUrl}/${encodeDeemixRelPath(relPath)}`;
-}
-
 function sanitizeFilename(name: string): string {
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 180) || 'faixa.mp3';
 }
