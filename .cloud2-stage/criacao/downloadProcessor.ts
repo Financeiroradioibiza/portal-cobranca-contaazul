@@ -141,7 +141,7 @@ async function normalizeLineForDeemix(line: string): Promise<string> {
   return resolved.trim();
 }
 
-async function deemixResolveTrackUrl(cfg: DownloadEnv, line: string, cookie: string): Promise<string> {
+async function deemixResolveTrackUrl(_cfg: DownloadEnv, line: string, _cookie: string): Promise<string> {
   const normalized = await normalizeLineForDeemix(line);
   const canonical = toCanonicalDeemixUrl(normalized);
 
