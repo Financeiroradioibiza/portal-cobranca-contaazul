@@ -292,17 +292,14 @@ export async function produceVinhetaMp3(inputPath: string, outputPath: string): 
   return { durationMs };
 }
 
-/** Locução ElevenLabs + trilha ambiente — voz em destaque, bed mais baixo, fade no final. */
+/** Locução ElevenLabs + trilha ambiente — voz em destaque, bed mais baixo, corte seco no fim (sem fade / ponto de mix). */
 export async function mixVinhetaVoiceWithBed(
   voicePath: string,
   bedPath: string,
   outputPath: string,
-  opts?: { bedVolume?: number; fadeOutSec?: number },
+  opts?: { bedVolume?: number },
 ): Promise<{ durationMs: number }> {
   const bedVol = opts?.bedVolume ?? 0.18;
-  const fadeSec = Math.max(0.5, opts?.fadeOutSec ?? 2.5);
-  const voiceDurSec = (await probeDurationMs(voicePath)) / 1000;
-  const fadeStart = Math.max(0, voiceDurSec - fadeSec);
   const workDir = path.join(path.dirname(outputPath), 'work-vinheta-ia');
   await fsp.mkdir(workDir, { recursive: true });
   const mixedRaw = path.join(workDir, 'mixed-raw.mp3');
@@ -312,8 +309,8 @@ export async function mixVinhetaVoiceWithBed(
     '-i',
     bedPath,
     '-filter_complex',
-    `[1:a]volume=${bedVol.toFixed(4)},afade=t=out:st=${fadeStart.toFixed(3)}:d=${fadeSec.toFixed(3)}[bed];` +
-      `[0:a][bed]amix=inputs=2:duration=first:dropout_transition=2,afade=t=out:st=${fadeStart.toFixed(3)}:d=${fadeSec.toFixed(3)},volume=1.08`,
+    `[1:a]volume=${bedVol.toFixed(4)}[bed];` +
+      `[0:a][bed]amix=inputs=2:duration=first:dropout_transition=2,volume=1.08`,
     '-ac',
     '1',
     '-codec:a',
