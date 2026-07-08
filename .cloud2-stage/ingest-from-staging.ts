@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import fsp from 'node:fs/promises';
 import { portalQuery } from '../../criacao/portalDb.js';
+import { assertValidMp3File } from '../../criacao/mp3Validate.js';
 import {
   downloadStagingPath,
   downloadStagingRelFromKey,
@@ -95,6 +96,14 @@ export async function registerIngestFromStagingRoutes(
         } catch {
           const rel = downloadStagingRelFromKey(dlItem.storage_key);
           errors.push(`${downloadItemId}: arquivo_ausente${rel ? ` (${rel})` : ''}`);
+          continue;
+        }
+
+        try {
+          await assertValidMp3File(src);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'mp3_invalido';
+          errors.push(`${downloadItemId}: ${msg}`);
           continue;
         }
 

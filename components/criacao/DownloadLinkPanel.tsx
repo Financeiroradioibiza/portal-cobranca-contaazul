@@ -8,7 +8,13 @@ import {
   type DownloadProviderId,
   type PortalDownloadProviderId,
 } from "@/lib/criacao/downloadParse";
-import type { DownloadItemRow, DownloadJobRow, StagingFileRow } from "@/lib/criacao/downloadService";
+import {
+  isInvalidStagingMp3,
+  type DownloadItemRow,
+  type DownloadJobRow,
+  type StagingFileRow,
+} from "@/lib/criacao/downloadService";
+import type { DeezerTrackCandidate } from "@/lib/criacao/deezerTrackMatch";
 
 type JobDetail = {
   id: string;
@@ -53,6 +59,82 @@ function formatBytes(b: number | null): string {
   if (!b) return "—";
   const mb = b / (1024 * 1024);
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+}
+
+function DeezerTrackPick({
+  item,
+  onConfirmed,
+}: {
+  item: DownloadItemRow;
+  onConfirmed: () => void;
+}) {
+  const [selected, setSelected] = useState(item.pickCandidates[0]?.url ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function confirmPick() {
+    if (!selected) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/criacao/download/items/${item.id}/pick`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trackUrl: selected }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string; processingError?: string | null };
+      if (!res.ok) {
+        setErr(
+          data.error === "url_invalida" ? "Link inválido."
+          : data.error === "nao_precisa_escolha" ? "Esta faixa já foi confirmada."
+          : "Não foi possível confirmar a escolha.",
+        );
+        return;
+      }
+      if (data.processingError) {
+        setErr(`Escolha salva, mas worker: ${data.processingError}`);
+      }
+      onConfirmed();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/30">
+      <p className="mb-2 text-[11px] font-semibold text-amber-900 dark:text-amber-200">
+        Várias versões no Deezer — escolha a faixa correta (o artista no Deezer pode ser diferente do informado):
+      </p>
+      <ul className="max-h-36 space-y-1 overflow-auto">
+        {item.pickCandidates.map((c: DeezerTrackCandidate) => (
+          <li key={c.trackId}>
+            <label className="flex cursor-pointer gap-2 rounded border border-amber-200/80 bg-white/80 px-2 py-1.5 dark:border-amber-900 dark:bg-slate-900/50">
+              <input
+                type="radio"
+                name={`pick-${item.id}`}
+                checked={selected === c.url}
+                onChange={() => setSelected(c.url)}
+                className="mt-0.5 shrink-0"
+              />
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-slate-800 dark:text-slate-100">{c.title}</span>
+                <span className="block truncate text-[10px] text-slate-500">{c.artist}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        disabled={busy || !selected}
+        onClick={() => void confirmPick()}
+        className="mt-2 rounded bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
+      >
+        {busy ? "Confirmando…" : "Baixar esta faixa"}
+      </button>
+      {err ? <p className="mt-1 text-[10px] text-red-700 dark:text-red-300">{err}</p> : null}
+    </div>
+  );
 }
 
 export function DownloadLinkPanel() {
@@ -143,6 +225,8 @@ export function DownloadLinkPanel() {
         error?: string;
         message?: string;
         totalItens?: number;
+        itensErro?: number;
+        itensPick?: number;
         processingTriggered?: boolean;
         processingError?: string | null;
       };
@@ -159,14 +243,21 @@ export function DownloadLinkPanel() {
       }
       setLinhas("");
       setTitulo("");
-      setMsg(
-        `${data.totalItens ?? 0} faixa(s) na fila.` +
-          (data.processingTriggered ?
-            " Download iniciado no servidor."
-          : data.processingError ?
-            ` Worker cloud2: ${data.processingError}`
-          : " Worker cloud2 ainda não configurado — falta CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL no Netlify."),
+      const parts = [`${data.totalItens ?? 0} faixa(s) no lote.`];
+      if ((data.itensPick ?? 0) > 0) {
+        parts.push(`${data.itensPick} aguardando escolha no Deezer — abra o lote.`);
+      }
+      if ((data.itensErro ?? 0) > 0) {
+        parts.push(`${data.itensErro} com erro — veja o detalhe do lote.`);
+      }
+      parts.push(
+        data.processingTriggered ?
+          "Download iniciado no servidor."
+        : data.processingError ?
+          `Worker cloud2: ${data.processingError}`
+        : "Worker cloud2 ainda não configurado — falta CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL no Netlify.",
       );
+      setMsg(parts.join(" "));
       await load();
     } finally {
       setSubmitting(false);
@@ -182,6 +273,13 @@ export function DownloadLinkPanel() {
     setOpenJobId(id);
     const detail = await fetchJobDetail(id);
     setJobDetail(detail);
+  }
+
+  async function refreshOpenJob() {
+    if (!openJobId) return;
+    const detail = await fetchJobDetail(openJobId);
+    setJobDetail(detail);
+    await load();
   }
 
   function erroResumoJob(j: DownloadJobRow): string {
@@ -307,6 +405,9 @@ export function DownloadLinkPanel() {
                     <div className="truncate text-xs text-slate-500">
                       {f.artista ? `${f.artista} · ` : ""}
                       {formatBytes(f.sizeBytes)}
+                      {f.sizeBytes != null && isInvalidStagingMp3(f.sizeBytes) ?
+                        <span className="font-semibold text-red-600 dark:text-red-400"> · arquivo inválido (refaça o download)</span>
+                      : null}
                     </div>
                   </li>
                 ))}
@@ -360,16 +461,25 @@ export function DownloadLinkPanel() {
                       : null}
                     </button>
                     {openJobId === j.id && jobDetail ?
-                      <ul className="mt-2 max-h-40 space-y-1 overflow-auto rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-950">
+                      <ul className="mt-2 max-h-64 space-y-2 overflow-auto rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-950">
                         {jobDetail.itens.map((it) => (
-                          <li key={it.id} className="flex flex-col gap-1 border-b border-slate-200/80 pb-1 last:border-0 dark:border-slate-800">
+                          <li key={it.id} className="flex flex-col gap-1 border-b border-slate-200/80 pb-2 last:border-0 dark:border-slate-800">
                             <div className="flex flex-wrap gap-2">
                               <span className="min-w-0 flex-1 truncate">{it.linhaOriginal}</span>
-                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${STATUS_TONE[it.status] ?? ""}`}>
-                                {STATUS_LABEL[it.status] ?? it.status}
+                              <span
+                                className={
+                                  "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase " +
+                                  (it.needsPick ?
+                                    "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                                  : STATUS_TONE[it.status] ?? "")
+                                }
+                              >
+                                {it.needsPick ? "Escolher" : STATUS_LABEL[it.status] ?? it.status}
                               </span>
                             </div>
-                            {it.erroMsg ?
+                            {it.needsPick && it.pickCandidates.length > 0 ?
+                              <DeezerTrackPick item={it} onConfirmed={() => void refreshOpenJob()} />
+                            : it.erroMsg ?
                               <p className="text-[11px] leading-snug text-red-700 dark:text-red-300">{it.erroMsg}</p>
                             : it.status === "aguardando" ?
                               <p className="text-[10px] text-slate-500">Na fila — aguardando worker cloud2.</p>

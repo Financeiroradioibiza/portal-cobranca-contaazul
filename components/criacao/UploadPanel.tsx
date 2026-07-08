@@ -10,6 +10,7 @@ import {
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import {
   groupStagingByJob,
+  isInvalidStagingMp3,
   type StagingFileRow,
   type StagingJobGroup,
 } from "@/lib/criacao/downloadService";
@@ -161,13 +162,26 @@ export function UploadPanel() {
   }, []);
 
   const addStagingGroupToLote = useCallback((loteId: string, group: StagingJobGroup) => {
+    const valid = group.tracks.filter((t) => !isInvalidStagingMp3(t.sizeBytes));
+    const skipped = group.tracks.length - valid.length;
+    if (valid.length === 0) {
+      setMsg(
+        skipped > 0 ?
+          "Nenhuma faixa válida neste lote — todos os arquivos têm ~1 KB (download Deemix falhou). Refaça no Download link."
+        : "Lote vazio.",
+      );
+      return;
+    }
+    if (skipped > 0) {
+      setMsg(`${skipped} faixa(s) ignorada(s) por arquivo inválido (~1 KB). Importadas só as válidas.`);
+    }
     setLotes((prev) =>
       prev.map((l) => {
         if (l.id !== loteId) return l;
         const seen = new Set(
           l.files.map((p) => (p.source === "staging" ? p.downloadItemId : p.nome)),
         );
-        const next = group.tracks
+        const next = valid
           .filter((t) => !seen.has(t.id))
           .map((t) => {
             const nome =
@@ -204,6 +218,12 @@ export function UploadPanel() {
     }
     const withFiles = lotes.filter((l) => l.files.length > 0);
     if (withFiles.length === 0) return "Nenhum lote com arquivos.";
+    for (const l of withFiles) {
+      const bad = l.files.filter((f) => f.source === "staging" && isInvalidStagingMp3(f.sizeBytes));
+      if (bad.length > 0) {
+        return `${bad.length} faixa(s) do servidor com arquivo inválido (~1 KB) — remova e refaça o download no Download link.`;
+      }
+    }
     return null;
   }
 
@@ -381,6 +401,12 @@ export function UploadPanel() {
                   </div>
                   <div className="text-[11px] text-slate-500">
                     {group.tracks.length} faixa(s) · {group.provider}
+                    {group.tracks.some((t) => isInvalidStagingMp3(t.sizeBytes)) ?
+                      <span className="font-semibold text-red-600 dark:text-red-400">
+                        {" "}
+                        · {group.tracks.filter((t) => isInvalidStagingMp3(t.sizeBytes)).length} inválida(s) (~1 KB)
+                      </span>
+                    : null}
                     {group.finishedAt ?
                       ` · ${new Date(group.finishedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
                     : null}
@@ -717,7 +743,17 @@ function LoteCard({
                 {f.source === "staging" ? f.label : f.nome}
               </span>
               <span className="ml-2 flex shrink-0 items-center gap-2">
-                <span className="text-xs text-slate-400">{formatBytes(f.sizeBytes)}</span>
+                <span
+                  className={
+                    "text-xs " +
+                    (f.source === "staging" && isInvalidStagingMp3(f.sizeBytes) ?
+                      "font-semibold text-red-600 dark:text-red-400"
+                    : "text-slate-400")
+                  }
+                >
+                  {formatBytes(f.sizeBytes)}
+                  {f.source === "staging" && isInvalidStagingMp3(f.sizeBytes) ? " · inválido" : ""}
+                </span>
                 <button
                   type="button"
                   onClick={() =>

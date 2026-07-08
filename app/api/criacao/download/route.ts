@@ -9,6 +9,8 @@ import {
 } from "@/lib/criacao/downloadService";
 import { PORTAL_DOWNLOAD_PROVIDERS, type PortalDownloadProviderId } from "@/lib/criacao/downloadParse";
 
+export const maxDuration = 60;
+
 function parseProvider(v: string | null): PortalDownloadProviderId | undefined {
   if (v && (PORTAL_DOWNLOAD_PROVIDERS as readonly string[]).includes(v)) {
     return v as PortalDownloadProviderId;
@@ -55,30 +57,39 @@ export async function POST(request: Request) {
     if (!body.linhas?.trim()) return NextResponse.json({ error: "linhas_vazias" }, { status: 400 });
 
     let job;
+    let itensErro = 0;
+    let itensPick = 0;
     try {
-      job = await createDownloadJob({
+      const created = await createDownloadJob({
         provider,
         titulo: body.titulo,
         linhas: body.linhas,
         criativoNome: session.displayName ?? session.email,
         criativoUserId: session.email,
       });
+      job = created.job;
+      itensErro = created.itensErro;
+      itensPick = created.itensPick;
     } catch (err) {
       if (err instanceof Error && err.message === "nenhuma_linha") {
         return NextResponse.json({ error: "nenhuma_linha" }, { status: 400 });
       }
-      if (err instanceof Error) {
-        return NextResponse.json({ error: "expand_falhou", message: err.message }, { status: 400 });
-      }
       throw err;
     }
 
-    const proc = await triggerDownloadProcessing(Math.min(50, job.totalItens + 5));
+    const proc = await triggerDownloadProcessing(Math.min(50, job.totalItens + 5), {
+      timeoutMs: 8_000,
+    }).catch((e: unknown) => ({
+      triggered: false,
+      error: e instanceof Error ? e.message : "erro_rede",
+    }));
 
     return NextResponse.json({
       ok: true,
       jobId: job.id,
       totalItens: job.totalItens,
+      itensErro,
+      itensPick,
       processingTriggered: proc.triggered,
       processingError: proc.error ?? null,
     });

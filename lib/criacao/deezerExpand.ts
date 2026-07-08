@@ -4,9 +4,43 @@ import {
   resolveDeezerShareUrl,
   toCanonicalDeemixUrl,
 } from "@/lib/criacao/deezerCanonical";
-import { resolveDeezerTrackUrlFromText } from "@/lib/criacao/deezerTrackMatch";
+import {
+  resolveDeezerTrackFromText,
+  type DeezerTrackCandidate,
+} from "@/lib/criacao/deezerTrackMatch";
+
+export type ExpandedDownloadLine = ParsedDownloadLine & {
+  pickCandidates?: DeezerTrackCandidate[];
+  expandError?: string;
+};
 
 type DeezerTrackLink = { link?: string; title?: string; artist?: { name?: string } };
+
+const LINE_CONCURRENCY = 6;
+const PLAYLIST_FETCH_TIMEOUT_MS = 12_000;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+
+  async function worker() {
+    for (;;) {
+      const idx = next;
+      next += 1;
+      if (idx >= items.length) return;
+      results[idx] = await fn(items[idx]!, idx);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, Math.max(1, items.length)) }, () => worker()),
+  );
+  return results;
+}
 
 async function fetchDeezerPaginatedTracks(path: string, maxTracks = 300): Promise<string[]> {
   const links: string[] = [];
@@ -15,7 +49,7 @@ async function fetchDeezerPaginatedTracks(path: string, maxTracks = 300): Promis
   while (url && links.length < maxTracks) {
     const res = await fetch(url, {
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(PLAYLIST_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       throw new Error(`API Deezer respondeu HTTP ${res.status} para ${path}`);
@@ -40,74 +74,107 @@ async function fetchDeezerPaginatedTracks(path: string, maxTracks = 300): Promis
   return links;
 }
 
-/**
- * Prepara linhas para o worker Deemix:
- * - link.deezer.com → URL canônica www.deezer.com/…
- * - playlist/album → uma linha por faixa (URLs track canônicas)
- * - track → URL canônica
- * - texto «Artista - Música» → URL track via API Deezer (exige match de artista)
- */
-export async function expandDeezerDownloadLines(lines: ParsedDownloadLine[]): Promise<ParsedDownloadLine[]> {
-  const out: ParsedDownloadLine[] = [];
-  const seen = new Set<string>();
+function errorLine(line: ParsedDownloadLine, message: string): ExpandedDownloadLine {
+  return {
+    linhaOriginal: line.linhaOriginal,
+    inputTipo: line.inputTipo,
+    expandError: message,
+  };
+}
 
-  for (const line of lines) {
+async function expandOneLine(line: ParsedDownloadLine): Promise<ExpandedDownloadLine[]> {
+  try {
     const resolved = await resolveDeezerShareUrl(line.linhaOriginal);
     const canonical = toCanonicalDeemixUrl(resolved);
 
     if (canonical?.kind === "playlist") {
       const trackLinks = await fetchDeezerPaginatedTracks(`/playlist/${canonical.id}/tracks`);
       if (trackLinks.length === 0) {
-        throw new Error(`Playlist Deezer vazia ou privada (${canonical.url})`);
+        return [errorLine(line, `Playlist Deezer vazia ou privada (${canonical.url})`)];
       }
-      for (const link of trackLinks) {
-        const key = link.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ linhaOriginal: link, inputTipo: "url" });
-      }
-      continue;
+      return trackLinks.map((link) => ({ linhaOriginal: link, inputTipo: "url" as const }));
     }
 
     if (canonical?.kind === "album") {
       const trackLinks = await fetchDeezerPaginatedTracks(`/album/${canonical.id}/tracks`);
       if (trackLinks.length === 0) {
-        throw new Error(`Álbum Deezer vazio ou privado (${canonical.url})`);
+        return [errorLine(line, `Álbum Deezer vazio ou privado (${canonical.url})`)];
       }
-      for (const link of trackLinks) {
-        const key = link.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ linhaOriginal: link, inputTipo: "url" });
-      }
-      continue;
+      return trackLinks.map((link) => ({ linhaOriginal: link, inputTipo: "url" as const }));
     }
 
     if (canonical?.kind === "track") {
-      const key = canonical.url.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ linhaOriginal: canonical.url, inputTipo: "url" });
-      continue;
+      return [{ linhaOriginal: canonical.url, inputTipo: "url" }];
     }
 
     if (line.inputTipo === "texto") {
-      const trackUrl = await resolveDeezerTrackUrlFromText(line.linhaOriginal);
-      const key = trackUrl.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ linhaOriginal: trackUrl, inputTipo: "url" });
-      continue;
+      let result;
+      try {
+        result = await resolveDeezerTrackFromText(line.linhaOriginal);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "erro_busca_deezer";
+        return [errorLine(line, msg)];
+      }
+
+      if (result.status === "resolved") {
+        return [{ linhaOriginal: result.url, inputTipo: "url" }];
+      }
+
+      const candidates =
+        result.status === "pick" ? result.candidates
+        : result.candidates.length > 0 ? result.candidates
+        : null;
+
+      if (candidates?.length) {
+        return [{
+          linhaOriginal: line.linhaOriginal,
+          inputTipo: "texto",
+          pickCandidates: candidates,
+        }];
+      }
+
+      return [
+        errorLine(
+          line,
+          `Nenhuma faixa no Deezer com artista «${result.parsed.artista}» e título «${result.parsed.titulo}» — confira ortografia ou cole o link da faixa.`,
+        ),
+      ];
     }
 
     const normalized = await normalizeForDeemixInput(line.linhaOriginal);
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
+    return [{
       linhaOriginal: normalized,
       inputTipo: toCanonicalDeemixUrl(normalized) ? "url" : line.inputTipo,
-    });
+    }];
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "expand_falhou";
+    return [errorLine(line, msg)];
+  }
+}
+
+/**
+ * Prepara linhas para o worker Deemix:
+ * - link.deezer.com → URL canônica www.deezer.com/…
+ * - playlist/album → uma linha por faixa (URLs track canônicas)
+ * - track → URL canônica
+ * - texto «Artista - Música» → resolve via API Deezer (auto, escolha manual ou erro por linha)
+ */
+export async function expandDeezerDownloadLines(lines: ParsedDownloadLine[]): Promise<ExpandedDownloadLine[]> {
+  const chunks = await mapWithConcurrency(lines, LINE_CONCURRENCY, expandOneLine);
+  const out: ExpandedDownloadLine[] = [];
+  const seen = new Set<string>();
+
+  for (const chunk of chunks) {
+    for (const item of chunk) {
+      if (item.expandError || item.pickCandidates?.length) {
+        out.push(item);
+        continue;
+      }
+      const key = item.linhaOriginal.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
   }
 
   return out;

@@ -6,7 +6,13 @@ import {
   downloadStagingPath,
   ensureStorageDirs,
 } from './storage.js';
-import { resolveDeezerTrackUrlFromText } from './deezerTrackMatch.js';
+import {
+  assertValidMp3File,
+  looksLikeMp3,
+  MIN_MP3_BYTES,
+  mp3InvalidReason,
+  removeIfExists,
+} from './mp3Validate.js';
 
 type PendingItem = {
   id: string;
@@ -286,34 +292,51 @@ async function copyDeemixOutputToDest(cfg: DownloadEnv, relFile: string, dest: s
   const rel = relFile.replace(/^\/+/, '');
   const errors: string[] = [];
 
-  if (cfg.deemixFilesDir) {
-    const localPath = path.join(cfg.deemixFilesDir, rel);
+  async function validateDestOrThrow(source: string): Promise<void> {
     try {
-      await fsp.access(localPath);
-      await fsp.copyFile(localPath, dest);
-      return;
-    } catch {
-      errors.push(`disco ${localPath}`);
+      await assertValidMp3File(dest);
+    } catch (e) {
+      await removeIfExists(dest);
+      const msg = e instanceof Error ? e.message : 'mp3_invalido';
+      throw new Error(`${source}: ${msg}`);
     }
   }
 
-  // Volume Docker comum do Deemix quando CRIACAO_DEEMIX_FILES_DIR não está no .env
+  async function tryLocalCopy(localPath: string, label: string): Promise<boolean> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        await fsp.access(localPath);
+        await fsp.copyFile(localPath, dest);
+        await validateDestOrThrow(label);
+        return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'erro';
+        if (attempt < 3 && /pequeno|inválido|invalido/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 750));
+          continue;
+        }
+        errors.push(`${label} → ${msg}`);
+        await removeIfExists(dest);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  if (cfg.deemixFilesDir) {
+    const localPath = path.join(cfg.deemixFilesDir, rel);
+    if (await tryLocalCopy(localPath, `disco ${localPath}`)) return;
+  }
+
   if (cfg.deemixFilesDir !== '/downloads') {
     const fallback = path.join('/downloads', rel);
-    try {
-      await fsp.access(fallback);
-      await fsp.copyFile(fallback, dest);
-      return;
-    } catch {
-      errors.push(`disco ${fallback}`);
-    }
+    if (await tryLocalCopy(fallback, `disco ${fallback}`)) return;
   }
 
   const encoded = encodeDeemixRelPath(rel);
   const httpCandidates = [
     cfg.deemixMusicUrl ? `${cfg.deemixMusicUrl}/${encoded}` : null,
     `${cfg.deemixUrl}/downloads/${encoded}`,
-    `${cfg.deemixUrl}/${encoded}`,
   ].filter(Boolean) as string[];
 
   for (const url of httpCandidates) {
@@ -323,17 +346,30 @@ async function copyDeemixOutputToDest(cfg: DownloadEnv, relFile: string, dest: s
         errors.push(`${url} → HTTP ${res.status}`);
         continue;
       }
-      await fsp.writeFile(dest, Buffer.from(await res.arrayBuffer()));
+      const ct = (res.headers.get('content-type') ?? '').toLowerCase();
+      if (ct.includes('text/html') || ct.includes('application/json') || ct.includes('text/plain')) {
+        errors.push(`${url} → content-type ${ct || 'desconhecido'}`);
+        continue;
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      const reason = mp3InvalidReason(buf, buf.length);
+      if (reason || !looksLikeMp3(buf.subarray(0, Math.min(buf.length, 32)))) {
+        errors.push(`${url} → ${reason ?? 'não é MP3'} (${buf.length} bytes)`);
+        continue;
+      }
+      await fsp.writeFile(dest, buf);
+      await validateDestOrThrow(url);
       return;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'erro';
       errors.push(`${url} → ${msg}`);
+      await removeIfExists(dest);
     }
   }
 
   throw new Error(
-    `Não foi possível ler o MP3 do Deemix (${rel}). Tentativas: ${errors.join(' | ')}. ` +
-      'Configure CRIACAO_DEEMIX_FILES_DIR (pasta de downloads do Deemix) ou CRIACAO_DEEMIX_MUSIC_URL (porta 6596).',
+    `Não foi possível ler o MP3 real do Deemix (${rel}, mín. ${MIN_MP3_BYTES} bytes). Tentativas: ${errors.join(' | ')}. ` +
+      'Confira CRIACAO_DEEMIX_FILES_DIR (volume compartilhado com o container Deemix) ou CRIACAO_DEEMIX_MUSIC_URL (porta 6596).',
   );
 }
 
@@ -426,7 +462,7 @@ async function completeItem(
   filePath: string,
   meta: { titulo: string; artista: string; arquivoNome: string },
 ): Promise<void> {
-  const stat = await fsp.stat(filePath);
+  const { size } = await assertValidMp3File(filePath);
   const key = downloadStagingKey(itemId);
   await portalQuery(
     `UPDATE download_item
@@ -442,7 +478,7 @@ async function completeItem(
     [
       itemId,
       key,
-      stat.size,
+      size,
       meta.titulo.slice(0, 500),
       meta.artista.slice(0, 500),
       meta.arquivoNome.slice(0, 500),
@@ -700,6 +736,7 @@ export async function processPendingDownloads(limit = 10): Promise<number> {
          FROM download_item di
          JOIN download_job dj ON dj.id = di.job_id
         WHERE di.status = 'aguardando'
+          AND COALESCE(di.erro_msg, '') NOT LIKE '__DEEZER_PICK__%'
           AND dj.status NOT IN ('cancelado', 'concluido')
         ORDER BY di.created_at ASC
         LIMIT $1

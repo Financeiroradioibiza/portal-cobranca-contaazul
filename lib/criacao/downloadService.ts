@@ -5,7 +5,14 @@ import {
   parseDownloadLines,
   type DownloadProviderId,
 } from "@/lib/criacao/downloadParse";
-import { expandDeezerDownloadLines } from "@/lib/criacao/deezerExpand";
+import { expandDeezerDownloadLines, type ExpandedDownloadLine } from "@/lib/criacao/deezerExpand";
+import { toCanonicalDeemixUrl } from "@/lib/criacao/deezerCanonical";
+import type { DeezerTrackCandidate } from "@/lib/criacao/deezerTrackMatch";
+import {
+  buildPickErroMsg,
+  isPickPendingErroMsg,
+  parsePickCandidates,
+} from "@/lib/criacao/deezerPickStorage";
 import type { DownloadItemStatus } from "@prisma/client";
 
 export type DownloadJobRow = {
@@ -35,6 +42,8 @@ export type DownloadItemRow = {
   storageKey: string | null;
   sizeBytes: number | null;
   erroMsg: string;
+  needsPick: boolean;
+  pickCandidates: DeezerTrackCandidate[];
   createdAt: string;
 };
 
@@ -57,6 +66,13 @@ export type StagingJobGroup = {
   finishedAt: string | null;
   tracks: StagingFileRow[];
 };
+
+/** MP3 real — abaixo disso é lixo HTTP ou download Deemix incompleto. */
+export const MIN_VALID_MP3_BYTES = 12_288;
+
+export function isInvalidStagingMp3(sizeBytes: number | null | undefined): boolean {
+  return sizeBytes != null && sizeBytes > 0 && sizeBytes < MIN_VALID_MP3_BYTES;
+}
 
 export function groupStagingByJob(rows: StagingFileRow[]): StagingJobGroup[] {
   const map = new Map<string, StagingJobGroup>();
@@ -89,7 +105,7 @@ export async function createDownloadJob(input: {
     throw new Error("nenhuma_linha");
   }
 
-  const parsed =
+  const parsed: ExpandedDownloadLine[] =
     input.provider === "deemix" ?
       await expandDeezerDownloadLines(parsedRaw)
     : parsedRaw;
@@ -113,13 +129,22 @@ export async function createDownloadJob(input: {
         create: parsed.map((p) => ({
           linhaOriginal: p.linhaOriginal.slice(0, 4000),
           inputTipo: p.inputTipo,
+          status: p.expandError ? ("erro" as DownloadItemStatus) : undefined,
+          erroMsg:
+            p.expandError ??
+            (p.pickCandidates?.length ? buildPickErroMsg(p.pickCandidates) : ""),
         })),
       },
     },
     include: { itens: { select: { id: true } } },
   });
 
-  return job;
+  await refreshDownloadJobCounters(job.id);
+
+  const itensErro = parsed.filter((p) => p.expandError).length;
+  const itensPick = parsed.filter((p) => p.pickCandidates?.length).length;
+
+  return { job, itensErro, itensPick };
 }
 
 export async function listDownloadJobs(opts: {
@@ -177,8 +202,9 @@ export async function getDownloadJobDetail(id: string) {
     createdAt: job.createdAt.toISOString(),
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
-    itens: job.itens.map(
-      (i): DownloadItemRow => ({
+    itens: job.itens.map((i): DownloadItemRow => {
+      const pickCandidates = parsePickCandidates(i.erroMsg) ?? [];
+      return {
         id: i.id,
         linhaOriginal: i.linhaOriginal,
         inputTipo: i.inputTipo,
@@ -188,10 +214,12 @@ export async function getDownloadJobDetail(id: string) {
         artista: i.artista,
         storageKey: i.storageKey,
         sizeBytes: i.sizeBytes,
-        erroMsg: i.erroMsg,
+        erroMsg: isPickPendingErroMsg(i.erroMsg) ? "" : i.erroMsg,
+        needsPick: pickCandidates.length > 0 && i.status === "aguardando",
+        pickCandidates,
         createdAt: i.createdAt.toISOString(),
-      }),
-    ),
+      };
+    }),
   };
 }
 
@@ -226,6 +254,42 @@ export async function listStagingFiles(opts: {
   }));
 }
 
+export async function confirmDownloadItemPick(itemId: string, trackUrl: string): Promise<string> {
+  const item = await prisma.downloadItem.findUnique({
+    where: { id: itemId },
+    select: { id: true, jobId: true, erroMsg: true, status: true },
+  });
+  if (!item) throw new Error("not_found");
+
+  const candidates = parsePickCandidates(item.erroMsg);
+  if (!candidates?.length) throw new Error("nao_precisa_escolha");
+  if (item.status !== "aguardando") throw new Error("item_nao_aguardando");
+
+  const trimmed = trackUrl.trim();
+  const canonical = toCanonicalDeemixUrl(trimmed);
+  let resolvedUrl = canonical?.kind === "track" ? canonical.url : null;
+  if (!resolvedUrl) {
+    const byCandidate = candidates.find(
+      (c) => c.url === trimmed || String(c.trackId) === trimmed.replace(/\D/g, ""),
+    );
+    if (byCandidate) resolvedUrl = byCandidate.url;
+  }
+  if (!resolvedUrl) throw new Error("url_invalida");
+
+  await prisma.downloadItem.update({
+    where: { id: itemId },
+    data: {
+      linhaOriginal: resolvedUrl,
+      inputTipo: "url",
+      erroMsg: "",
+      status: "aguardando",
+    },
+  });
+
+  await refreshDownloadJobCounters(item.jobId);
+  return item.jobId;
+}
+
 export async function cancelDownloadJob(id: string): Promise<boolean> {
   const job = await prisma.downloadJob.findUnique({
     where: { id },
@@ -248,6 +312,7 @@ export async function cancelDownloadJob(id: string): Promise<boolean> {
 
 export async function triggerDownloadProcessing(
   limit = 20,
+  opts?: { timeoutMs?: number },
 ): Promise<{ triggered: boolean; processed?: number; error?: string }> {
   const { getDownloadServiceConfig } = await import("@/lib/criacao/downloadConfig");
   const cfg = getDownloadServiceConfig();
@@ -267,7 +332,7 @@ export async function triggerDownloadProcessing(
       method: "POST",
       headers,
       body: JSON.stringify({ limit }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(opts?.timeoutMs ?? 120_000),
     });
     const data = (await res.json().catch(() => ({}))) as { processed?: number; error?: string };
     if (!res.ok) {
