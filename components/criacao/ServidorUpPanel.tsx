@@ -479,7 +479,7 @@ export function ServidorUpPanel() {
       return;
     }
     persistUploadSession(downloadJobId);
-    router.push("/criacao/upload?servidorUp=1");
+    router.push("/criacao/multi-upload-legado");
   }
 
   async function enfileirarDownloads() {
@@ -750,11 +750,11 @@ export function ServidorUpPanel() {
                   Passo 5 — Multi-Upload ({approvedCount} faixas)
                 </button>
                 <Link
-                  href="/criacao/upload?servidorUp=1"
+                  href="/criacao/multi-upload-legado"
                   onClick={() => persistUploadSession(downloadJobId)}
                   className="rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-600 dark:text-emerald-100"
                 >
-                  Abrir Multi-Upload no Upload →
+                  Abrir Multi-Upload legado →
                 </Link>
               </div>
             </div>
@@ -1083,11 +1083,11 @@ function Step5MultiUploadPanel({
           Multi-Upload → {approvedCount} faixa(s) · {okPastas} pasta(s)
         </button>
         <Link
-          href="/criacao/upload?servidorUp=1"
+          href="/criacao/multi-upload-legado"
           onClick={onPersist}
           className="rounded-lg border border-emerald-500 px-5 py-2 text-sm font-semibold dark:border-emerald-600"
         >
-          Abrir em Upload →
+          Abrir Multi-Upload legado →
         </Link>
       </div>
     </div>

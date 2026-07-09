@@ -15,6 +15,8 @@ import {
   type StagingFileRow,
   type StagingJobGroup,
 } from "@/lib/criacao/downloadService";
+import Link from "next/link";
+import { readServidorUpUploadSession } from "@/lib/criacao/servidorUpUploadSession";
 
 import {
   CriacaoClienteNomeComTag,
@@ -125,6 +127,18 @@ export function UploadPanel() {
   useEffect(() => {
     void loadStaging();
   }, [loadStaging]);
+
+  useEffect(() => {
+    if (servidorUpMode) return;
+    if (readServidorUpUploadSession()) {
+      router.replace("/criacao/upload?servidorUp=1");
+    }
+  }, [servidorUpMode, router]);
+
+  const servidorUpStagingGroups = useMemo(
+    () => stagingGroups.filter((g) => /servidor\s*up/i.test(g.titulo)),
+    [stagingGroups],
+  );
 
   const updateLote = useCallback((id: string, patch: Partial<UploadLote>) => {
     setLotes((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -398,15 +412,15 @@ export function UploadPanel() {
           Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um
           clique. Faixas baixadas no Download link podem ser importadas do servidor (sem arrastar MP3 do seu PC).
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => router.push("/criacao/upload")}
             className={
-              "rounded-lg px-3 py-1.5 text-xs font-semibold " +
+              "rounded-lg px-4 py-2 text-sm font-semibold " +
               (!servidorUpMode ?
                 "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-              : "border border-slate-200 dark:border-slate-700")
+              : "border-2 border-slate-300 dark:border-slate-600")
             }
           >
             Upload comum
@@ -415,16 +429,49 @@ export function UploadPanel() {
             type="button"
             onClick={() => router.push("/criacao/upload?servidorUp=1")}
             className={
-              "rounded-lg px-3 py-1.5 text-xs font-semibold " +
+              "rounded-lg px-4 py-2 text-sm font-semibold " +
               (servidorUpMode ?
-                "bg-violet-900 text-white"
-              : "border border-violet-300 text-violet-900 dark:border-violet-700 dark:text-violet-200")
+                "bg-violet-900 text-white ring-2 ring-violet-400"
+              : "border-2 border-violet-400 bg-violet-100 text-violet-950 dark:border-violet-600 dark:bg-violet-950 dark:text-violet-100")
             }
           >
             Multi-Upload (Servidor UP)
           </button>
+          <Link
+            href="/criacao/multi-upload-legado"
+            className="rounded-lg border-2 border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-600 dark:text-emerald-100"
+          >
+            Página Multi-Upload legado →
+          </Link>
         </div>
       </div>
+
+      {!servidorUpMode && servidorUpStagingGroups.length > 0 ?
+        <div className="mb-5 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/40">
+          <p className="text-sm font-bold text-amber-950 dark:text-amber-100">
+            Lotes «Servidor UP» prontos no servidor ({servidorUpStagingGroups.reduce((n, g) => n + g.tracks.length, 0)}{" "}
+            faixa(s))
+          </p>
+          <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">
+            Não use «Adicionar ao lote» abaixo — isso manda tudo para uma pasta só. Use o{" "}
+            <strong>Multi-Upload legado</strong> para ir cada faixa à pasta correta (Bossa, Brasil, POP…).
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href="/criacao/multi-upload-legado"
+              className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Abrir Multi-Upload legado
+            </Link>
+            <Link
+              href="/criacao/servidor-up"
+              className="rounded-lg border border-amber-600 px-4 py-2 text-sm font-semibold"
+            >
+              Servidor UP (passo 5)
+            </Link>
+          </div>
+        </div>
+      : null}
 
       {servidorUpMode ?
         <ServidorUpMultiUploadPanel />
