@@ -189,7 +189,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
       setExpanded((prev) => {
         const next = new Set([...prev].filter((pid) => data.arvore.some((p) => p.id === pid)));
         for (const p of data.arvore) {
-          if (p.atualizacaoAberta) next.add(p.id);
+          next.add(p.id);
         }
         return next;
       });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { resolveTagCriativoUser } from "@/lib/criacao/criativoUserService";
 import { markCriativoEntregueAuto, markSubidaFilaPainel } from "@/lib/criacao/atualizacaoPainelService";
+import { abrirAtualizacao } from "@/lib/criacao/atualizacaoService";
 import { createUploadJobsBatch, type UploadLoteInput } from "@/lib/criacao/filaService";
 import { ingestFromStagingOnCloud2 } from "@/lib/criacao/ingestFromStaging";
 import { CRIACAO_INGEST_URL, ingestEnabled } from "@/lib/criacao/ingestTicket";
@@ -147,6 +148,11 @@ export async function POST(request: Request) {
         await markSubidaFilaPainel(job.programacaoId, job.id, uploaderNome);
         await markCriativoEntregueAuto(job.programacaoId, uploaderNome);
       }
+    }
+
+    const por = session.displayName ?? session.email;
+    for (const progId of new Set(jobs.map((j) => j.programacaoId).filter(Boolean) as string[])) {
+      await abrirAtualizacao(progId, por);
     }
 
     const stagingPairs = buildStagingPairs(jobs, lotes);

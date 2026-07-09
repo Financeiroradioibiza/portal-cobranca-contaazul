@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { addMusicasToPasta } from "@/lib/criacao/programacaoService";
+import { abrirAtualizacao } from "@/lib/criacao/atualizacaoService";
 
 /** Coloca faixas processadas nas pastas escolhidas no upload. Idempotente. */
 export async function applyPendingPastaUploads(limit = 80): Promise<number> {
@@ -25,9 +26,22 @@ export async function applyPendingPastaUploads(limit = 80): Promise<number> {
   `;
 
   let applied = 0;
+  const programacaoIds = new Set<string>();
   for (const item of items) {
     const n = await addMusicasToPasta(item.pastaId, [item.musicaId]);
-    if (n > 0) applied += n;
+    if (n > 0) {
+      applied += n;
+      const pasta = await prisma.pasta.findUnique({
+        where: { id: item.pastaId },
+        select: { programacaoId: true },
+      });
+      if (pasta?.programacaoId) programacaoIds.add(pasta.programacaoId);
+    }
   }
+
+  for (const progId of programacaoIds) {
+    await abrirAtualizacao(progId, "Fila processamento").catch(() => {});
+  }
+
   return applied;
 }
