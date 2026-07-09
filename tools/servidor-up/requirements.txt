@@ -1,0 +1,1 @@
+# Servidor UP — stdlib Python 3.11+ (ffprobe no PATH)

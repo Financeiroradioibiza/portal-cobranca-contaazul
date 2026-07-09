@@ -18,6 +18,7 @@ export const CRIACAO_SIDEBAR: CriacaoSidebarEntry[] = [
   { type: "item", href: "/criacao/vinhetas", label: "Vinhetas", icon: "📢" },
   { type: "item", href: "/criacao/erros", label: "Diagnóstico", icon: "🔍" },
   { type: "item", href: "/criacao/wizard", label: "Wizard IA", icon: "✨" },
+  { type: "item", href: "/criacao/servidor-up", label: "Servidor UP", icon: "🖥️" },
 ];
 
 /** Página principal ao clicar em Criação no topo. */

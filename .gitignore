@@ -24,6 +24,7 @@
 .DS_Store
 *.pem
 !tools/local-downloader/certs/*.pem
+!tools/servidor-up/certs/*.pem
 
 # debug
 npm-debug.log*
