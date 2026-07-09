@@ -62,6 +62,7 @@ export const PORTAL_MENU_MODULES = [
     subs: [
       { id: "parametros", label: "Parâmetros globais" },
       { id: "usuarios", label: "Usuários e perfis" },
+      { id: "servidores", label: "Servidores" },
       { id: "integracoes", label: "Integrações" },
       { id: "seguranca", label: "Segurança" },
       { id: "logs", label: "Logs" },

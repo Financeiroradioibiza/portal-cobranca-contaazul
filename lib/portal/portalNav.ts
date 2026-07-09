@@ -7,6 +7,7 @@ import { PORTAL_HOME_HREF } from "@/lib/portal/portalHome";
 const CONFIG_ICONS: Record<string, string> = {
   "/config/parametros": "⚙️",
   "/config/usuarios": "👥",
+  "/config/servidores": "🖥️",
   "/config/integracoes": "🔗",
   "/config/seguranca": "🔒",
   "/config/logs": "📋",

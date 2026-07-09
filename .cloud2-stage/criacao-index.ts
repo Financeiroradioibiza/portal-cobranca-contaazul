@@ -12,6 +12,7 @@ import { registerReanalisarMixTrimRoutes } from "./reanalisar-mix-trim.js";
 import { registerUploadAudioRoutes } from "./upload-audio.js";
 import { registerDownloadProcessRoutes } from "./download-process.js";
 import { registerIngestFromStagingRoutes } from "./ingest-from-staging.js";
+import { registerOpsStorageRoutes } from "./ops-storage.js";
 
 const CRIACAO_PREFIX = "/criacao";
 
@@ -30,4 +31,5 @@ export async function registerCriacaoRoutes(app: FastifyInstance): Promise<void>
   await registerReprocessEdicaoRoutes(app, CRIACAO_PREFIX);
   await registerReanalisarMixTrimRoutes(app, CRIACAO_PREFIX);
   await registerPlayerRegistryRoutes(app, CRIACAO_PREFIX);
+  await registerOpsStorageRoutes(app, CRIACAO_PREFIX);
 }
