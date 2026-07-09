@@ -726,18 +726,55 @@ export function ServidorUpPanel() {
         </div>
       </div>
 
-      {(msg || err || busy) ?
-        <div className="space-y-1 text-sm">
+      {(msg || err || busy || downloadJobId) ?
+        <div className="space-y-2 text-sm">
           {busy ?
             <p className="text-violet-700">{busy}</p>
           : null}
           {msg ?
             <p className="text-emerald-800 dark:text-emerald-200">{msg}</p>
           : null}
+          {downloadJobId && okCountFromMsg(msg) ?
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/40">
+              <p className="font-semibold text-emerald-950 dark:text-emerald-100">Download Deemix concluído</p>
+              <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">
+                Próximo passo: subir cada faixa na pasta certa (definida no passo 0).{" "}
+                <strong>Não precisa copiar código</strong> — clique abaixo.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveStep(5)}
+                  className="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Passo 5 — Multi-Upload ({approvedCount} faixas)
+                </button>
+                <Link
+                  href="/criacao/upload?servidorUp=1"
+                  onClick={() => persistUploadSession(downloadJobId)}
+                  className="rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-600 dark:text-emerald-100"
+                >
+                  Abrir Multi-Upload no Upload →
+                </Link>
+              </div>
+            </div>
+          : null}
           {err ?
             <p className="text-red-700 dark:text-red-300">{err}</p>
           : null}
         </div>
+      : null}
+
+      {activeStep === 5 ?
+        <Step5MultiUploadPanel
+          downloadJobId={downloadJobId}
+          setDownloadJobId={setDownloadJobId}
+          approvedCount={approvedCount}
+          okPastas={preview?.rows.filter((r) => r.status === "ok").length ?? 0}
+          hasMatch={Boolean(matchResult)}
+          onGo={() => irParaMultiUpload()}
+          onPersist={() => downloadJobId && persistUploadSession(downloadJobId)}
+        />
       : null}
 
       {activeStep === 0 ?
@@ -993,51 +1030,66 @@ export function ServidorUpPanel() {
           </div>
         </div>
       : null}
+    </div>
+  );
+}
 
-      {activeStep === 5 ?
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
-          <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">Passo 5 — Multi-Upload</p>
-          <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">
-            Cada faixa vai para a pasta/programação definida no passo 0 — sem escolher cliente manualmente.
-          </p>
-          <div className="mt-3 flex flex-wrap items-end gap-3">
-            <label className="text-xs">
-              <span className="mb-1 block font-semibold text-slate-600">Job Deemix (Download link)</span>
-              <input
-                value={downloadJobId ?? ""}
-                onChange={(e) => setDownloadJobId(e.target.value.trim() || null)}
-                placeholder="cole o ID do job se veio do Download link"
-                className="w-64 rounded border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-              />
-            </label>
-            <button
-              type="button"
-              disabled={!downloadJobId || !preview || !matchResult}
-              onClick={() => irParaMultiUpload()}
-              className="rounded-lg bg-emerald-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              Multi-Upload → {approvedCount} faixa(s) · {preview?.rows.filter((r) => r.status === "ok").length ?? 0}{" "}
-              pasta(s)
-            </button>
-            <Link
-              href="/criacao/upload?servidorUp=1"
-              onClick={() => downloadJobId && persistUploadSession(downloadJobId)}
-              className="rounded-lg border border-emerald-400 px-5 py-2 text-sm font-semibold dark:border-emerald-700"
-            >
-              Abrir Upload (modo Servidor UP)
-            </Link>
-            <Link
-              href="/criacao/fila"
-              className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-semibold dark:border-slate-700"
-            >
-              Fila de processamento →
-            </Link>
-          </div>
-          {!matchResult ?
-            <p className="mt-2 text-xs text-amber-800">Faça o match (passos 2–3) antes da subida.</p>
-          : null}
-        </div>
+function okCountFromMsg(msg: string): boolean {
+  return /Deemix:\s*\d+\/\d+\s*baixada/i.test(msg);
+}
+
+function Step5MultiUploadPanel({
+  downloadJobId,
+  setDownloadJobId,
+  approvedCount,
+  okPastas,
+  hasMatch,
+  onGo,
+  onPersist,
+}: {
+  downloadJobId: string | null;
+  setDownloadJobId: (id: string | null) => void;
+  approvedCount: number;
+  okPastas: number;
+  hasMatch: boolean;
+  onGo: () => void;
+  onPersist: () => void;
+}) {
+  return (
+    <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50/80 p-4 dark:border-emerald-700 dark:bg-emerald-950/30">
+      <p className="text-base font-bold text-emerald-950 dark:text-emerald-100">Passo 5 — Multi-Upload</p>
+      <p className="mt-1 text-sm text-emerald-900/90 dark:text-emerald-200/90">
+        Cada faixa vai para a pasta/programação do passo 0 — sem escolher cliente no upload comum.
+      </p>
+      {!hasMatch ?
+        <p className="mt-2 text-xs text-amber-800">Faça o match (passos 2–3) antes da subida.</p>
       : null}
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <label className="text-xs">
+          <span className="mb-1 block font-semibold text-slate-600">Job Deemix (só se veio do Download link)</span>
+          <input
+            value={downloadJobId ?? ""}
+            onChange={(e) => setDownloadJobId(e.target.value.trim() || null)}
+            placeholder="ID completo do job — opcional se acabou de baixar aqui"
+            className="w-72 rounded border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={!downloadJobId || !hasMatch}
+          onClick={onGo}
+          className="rounded-lg bg-emerald-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          Multi-Upload → {approvedCount} faixa(s) · {okPastas} pasta(s)
+        </button>
+        <Link
+          href="/criacao/upload?servidorUp=1"
+          onClick={onPersist}
+          className="rounded-lg border border-emerald-500 px-5 py-2 text-sm font-semibold dark:border-emerald-600"
+        >
+          Abrir em Upload →
+        </Link>
+      </div>
     </div>
   );
 }
