@@ -361,28 +361,62 @@ export function ServidorUpPanel() {
 
   async function rodarMatch() {
     setErr("");
-    setBusy("Match Deezer…");
     setMatchResult(null);
     setMatchPicks({});
     setSkippedTracks(new Set());
     try {
       if (inventory.length === 0) throw new Error("Rode o inventário primeiro.");
-      const res = await fetch("/api/criacao/servidor-up/match-inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tracks: inventory }),
-      });
-      const data = (await res.json()) as ServidorUpMatchBatchResult & { error?: string };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "Falha no match.");
-      setMatchResult(data);
+
+      const CHUNK = 5;
+      const mergedRows: ServidorUpMatchRow[] = [];
+      const mergedStats = {
+        total: 0,
+        auto: 0,
+        review: 0,
+        pick: 0,
+        notFound: 0,
+        rejected: 0,
+        apiErrors: 0,
+      };
+
+      for (let i = 0; i < inventory.length; i += CHUNK) {
+        const end = Math.min(i + CHUNK, inventory.length);
+        setBusy(`Match Deezer… ${end}/${inventory.length}`);
+        const chunk = inventory.slice(i, end);
+        const res = await fetch("/api/criacao/servidor-up/match-inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tracks: chunk }),
+        });
+        const data = (await res.json()) as ServidorUpMatchBatchResult & { error?: string };
+        if (!res.ok || !data.ok) throw new Error(data.error ?? `Falha no match (faixas ${i + 1}–${end}).`);
+        mergedRows.push(...data.rows);
+        mergedStats.total += data.stats.total;
+        mergedStats.auto += data.stats.auto;
+        mergedStats.review += data.stats.review;
+        mergedStats.pick += data.stats.pick;
+        mergedStats.notFound += data.stats.notFound;
+        mergedStats.rejected += data.stats.rejected;
+        mergedStats.apiErrors += data.stats.apiErrors ?? 0;
+        if (end < inventory.length) {
+          await new Promise((r) => setTimeout(r, 600));
+        }
+      }
+
+      const result: ServidorUpMatchBatchResult = { ok: true, rows: mergedRows, stats: mergedStats };
+      setMatchResult(result);
       const picks: Record<string, number> = {};
-      for (const row of data.rows) {
+      for (const row of mergedRows) {
         if (row.selected) picks[row.relativePath] = row.selected.trackId;
       }
       setMatchPicks(picks);
+      const apiHint =
+        mergedStats.apiErrors > 0 ?
+          ` · ${mergedStats.apiErrors} falha(s) API Deezer (tente Match de novo)`
+        : "";
       setMsg(
-        `Match: ${data.stats.auto} auto · ${data.stats.review} revisar · ${data.stats.pick} escolher · ` +
-          `${data.stats.notFound} não achou · ${data.stats.rejected} outra versão.`,
+        `Match: ${mergedStats.auto} auto · ${mergedStats.review} revisar · ${mergedStats.pick} escolher · ` +
+          `${mergedStats.notFound} não achou · ${mergedStats.rejected} outra versão${apiHint}.`,
       );
       setActiveStep(2);
     } catch (e) {

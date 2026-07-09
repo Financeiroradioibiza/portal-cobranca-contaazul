@@ -53,6 +53,7 @@ export type ServidorUpMatchBatchResult = {
     pick: number;
     notFound: number;
     rejected: number;
+    apiErrors: number;
   };
 };
 
@@ -231,9 +232,11 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
   };
 
   let candidatesRaw: DeezerTrackCandidate[] = [];
+  let apiFailures = 0;
   try {
     const resolved = await resolveDeezerLegacyCandidates(normalizedSearchLine);
     candidatesRaw = resolved.candidates;
+    apiFailures = resolved.apiFailures;
   } catch (e) {
     return {
       ...base,
@@ -246,11 +249,14 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
   }
 
   if (candidatesRaw.length === 0) {
+    const apiMsg =
+      apiFailures >= 2 ?
+        "Busca Deezer falhou (limite de requisições ou timeout no servidor). Aguarde ~1 min, recarregue a página (Ctrl+Shift+R) e rode Match de novo — as faixas existem no Deezer."
+      : "Não encontrado no Deezer — tente colar link deezer.com/track/… ou busque no Deemix e escolha manual.";
     return {
       ...base,
       verdict: "not_found",
-      verdictReason:
-        "Não encontrado no Deezer — tente colar link deezer.com/track/… ou busque no Deemix e escolha manual.",
+      verdictReason: apiMsg,
       selected: null,
       candidates: [],
       deezerUrl: null,
@@ -282,9 +288,10 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
 /** Match em lote com conferência legado × Deezer por duração. */
 export async function matchServidorUpInventory(
   tracks: ServidorUpInventoryTrack[],
-  opts?: { concurrency?: number },
+  opts?: { concurrency?: number; trackDelayMs?: number },
 ): Promise<ServidorUpMatchBatchResult> {
-  const concurrency = Math.min(4, Math.max(1, opts?.concurrency ?? 2));
+  const concurrency = Math.min(2, Math.max(1, opts?.concurrency ?? 1));
+  const trackDelayMs = opts?.trackDelayMs ?? 400;
   const rows: ServidorUpMatchRow[] = new Array(tracks.length);
 
   let idx = 0;
@@ -294,12 +301,19 @@ export async function matchServidorUpInventory(
       const track = tracks[i];
       if (!track) continue;
       rows[i] = await matchOneTrack(track);
+      if (trackDelayMs > 0 && idx < tracks.length) {
+        await new Promise((r) => setTimeout(r, trackDelayMs));
+      }
     }
   }
 
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
   const filled = rows.filter(Boolean);
+  const apiErrors = filled.filter((r) =>
+    r.verdict === "not_found" &&
+    r.verdictReason.includes("Busca Deezer falhou"),
+  ).length;
   return {
     ok: true,
     rows: filled,
@@ -310,6 +324,7 @@ export async function matchServidorUpInventory(
       pick: filled.filter((r) => r.verdict === "pick").length,
       notFound: filled.filter((r) => r.verdict === "not_found").length,
       rejected: filled.filter((r) => r.verdict === "rejected").length,
+      apiErrors,
     },
   };
 }
