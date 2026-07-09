@@ -856,6 +856,7 @@ model MusicaBiblioteca {
   tagsManuais MusicaTagManual[]
   versoes     MusicaVersao[]
   pastas      PastaMusica[]
+  pastasEspeciais PastaEspecialMusica[]
   rejeicoes   MusicaRejeicao[]
   votos       MusicaBibliotecaVoto[]
 
@@ -1065,6 +1066,35 @@ model Pasta {
 
   @@index([programacaoId, sortOrder])
   @@map("pasta")
+}
+
+/// Pasta especial reutilizável em qualquer programação (+ Especial).
+model PastaEspecial {
+  id           String   @id @default(cuid())
+  nome         String   @db.VarChar(120)
+  velocidade   String   @default("media") @db.VarChar(16)
+  selecionavel Boolean  @default(false)
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  musicas PastaEspecialMusica[]
+
+  @@map("pasta_especial")
+}
+
+model PastaEspecialMusica {
+  pastaEspecialId String    @map("pasta_especial_id")
+  musicaId        String    @map("musica_id")
+  sortOrder       Int       @default(0) @map("sort_order")
+  addedAt         DateTime? @default(now()) @map("added_at")
+
+  pastaEspecial PastaEspecial    @relation(fields: [pastaEspecialId], references: [id], onDelete: Cascade)
+  musica        MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+
+  @@id([pastaEspecialId, musicaId])
+  @@index([musicaId])
+  @@map("pasta_especial_musica")
 }
 
 model PastaMusica {

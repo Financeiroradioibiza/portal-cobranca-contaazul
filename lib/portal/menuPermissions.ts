@@ -44,6 +44,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "upload", label: "Upload" },
       { id: "fila", label: "Fila de processamento" },
       { id: "edicao", label: "Edição de música" },
+      { id: "pastas-especiais", label: "Pastas Especiais" },
       { id: "vinhetas", label: "Vinhetas" },
       { id: "download", label: "Download link" },
       { id: "atl-crica", label: "ATL CRICA" },

@@ -9,6 +9,7 @@ export const CRIACAO_SIDEBAR: CriacaoSidebarEntry[] = [
   { type: "item", href: "/criacao/programacoes", label: "Programações", icon: "🎼" },
   { type: "item", href: "/criacao/atl-crica", label: "ATL Crica", icon: "📅" },
   { type: "item", href: "/criacao/edicao", label: "Edição de música", icon: "✂️" },
+  { type: "item", href: "/criacao/pastas-especiais", label: "Pastas Especiais", icon: "⭐" },
   { type: "item", href: "/criacao/relatorios", label: "Relatórios", icon: "📊" },
   { type: "separator" },
   { type: "item", href: "/criacao/atualizacoes", label: "Produção", icon: "📋" },
