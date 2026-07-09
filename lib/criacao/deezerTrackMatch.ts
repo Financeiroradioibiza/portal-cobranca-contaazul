@@ -22,6 +22,8 @@ export type DeezerTrackCandidate = {
   title: string;
   artist: string;
   score: number;
+  /** Segundos — preenchido na busca Deezer quando disponível. */
+  durationSec?: number | null;
 };
 
 export type DeezerTrackResolveResult =
@@ -33,6 +35,7 @@ type DeezerTrackHit = {
   id?: number;
   link?: string;
   title?: string;
+  duration?: number;
   artist?: { name?: string };
 };
 
@@ -43,6 +46,23 @@ export function normalizeDownloadSearchLine(line: string): string {
   s = s.replace(/\s*\(\d+\)\s*$/i, "");
   s = s.replace(/\s+/g, " ").trim();
   return s;
+}
+
+/** Corrige metadados típicos de MP3 legado (apóstrofo perdido, ft, etc.). */
+export function normalizeLegacyFilenameForSearch(line: string): string {
+  let s = normalizeDownloadSearchLine(line);
+  const fixes: Array<[RegExp, string]> = [
+    [/\bDon t\b/gi, "Don't"],
+    [/\bIm Good\b/gi, "I'm Good"],
+    [/\bCant\b/gi, "Can't"],
+    [/\bWont\b/gi, "Won't"],
+    [/\bI ve\b/gi, "I've"],
+    [/\bS cara\b/gi, "Sócara"],
+    [/\bAqui Ali\b/gi, "Aqui, Ali"],
+  ];
+  for (const [re, rep] of fixes) s = s.replace(re, rep);
+  s = s.replace(/\sft\s/gi, " feat. ");
+  return s.replace(/\s+/g, " ").trim();
 }
 
 export function parseArtistTitleFromLine(line: string): ParsedArtistTitle | null {
@@ -85,12 +105,14 @@ function normalizeSearchArtist(artista: string): string {
   return alt || trimmed;
 }
 
-/** Artista principal — remove feat/ft (Deezer costuma listar só o projeto). */
+/** Artista principal — remove feat/ft e colaborações (&). */
 export function primaryArtistForMatch(artista: string): string {
-  return artista
-    .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  let a = artista.trim();
+  a = a.replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "");
+  if (/\s&\s/.test(a)) {
+    a = a.split(/\s&\s/)[0]!.trim();
+  }
+  return a.replace(/\s+/g, " ").trim();
 }
 
 function normalizeArtistKey(artista: string): string {
@@ -261,12 +283,14 @@ export function scoreDeezerHit(input: ParsedArtistTitle, hit: DeezerTrackHit): n
 function hitToCandidate(hit: DeezerTrackHit, score: number): DeezerTrackCandidate | null {
   if (!hit.id) return null;
   const url = hit.link ?? `https://www.deezer.com/track/${hit.id}`;
+  const durationSec = typeof hit.duration === "number" ? hit.duration : null;
   return {
     trackId: hit.id,
     url,
     title: hit.title?.trim() || "—",
     artist: hit.artist?.name?.trim() || "—",
     score,
+    durationSec,
   };
 }
 
@@ -431,6 +455,81 @@ function mergeRankedCandidates(...lists: DeezerTrackCandidate[][]): DeezerTrackC
     }
   }
   return [...byId.values()].sort((a, b) => b.score - a.score);
+}
+
+const LEGACY_CANDIDATE_MIN_SCORE = 32;
+
+/** Título Deezer indica versão alternativa (live, remix…) — legado costuma ser estúdio. */
+export function isAlternateVersionTitle(title: string): boolean {
+  const t = title.trim();
+  if (!t) return false;
+  if (/\((?:[^)]*(?:ao vivo|live|remix|acoustic|acústic|acustic|edit|radio edit|ver\.|version|mix|tiësto|tiesto|mike mago|remaster)[^)]*)\)/i.test(t)) {
+    return true;
+  }
+  return /\s-\s*(?:live|remix|acoustic|acústic|edit|version)\b/i.test(t);
+}
+
+function scoreLegacyHit(parsed: ParsedArtistTitle, hit: DeezerTrackHit): number {
+  const base = scoreDeezerHit(parsed, hit);
+  if (base >= CANDIDATE_MIN_SCORE) return base;
+  const hitTitle = hit.title?.trim() ?? "";
+  const hitArtist = hit.artist?.name?.trim() ?? "";
+  if (!hitTitle) return base;
+  const { ok, ratio } = titleMatches(parsed.titulo, hitTitle);
+  if (!ok || ratio < 0.55) return base;
+  const artistSim = hitArtist ? artistSimilarity(parsed.artista, hitArtist) : 0.35;
+  return Math.min(88, Math.round(ratio * 42 + artistSim * 40 + 8));
+}
+
+async function fetchTitleOnlyHits(core: string, limit = 15): Promise<DeezerTrackHit[]> {
+  if (!core.trim()) return [];
+  const search = await dzFetch(`/search/track?q=${encodeURIComponent(core)}&limit=${limit}`);
+  return search?.data ?? [];
+}
+
+/**
+ * Busca expandida para migração legado — sempre devolve vários candidatos com duração.
+ * Não faz auto-pick único (evita escolher «Ao Vivo» quando o legado é estúdio).
+ */
+export async function resolveDeezerLegacyCandidates(line: string): Promise<{
+  parsed: ParsedArtistTitle;
+  candidates: DeezerTrackCandidate[];
+}> {
+  const normalized = normalizeLegacyFilenameForSearch(line);
+  const parsed = parseArtistTitleFromLine(normalized);
+  if (!parsed) {
+    throw new Error("Formato inválido — use «Artista - Música».");
+  }
+
+  const core = coreTitleForMatch(parsed.titulo);
+  const artistaPrimary = primaryArtistForMatch(parsed.artista);
+
+  const [artistHits, titleHits, coreHits, comboHits] = await Promise.all([
+    searchDeezerTracks(parsed),
+    searchDeezerByTitle(parsed),
+    fetchTitleOnlyHits(core, 15),
+    fetchTitleOnlyHits(`${artistaPrimary} ${core}`.trim(), 12),
+  ]);
+
+  const hits = mergeDeezerHits([
+    { data: artistHits },
+    { data: titleHits },
+    { data: coreHits },
+    { data: comboHits },
+  ]);
+
+  const byId = new Map<number, DeezerTrackCandidate>();
+  for (const hit of hits) {
+    const score = scoreLegacyHit(parsed, hit);
+    if (score < LEGACY_CANDIDATE_MIN_SCORE) continue;
+    const c = hitToCandidate(hit, score);
+    if (!c) continue;
+    const prev = byId.get(c.trackId);
+    if (!prev || c.score > prev.score) byId.set(c.trackId, c);
+  }
+
+  const candidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 10);
+  return { parsed, candidates };
 }
 
 /** Resolve texto ou devolve candidatos para escolha manual. */

@@ -57,7 +57,8 @@ const MATCH_LABEL: Record<ServidorUpMatchVerdict, string> = {
   review: "Revisar",
   pick: "Escolher",
   not_found: "Não achou",
-  rejected: "Outra versão",
+  rejected: "Escolher",
+  skipped: "Pulada",
 };
 
 const MATCH_TONE: Record<ServidorUpMatchVerdict, string> = {
@@ -66,6 +67,7 @@ const MATCH_TONE: Record<ServidorUpMatchVerdict, string> = {
   pick: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
   not_found: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
   rejected: "bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-200",
+  skipped: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
 };
 
 const STEPS = [
@@ -88,7 +90,12 @@ function formatDuration(sec: number | null | undefined): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function matchApproved(row: ServidorUpMatchRow, picks: Record<string, number>): boolean {
+function matchApproved(
+  row: ServidorUpMatchRow,
+  picks: Record<string, number>,
+  skipped: Set<string>,
+): boolean {
+  if (skipped.has(row.relativePath)) return false;
   if (row.verdict === "auto") return Boolean(row.deezerUrl);
   if (row.verdict === "review") return Boolean(row.deezerUrl);
   if (row.verdict === "pick" || row.verdict === "rejected") {
@@ -116,6 +123,7 @@ export function ServidorUpPanel() {
   const [inventory, setInventory] = useState<LocalServidorUpTrack[]>([]);
   const [matchResult, setMatchResult] = useState<ServidorUpMatchBatchResult | null>(null);
   const [matchPicks, setMatchPicks] = useState<Record<string, number>>({});
+  const [skippedTracks, setSkippedTracks] = useState<Set<string>>(() => new Set());
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
@@ -356,6 +364,7 @@ export function ServidorUpPanel() {
     setBusy("Match Deezer…");
     setMatchResult(null);
     setMatchPicks({});
+    setSkippedTracks(new Set());
     try {
       if (inventory.length === 0) throw new Error("Rode o inventário primeiro.");
       const res = await fetch("/api/criacao/servidor-up/match-inventory", {
@@ -390,7 +399,7 @@ export function ServidorUpPanel() {
       if (!matchResult) throw new Error("Faça o match antes.");
       const lines: string[] = [];
       for (const row of matchResult.rows) {
-        if (!matchApproved(row, matchPicks)) continue;
+        if (!matchApproved(row, matchPicks, skippedTracks)) continue;
         const url = matchDeezerUrl(row, matchPicks);
         if (url) lines.push(url);
       }
@@ -425,8 +434,12 @@ export function ServidorUpPanel() {
 
   const pendingCount = preview?.rows.filter((r) => rowNeedsAction(r, drafts[r.key])).length ?? 0;
   const step0Ready = preview !== null && pendingCount === 0;
-  const reviewRows = matchResult?.rows.filter((r) => r.verdict === "pick" || r.verdict === "rejected") ?? [];
-  const approvedCount = matchResult?.rows.filter((r) => matchApproved(r, matchPicks)).length ?? 0;
+  const reviewRows =
+    matchResult?.rows.filter(
+      (r) => !skippedTracks.has(r.relativePath) && (r.verdict === "pick" || r.verdict === "review" || r.verdict === "rejected"),
+    ) ?? [];
+  const approvedCount =
+    matchResult?.rows.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -662,6 +675,11 @@ export function ServidorUpPanel() {
             <p className="text-sm font-semibold">Passo 2–3 — Match e revisão</p>
             <p className="mt-1 text-xs text-slate-500">
               Aprovadas para download: {approvedCount} / {matchResult.rows.length}
+              {skippedTracks.size > 0 ? ` · ${skippedTracks.size} pulada(s)` : ""}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              Na dúvida: abra o link Deezer, compare com o MP3 legado no PC e escolha na lista — ou use{" "}
+              <strong>Pular</strong> para não subir.
             </p>
           </div>
 
@@ -673,26 +691,44 @@ export function ServidorUpPanel() {
                   <th className="px-3 py-2">Dur.</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Deezer</th>
+                  <th className="px-3 py-2">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {matchResult.rows.map((row) => (
-                  <tr key={row.relativePath}>
+                {matchResult.rows.map((row) => {
+                  const isSkipped = skippedTracks.has(row.relativePath);
+                  const showPicker =
+                    !isSkipped &&
+                    row.candidates.length > 0 &&
+                    (row.verdict === "pick" ||
+                      row.verdict === "review" ||
+                      row.verdict === "rejected" ||
+                      row.verdict === "not_found");
+
+                  return (
+                  <tr key={row.relativePath} className={isSkipped ? "opacity-50" : undefined}>
                     <td className="px-3 py-2">
                       <div className="font-medium">{row.searchLine}</div>
+                      {row.normalizedSearchLine !== row.searchLine ?
+                        <div className="text-[10px] text-violet-600">Busca: {row.normalizedSearchLine}</div>
+                      : null}
                       <div className="text-[10px] text-slate-500">{row.relativePath}</div>
                     </td>
                     <td className="px-3 py-2 tabular-nums">{formatDuration(row.legacyDurationSec)}</td>
                     <td className="px-3 py-2">
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${MATCH_TONE[row.verdict]}`}>
-                        {MATCH_LABEL[row.verdict]}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${MATCH_TONE[isSkipped ? "skipped" : row.verdict]}`}
+                      >
+                        {isSkipped ? "Pulada" : MATCH_LABEL[row.verdict]}
                       </span>
-                      <div className="text-[10px] text-slate-500">{row.verdictReason}</div>
+                      {!isSkipped ?
+                        <div className="text-[10px] text-slate-500">{row.verdictReason}</div>
+                      : null}
                     </td>
                     <td className="px-3 py-2">
-                      {row.verdict === "pick" || row.verdict === "rejected" ?
+                      {showPicker ?
                         <select
-                          value={matchPicks[row.relativePath] ?? ""}
+                          value={matchPicks[row.relativePath] ?? row.selected?.trackId ?? ""}
                           onChange={(e) =>
                             setMatchPicks((p) => ({
                               ...p,
@@ -701,14 +737,14 @@ export function ServidorUpPanel() {
                           }
                           className="w-full max-w-xs rounded border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
                         >
-                          <option value="">Escolher…</option>
+                          <option value="">Escolher versão…</option>
                           {row.candidates.map((c) => (
                             <option key={c.trackId} value={c.trackId}>
                               {c.artist} — {c.title} ({formatDuration(c.durationSec)}, score {c.score})
                             </option>
                           ))}
                         </select>
-                      : row.selected ?
+                      : row.selected && !isSkipped ?
                         <div className="text-xs">
                           {row.selected.artist} — {row.selected.title}
                           <div className="text-slate-500">
@@ -720,8 +756,37 @@ export function ServidorUpPanel() {
                         </div>
                       : "—"}
                     </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-1">
+                        {(matchDeezerUrl(row, matchPicks) ?? row.selected?.url) ?
+                          <a
+                            href={matchDeezerUrl(row, matchPicks) ?? row.selected?.url ?? "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded border px-2 py-0.5 text-[10px] font-semibold dark:border-slate-700"
+                          >
+                            Ouvir Deezer
+                          </a>
+                        : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSkippedTracks((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(row.relativePath)) next.delete(row.relativePath);
+                              else next.add(row.relativePath);
+                              return next;
+                            })
+                          }
+                          className="rounded border px-2 py-0.5 text-[10px] font-semibold dark:border-slate-700"
+                        >
+                          {isSkipped ? "Desfazer" : "Pular"}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

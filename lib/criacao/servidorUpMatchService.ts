@@ -1,11 +1,9 @@
 import {
-  resolveDeezerTrackFromText,
+  isAlternateVersionTitle,
+  normalizeLegacyFilenameForSearch,
+  resolveDeezerLegacyCandidates,
   type DeezerTrackCandidate,
-  type DeezerTrackResolveResult,
 } from "@/lib/criacao/deezerTrackMatch";
-
-const DZ_BASE = "https://api.deezer.com";
-const DZ_UA = "RadioIbizaPortal/1.0 (servidor-up; contact@radioibiza.com.br)";
 
 export type ServidorUpInventoryTrack = {
   relativePath: string;
@@ -20,7 +18,7 @@ export type ServidorUpInventoryTrack = {
   sizeBytes?: number;
 };
 
-export type ServidorUpMatchVerdict = "auto" | "review" | "pick" | "not_found" | "rejected";
+export type ServidorUpMatchVerdict = "auto" | "review" | "pick" | "not_found" | "rejected" | "skipped";
 
 export type ServidorUpMatchCandidate = DeezerTrackCandidate & {
   durationSec: number | null;
@@ -37,6 +35,7 @@ export type ServidorUpMatchRow = {
   titulo: string;
   legacyDurationSec: number | null;
   searchLine: string;
+  normalizedSearchLine: string;
   verdict: ServidorUpMatchVerdict;
   verdictReason: string;
   selected: ServidorUpMatchCandidate | null;
@@ -57,6 +56,8 @@ export type ServidorUpMatchBatchResult = {
   };
 };
 
+const DZ_BASE = "https://api.deezer.com";
+const DZ_UA = "RadioIbizaPortal/1.0 (servidor-up; contact@radioibiza.com.br)";
 const durationCache = new Map<number, number | null>();
 
 async function fetchDeezerTrackDuration(trackId: number): Promise<number | null> {
@@ -87,7 +88,10 @@ async function enrichCandidates(
 ): Promise<ServidorUpMatchCandidate[]> {
   const out: ServidorUpMatchCandidate[] = [];
   for (const c of candidates) {
-    const durationSec = await fetchDeezerTrackDuration(c.trackId);
+    let durationSec = c.durationSec ?? null;
+    if (durationSec == null) {
+      durationSec = await fetchDeezerTrackDuration(c.trackId);
+    }
     const durationDiffSec =
       legacyDurationSec != null && durationSec != null ?
         Math.abs(durationSec - legacyDurationSec)
@@ -105,32 +109,47 @@ function buildSearchLine(track: ServidorUpInventoryTrack): string {
   return stem || t || a || track.fileName;
 }
 
+function legacyWantsAlternateVersion(legacyTitle: string): boolean {
+  return isAlternateVersionTitle(legacyTitle);
+}
+
+function versionSortPenalty(legacyTitle: string, candidateTitle: string): number {
+  if (legacyWantsAlternateVersion(legacyTitle)) return 0;
+  return isAlternateVersionTitle(candidateTitle) ? 1 : 0;
+}
+
 function pickByLegacyDuration(
   enriched: ServidorUpMatchCandidate[],
   legacyDurationSec: number | null,
+  legacyTitle: string,
 ): { selected: ServidorUpMatchCandidate | null; verdict: ServidorUpMatchVerdict; reason: string } {
   if (enriched.length === 0) {
     return { selected: null, verdict: "not_found", reason: "Nenhum candidato Deezer." };
   }
 
+  const sorted = [...enriched].sort((a, b) => {
+    const da = a.durationDiffSec ?? 9999;
+    const db = b.durationDiffSec ?? 9999;
+    if (Math.abs(da - db) > 2) return da - db;
+
+    const altA = versionSortPenalty(legacyTitle, a.title);
+    const altB = versionSortPenalty(legacyTitle, b.title);
+    if (altA !== altB) return altA - altB;
+
+    return b.score - a.score;
+  });
+
   if (legacyDurationSec == null) {
-    const top = enriched[0]!;
-    if (enriched.length === 1 && top.score >= 92) {
+    const top = sorted[0]!;
+    if (sorted.length === 1 && top.score >= 88) {
       return { selected: top, verdict: "auto", reason: "Match alto (sem duração legado)." };
     }
     return {
       selected: top,
-      verdict: enriched.length > 1 ? "pick" : "review",
+      verdict: sorted.length > 1 ? "pick" : "review",
       reason: "Sem duração legado — confirme manualmente.",
     };
   }
-
-  const sorted = [...enriched].sort((a, b) => {
-    const da = a.durationDiffSec ?? 9999;
-    const db = b.durationDiffSec ?? 9999;
-    if (da !== db) return da - db;
-    return b.score - a.score;
-  });
 
   const best = sorted[0]!;
   const diff = best.durationDiffSec;
@@ -139,15 +158,21 @@ function pickByLegacyDuration(
     return {
       selected: best,
       verdict: sorted.length > 1 ? "pick" : "review",
-      reason: "Duração Deezer indisponível.",
+      reason: "Duração Deezer indisponível — escolha a versão correta na lista.",
     };
   }
 
   if (diff <= 3) {
+    const plainStudio = sorted.find(
+      (c) =>
+        (c.durationDiffSec ?? 999) <= 3 &&
+        versionSortPenalty(legacyTitle, c.title) === 0,
+    );
+    const chosen = plainStudio ?? best;
     return {
-      selected: best,
+      selected: chosen,
       verdict: "auto",
-      reason: `Duração OK (Δ ${diff.toFixed(0)}s).`,
+      reason: `Duração OK (Δ ${(chosen.durationDiffSec ?? diff).toFixed(0)}s).`,
     };
   }
 
@@ -163,7 +188,7 @@ function pickByLegacyDuration(
     return {
       selected: best,
       verdict: "review",
-      reason: `Duração diverge ${diff.toFixed(0)}s — revisar versão.`,
+      reason: `Duração diverge ${diff.toFixed(0)}s — ouça legado × Deezer e confirme.`,
     };
   }
 
@@ -172,19 +197,26 @@ function pickByLegacyDuration(
     return {
       selected: closeAlt,
       verdict: "review",
-      reason: `Melhor candidato por duração (Δ ${closeAlt.durationDiffSec!.toFixed(0)}s).`,
+      reason: `Melhor candidato por duração (Δ ${closeAlt.durationDiffSec!.toFixed(0)}s) — confirme.`,
     };
   }
 
   return {
     selected: best,
-    verdict: "rejected",
-    reason: `Provável outra versão (Δ ${diff.toFixed(0)}s). Escolha manual ou pule.`,
+    verdict: "pick",
+    reason: `Versões diferentes (Δ ${diff.toFixed(0)}s) — escolha a que bate com ${formatMmSs(legacyDurationSec)}.`,
   };
+}
+
+function formatMmSs(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorUpMatchRow> {
   const searchLine = buildSearchLine(track);
+  const normalizedSearchLine = normalizeLegacyFilenameForSearch(searchLine);
   const base = {
     relativePath: track.relativePath,
     fileName: track.fileName,
@@ -195,11 +227,13 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
     titulo: track.titulo,
     legacyDurationSec: track.durationSec,
     searchLine,
+    normalizedSearchLine,
   };
 
-  let resolveResult: DeezerTrackResolveResult;
+  let candidatesRaw: DeezerTrackCandidate[] = [];
   try {
-    resolveResult = await resolveDeezerTrackFromText(searchLine);
+    const resolved = await resolveDeezerLegacyCandidates(normalizedSearchLine);
+    candidatesRaw = resolved.candidates;
   } catch (e) {
     return {
       ...base,
@@ -211,40 +245,29 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
     };
   }
 
-  const candidatesRaw =
-    resolveResult.status === "resolved" ?
-      [resolveResult.candidate]
-    : resolveResult.candidates;
-
-  const enriched = await enrichCandidates(candidatesRaw, track.durationSec);
-
-  if (resolveResult.status === "pick" && enriched.length > 0) {
-    const { selected, verdict, reason } = pickByLegacyDuration(enriched, track.durationSec);
-    const finalVerdict: ServidorUpMatchVerdict = verdict === "auto" ? "auto" : "pick";
-    return {
-      ...base,
-      verdict: finalVerdict,
-      verdictReason: reason,
-      selected,
-      candidates: enriched,
-      deezerUrl: selected?.url ?? null,
-    };
-  }
-
-  if (resolveResult.status === "not_found") {
+  if (candidatesRaw.length === 0) {
     return {
       ...base,
       verdict: "not_found",
-      verdictReason: "Não encontrado no Deezer.",
+      verdictReason:
+        "Não encontrado no Deezer — tente colar link deezer.com/track/… ou busque no Deemix e escolha manual.",
       selected: null,
-      candidates: enriched,
+      candidates: [],
       deezerUrl: null,
     };
   }
 
-  const { selected, verdict, reason } = pickByLegacyDuration(enriched, track.durationSec);
-  const finalVerdict: ServidorUpMatchVerdict =
-    resolveResult.status === "resolved" && verdict === "pick" ? "review" : verdict;
+  const enriched = await enrichCandidates(candidatesRaw, track.durationSec);
+  const { selected, verdict, reason } = pickByLegacyDuration(
+    enriched,
+    track.durationSec,
+    track.titulo,
+  );
+
+  let finalVerdict = verdict;
+  if (verdict === "pick" && enriched.length === 1) {
+    finalVerdict = "review";
+  }
 
   return {
     ...base,
@@ -252,7 +275,7 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
     verdictReason: reason,
     selected,
     candidates: enriched,
-    deezerUrl: selected?.url ?? (resolveResult.status === "resolved" ? resolveResult.url : null),
+    deezerUrl: selected?.url ?? null,
   };
 }
 
@@ -261,7 +284,7 @@ export async function matchServidorUpInventory(
   tracks: ServidorUpInventoryTrack[],
   opts?: { concurrency?: number },
 ): Promise<ServidorUpMatchBatchResult> {
-  const concurrency = Math.min(6, Math.max(1, opts?.concurrency ?? 3));
+  const concurrency = Math.min(4, Math.max(1, opts?.concurrency ?? 2));
   const rows: ServidorUpMatchRow[] = new Array(tracks.length);
 
   let idx = 0;
