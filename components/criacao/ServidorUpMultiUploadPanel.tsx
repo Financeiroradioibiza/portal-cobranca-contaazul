@@ -205,7 +205,7 @@ export function ServidorUpMultiUploadPanel() {
                     </div>
                     <div className="text-[11px] text-slate-500">
                       {lote.tracks.length} faixa(s) · tag{" "}
-                      <span className="font-semibold">{formatTagChipPreview(lote.uploadTagNome)}</span>
+                      <span className="font-semibold">{formatTagChipPreview("", lote.uploadTagNome)}</span>
                     </div>
                   </div>
                 </div>
