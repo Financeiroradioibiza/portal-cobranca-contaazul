@@ -428,7 +428,6 @@ export function ServidorUpPanel() {
 
   async function enfileirarDownloads() {
     setErr("");
-    setBusy("Enfileirando Deemix…");
     try {
       if (!matchResult) throw new Error("Faça o match antes.");
       const lines: string[] = [];
@@ -438,26 +437,106 @@ export function ServidorUpPanel() {
         if (url) lines.push(url);
       }
       if (lines.length === 0) throw new Error("Nenhuma faixa aprovada para download.");
-      const res = await fetch("/api/criacao/servidor-up/enqueue-downloads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          titulo: `Servidor UP · ${rootPath.split("/").pop() || "legado"}`,
-          lines,
-        }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        jobId?: string;
-        totalItens?: number;
-        error?: string;
-        processingError?: string | null;
+
+      const ENQUEUE_CHUNK = 8;
+      const PROCESS_LIMIT = 5;
+      let jobId: string | undefined;
+      let totalItens = 0;
+      let itensErro = 0;
+      let itensPick = 0;
+      const titulo = `Servidor UP · ${rootPath.split("/").pop() || "legado"}`;
+
+      for (let i = 0; i < lines.length; i += ENQUEUE_CHUNK) {
+        const end = Math.min(i + ENQUEUE_CHUNK, lines.length);
+        setBusy(`Enfileirando Deemix… ${end}/${lines.length}`);
+        const chunk = lines.slice(i, end);
+        const res = await fetch("/api/criacao/servidor-up/enqueue-downloads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            titulo,
+            lines: chunk,
+            jobId,
+            skipProcessing: true,
+          }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          jobId?: string;
+          totalItens?: number;
+          itensErro?: number;
+          itensPick?: number;
+          error?: string;
+        };
+        if (!res.ok || !data.ok || !data.jobId) {
+          throw new Error(data.error ?? `Falha ao enfileirar (faixas ${i + 1}–${end}).`);
+        }
+        jobId = data.jobId;
+        totalItens = data.totalItens ?? totalItens;
+        itensErro += data.itensErro ?? 0;
+        itensPick += data.itensPick ?? 0;
+        if (end < lines.length) await new Promise((r) => setTimeout(r, 400));
+      }
+
+      if (!jobId) throw new Error("Job Deemix não criado.");
+
+      const maxRounds = Math.ceil(lines.length / PROCESS_LIMIT) * 4 + 4;
+      let processErrors = 0;
+      for (let round = 0; round < maxRounds; round++) {
+        const detailRes = await fetch(`/api/criacao/download/${jobId}`);
+        const detailData = (await detailRes.json()) as {
+          job?: { totalItens: number; itensFeitos: number; itens: { status: string }[] };
+        };
+        const job = detailData.job;
+        if (!job) break;
+
+        const pending = job.itens.filter(
+          (i) => i.status === "aguardando" || i.status === "processando",
+        ).length;
+        if (pending === 0) break;
+
+        setBusy(`Baixando Deemix… ${job.itensFeitos}/${job.totalItens} (${pending} pendente(s))`);
+
+        const syncRes = await fetch("/api/criacao/download/sync-pending", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: PROCESS_LIMIT, timeoutMs: 45_000 }),
+        });
+        const syncData = (await syncRes.json()) as {
+          triggered?: boolean;
+          processed?: number;
+          error?: string;
+        };
+        if (!syncRes.ok || syncData.error) processErrors += 1;
+        await new Promise((r) => setTimeout(r, 800));
+      }
+
+      const finalRes = await fetch(`/api/criacao/download/${jobId}`);
+      const finalData = (await finalRes.json()) as {
+        job?: { totalItens: number; itensFeitos: number; itens: { status: string }[] };
       };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "Falha ao enfileirar.");
-      setMsg(
-        `Download Deemix enfileirado: ${data.totalItens} faixa(s). Job ${data.jobId?.slice(0, 8)}… ` +
-          (data.processingError ? `(aviso: ${data.processingError})` : ""),
-      );
+      const finalJob = finalData.job;
+      const okCount = finalJob?.itens.filter((i) => i.status === "concluido").length ?? 0;
+      const errCount = finalJob?.itens.filter((i) => i.status === "erro").length ?? 0;
+      const pendingCount =
+        finalJob?.itens.filter((i) => i.status === "aguardando" || i.status === "processando")
+          .length ?? 0;
+
+      const parts = [
+        `Deemix: ${okCount}/${totalItens} baixada(s)`,
+        `Job ${jobId.slice(0, 8)}…`,
+      ];
+      if (itensPick > 0) parts.push(`${itensPick} aguardando escolha`);
+      if (errCount > 0) parts.push(`${errCount} erro(s)`);
+      if (pendingCount > 0) {
+        parts.push(
+          `${pendingCount} ainda pendente(s) — abra Download link e aguarde, ou clique Passo 4 de novo`,
+        );
+      }
+      if (processErrors > 0 && pendingCount > 0) {
+        parts.push("(alguns lotes deram timeout no worker — o download continua em segundo plano)");
+      }
+      setMsg(parts.join(" · "));
       setActiveStep(4);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao enfileirar.");

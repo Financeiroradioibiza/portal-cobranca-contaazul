@@ -147,6 +147,54 @@ export async function createDownloadJob(input: {
   return { job, itensErro, itensPick };
 }
 
+/** Acrescenta faixas a um job Deemix existente (Servidor UP em lotes). */
+export async function appendDownloadJobItems(input: { jobId: string; linhas: string }) {
+  const job = await prisma.downloadJob.findUnique({
+    where: { id: input.jobId },
+    select: { id: true, provider: true, status: true, totalItens: true },
+  });
+  if (!job) throw new Error("job_not_found");
+  if (job.status === "cancelado") throw new Error("job_fechado");
+
+  const provider = job.provider as DownloadProviderId;
+  const parsedRaw = parseDownloadLines(input.linhas, provider);
+  if (parsedRaw.length === 0) throw new Error("nenhuma_linha");
+
+  const parsed: ExpandedDownloadLine[] =
+    provider === "deemix" ?
+      await expandDeezerDownloadLines(parsedRaw)
+    : parsedRaw;
+  if (parsed.length === 0) throw new Error("nenhuma_linha");
+
+  await prisma.downloadItem.createMany({
+    data: parsed.map((p) => ({
+      jobId: job.id,
+      linhaOriginal: p.linhaOriginal.slice(0, 4000),
+      inputTipo: p.inputTipo,
+      status: p.expandError ? ("erro" as DownloadItemStatus) : undefined,
+      erroMsg:
+        p.expandError ??
+        (p.pickCandidates?.length ? buildPickErroMsg(p.pickCandidates) : ""),
+    })),
+  });
+
+  await prisma.downloadJob.update({
+    where: { id: job.id },
+    data: { totalItens: job.totalItens + parsed.length },
+  });
+  await refreshDownloadJobCounters(job.id);
+
+  const updated = await prisma.downloadJob.findUnique({ where: { id: job.id } });
+  if (!updated) throw new Error("job_not_found");
+
+  return {
+    job: updated,
+    added: parsed.length,
+    itensErro: parsed.filter((p) => p.expandError).length,
+    itensPick: parsed.filter((p) => p.pickCandidates?.length).length,
+  };
+}
+
 export async function listDownloadJobs(opts: {
   provider?: DownloadProviderId;
   limit?: number;

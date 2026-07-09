@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { providerConfigured } from "@/lib/criacao/downloadConfig";
 import {
+  appendDownloadJobItems,
   createDownloadJob,
   triggerDownloadProcessing,
 } from "@/lib/criacao/downloadService";
@@ -14,6 +15,9 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as {
       titulo?: string;
       lines?: string[];
+      jobId?: string;
+      skipProcessing?: boolean;
+      processLimit?: number;
     };
     const lines = (body.lines ?? []).map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) {
@@ -23,27 +27,70 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "deemix_nao_configurado" }, { status: 503 });
     }
 
-    const created = await createDownloadJob({
-      provider: "deemix",
-      titulo: (body.titulo ?? "Servidor UP — migração legado").slice(0, 200),
-      linhas: lines.join("\n"),
-      criativoNome: session.displayName ?? session.email,
-      criativoUserId: session.email,
-    });
+    const appendJobId = (body.jobId ?? "").trim();
+    let jobId: string;
+    let totalItens: number;
+    let itensErro = 0;
+    let itensPick = 0;
 
-    const proc = await triggerDownloadProcessing(Math.min(50, created.job.totalItens + 5), {
-      timeoutMs: 8_000,
-    }).catch((e: unknown) => ({
+    if (appendJobId) {
+      try {
+        const appended = await appendDownloadJobItems({
+          jobId: appendJobId,
+          linhas: lines.join("\n"),
+        });
+        jobId = appended.job.id;
+        totalItens = appended.job.totalItens;
+        itensErro = appended.itensErro;
+        itensPick = appended.itensPick;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "server_error";
+        if (msg === "job_not_found") {
+          return NextResponse.json({ error: "job_nao_encontrado" }, { status: 404 });
+        }
+        if (msg === "job_fechado") {
+          return NextResponse.json({ error: "job_fechado" }, { status: 409 });
+        }
+        if (msg === "nenhuma_linha") {
+          return NextResponse.json({ error: "nenhuma_linha" }, { status: 400 });
+        }
+        throw e;
+      }
+    } else {
+      const created = await createDownloadJob({
+        provider: "deemix",
+        titulo: (body.titulo ?? "Servidor UP — migração legado").slice(0, 200),
+        linhas: lines.join("\n"),
+        criativoNome: session.displayName ?? session.email,
+        criativoUserId: session.email,
+      });
+      jobId = created.job.id;
+      totalItens = created.job.totalItens;
+      itensErro = created.itensErro;
+      itensPick = created.itensPick;
+    }
+
+    const skipProcessing = body.skipProcessing !== false;
+    let proc: { triggered: boolean; processed?: number; error?: string } = {
       triggered: false,
-      error: e instanceof Error ? e.message : "erro_rede",
-    }));
+    };
+    if (!skipProcessing) {
+      const processLimit = Math.min(15, Math.max(1, body.processLimit ?? 5));
+      proc = await triggerDownloadProcessing(processLimit, { timeoutMs: 25_000 }).catch(
+        (e: unknown) => ({
+          triggered: false,
+          error: e instanceof Error ? e.message : "erro_rede",
+        }),
+      );
+    }
 
     return NextResponse.json({
       ok: true,
-      jobId: created.job.id,
-      totalItens: created.job.totalItens,
-      itensErro: created.itensErro,
-      itensPick: created.itensPick,
+      jobId,
+      totalItens,
+      added: lines.length,
+      itensErro,
+      itensPick,
       processingTriggered: proc.triggered,
       processingError: proc.error ?? null,
     });
