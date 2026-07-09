@@ -29,6 +29,7 @@ import type {
   ServidorUpMatchVerdict,
 } from "@/lib/criacao/servidorUpMatchService";
 import {
+  persistServidorUpUploadSession,
   writeServidorUpUploadSession,
   type ServidorUpUploadTrack,
 } from "@/lib/criacao/servidorUpUploadSession";
@@ -454,7 +455,7 @@ export function ServidorUpPanel() {
 
   function persistUploadSession(jobId: string) {
     if (!preview || !matchResult) return;
-    writeServidorUpUploadSession({
+    const payload = {
       downloadJobId: jobId,
       titulo: `Servidor UP · ${rootPath.split("/").pop() || "legado"}`,
       hierarchyRows: preview.rows,
@@ -466,7 +467,9 @@ export function ServidorUpPanel() {
       ),
       tracks: buildUploadTracks(),
       savedAt: Date.now(),
-    });
+    };
+    writeServidorUpUploadSession(payload);
+    void persistServidorUpUploadSession(payload);
   }
 
   function irParaMultiUpload() {

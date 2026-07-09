@@ -1300,6 +1300,16 @@ model DownloadJob {
   @@map("download_job")
 }
 
+/// Snapshot hierarquia + match para Multi-Upload legado (por job Deemix).
+model ServidorUpUploadSnapshot {
+  downloadJobId String   @id @map("download_job_id")
+  payload       Json
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("servidor_up_upload_snapshot")
+}
+
 model DownloadItem {
   id             String             @id @default(cuid())
   jobId          String             @map("job_id")

@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import {
   clearServidorUpUploadSession,
+  fetchServidorUpUploadSession,
   readServidorUpUploadSession,
+  writeServidorUpUploadSession,
   type ServidorUpUploadSession,
 } from "@/lib/criacao/servidorUpUploadSession";
 import type { ServidorUpUploadPlan } from "@/lib/criacao/servidorUpUploadService";
@@ -36,6 +38,29 @@ type EnqueueResponse = {
   unmatched?: string[];
 };
 
+type SnapshotSummary = {
+  downloadJobId: string;
+  titulo: string;
+  trackCount: number;
+  savedAt: number;
+};
+
+type DeemixJobSummary = {
+  id: string;
+  titulo: string;
+  status: string;
+  totalItens: number;
+  itensOk: number;
+  createdAt: string;
+};
+
+type SessionsResponse = {
+  ok?: boolean;
+  snapshots?: SnapshotSummary[];
+  servidorUpJobs?: DeemixJobSummary[];
+  error?: string;
+};
+
 export function ServidorUpMultiUploadPanel() {
   const router = useRouter();
   const [session, setSession] = useState<ServidorUpUploadSession | null>(null);
@@ -45,6 +70,10 @@ export function ServidorUpMultiUploadPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
+  const [deemixJobs, setDeemixJobs] = useState<DeemixJobSummary[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [selectingJob, setSelectingJob] = useState(false);
 
   const loadPlan = useCallback(async (s: ServidorUpUploadSession) => {
     setLoading(true);
@@ -74,12 +103,84 @@ export function ServidorUpMultiUploadPanel() {
     }
   }, []);
 
+  const activateSession = useCallback(
+    async (s: ServidorUpUploadSession) => {
+      writeServidorUpUploadSession(s);
+      setSession(s);
+      await loadPlan(s);
+    },
+    [loadPlan],
+  );
+
+  const loadAvailableSessions = useCallback(async () => {
+    setLoadingSessions(true);
+    try {
+      const res = await fetch("/api/criacao/servidor-up/upload-sessions");
+      const data = (await res.json()) as SessionsResponse;
+      if (res.ok) {
+        setSnapshots(data.snapshots ?? []);
+        setDeemixJobs(data.servidorUpJobs ?? []);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, []);
+
+  const pickJob = useCallback(
+    async (jobId: string) => {
+      setSelectingJob(true);
+      setErr(null);
+      try {
+        const s = await fetchServidorUpUploadSession(jobId);
+        if (!s) {
+          throw new Error(
+            "Este job Deemix não tem hierarquia salva. Volte ao Servidor UP (passos 0–4) na mesma sessão ou refaça o fluxo para gerar o snapshot.",
+          );
+        }
+        await activateSession(s);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Falha ao carregar sessão.");
+      } finally {
+        setSelectingJob(false);
+      }
+    },
+    [activateSession],
+  );
+
   useEffect(() => {
-    const s = readServidorUpUploadSession();
-    setSession(s);
-    if (s) void loadPlan(s);
-    else setLoading(false);
-  }, [loadPlan]);
+    void (async () => {
+      const local = readServidorUpUploadSession();
+      if (local) {
+        setSession(local);
+        await loadPlan(local);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const res = await fetch("/api/criacao/servidor-up/upload-sessions");
+        const data = (await res.json()) as SessionsResponse;
+        if (res.ok) {
+          setSnapshots(data.snapshots ?? []);
+          setDeemixJobs(data.servidorUpJobs ?? []);
+          const latest = data.snapshots?.[0];
+          if (latest) {
+            const s = await fetchServidorUpUploadSession(latest.downloadJobId);
+            if (s) {
+              await activateSession(s);
+              return;
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [activateSession, loadPlan]);
 
   async function submitMultiUpload() {
     if (!session || !plan) return;
@@ -127,20 +228,104 @@ export function ServidorUpMultiUploadPanel() {
   }
 
   if (!session) {
+    const snapshotIds = new Set(snapshots.map((s) => s.downloadJobId));
+    const jobsWithoutSnapshot = deemixJobs.filter(
+      (j) => !snapshotIds.has(j.id) && j.itensOk > 0,
+    );
+
     return (
       <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50/90 p-4 dark:border-amber-900 dark:bg-amber-950/30">
         <h2 className="text-sm font-bold text-amber-950 dark:text-amber-100">Multi-Upload (Servidor UP)</h2>
         <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">
-          Nenhuma sessão Servidor UP ativa. Conclua o download no{" "}
+          Escolha um job Deemix do Servidor UP com hierarquia salva, ou conclua o download no{" "}
           <Link href="/criacao/servidor-up" className="font-semibold underline">
             Servidor UP
           </Link>{" "}
-          e use o Passo 5, ou volte ao{" "}
-          <Link href="/criacao/upload" className="font-semibold underline">
-            upload comum
-          </Link>
-          .
+          (Passo 5).
         </p>
+
+        {err ?
+          <p className="mt-2 text-xs font-semibold text-red-700 dark:text-red-300">{err}</p>
+        : null}
+
+        {loading || loadingSessions ?
+          <p className="mt-3 text-xs text-amber-800/80">Carregando jobs…</p>
+        : snapshots.length > 0 ?
+          <div className="mt-3">
+            <p className="mb-2 text-[11px] font-semibold text-amber-950 dark:text-amber-100">
+              Jobs com hierarquia salva
+            </p>
+            <ul className="space-y-2">
+              {snapshots.map((snap) => (
+                <li
+                  key={snap.downloadJobId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200/80 bg-white/90 px-3 py-2 dark:border-amber-800 dark:bg-slate-900/70"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      {snap.titulo}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      {snap.trackCount} faixa(s) · job {snap.downloadJobId.slice(0, 8)}… ·{" "}
+                      {new Date(snap.savedAt).toLocaleString("pt-BR")}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={selectingJob}
+                    onClick={() => void pickJob(snap.downloadJobId)}
+                    className="rounded-lg bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    Usar este job
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        : null}
+
+        {jobsWithoutSnapshot.length > 0 ?
+          <div className="mt-4">
+            <p className="mb-2 text-[11px] font-semibold text-amber-950 dark:text-amber-100">
+              Downloads concluídos sem hierarquia salva
+            </p>
+            <ul className="space-y-2">
+              {jobsWithoutSnapshot.map((job) => (
+                <li
+                  key={job.id}
+                  className="rounded-lg border border-dashed border-amber-300/80 bg-white/60 px-3 py-2 dark:border-amber-700 dark:bg-slate-900/50"
+                >
+                  <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{job.titulo}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {job.itensOk}/{job.totalItens} baixada(s) · job {job.id.slice(0, 8)}…
+                  </div>
+                  <p className="mt-1 text-[10px] text-amber-800 dark:text-amber-300">
+                    Abra o Servidor UP na mesma aba onde fez o passo 0 e clique em &quot;Salvar snapshot&quot; no
+                    Passo 5, ou refaça os passos 0–4.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        : null}
+
+        {!loading && !loadingSessions && snapshots.length === 0 && jobsWithoutSnapshot.length === 0 ?
+          <p className="mt-3 text-xs text-amber-800/80">
+            Nenhum job Servidor UP encontrado. Use o{" "}
+            <Link href="/criacao/upload" className="font-semibold underline">
+              upload comum
+            </Link>{" "}
+            para lotes já importados manualmente.
+          </p>
+        : null}
+
+        <button
+          type="button"
+          onClick={() => void loadAvailableSessions()}
+          className="mt-3 rounded border border-amber-300 px-2 py-1 text-[10px] font-semibold dark:border-amber-700"
+        >
+          Atualizar lista
+        </button>
       </div>
     );
   }
