@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 
@@ -17,6 +18,21 @@ export type MusicaVotoCounts = {
   likes: number;
   dislikes: number;
 };
+
+function isVotoTableMissing(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === "P2021") return true;
+    if (err.code === "P2022") return true;
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return /musica_biblioteca_voto/i.test(msg) && /does not exist|não existe|relation/i.test(msg);
+}
+
+function emptyCountsMap(musicaIds: string[]): Map<string, MusicaVotoCounts> {
+  const map = new Map<string, MusicaVotoCounts>();
+  for (const id of musicaIds) map.set(id, { likes: 0, dislikes: 0 });
+  return map;
+}
 
 function parseVoto(raw: string): MusicaVotoTipo | null {
   const v = raw.trim().toLowerCase();
@@ -73,6 +89,9 @@ export async function listVotosMusica(
   const rows = await prisma.musicaBibliotecaVoto.findMany({
     where,
     orderBy: [{ updatedAt: "desc" }],
+  }).catch((err) => {
+    if (isVotoTableMissing(err)) return [];
+    throw err;
   });
 
   return rows
@@ -95,24 +114,27 @@ export async function listVotosMusica(
 export async function countVotosPorMusica(musicaIds: string[]): Promise<Map<string, MusicaVotoCounts>> {
   if (musicaIds.length === 0) return new Map();
 
-  const rows = await prisma.musicaBibliotecaVoto.groupBy({
-    by: ["musicaId", "voto"],
-    where: { musicaId: { in: musicaIds } },
-    _count: { musicaId: true },
-  });
+  try {
+    const rows = await prisma.musicaBibliotecaVoto.groupBy({
+      by: ["musicaId", "voto"],
+      where: { musicaId: { in: musicaIds } },
+      _count: { _all: true },
+    });
 
-  const map = new Map<string, MusicaVotoCounts>();
-  for (const id of musicaIds) {
-    map.set(id, { likes: 0, dislikes: 0 });
+    const map = emptyCountsMap(musicaIds);
+    for (const r of rows) {
+      const cur = map.get(r.musicaId) ?? { likes: 0, dislikes: 0 };
+      const voto = parseVoto(r.voto);
+      const n = r._count._all;
+      if (voto === "like") cur.likes += n;
+      else if (voto === "dislike") cur.dislikes += n;
+      map.set(r.musicaId, cur);
+    }
+    return map;
+  } catch (err) {
+    if (isVotoTableMissing(err)) return emptyCountsMap(musicaIds);
+    throw err;
   }
-  for (const r of rows) {
-    const cur = map.get(r.musicaId) ?? { likes: 0, dislikes: 0 };
-    const voto = parseVoto(r.voto);
-    if (voto === "like") cur.likes += r._count.musicaId;
-    else if (voto === "dislike") cur.dislikes += r._count.musicaId;
-    map.set(r.musicaId, cur);
-  }
-  return map;
 }
 
 export async function countVotosPorMusicaFiltradoPdv(
@@ -121,21 +143,27 @@ export async function countVotosPorMusicaFiltradoPdv(
 ): Promise<Map<string, MusicaVotoCounts>> {
   if (musicaIds.length === 0 || portalPdvIds.length === 0) return new Map();
 
-  const rows = await prisma.musicaBibliotecaVoto.groupBy({
-    by: ["musicaId", "voto"],
-    where: { musicaId: { in: musicaIds }, portalPdvId: { in: portalPdvIds } },
-    _count: { musicaId: true },
-  });
+  try {
+    const rows = await prisma.musicaBibliotecaVoto.groupBy({
+      by: ["musicaId", "voto"],
+      where: { musicaId: { in: musicaIds }, portalPdvId: { in: portalPdvIds } },
+      _count: { _all: true },
+    });
 
-  const map = new Map<string, MusicaVotoCounts>();
-  for (const r of rows) {
-    const cur = map.get(r.musicaId) ?? { likes: 0, dislikes: 0 };
-    const voto = parseVoto(r.voto);
-    if (voto === "like") cur.likes += r._count.musicaId;
-    else if (voto === "dislike") cur.dislikes += r._count.musicaId;
-    map.set(r.musicaId, cur);
+    const map = new Map<string, MusicaVotoCounts>();
+    for (const r of rows) {
+      const cur = map.get(r.musicaId) ?? { likes: 0, dislikes: 0 };
+      const voto = parseVoto(r.voto);
+      const n = r._count._all;
+      if (voto === "like") cur.likes += n;
+      else if (voto === "dislike") cur.dislikes += n;
+      map.set(r.musicaId, cur);
+    }
+    return map;
+  } catch (err) {
+    if (isVotoTableMissing(err)) return new Map();
+    throw err;
   }
-  return map;
 }
 
 /** PDVs do gateway (100.001…) vinculados a uma programação via cadastro produção. */
