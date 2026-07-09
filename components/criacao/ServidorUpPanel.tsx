@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CriativoTagSelect,
   formatTagChipPreview,
@@ -27,6 +28,10 @@ import type {
   ServidorUpMatchRow,
   ServidorUpMatchVerdict,
 } from "@/lib/criacao/servidorUpMatchService";
+import {
+  writeServidorUpUploadSession,
+  type ServidorUpUploadTrack,
+} from "@/lib/criacao/servidorUpUploadSession";
 
 type RowDraft = {
   uploadTag: string;
@@ -75,7 +80,8 @@ const STEPS = [
   { n: 1, title: "Inventário", desc: "Scan + ffprobe" },
   { n: 2, title: "Match Deezer", desc: "Duração legado × Deezer" },
   { n: 3, title: "Revisão", desc: "Ambíguos" },
-  { n: 4, title: "Subida", desc: "Deemix + fila" },
+  { n: 4, title: "Deemix", desc: "Download 320k" },
+  { n: 5, title: "Subida", desc: "Multi-upload pastas" },
 ] as const;
 
 function rowNeedsAction(row: ServidorUpHierarchyRow, draft: RowDraft | undefined): boolean {
@@ -113,6 +119,7 @@ function matchDeezerUrl(row: ServidorUpMatchRow, picks: Record<string, number>):
 }
 
 export function ServidorUpPanel() {
+  const router = useRouter();
   const [localHealth, setLocalHealth] = useState<{ ok: boolean; version?: string; ffprobe?: boolean } | null>(
     null,
   );
@@ -124,6 +131,7 @@ export function ServidorUpPanel() {
   const [matchResult, setMatchResult] = useState<ServidorUpMatchBatchResult | null>(null);
   const [matchPicks, setMatchPicks] = useState<Record<string, number>>({});
   const [skippedTracks, setSkippedTracks] = useState<Set<string>>(() => new Set());
+  const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
@@ -426,6 +434,54 @@ export function ServidorUpPanel() {
     }
   }
 
+  function buildUploadTracks(): ServidorUpUploadTrack[] {
+    if (!matchResult) return [];
+    const tracks: ServidorUpUploadTrack[] = [];
+    for (const row of matchResult.rows) {
+      if (!matchApproved(row, matchPicks, skippedTracks)) continue;
+      const url = matchDeezerUrl(row, matchPicks);
+      if (!url) continue;
+      tracks.push({
+        relativePath: row.relativePath,
+        clienteNome: row.clienteNome,
+        programacaoNome: row.programacaoNome,
+        pastaNome: row.pastaNome,
+        deezerUrl: url,
+      });
+    }
+    return tracks;
+  }
+
+  function persistUploadSession(jobId: string) {
+    if (!preview || !matchResult) return;
+    writeServidorUpUploadSession({
+      downloadJobId: jobId,
+      titulo: `Servidor UP · ${rootPath.split("/").pop() || "legado"}`,
+      hierarchyRows: preview.rows,
+      drafts: Object.fromEntries(
+        Object.entries(drafts).map(([key, d]) => [
+          key,
+          { uploadTag: d.uploadTag, donoUserId: d.donoUserId },
+        ]),
+      ),
+      tracks: buildUploadTracks(),
+      savedAt: Date.now(),
+    });
+  }
+
+  function irParaMultiUpload() {
+    if (!downloadJobId) {
+      setErr("Faça o download Deemix (passo 4) antes da subida.");
+      return;
+    }
+    if (!preview || !matchResult) {
+      setErr("Dados do Servidor UP incompletos — refaça hierarquia e match.");
+      return;
+    }
+    persistUploadSession(downloadJobId);
+    router.push("/criacao/upload?servidorUp=1");
+  }
+
   async function enfileirarDownloads() {
     setErr("");
     try {
@@ -537,7 +593,9 @@ export function ServidorUpPanel() {
         parts.push("(alguns lotes deram timeout no worker — o download continua em segundo plano)");
       }
       setMsg(parts.join(" · "));
-      setActiveStep(4);
+      setDownloadJobId(jobId);
+      persistUploadSession(jobId);
+      setActiveStep(5);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao enfileirar.");
     } finally {
@@ -554,6 +612,13 @@ export function ServidorUpPanel() {
   const approvedCount =
     matchResult?.rows.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length ?? 0;
 
+  useEffect(() => {
+    if (downloadJobId && preview && matchResult) {
+      persistUploadSession(downloadJobId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- persiste sessão quando dados mudam
+  }, [downloadJobId, preview, matchResult, drafts, matchPicks, skippedTracks, rootPath]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -563,7 +628,7 @@ export function ServidorUpPanel() {
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {STEPS.map((s) => (
           <button
             key={s.n}
@@ -925,6 +990,42 @@ export function ServidorUpPanel() {
             >
               Abrir Download link →
             </Link>
+          </div>
+        </div>
+      : null}
+
+      {activeStep === 5 ?
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+          <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">Passo 5 — Multi-Upload</p>
+          <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">
+            Cada faixa vai para a pasta/programação definida no passo 0 — sem escolher cliente manualmente.
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="text-xs">
+              <span className="mb-1 block font-semibold text-slate-600">Job Deemix (Download link)</span>
+              <input
+                value={downloadJobId ?? ""}
+                onChange={(e) => setDownloadJobId(e.target.value.trim() || null)}
+                placeholder="cole o ID do job se veio do Download link"
+                className="w-64 rounded border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!downloadJobId || !preview || !matchResult}
+              onClick={() => irParaMultiUpload()}
+              className="rounded-lg bg-emerald-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Multi-Upload → {approvedCount} faixa(s) · {preview?.rows.filter((r) => r.status === "ok").length ?? 0}{" "}
+              pasta(s)
+            </button>
+            <Link
+              href="/criacao/upload?servidorUp=1"
+              onClick={() => downloadJobId && persistUploadSession(downloadJobId)}
+              className="rounded-lg border border-emerald-400 px-5 py-2 text-sm font-semibold dark:border-emerald-700"
+            >
+              Abrir Upload (modo Servidor UP)
+            </Link>
             <Link
               href="/criacao/fila"
               className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-semibold dark:border-slate-700"
@@ -932,6 +1033,9 @@ export function ServidorUpPanel() {
               Fila de processamento →
             </Link>
           </div>
+          {!matchResult ?
+            <p className="mt-2 text-xs text-amber-800">Faça o match (passos 2–3) antes da subida.</p>
+          : null}
         </div>
       : null}
     </div>

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
+import { ServidorUpMultiUploadPanel } from "@/components/criacao/ServidorUpMultiUploadPanel";
 import {
   FilaBrowserGuidance,
   FilaBrowserGuidanceOverview,
@@ -82,6 +83,8 @@ function loteLabel(l: UploadLote): string {
 
 export function UploadPanel() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const servidorUpMode = searchParams.get("servidorUp") === "1";
   const [titulo, setTitulo] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [lotes, setLotes] = useState<UploadLote[]>(() => [newLote()]);
@@ -395,8 +398,40 @@ export function UploadPanel() {
           Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um
           clique. Faixas baixadas no Download link podem ser importadas do servidor (sem arrastar MP3 do seu PC).
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => router.push("/criacao/upload")}
+            className={
+              "rounded-lg px-3 py-1.5 text-xs font-semibold " +
+              (!servidorUpMode ?
+                "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+              : "border border-slate-200 dark:border-slate-700")
+            }
+          >
+            Upload comum
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/criacao/upload?servidorUp=1")}
+            className={
+              "rounded-lg px-3 py-1.5 text-xs font-semibold " +
+              (servidorUpMode ?
+                "bg-violet-900 text-white"
+              : "border border-violet-300 text-violet-900 dark:border-violet-700 dark:text-violet-200")
+            }
+          >
+            Multi-Upload (Servidor UP)
+          </button>
+        </div>
       </div>
 
+      {servidorUpMode ?
+        <ServidorUpMultiUploadPanel />
+      : null}
+
+      {!servidorUpMode ?
+        <>
       <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/30">
         <h2 className="mb-1 text-sm font-bold text-violet-950 dark:text-violet-100">Importar do Download link</h2>
         <p className="mb-3 text-xs text-violet-900/80 dark:text-violet-200/80">
@@ -532,6 +567,8 @@ export function UploadPanel() {
           {lotes.filter((l) => l.files.length > 0).length} lote(s) · {totalFiles} MP3
         </span>
       </div>
+        </>
+      : null}
     </div>
   );
 }
