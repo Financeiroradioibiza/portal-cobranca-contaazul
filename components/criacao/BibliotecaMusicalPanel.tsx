@@ -5,6 +5,7 @@ import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 import { LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
+import { MusicaVotosBadges, MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
@@ -38,6 +39,8 @@ type Musica = {
   explicitGemini: "sim" | "nao" | "desconhecida" | null;
   previewUrl: string | null;
   rejeicoesCount: number;
+  likesCount: number;
+  dislikesCount: number;
   programacoesCount: number;
   legacyMotivos: LegacyMotivo[];
 };
@@ -87,6 +90,7 @@ export function BibliotecaMusicalPanel() {
   const [tags, setTags] = useState<TagCriativo[]>([]);
   const [showTagManager, setShowTagManager] = useState(false);
   const [tagFor, setTagFor] = useState<Musica | null>(null);
+  const [votosModal, setVotosModal] = useState<{ id: string; titulo: string } | null>(null);
   const [rowMsg, setRowMsg] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshingTagId, setRefreshingTagId] = useState<string | null>(null);
@@ -675,6 +679,13 @@ export function BibliotecaMusicalPanel() {
                         rejeitada ×{m.rejeicoesCount}
                       </span>
                     : null}
+                    <MusicaVotosBadges
+                      musicaId={m.id}
+                      titulo={m.titulo || "(sem título)"}
+                      likes={m.likesCount}
+                      dislikes={m.dislikesCount}
+                      onOpen={(id, titulo) => setVotosModal({ id, titulo })}
+                    />
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -804,6 +815,12 @@ export function BibliotecaMusicalPanel() {
           onChanged={load}
         />
       : null}
+
+      <MusicaVotosModal
+        musicaId={votosModal?.id ?? null}
+        titulo={votosModal?.titulo ?? ""}
+        onClose={() => setVotosModal(null)}
+      />
     </div>
   );
 }

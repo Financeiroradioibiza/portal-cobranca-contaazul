@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
+import { MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { formatPastaMusicaAddedAt } from "@/lib/criacao/pastaMusicaUi";
 
@@ -38,6 +39,8 @@ type PastaMusicaSlim = {
   mixSegundosFinais: number | null;
   previewUrl: string | null;
   addedAt: string | null;
+  likesCount: number;
+  dislikesCount: number;
   tagsManuais: { id: string; nome: string; cor: string; criativoNome: string }[];
 };
 
@@ -68,18 +71,22 @@ function sortMusicas(list: PastaMusicaSlim[], key: SortKey | null): PastaMusicaS
 
 function PastaMusicasInline({
   pastaId,
+  programacaoId,
   sortKey,
 }: {
   pastaId: string;
+  programacaoId: string;
   sortKey: SortKey | null;
 }) {
   const [musicas, setMusicas] = useState<PastaMusicaSlim[]>([]);
   const [loading, setLoading] = useState(true);
+  const [votosModal, setVotosModal] = useState<{ id: string; titulo: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/criacao/pastas/${pastaId}/musicas`);
+      const qs = programacaoId ? `?programacaoId=${encodeURIComponent(programacaoId)}` : "";
+      const res = await fetch(`/api/criacao/pastas/${pastaId}/musicas${qs}`);
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { musicas?: PastaMusicaSlim[] };
       setMusicas(data.musicas ?? []);
@@ -88,7 +95,7 @@ function PastaMusicasInline({
     } finally {
       setLoading(false);
     }
-  }, [pastaId]);
+  }, [pastaId, programacaoId]);
 
   useEffect(() => {
     void load();
@@ -104,6 +111,7 @@ function PastaMusicasInline({
   }
 
   return (
+    <>
     <ul className="divide-y divide-slate-100 bg-slate-50/40 dark:divide-slate-800/60 dark:bg-slate-950/30">
       {sorted.map((m, idx) => (
         <li
@@ -140,6 +148,30 @@ function PastaMusicasInline({
               mix {m.mixSegundosFinais}s
             </span>
           : null}
+          {(m.likesCount > 0 || m.dislikesCount > 0) ?
+            <span className="inline-flex shrink-0 items-center gap-1">
+              {m.likesCount > 0 ?
+                <button
+                  type="button"
+                  onClick={() => setVotosModal({ id: m.id, titulo: m.titulo || "(sem título)" })}
+                  className="rounded px-1 py-0.5 text-xs hover:bg-emerald-100 dark:hover:bg-emerald-950"
+                  title={`${m.likesCount} like(s) nesta programação`}
+                >
+                  👍
+                </button>
+              : null}
+              {m.dislikesCount > 0 ?
+                <button
+                  type="button"
+                  onClick={() => setVotosModal({ id: m.id, titulo: m.titulo || "(sem título)" })}
+                  className="rounded px-1 py-0.5 text-xs hover:bg-red-100 dark:hover:bg-red-950"
+                  title={`${m.dislikesCount} dislike(s) nesta programação`}
+                >
+                  👎
+                </button>
+              : null}
+            </span>
+          : null}
           <span className="shrink-0 text-[11px] tabular-nums text-slate-400" title="Data de entrada na pasta">
             {formatPastaMusicaAddedAt(m.addedAt)}
           </span>
@@ -147,6 +179,13 @@ function PastaMusicasInline({
         </li>
       ))}
     </ul>
+    <MusicaVotosModal
+      musicaId={votosModal?.id ?? null}
+      titulo={votosModal?.titulo ?? ""}
+      programacaoId={programacaoId}
+      onClose={() => setVotosModal(null)}
+    />
+    </>
   );
 }
 
@@ -337,7 +376,7 @@ export function CriadorPanel() {
                                   : null}
                                 </div>
                                 {pastaOpen ?
-                                  <PastaMusicasInline pastaId={pasta.id} sortKey={currentSort} />
+                                  <PastaMusicasInline pastaId={pasta.id} programacaoId={prog.id} sortKey={currentSort} />
                                 : null}
                               </li>
                             );

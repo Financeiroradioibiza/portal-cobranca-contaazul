@@ -857,6 +857,7 @@ model MusicaBiblioteca {
   versoes     MusicaVersao[]
   pastas      PastaMusica[]
   rejeicoes   MusicaRejeicao[]
+  votos       MusicaBibliotecaVoto[]
 
   @@index([artista])
   @@index([titulo])
@@ -1234,6 +1235,26 @@ model MusicaRejeicao {
   @@unique([musicaId, clienteRef])
   @@index([clienteRef])
   @@map("musica_rejeicao")
+}
+
+/// Like/dislike enviado pelo Player 5 no ping (1 voto por PDV por faixa).
+model MusicaBibliotecaVoto {
+  id              String   @id @default(cuid())
+  musicaId        String   @map("musica_id")
+  portalClienteId Int      @map("portal_cliente_id")
+  portalPdvId     Int      @map("portal_pdv_id")
+  pdvNome         String   @default("") @map("pdv_nome") @db.VarChar(200)
+  clienteNome     String   @default("") @map("cliente_nome") @db.VarChar(200)
+  voto            String   @db.VarChar(8)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+
+  @@unique([musicaId, portalPdvId])
+  @@index([musicaId])
+  @@index([portalPdvId])
+  @@map("musica_biblioteca_voto")
 }
 
 enum DownloadProvider {

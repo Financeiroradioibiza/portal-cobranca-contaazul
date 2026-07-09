@@ -1,5 +1,7 @@
 import { getPool } from '../../db/pool.js';
 import { loadSessionByToken } from './loginByToken.js';
+import { portalQuery } from '../../criacao/portalDb.js';
+import { randomUUID } from 'node:crypto';
 
 function buildPingPdvPayload(row) {
   const serialInstalacao = String(row.serial_instalacao ?? '').trim();
@@ -25,6 +27,47 @@ function buildPingClientePayload(row) {
     nome: row.cliente_nome,
     status: row.cliente_status ?? 'A',
   };
+}
+
+async function gravarVotoMusicaPing(row, req) {
+  const musicaGwId = Number.parseInt(String(req.query.voto_musica_id ?? ''), 10);
+  const votoRaw = String(req.query.voto ?? '').trim().toLowerCase();
+  if (!Number.isFinite(musicaGwId) || musicaGwId <= 0) return;
+  if (votoRaw !== 'like' && votoRaw !== 'dislike') return;
+
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `SELECT origem_musica_id FROM musicas WHERE id = $1 LIMIT 1`,
+    [musicaGwId],
+  );
+  const bibliotecaId = String(rows[0]?.origem_musica_id ?? '').trim();
+  if (!bibliotecaId) return;
+
+  try {
+    await portalQuery(
+      `INSERT INTO musica_biblioteca_voto
+         (id, musica_id, portal_cliente_id, portal_pdv_id, pdv_nome, cliente_nome, voto, created_at, updated_at)
+       VALUES
+         ($1, $2, $3, $4, $5, $6, $7, now(), now())
+       ON CONFLICT (musica_id, portal_pdv_id) DO UPDATE SET
+         voto = EXCLUDED.voto,
+         pdv_nome = EXCLUDED.pdv_nome,
+         cliente_nome = EXCLUDED.cliente_nome,
+         portal_cliente_id = EXCLUDED.portal_cliente_id,
+         updated_at = now()`,
+      [
+        randomUUID(),
+        bibliotecaId,
+        row.cliente_id,
+        row.pdv_id,
+        String(row.pdv_nome ?? '').slice(0, 200),
+        String(row.cliente_nome ?? '').slice(0, 200),
+        votoRaw,
+      ],
+    );
+  } catch (err) {
+    console.error('[ping/voto]', err);
+  }
 }
 
 /** GET /api/ping/ — heartbeat Player 5; devolve flags e atualizacao_pendente. */
@@ -79,6 +122,8 @@ export async function registerPingRoutes(app, prefix) {
         .catch(() => null);
       row.atualizacao_pendente = 'N';
     }
+
+    await gravarVotoMusicaPing(row, req);
 
     return reply.send({
       pdv: buildPingPdvPayload(row),

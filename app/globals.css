@@ -284,10 +284,9 @@ body {
 .portal-sidebar-chamados {
   flex-shrink: 0;
   margin: 0 8px 8px;
-  padding: 12px 10px 10px;
-  max-height: min(42vh, 280px);
+  padding: 10px 10px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
   overflow: hidden;
   border: 1px solid rgba(249, 115, 22, 0.55);
@@ -299,6 +298,50 @@ body {
     rgba(15, 23, 42, 0.35) 100%
   );
   box-shadow: inset 0 1px 0 rgba(251, 146, 60, 0.25);
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.portal-sidebar-chamados-compact:hover {
+  border-color: rgba(251, 146, 60, 0.75);
+  background: linear-gradient(
+    165deg,
+    rgba(234, 88, 12, 0.38) 0%,
+    rgba(249, 115, 22, 0.18) 55%,
+    rgba(15, 23, 42, 0.4) 100%
+  );
+}
+
+.portal-sidebar-chamados-badges {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.portal-sidebar-chamados-badge {
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 5px;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.portal-sidebar-chamados-badge-red {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.35);
+}
+
+.portal-sidebar-chamados-badge-orange {
+  background: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.35);
 }
 
 .portal-sidebar-chamados-head {
@@ -320,6 +363,8 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #fb923c;
+  flex: 1;
+  min-width: 0;
 }
 
 .portal-sidebar-chamados-sub {

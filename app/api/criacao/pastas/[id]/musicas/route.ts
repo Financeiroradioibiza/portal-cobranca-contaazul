@@ -4,15 +4,20 @@ import { addMusicasToPasta, removeMusicasFromPasta, reorderPastaMusicas } from "
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
+import {
+  countVotosPorMusicaFiltradoPdv,
+  portalPdvIdsForProgramacao,
+} from "@/lib/criacao/musicaVotoService";
 
 export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
+    const programacaoId = new URL(request.url).searchParams.get("programacaoId")?.trim() || "";
 
     const links = await prisma.pastaMusica.findMany({
       where: { pastaId: id },
@@ -38,10 +43,18 @@ export async function GET(_req: Request, ctx: Ctx) {
       },
     });
 
+    const musicaIds = links.map((l) => l.musica.id);
+    let votoMap = new Map<string, { likes: number; dislikes: number }>();
+    if (programacaoId && musicaIds.length > 0) {
+      const portalPdvIds = await portalPdvIdsForProgramacao(programacaoId);
+      votoMap = await countVotosPorMusicaFiltradoPdv(musicaIds, portalPdvIds);
+    }
+
     const musicas = links.map((l) => {
       const m = l.musica;
       const formatoUso = pickLowestPreviewFormato(m.versoes);
       const previewUrl = formatoUso ? buildPreviewUrl(m.id, formatoUso) : null;
+      const v = votoMap.get(m.id);
       return {
         id: m.id,
         titulo: m.titulo,
@@ -50,6 +63,8 @@ export async function GET(_req: Request, ctx: Ctx) {
         mixSegundosFinais: m.mixSegundosFinais,
         previewUrl,
         addedAt: l.addedAt?.toISOString() ?? null,
+        likesCount: v?.likes ?? 0,
+        dislikesCount: v?.dislikes ?? 0,
         tagsManuais: m.tagsManuais.map((t) => ({
           id: t.tag.id,
           nome: t.tag.nome,

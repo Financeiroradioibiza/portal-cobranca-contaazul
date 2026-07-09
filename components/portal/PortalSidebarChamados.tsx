@@ -1,65 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { CHAMADO_COLUNAS, prioridadeMeta } from "@/lib/chamados/chamadoConstants";
+import { useMemo } from "react";
 import { useMyOpenChamados } from "@/components/chamados/ChamadosDashboardWidget";
 
+function StatusBadge({ count, tone }: { count: number; tone: "red" | "orange" }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className={
+        tone === "red" ?
+          "portal-sidebar-chamados-badge portal-sidebar-chamados-badge-red"
+        : "portal-sidebar-chamados-badge portal-sidebar-chamados-badge-orange"
+      }
+      aria-label={`${count} chamado${count === 1 ? "" : "s"}`}
+    >
+      {count}
+    </span>
+  );
+}
+
 export function PortalSidebarChamados() {
-  const { items, loading, count } = useMyOpenChamados(5);
+  const { allItems, loading } = useMyOpenChamados();
+
+  const { aberto, emAndamento } = useMemo(() => {
+    let a = 0;
+    let e = 0;
+    for (const c of allItems) {
+      if (c.status === "aberto") a += 1;
+      else if (c.status === "em_andamento") e += 1;
+    }
+    return { aberto: a, emAndamento: e };
+  }, [allItems]);
 
   return (
-    <div className="portal-sidebar-chamados">
-      <div className="portal-sidebar-chamados-head">
-        <span className="portal-sidebar-chamados-icon" aria-hidden>
-          🎫
+    <Link href="/chamados" className="portal-sidebar-chamados portal-sidebar-chamados-compact">
+      <span className="portal-sidebar-chamados-icon" aria-hidden>
+        🎫
+      </span>
+      <span className="portal-sidebar-chamados-title">Chamados abertos</span>
+      {!loading ?
+        <span className="portal-sidebar-chamados-badges">
+          <StatusBadge count={aberto} tone="red" />
+          <StatusBadge count={emAndamento} tone="orange" />
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="portal-sidebar-chamados-title">Chamados abertos</p>
-          <p className="portal-sidebar-chamados-sub">Você ou seu setor</p>
-        </div>
-        {!loading ?
-          <span className="portal-sidebar-chamados-count">{count}</span>
-        : null}
-      </div>
-
-      {loading ?
-        <p className="portal-sidebar-chamados-empty">Carregando…</p>
-      : count === 0 ?
-        <p className="portal-sidebar-chamados-empty">
-          Nenhum chamado aberto.{" "}
-          <Link href="/chamados" className="portal-sidebar-chamados-link">
-            Abrir quadro
-          </Link>
-        </p>
-      : <ul className="portal-sidebar-chamados-list">
-          {items.map((c) => {
-            const pri = prioridadeMeta(c.prioridade);
-            const col = CHAMADO_COLUNAS.find((x) => x.id === c.status);
-            return (
-              <li key={c.id}>
-                <Link href="/chamados" className="portal-sidebar-chamados-item" title={c.titulo}>
-                  <span
-                    className={"portal-sidebar-chamados-dot " + pri.dot}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="portal-sidebar-chamados-item-title">{c.titulo}</span>
-                    <span className="portal-sidebar-chamados-item-meta">
-                      {col?.label ?? c.status} · {pri.label}
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      }
-
-      {count > 0 ?
-        <Link href="/chamados" className="portal-sidebar-chamados-all">
-          Ver todos →
-        </Link>
       : null}
-    </div>
+    </Link>
   );
 }

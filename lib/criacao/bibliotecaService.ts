@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
+import { countVotosPorMusica, type MusicaVotoCounts } from "@/lib/criacao/musicaVotoService";
 import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import {
@@ -56,6 +57,8 @@ export type MusicaBibliotecaRow = {
   previewUrl: string | null;
   /** Quantos clientes marcaram esta faixa como rejeitada (Wizard IA evita). */
   rejeicoesCount: number;
+  likesCount: number;
+  dislikesCount: number;
   /** Em quantas programações (clientes) a faixa aparece em pastas. */
   programacoesCount: number;
   /** Pipeline antigo — sem 128 mono, LUFS ou master completo. */
@@ -271,6 +274,7 @@ function mapMusicaToRow(
   criativoUserMap: Map<string, { tagIniciais: string | null; displayName: string | null }>,
   rejMap: Map<string, number>,
   progMap: Map<string, number>,
+  votoMap: Map<string, MusicaVotoCounts>,
 ): MusicaBibliotecaRow {
   const tagsAutoRaw = parseAutoTagsFromJson(m.tagsAuto);
   const tagsAuto = [...filterAutoTags(tagsAutoRaw), ...deriveLocalStyleTags(m.bpm, m.energia)];
@@ -306,6 +310,8 @@ function mapMusicaToRow(
     explicitGemini: extractExplicitApiStatus(tagsAutoRaw, "gemini"),
     previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
     rejeicoesCount: rejMap.get(m.id) ?? 0,
+    likesCount: votoMap.get(m.id)?.likes ?? 0,
+    dislikesCount: votoMap.get(m.id)?.dislikes ?? 0,
     programacoesCount: progMap.get(m.id) ?? 0,
     legacyMotivos: computeLegacyMotivos(m),
   };
@@ -437,13 +443,14 @@ export async function listMusicasBiblioteca(opts: {
   }
 
   const ids = items.map((m) => m.id);
-  const [rejMap, progMap, criativoUserMap] = await Promise.all([
+  const [rejMap, progMap, votoMap, criativoUserMap] = await Promise.all([
     countRejeicoesPorMusica(ids),
     countProgramacoesPorMusica(ids),
+    countVotosPorMusica(ids),
     loadCriativoUserMap(items),
   ]);
 
-  const rows = items.map((m) => mapMusicaToRow(m, criativoUserMap, rejMap, progMap));
+  const rows = items.map((m) => mapMusicaToRow(m, criativoUserMap, rejMap, progMap, votoMap));
 
   return { rows, total };
 }
@@ -455,13 +462,14 @@ export async function getMusicaBibliotecaRow(musicaId: string): Promise<MusicaBi
   });
   if (!m) throw new Error("not_found");
 
-  const [rejMap, progMap, criativoUserMap] = await Promise.all([
+  const [rejMap, progMap, votoMap, criativoUserMap] = await Promise.all([
     countRejeicoesPorMusica([m.id]),
     countProgramacoesPorMusica([m.id]),
+    countVotosPorMusica([m.id]),
     loadCriativoUserMap([m]),
   ]);
 
-  return mapMusicaToRow(m, criativoUserMap, rejMap, progMap);
+  return mapMusicaToRow(m, criativoUserMap, rejMap, progMap, votoMap);
 }
 
 export type MusicaDeleteInfo = {
