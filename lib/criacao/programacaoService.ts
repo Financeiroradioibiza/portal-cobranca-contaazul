@@ -70,6 +70,34 @@ export type ArvoreProgramacaoNode = {
   agendamentos: AgendamentoRow[];
 };
 
+/** Árvore mínima para match de pastas (Servidor UP) — sem vinhetas, agendamentos ou contagens. */
+export async function getClienteProgramacaoMatchArvore(clienteRef: string): Promise<
+  Array<{
+    id: string;
+    nome: string;
+    criativoUserId: string | null;
+    criativoNome: string;
+    pastas: Array<{ id: string; nome: string }>;
+  }>
+> {
+  const ref = clienteRef.trim();
+  if (!ref) return [];
+  return prisma.programacao.findMany({
+    where: { clienteRef: ref },
+    orderBy: [{ nome: "asc" }, { updatedAt: "desc" }],
+    select: {
+      id: true,
+      nome: true,
+      criativoUserId: true,
+      criativoNome: true,
+      pastas: {
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, nome: true },
+      },
+    },
+  });
+}
+
 export async function getClienteProgramacaoArvore(clienteRef: string): Promise<ArvoreProgramacaoNode[]> {
   const ref = clienteRef.trim();
   if (!ref) return [];

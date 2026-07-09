@@ -16,10 +16,11 @@ import {
   setLocalServidorUpConfig,
   type LocalServidorUpTrack,
 } from "@/lib/criacao/localServidorUpClient";
-import type {
-  ServidorUpHierarchyPreview,
-  ServidorUpHierarchyRow,
-  ServidorUpHierarchyStatus,
+import {
+  aggregateServidorUpFolders,
+  type ServidorUpHierarchyPreview,
+  type ServidorUpHierarchyRow,
+  type ServidorUpHierarchyStatus,
 } from "@/lib/criacao/servidorUpHierarchyService";
 import type {
   ServidorUpMatchBatchResult,
@@ -138,13 +139,41 @@ export function ServidorUpPanel() {
   }, [checkLocal]);
 
   async function applyHierarchyPreview(paths: Array<{ path: string }>) {
+    const { folders, ignoredPaths, warnings } = aggregateServidorUpFolders(paths);
+    if (folders.length === 0) {
+      throw new Error(
+        "Nenhuma pasta válida (Cliente/Programação/Pasta). Confira a estrutura no HD." +
+          (warnings[0] ? ` Ex.: ${warnings[0]}` : ""),
+      );
+    }
+
     const res = await fetch("/api/criacao/servidor-up/hierarchy-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ files: paths }),
+      body: JSON.stringify({ folders }),
     });
-    const data = (await res.json()) as ServidorUpHierarchyPreview & { error?: string };
-    if (!res.ok || !data.ok) throw new Error(data.error ?? "Falha ao analisar hierarquia.");
+
+    const raw = await res.text();
+    let data: ServidorUpHierarchyPreview & { error?: string };
+    try {
+      data = JSON.parse(raw) as ServidorUpHierarchyPreview & { error?: string };
+    } catch {
+      if (res.status === 504) {
+        throw new Error(
+          "Portal demorou demais (504). Aguarde 1–2 min e tente de novo — o deploy com correção pode ainda estar publicando.",
+        );
+      }
+      throw new Error(`Resposta inválida do portal (${res.status}). Tente recarregar a página.`);
+    }
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error ?? `Falha ao analisar hierarquia (${res.status}).`);
+    }
+
+    if (ignoredPaths > 0 && data.warnings.length === 0) {
+      data.warnings.push(`${ignoredPaths} arquivo(s) ignorado(s) — caminho fora do padrão.`);
+    }
+
     setPreview(data);
     const next: Record<string, RowDraft> = {};
     for (const row of data.rows) {

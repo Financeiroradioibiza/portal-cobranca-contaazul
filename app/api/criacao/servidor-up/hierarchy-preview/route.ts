@@ -2,19 +2,33 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
   previewServidorUpHierarchy,
+  previewServidorUpHierarchyFromFolders,
   type ServidorUpFileInput,
+  type ServidorUpFolderInput,
 } from "@/lib/criacao/servidorUpHierarchyService";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
     requirePortalSession(await getPortalSession());
-    const body = (await request.json().catch(() => ({}))) as { files?: ServidorUpFileInput[] };
+    const body = (await request.json().catch(() => ({}))) as {
+      files?: ServidorUpFileInput[];
+      folders?: ServidorUpFolderInput[];
+    };
+
+    const folders = Array.isArray(body.folders) ? body.folders : [];
+    if (folders.length > 0) {
+      const preview = await previewServidorUpHierarchyFromFolders(folders.slice(0, 5_000));
+      return NextResponse.json(preview);
+    }
+
     const files = Array.isArray(body.files) ? body.files : [];
     if (files.length === 0) {
       return NextResponse.json({ error: "files_obrigatorio" }, { status: 400 });
     }
+
     const preview = await previewServidorUpHierarchy(files.slice(0, 50_000));
     return NextResponse.json(preview);
   } catch (e) {

@@ -1,5 +1,5 @@
-import { getProducaoDashboard } from "@/lib/cadastros/producaoDashboardService";
-import { getClienteProgramacaoArvore } from "@/lib/criacao/programacaoService";
+import { prisma } from "@/lib/prisma";
+import { getClienteProgramacaoMatchArvore } from "@/lib/criacao/programacaoService";
 import {
   pathSegmentCompareKey,
   pathSegmentLooseKey,
@@ -10,6 +10,13 @@ import {
 export type ServidorUpFileInput = {
   /** Path relativo, ex.: Cliente/Prog/Pasta/faixa.mp3 */
   path: string;
+};
+
+export type ServidorUpFolderInput = {
+  clienteNome: string;
+  programacaoNome: string;
+  pastaNome: string;
+  mp3Count: number;
 };
 
 export type ServidorUpHierarchyStatus =
@@ -30,7 +37,6 @@ export type ServidorUpHierarchyRow = {
   status: ServidorUpHierarchyStatus;
   criativoUserId: string | null;
   criativoNome: string;
-  /** Default da tag criativa = nome da pasta no legado. */
   suggestedUploadTag: string;
 };
 
@@ -66,10 +72,9 @@ function resolveClienteRef(
   return null;
 }
 
-function findProgramacao(
-  arvore: Awaited<ReturnType<typeof getClienteProgramacaoArvore>>,
-  programacaoNome: string,
-) {
+type MatchArvore = Awaited<ReturnType<typeof getClienteProgramacaoMatchArvore>>;
+
+function findProgramacao(arvore: MatchArvore, programacaoNome: string) {
   const progKey = pathSegmentCompareKey(programacaoNome);
   const progLoose = pathSegmentLooseKey(programacaoNome);
   return (
@@ -79,10 +84,7 @@ function findProgramacao(
   );
 }
 
-function findPasta(
-  pastas: Array<{ id: string; nome: string }>,
-  pastaNome: string,
-) {
+function findPasta(pastas: Array<{ id: string; nome: string }>, pastaNome: string) {
   const pastaKey = pathSegmentCompareKey(pastaNome);
   const pastaLoose = pathSegmentLooseKey(pastaNome);
   return (
@@ -92,28 +94,13 @@ function findPasta(
   );
 }
 
-export async function previewServidorUpHierarchy(
+/** Agrega paths de MP3 em pastas (Cliente/Programação/Pasta). */
+export function aggregateServidorUpFolders(
   files: ServidorUpFileInput[],
-): Promise<ServidorUpHierarchyPreview> {
-  const dash = await getProducaoDashboard();
-  const clientes = dash.clientes.map((c) => ({ ref: c.key, nome: c.nome }));
-
-  const treeByRef = new Map<string, Awaited<ReturnType<typeof getClienteProgramacaoArvore>>>();
-  for (const c of clientes) {
-    treeByRef.set(c.ref, await getClienteProgramacaoArvore(c.ref));
-  }
-
+): { folders: ServidorUpFolderInput[]; ignoredPaths: number; warnings: string[] } {
   const warnings: string[] = [];
   let ignoredPaths = 0;
-  const folderCounts = new Map<
-    string,
-    {
-      clienteNome: string;
-      programacaoNome: string;
-      pastaNome: string;
-      mp3Count: number;
-    }
-  >();
+  const folderCounts = new Map<string, ServidorUpFolderInput>();
 
   for (const f of files) {
     const segments = stripMacOsxPathPrefix(splitRelativePath(f.path));
@@ -149,9 +136,49 @@ export async function previewServidorUpHierarchy(
     }
   }
 
+  return { folders: [...folderCounts.values()], ignoredPaths, warnings };
+}
+
+async function listClientesFromProgramacoes(): Promise<Array<{ ref: string; nome: string }>> {
+  const rows = await prisma.programacao.findMany({
+    distinct: ["clienteRef"],
+    select: { clienteRef: true, clienteNome: true },
+    orderBy: { clienteNome: "asc" },
+  });
+  const byRef = new Map<string, string>();
+  for (const r of rows) {
+    const ref = r.clienteRef.trim();
+    if (!ref) continue;
+    const nome = (r.clienteNome || ref).trim();
+    if (!byRef.has(ref)) byRef.set(ref, nome);
+  }
+  return [...byRef.entries()].map(([ref, nome]) => ({ ref, nome }));
+}
+
+async function buildRowsFromFolders(
+  folders: ServidorUpFolderInput[],
+  ignoredPaths: number,
+  warnings: string[],
+): Promise<ServidorUpHierarchyPreview> {
+  const clientes = await listClientesFromProgramacoes();
+  const refsNeeded = new Set<string>();
+
+  for (const item of folders) {
+    const hit = resolveClienteRef(clientes, item.clienteNome);
+    if (hit) refsNeeded.add(hit.ref);
+  }
+
+  const treeByRef = new Map<string, MatchArvore>();
+  await Promise.all(
+    [...refsNeeded].map(async (ref) => {
+      treeByRef.set(ref, await getClienteProgramacaoMatchArvore(ref));
+    }),
+  );
+
   const rows: ServidorUpHierarchyRow[] = [];
 
-  for (const [key, item] of folderCounts) {
+  for (const item of folders) {
+    const key = `${pathSegmentLooseKey(item.clienteNome)}/${pathSegmentLooseKey(item.programacaoNome)}/${pathSegmentLooseKey(item.pastaNome)}`;
     const clienteHit = resolveClienteRef(clientes, item.clienteNome);
 
     if (!clienteHit) {
@@ -233,4 +260,17 @@ export async function previewServidorUpHierarchy(
     },
     warnings,
   };
+}
+
+export async function previewServidorUpHierarchy(
+  files: ServidorUpFileInput[],
+): Promise<ServidorUpHierarchyPreview> {
+  const { folders, ignoredPaths, warnings } = aggregateServidorUpFolders(files);
+  return buildRowsFromFolders(folders, ignoredPaths, warnings);
+}
+
+export async function previewServidorUpHierarchyFromFolders(
+  folders: ServidorUpFolderInput[],
+): Promise<ServidorUpHierarchyPreview> {
+  return buildRowsFromFolders(folders, 0, []);
 }
