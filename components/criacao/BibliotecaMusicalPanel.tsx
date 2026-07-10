@@ -202,12 +202,26 @@ export function BibliotecaMusicalPanel() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ musicaIds: [m.id], onlyMissing: false, limit: 1 }),
         });
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+          results?: { musicaId: string; geminiStatus?: "sim" | "nao" | "desconhecida"; explicit?: boolean }[];
+        } | null;
         if (!res.ok) {
           if (data?.error === "gemini_desabilitado") throw new Error("Configure GEMINI_API_KEY no Netlify.");
           throw new Error(data?.error ?? "check_failed");
         }
         await patchMusica(m.id);
+        const st = data?.results?.[0]?.geminiStatus;
+        const titulo = m.titulo || "(sem título)";
+        if (st === "sim") {
+          setRowMsg(`«${titulo}» — EXP (letra explícita).`);
+        } else if (st === "nao") {
+          setRowMsg(`«${titulo}» — IA ok (letra limpa para rádio).`);
+        } else if (st === "desconhecida") {
+          setRowMsg(`«${titulo}» — IA inconclusiva (faixa desconhecida).`);
+        } else {
+          setRowMsg(`Check IA concluído para «${titulo}».`);
+        }
       } catch (e) {
         setRowMsg(e instanceof Error ? e.message : "Falha no check IA desta faixa.");
       } finally {
@@ -222,6 +236,9 @@ export function BibliotecaMusicalPanel() {
     setBatchGeminiRunning(true);
     setRowMsg(null);
     let total = 0;
+    let expCount = 0;
+    let okCount = 0;
+    let unkCount = 0;
     try {
       while (true) {
         const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
@@ -233,22 +250,28 @@ export function BibliotecaMusicalPanel() {
           error?: string;
           processed?: number;
           hasMore?: boolean;
+          results?: { geminiStatus?: "sim" | "nao" | "desconhecida" }[];
         } | null;
         if (!res.ok) {
           if (data?.error === "gemini_desabilitado") throw new Error("Configure GEMINI_API_KEY no Netlify.");
           throw new Error(data?.error ?? "check_failed");
         }
         const n = data?.processed ?? 0;
+        for (const r of data?.results ?? []) {
+          if (r.geminiStatus === "sim") expCount += 1;
+          else if (r.geminiStatus === "nao") okCount += 1;
+          else if (r.geminiStatus === "desconhecida") unkCount += 1;
+        }
         total += n;
         if (n > 0) {
-          setRowMsg(`IA em lote: ${total} faixa${total === 1 ? "" : "s"} avaliada${total === 1 ? "" : "s"}…`);
+          setRowMsg(`IA em lote: ${total} faixa${total === 1 ? "" : "s"}… (${expCount} EXP · ${okCount} ok · ${unkCount} ?)`);
         }
         if (!data?.hasMore || n === 0) break;
       }
       await load({ silent: true });
       setRowMsg(
         total > 0 ?
-          `IA em lote concluída — ${total} faixa${total === 1 ? "" : "s"} sem avaliação IA processada${total === 1 ? "" : "s"}.`
+          `IA em lote concluída — ${total} faixa${total === 1 ? "" : "s"}: ${expCount} EXP · ${okCount} IA ok · ${unkCount} inconclusiva${unkCount === 1 ? "" : "s"}.`
         : "Nenhuma faixa pendente de avaliação IA.",
       );
     } catch (e) {
@@ -1341,7 +1364,7 @@ function ExplicitApiChip({
     return (
       <span
         className="inline-flex rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white"
-        title="IA (Gemini): letra explícita — EXP"
+        title="IA (Gemini): letra explícita — ou confirmado via Deezer/MusicBrainz"
       >
         EXP
       </span>

@@ -2,10 +2,13 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   explicitTagsChanged,
+  extractExplicitApiStatus,
+  finalizeGeminiExplicitVerdict,
   hasApiExplicitCheck,
   hasGeminiExplicitCheck,
   mergeApiExplicitCheck,
   mergeGeminiExplicitCheck,
+  needsGeminiExplicitCheck,
 } from "@/lib/criacao/explicitContentCore";
 import {
   classifyExplicitLyricsWithGemini,
@@ -20,6 +23,7 @@ export type ExplicitCheckResult = {
   musicaId: string;
   explicit: boolean;
   updated: boolean;
+  geminiStatus?: "sim" | "nao" | "desconhecida";
 };
 
 function tagsToJson(tags: ExternalAutoTag[]): Prisma.InputJsonValue {
@@ -139,12 +143,21 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
     });
     rows =
       onlyMissing ?
-        pool.filter((m) => !hasGeminiExplicitCheck(parseTagsFromJson(m.tagsAuto))).slice(0, limit)
+        pool.filter((m) => needsGeminiExplicitCheck(parseTagsFromJson(m.tagsAuto))).slice(0, limit)
       : pool.slice(0, limit);
   }
 
   const geminiMap = await classifyExplicitLyricsWithGemini(
-    rows.map((r) => ({ id: r.id, titulo: r.titulo, artista: r.artista })),
+    rows.map((r) => {
+      const tags = parseTagsFromJson(r.tagsAuto);
+      return {
+        id: r.id,
+        titulo: r.titulo,
+        artista: r.artista,
+        deezerExplicit: extractExplicitApiStatus(tags, "deezer"),
+        musicbrainzExplicit: extractExplicitApiStatus(tags, "musicbrainz"),
+      };
+    }),
   );
 
   const results: ExplicitCheckResult[] = [];
@@ -153,12 +166,15 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
 
   for (const m of rows) {
     const existing = parseTagsFromJson(m.tagsAuto);
-    const geminiTag: GeminiExplicitResult = geminiMap.get(m.id) ?? "desconhecida";
+    const dz = extractExplicitApiStatus(existing, "deezer");
+    const mb = extractExplicitApiStatus(existing, "musicbrainz");
+    const geminiRaw: GeminiExplicitResult = geminiMap.get(m.id) ?? "desconhecida";
+    const geminiTag = finalizeGeminiExplicitVerdict(geminiRaw, dz, mb);
     const merged = mergeGeminiExplicitCheck(existing, geminiTag);
     const isExp = geminiTag === "sim";
 
     if (!explicitTagsChanged(existing, merged)) {
-      results.push({ musicaId: m.id, explicit: isExp, updated: false });
+      results.push({ musicaId: m.id, explicit: isExp, updated: false, geminiStatus: geminiTag });
       if (isExp) explicit += 1;
       continue;
     }
@@ -167,7 +183,7 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
       where: { id: m.id },
       data: { tagsAuto: tagsToJson(merged) },
     });
-    results.push({ musicaId: m.id, explicit: isExp, updated: true });
+    results.push({ musicaId: m.id, explicit: isExp, updated: true, geminiStatus: geminiTag });
     updated += 1;
     if (isExp) explicit += 1;
   }

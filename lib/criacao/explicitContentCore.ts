@@ -39,6 +39,26 @@ export function hasGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
   return extractExplicitApiStatus(tags, "gemini") !== null;
 }
 
+/** Faixa ainda precisa de check IA (nunca feito ou veredicto desatualizado vs Deezer/MB). */
+export function needsGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
+  const gemini = extractExplicitApiStatus(tags, "gemini");
+  if (gemini === null) return true;
+  const deezer = extractExplicitApiStatus(tags, "deezer");
+  const musicbrainz = extractExplicitApiStatus(tags, "musicbrainz");
+  return finalizeGeminiExplicitVerdict(gemini, deezer, musicbrainz) !== gemini;
+}
+
+/** Combina veredicto Gemini com sinais Deezer/MB (explicit_lyrics). */
+export function finalizeGeminiExplicitVerdict(
+  gemini: "sim" | "nao" | "desconhecida",
+  deezer: ExplicitApiStatus,
+  musicbrainz: ExplicitApiStatus,
+): "sim" | "nao" | "desconhecida" {
+  if (gemini === "sim") return "sim";
+  if (deezer === "sim" || musicbrainz === "sim") return "sim";
+  return gemini;
+}
+
 function stripApiExplicit(tags: ExternalAutoTag[]): ExternalAutoTag[] {
   return tags.filter(
     (t) => !((t.fonte === "deezer" || t.fonte === "musicbrainz") && t.chave === EXPLICIT_TAG_CHAVE),

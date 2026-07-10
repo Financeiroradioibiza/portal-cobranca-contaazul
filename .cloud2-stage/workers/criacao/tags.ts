@@ -23,6 +23,23 @@ function hasGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
   return tags.some((t) => t.fonte === 'gemini' && t.chave === EXPLICIT_TAG_CHAVE);
 }
 
+function extractExplicitStatus(tags: ExternalAutoTag[], fonte: 'deezer' | 'musicbrainz' | 'gemini') {
+  const hit = tags.find((t) => t.fonte === fonte && t.chave === EXPLICIT_TAG_CHAVE);
+  if (!hit) return null;
+  if (hit.valor === 'sim' || hit.valor === 'nao' || hit.valor === 'desconhecida') return hit.valor;
+  return null;
+}
+
+function finalizeGeminiExplicitVerdict(
+  gemini: 'sim' | 'nao' | 'desconhecida',
+  deezer: string | null,
+  musicbrainz: string | null,
+): 'sim' | 'nao' | 'desconhecida' {
+  if (gemini === 'sim') return 'sim';
+  if (deezer === 'sim' || musicbrainz === 'sim') return 'sim';
+  return gemini;
+}
+
 function mergeGeminiExplicitCheck(
   tags: ExternalAutoTag[],
   geminiTag: 'sim' | 'nao' | 'desconhecida',
@@ -207,12 +224,26 @@ export async function enrichGeminiForMusica(musicaId: string): Promise<void> {
   if (!m) return;
 
   const existing = parseTagsFromJson(m.tags_auto);
-  if (hasGeminiExplicitCheck(existing)) return;
+  if (hasGeminiExplicitCheck(existing)) {
+    const gz = extractExplicitStatus(existing, 'gemini');
+    const dz = extractExplicitStatus(existing, 'deezer');
+    const mb = extractExplicitStatus(existing, 'musicbrainz');
+    if (gz && finalizeGeminiExplicitVerdict(gz, dz, mb) === gz) return;
+  }
 
+  const dz = extractExplicitStatus(existing, 'deezer');
+  const mb = extractExplicitStatus(existing, 'musicbrainz');
   const geminiMap = await classifyExplicitLyricsWithGemini([
-    { id: musicaId, titulo: m.titulo, artista: m.artista },
+    {
+      id: musicaId,
+      titulo: m.titulo,
+      artista: m.artista,
+      deezerExplicit: dz,
+      musicbrainzExplicit: mb,
+    },
   ]);
-  const geminiTag = geminiMap.get(musicaId) ?? 'desconhecida';
+  const geminiRaw = geminiMap.get(musicaId) ?? 'desconhecida';
+  const geminiTag = finalizeGeminiExplicitVerdict(geminiRaw, dz, mb);
   const merged = mergeGeminiExplicitCheck(existing, geminiTag);
 
   await portalQuery(
