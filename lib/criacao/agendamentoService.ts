@@ -166,7 +166,8 @@ export async function createAgendamento(
       dataInicio: parseDate(input.dataInicio),
       dataFim: parseDate(input.dataFim),
       frequenciaMin: alvoTipo === "vinheta" ? freqMin : null,
-      frequenciaMusicas: alvoTipo === "vinheta" ? freqMusicas : null,
+      frequenciaMusicas:
+        alvoTipo === "vinheta" || alvoTipo === "pasta" ? freqMusicas : null,
       prioridade: Number.isFinite(Number(input.prioridade)) ? Math.round(Number(input.prioridade)) : 0,
     },
     select: { id: true },

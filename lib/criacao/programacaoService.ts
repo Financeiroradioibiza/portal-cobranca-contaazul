@@ -44,6 +44,7 @@ export type ArvorePastaNode = {
   nome: string;
   velocidade: string;
   selecionavel: boolean;
+  prioritaria: boolean;
   musicasCount: number;
 };
 
@@ -164,6 +165,7 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
         nome: f.nome,
         velocidade: f.velocidade,
         selecionavel: f.selecionavel,
+        prioritaria: f.prioritaria,
         musicasCount: f._count.musicas,
       })),
       vinhetas: p.vinhetas.map((v) => ({
@@ -269,6 +271,7 @@ export type PastaView = {
   nome: string;
   velocidade: string;
   selecionavel: boolean;
+  prioritaria: boolean;
   sortOrder: number;
   musicas: PastaMusicaView[];
 };
@@ -348,6 +351,7 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
       nome: f.nome,
       velocidade: f.velocidade,
       selecionavel: f.selecionavel,
+      prioritaria: f.prioritaria,
       sortOrder: f.sortOrder,
       musicas: f.musicas.map((pm) => {
         const m = pm.musica;
@@ -405,10 +409,12 @@ export async function deleteProgramacao(id: string): Promise<void> {
 
 export async function createPasta(
   programacaoId: string,
-  input: { nome: string; velocidade?: string; selecionavel?: boolean },
+  input: { nome: string; velocidade?: string; selecionavel?: boolean; prioritaria?: boolean },
 ) {
   const nome = (input.nome || "").trim();
   if (!nome) throw new Error("nome_obrigatorio");
+  const prioritaria = input.prioritaria === true;
+  const selecionavel = !prioritaria && input.selecionavel === true;
   const last = await prisma.pasta.findFirst({
     where: { programacaoId },
     orderBy: { sortOrder: "desc" },
@@ -419,7 +425,8 @@ export async function createPasta(
       programacaoId,
       nome: nome.slice(0, 120),
       velocidade: isVelocidade(input.velocidade) ? input.velocidade : "media",
-      selecionavel: input.selecionavel === true,
+      selecionavel,
+      prioritaria,
       sortOrder: (last?.sortOrder ?? -1) + 1,
     },
     select: { id: true },
@@ -428,12 +435,19 @@ export async function createPasta(
 
 export async function updatePasta(
   id: string,
-  patch: { nome?: string; velocidade?: string; selecionavel?: boolean },
+  patch: { nome?: string; velocidade?: string; selecionavel?: boolean; prioritaria?: boolean },
 ): Promise<boolean> {
   const data: Prisma.PastaUpdateInput = {};
   if (typeof patch.nome === "string" && patch.nome.trim()) data.nome = patch.nome.trim().slice(0, 120);
   if (isVelocidade(patch.velocidade)) data.velocidade = patch.velocidade;
-  if (typeof patch.selecionavel === "boolean") data.selecionavel = patch.selecionavel;
+  if (typeof patch.prioritaria === "boolean") {
+    data.prioritaria = patch.prioritaria;
+    if (patch.prioritaria) data.selecionavel = false;
+  }
+  if (typeof patch.selecionavel === "boolean") {
+    data.selecionavel = patch.selecionavel;
+    if (patch.selecionavel) data.prioritaria = false;
+  }
   if (Object.keys(data).length === 0) return false;
   await prisma.pasta.update({ where: { id }, data });
   return true;

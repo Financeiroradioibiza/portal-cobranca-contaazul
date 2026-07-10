@@ -40,6 +40,7 @@ type PastaView = {
   nome: string;
   velocidade: string;
   selecionavel: boolean;
+  prioritaria: boolean;
   sortOrder: number;
   musicas: PastaMusicaView[];
 };
@@ -264,7 +265,7 @@ function ProgramacaoEditor({
     await load();
   }
 
-  async function addPasta() {
+  async function addPasta(prioritaria = false) {
     const nome = novaPasta.trim();
     if (!nome) return;
     setNovaPasta("");
@@ -272,7 +273,11 @@ function ProgramacaoEditor({
     await fetch(`/api/criacao/programacoes/${id}/pastas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nome, selecionavel: novaPastaSelecionavel }),
+      body: JSON.stringify({
+        nome,
+        selecionavel: prioritaria ? false : novaPastaSelecionavel,
+        prioritaria,
+      }),
     });
     setNovaPastaSelecionavel(false);
     await load();
@@ -510,6 +515,14 @@ function ProgramacaoEditor({
         </button>
         <button
           type="button"
+          onClick={() => void addPasta(true)}
+          className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100"
+          title="Domina o player enquanto estiver no cronograma"
+        >
+          + Prioritária
+        </button>
+        <button
+          type="button"
           onClick={() => setShowEspecial(true)}
           className="rounded-lg border border-violet-400 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-100"
         >
@@ -564,7 +577,11 @@ function ProgramacaoEditor({
                   >
                     {pasta.nome}
                   </button>
-                  {pasta.selecionavel ?
+                  {pasta.prioritaria ?
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-950/60 dark:text-amber-200">
+                      Prioritária
+                    </span>
+                  : pasta.selecionavel ?
                     <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-950/60 dark:text-violet-200">
                       Selecionável
                     </span>
@@ -608,18 +625,20 @@ function ProgramacaoEditor({
                       <option value="addedAt">Por data de entrada</option>
                     </select>
                   : null}
-                  <label
-                    className="flex items-center gap-1.5 rounded border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100"
-                    title="Só toca no player quando o operador selecionar na grade"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={pasta.selecionavel}
-                      onChange={(e) => void setSelecionavel(pasta.id, e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-violet-300 text-violet-700 focus:ring-violet-500"
-                    />
-                    Selecionável
-                  </label>
+                  {!pasta.prioritaria ?
+                    <label
+                      className="flex items-center gap-1.5 rounded border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-900 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100"
+                      title="Só toca no player quando o operador selecionar na grade"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={pasta.selecionavel}
+                        onChange={(e) => void setSelecionavel(pasta.id, e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-violet-300 text-violet-700 focus:ring-violet-500"
+                      />
+                      Selecionável
+                    </label>
+                  : null}
                   <button
                     type="button"
                     onClick={() => setAddTo(pasta)}
@@ -1106,6 +1125,7 @@ function CronogramaSection({
   }
 
   const alvoIsVinheta = alvo.startsWith("vinheta:");
+  const alvoIsPasta = alvo.startsWith("pasta:");
 
   async function criar() {
     if (!alvo || busy) return;
@@ -1125,7 +1145,10 @@ function CronogramaSection({
           dataInicio: dIni || undefined,
           dataFim: dFim || undefined,
           frequenciaMin: alvoTipo === "vinheta" && freq ? Number(freq) : undefined,
-          frequenciaMusicas: alvoTipo === "vinheta" && freqMusicas ? Number(freqMusicas) : undefined,
+          frequenciaMusicas:
+            freqMusicas ?
+              Number(freqMusicas)
+            : undefined,
         }),
       });
       setDias(new Set());
@@ -1312,6 +1335,23 @@ function CronogramaSection({
                   />
                 </label>
               </>
+            : alvoIsPasta ?
+              <label className="text-sm sm:col-span-2">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">
+                  Disparar 1 faixa desta pasta a cada (músicas ambiente)
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={freqMusicas}
+                  onChange={(e) => setFreqMusicas(e.target.value)}
+                  placeholder="ex.: 5"
+                  className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">
+                  A pasta não entra no shuffle — injeta uma faixa a cada X músicas das demais pastas.
+                </p>
+              </label>
             : null}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">

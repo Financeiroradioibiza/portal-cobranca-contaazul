@@ -16,9 +16,10 @@ export async function PATCH(request: Request, ctx: Ctx) {
       nome?: string;
       velocidade?: string;
       selecionavel?: boolean;
+      prioritaria?: boolean;
     };
     const ok = await updatePasta(id, body);
-    if (typeof body.selecionavel === "boolean") {
+    if (typeof body.selecionavel === "boolean" || typeof body.prioritaria === "boolean") {
       const pasta = await prisma.pasta.findUnique({
         where: { id },
         select: { programacaoId: true },

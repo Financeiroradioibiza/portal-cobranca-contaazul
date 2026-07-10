@@ -56,6 +56,8 @@ async function ensureAgendasSchema(gw: GwClient): Promise<void> {
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS origem_vinheta_id TEXT`);
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS publicado CHAR(1) NOT NULL DEFAULT 'S'`);
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS tipo_agendamento TEXT DEFAULT ''`);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS selecionavel CHAR(1) NOT NULL DEFAULT 'N'`);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS prioritaria CHAR(1) NOT NULL DEFAULT 'N'`);
 }
 
 async function upsertVinhetaMusica(
@@ -108,10 +110,12 @@ export async function publishCronogramasAndVinhetas(
     if (ag.alvo_tipo === 'pasta') {
       const playlistId = pastaPlaylistMap.get(ag.alvo_id);
       if (!playlistId) continue;
+      const tocarCada = ag.frequencia_musicas ?? null;
+      const tipoTocar = ag.frequencia_musicas ? 'musica' : null;
       for (const dia of diasFromCsv(ag.dias_semana)) {
         await gw.query(
           `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
-             VALUES ($1, $2, $3::date, $4, $5::time, $6::time, NULL, NULL, $7::date)`,
+             VALUES ($1, $2, $3::date, $4, $5::time, $6::time, $7, $8, $9::date)`,
           [
             programaId,
             playlistId,
@@ -119,10 +123,18 @@ export async function publishCronogramasAndVinhetas(
             dia,
             horaLegacy(ag.hora_inicio),
             horaLegacy(ag.hora_fim),
+            tocarCada,
+            tipoTocar,
             ag.data_fim,
           ],
         );
         agendas++;
+      }
+      if (ag.frequencia_musicas) {
+        await gw.query(
+          `UPDATE playlists SET tocar_cada = $1, tipo_tocar = 'musica' WHERE id = $2`,
+          [ag.frequencia_musicas, playlistId],
+        );
       }
       continue;
     }
@@ -209,19 +221,23 @@ async function ensureDefaultAgendasForUnscheduledPastas(
   pastaPlaylistMap: Map<string, number>,
   pastasComCronograma: Set<string>,
 ): Promise<number> {
-  const pastasSelRes = await portalQuery<{ id: string; selecionavel: boolean }>(
-    `SELECT id, COALESCE(selecionavel, false) AS selecionavel
+  const pastasSelRes = await portalQuery<{ id: string; selecionavel: boolean; prioritaria: boolean }>(
+    `SELECT id, COALESCE(selecionavel, false) AS selecionavel, COALESCE(prioritaria, false) AS prioritaria
        FROM pasta WHERE programacao_id = $1`,
     [programacaoId],
   );
   const selecionavelByPastaId = new Map(
     pastasSelRes.rows.map((p) => [p.id, neonSelecionavelAtivo(p.selecionavel)]),
   );
+  const prioritariaByPastaId = new Map(
+    pastasSelRes.rows.map((p) => [p.id, neonSelecionavelAtivo(p.prioritaria)]),
+  );
 
   let created = 0;
   for (const [pastaId, playlistId] of pastaPlaylistMap) {
     if (pastasComCronograma.has(pastaId)) continue;
     if (selecionavelByPastaId.get(pastaId)) continue;
+    if (prioritariaByPastaId.get(pastaId)) continue;
     for (const dia of [0, 1, 2, 3, 4, 5, 6]) {
       await gw.query(
         `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
@@ -249,13 +265,16 @@ export async function syncPastasSelecionavelFlags(
   programacaoId: string,
   pastaPlaylistMap: Map<string, number>,
 ): Promise<number> {
-  const pastasSelRes = await portalQuery<{ id: string; selecionavel: boolean }>(
-    `SELECT id, COALESCE(selecionavel, false) AS selecionavel
+  const pastasSelRes = await portalQuery<{ id: string; selecionavel: boolean; prioritaria: boolean }>(
+    `SELECT id, COALESCE(selecionavel, false) AS selecionavel, COALESCE(prioritaria, false) AS prioritaria
        FROM pasta WHERE programacao_id = $1`,
     [programacaoId],
   );
   const selecionavelByPastaId = new Map(
     pastasSelRes.rows.map((p) => [p.id, neonSelecionavelAtivo(p.selecionavel)]),
+  );
+  const prioritariaByPastaId = new Map(
+    pastasSelRes.rows.map((p) => [p.id, neonSelecionavelAtivo(p.prioritaria)]),
   );
 
   const agPastasRes = await portalQuery<{ alvo_id: string }>(
@@ -269,19 +288,25 @@ export async function syncPastasSelecionavelFlags(
   let updated = 0;
   for (const [pastaId, playlistId] of pastaPlaylistMap) {
     const isSel = selecionavelByPastaId.get(pastaId) === true;
+    const isPri = prioritariaByPastaId.get(pastaId) === true;
     if (isSel) {
       await gw.query(
-        `UPDATE playlists SET selecionavel = 'S', tocar_sempre = 'N', publicado = 'S' WHERE id = $1`,
+        `UPDATE playlists SET selecionavel = 'S', tocar_sempre = 'N', prioritaria = 'N', publicado = 'S' WHERE id = $1`,
+        [playlistId],
+      );
+    } else if (isPri) {
+      await gw.query(
+        `UPDATE playlists SET selecionavel = 'N', prioritaria = 'S', tocar_sempre = 'N', publicado = 'S' WHERE id = $1`,
         [playlistId],
       );
     } else if (pastasComCronograma.has(pastaId)) {
       await gw.query(
-        `UPDATE playlists SET selecionavel = 'N', tocar_sempre = 'N', publicado = 'S' WHERE id = $1`,
+        `UPDATE playlists SET selecionavel = 'N', prioritaria = 'N', tocar_sempre = 'N', publicado = 'S' WHERE id = $1`,
         [playlistId],
       );
     } else {
       await gw.query(
-        `UPDATE playlists SET selecionavel = 'N', tocar_sempre = 'S', publicado = 'S' WHERE id = $1`,
+        `UPDATE playlists SET selecionavel = 'N', prioritaria = 'N', tocar_sempre = 'S', publicado = 'S' WHERE id = $1`,
         [playlistId],
       );
     }

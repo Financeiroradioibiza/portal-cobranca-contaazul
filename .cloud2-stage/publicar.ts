@@ -96,6 +96,7 @@ async function ensurePublicarGatewaySchema(gw: GwClient): Promise<void> {
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS publicado CHAR(1) NOT NULL DEFAULT 'S'`);
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS tipo_agendamento TEXT DEFAULT ''`);
   await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS selecionavel CHAR(1) NOT NULL DEFAULT 'N'`);
+  await gw.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS prioritaria CHAR(1) NOT NULL DEFAULT 'N'`);
 
   await gw.query(`
     CREATE TABLE IF NOT EXISTS playlist_musicas (
@@ -160,8 +161,8 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       const prog = progRes.rows[0];
       const formatoAlvo = prog.formato_padrao || FORMATO_FALLBACK;
 
-      const pastasRes = await portalQuery<{ id: string; nome: string; selecionavel: boolean }>(
-        `SELECT id, nome, COALESCE(selecionavel, false) AS selecionavel
+      const pastasRes = await portalQuery<{ id: string; nome: string; selecionavel: boolean; prioritaria: boolean }>(
+        `SELECT id, nome, COALESCE(selecionavel, false) AS selecionavel, COALESCE(prioritaria, false) AS prioritaria
            FROM pasta WHERE programacao_id = $1 ORDER BY sort_order, nome`,
         [programacaoId],
       );
@@ -221,15 +222,17 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
 
           const totalSeg = musRes.rows.reduce((s, m) => s + Math.round((m.duration_ms ?? 0) / 1000), 0);
           const selecionavel = neonSelecionavelAtivo(pasta.selecionavel);
+          const prioritaria = neonSelecionavelAtivo(pasta.prioritaria);
           const pl = await gw.query<{ id: number }>(
-            `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, selecionavel, tempo_total, origem_pasta_id, publicado)
-               VALUES ($1, NULL, $2, 'N', $3, $4, make_interval(secs => $5), $6, 'S')
+            `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, selecionavel, prioritaria, tempo_total, origem_pasta_id, publicado)
+               VALUES ($1, NULL, $2, 'N', $3, $4, $5, make_interval(secs => $6), $7, 'S')
              RETURNING id`,
             [
               programaId,
               pasta.nome,
-              selecionavel ? 'N' : 'S',
+              selecionavel || prioritaria ? 'N' : 'S',
               selecionavel ? 'S' : 'N',
+              prioritaria ? 'S' : 'N',
               totalSeg,
               pasta.id,
             ],
