@@ -73,5 +73,8 @@ export async function updateVinheta(
 }
 
 export async function deleteVinheta(id: string): Promise<void> {
-  await prisma.vinheta.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.agendamento.deleteMany({ where: { alvoTipo: "vinheta", alvoId: id } }),
+    prisma.vinheta.delete({ where: { id } }),
+  ]);
 }

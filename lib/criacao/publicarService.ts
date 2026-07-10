@@ -23,6 +23,7 @@ export type PublicarResultado = {
   playlists: number;
   musicas: number;
   semArquivo: number;
+  vinhetasSemAudio: number;
   clienteGatewayId: number;
   clienteGatewayNome: string;
 };
@@ -63,6 +64,7 @@ export async function publicarProgramacao(
     playlists?: number;
     musicas?: number;
     semArquivo?: number;
+    vinhetasSemAudio?: number;
     pdvsLinked?: number;
   }>(res, "publicar");
   if (!res?.ok || !data.ok) {
@@ -116,6 +118,7 @@ export async function publicarProgramacao(
     playlists: data.playlists ?? 0,
     musicas: data.musicas ?? 0,
     semArquivo: data.semArquivo ?? 0,
+    vinhetasSemAudio: data.vinhetasSemAudio ?? 0,
     clienteGatewayId: clienteIdGateway,
     clienteGatewayNome: cli?.nome ?? String(clienteIdGateway),
   };

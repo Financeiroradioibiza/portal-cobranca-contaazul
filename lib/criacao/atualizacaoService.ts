@@ -238,6 +238,7 @@ export type DispararAtualizacaoResult = {
   playlists: number;
   musicas: number;
   semArquivo: number;
+  vinhetasSemAudio: number;
   clienteGatewayNome: string;
   pdvsDisparados: number;
   logResumo: string;
@@ -343,6 +344,7 @@ export async function dispararAtualizacao(
     playlists: pub.playlists,
     musicas: pub.musicas,
     semArquivo: pub.semArquivo,
+    vinhetasSemAudio: pub.vinhetasSemAudio,
     clienteGatewayNome: pub.clienteGatewayNome,
     pdvsDisparados: portalPdvIds.length,
     logResumo,

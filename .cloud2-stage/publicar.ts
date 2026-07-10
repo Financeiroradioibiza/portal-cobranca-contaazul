@@ -173,6 +173,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       let semArquivo = 0;
       let totalAgendas = 0;
       let totalVinhetas = 0;
+      let vinhetasSemAudio = 0;
       let pdvsLinked = 0;
       const pastaPlaylistMap = new Map<string, number>();
       try {
@@ -285,6 +286,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         const cron = await publishCronogramasAndVinhetas(gw, programacaoId, programaId, pastaPlaylistMap);
         totalAgendas = cron.agendas;
         totalVinhetas = cron.vinhetas;
+        vinhetasSemAudio = cron.vinhetasSemAudio;
 
         if (pdvIds.length > 0) {
           const linkRes = await gw.query(
@@ -324,6 +326,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         semArquivo,
         agendas: totalAgendas,
         vinhetas: totalVinhetas,
+        vinhetasSemAudio,
         pdvsLinked,
       });
     },

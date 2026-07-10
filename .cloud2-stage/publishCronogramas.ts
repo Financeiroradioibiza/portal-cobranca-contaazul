@@ -80,7 +80,7 @@ export async function publishCronogramasAndVinhetas(
   programacaoId: string,
   programaId: number,
   pastaPlaylistMap: Map<string, number>,
-): Promise<{ agendas: number; vinhetas: number }> {
+): Promise<{ agendas: number; vinhetas: number; vinhetasSemAudio: number }> {
   await ensureAgendasSchema(gw);
   await gw.query(`DELETE FROM agendas WHERE programa_id = $1`, [programaId]);
 
@@ -102,6 +102,7 @@ export async function publishCronogramasAndVinhetas(
 
   let agendas = 0;
   let vinhetas = 0;
+  let vinhetasSemAudio = 0;
 
   for (const ag of agRes.rows) {
     if (ag.alvo_tipo === 'pasta') {
@@ -131,7 +132,10 @@ export async function publishCronogramasAndVinhetas(
     if (!vin) continue;
 
     const musicaId = await upsertVinhetaMusica(gw, vin);
-    if (!musicaId) continue;
+    if (!musicaId) {
+      vinhetasSemAudio++;
+      continue;
+    }
 
     const isVa = Boolean(ag.data_inicio);
     const tipo = isVa ? 'VA' : 'VP';
@@ -165,7 +169,7 @@ export async function publishCronogramasAndVinhetas(
           horaLegacy(ag.hora_fim),
           tocarCada,
           tipoTocar,
-          ag.data_fim ?? ag.data_inicio,
+          ag.data_fim,
         ],
       );
     } else {
@@ -194,7 +198,7 @@ export async function publishCronogramasAndVinhetas(
     pastasComCronograma,
   );
 
-  return { agendas, vinhetas };
+  return { agendas, vinhetas, vinhetasSemAudio };
 }
 
 /** Pastas sem cronograma no portal tocam o dia todo (Player 5 usa /agendas/ no slot). */

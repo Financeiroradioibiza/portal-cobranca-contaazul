@@ -1316,6 +1316,7 @@ export function FecharAtualizacaoModal({
         musicas?: number;
         playlists?: number;
         semArquivo?: number;
+        vinhetasSemAudio?: number;
         pdvsDisparados?: number;
       };
       if (!res.ok) throw new Error(data.error ?? "disparo_falhou");
@@ -1324,7 +1325,8 @@ export function FecharAtualizacaoModal({
       setResultado(
         (data.logResumo ?? data.rotuloLog ?? data.codigo ?? "Atualização") +
           ` — rev. ${data.revision ?? "?"} · +${ent} / −${sai} faixa(s) · ${data.pdvsDisparados ?? info.pdvsAmarrados} PDV(s).` +
-          (data.semArquivo ? ` (${data.semArquivo} sem áudio)` : ""),
+          (data.semArquivo ? ` (${data.semArquivo} faixa(s) sem áudio)` : "") +
+          (data.vinhetasSemAudio ? ` (${data.vinhetasSemAudio} vinheta(s) sem áudio)` : ""),
       );
       await onDone();
     } catch (e) {

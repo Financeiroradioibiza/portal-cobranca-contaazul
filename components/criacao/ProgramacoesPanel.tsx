@@ -10,7 +10,7 @@ import { uploadVinhetaAudio, vinhetaUploadErrorMessage } from "@/lib/criacao/vin
 import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
 import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
-import { CronogramaAlvoBadges, DOW, diasLabel } from "@/components/criacao/CronogramaAlvoBadges";
+import { CronogramaAlvoBadges, DOW, diasLabel, formatPeriodoAgendamento } from "@/components/criacao/CronogramaAlvoBadges";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { formatPastaMusicaAddedAt, isMusicaNovaNaAtualizacao } from "@/lib/criacao/pastaMusicaUi";
 
@@ -1283,6 +1283,9 @@ function CronogramaSection({
                 <span className="text-slate-400">a</span>
                 <input type="date" value={dFim} onChange={(e) => setDFim(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
               </div>
+              <p className="mt-1 text-[10px] text-slate-400">
+                Deixe «a» vazio para tocar indefinidamente a partir da data de início.
+              </p>
             </label>
             {alvoIsVinheta ?
               <>
@@ -1322,7 +1325,7 @@ function CronogramaSection({
             </button>
             {regrasAdicionadas > 0 ?
               <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                {regrasAdicionadas} regra{regrasAdicionadas === 1 ? "" : "s"} salva{regrasAdicionadas === 1 ? "" : "s"} — pode adicionar mais para a mesma pasta
+                {regrasAdicionadas} regra{regrasAdicionadas === 1 ? "" : "s"} salva{regrasAdicionadas === 1 ? "" : "s"} — pode adicionar mais para a mesma pasta ou vinheta
               </span>
             : null}
             <button
@@ -1338,7 +1341,7 @@ function CronogramaSection({
 
       {ags.length === 0 ?
         <p className="rounded-xl border border-dashed border-emerald-300/60 bg-emerald-50/50 px-4 py-3 text-xs text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/20 dark:text-emerald-200">
-          Nenhuma regra criada — cada pasta e vinheta mostra <strong>TOCAR SEMPRE</strong> ao lado do nome. Use «+ Regra» para restringir horários.
+          Nenhuma regra criada — pastas mostram <strong>TOCAR SEMPRE</strong> (vão ao player o dia todo). Vinhetas precisam de ao menos uma regra aqui para tocarem no player.
         </p>
       : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1350,9 +1353,9 @@ function CronogramaSection({
                 <span className="font-semibold">{a.alvoNome}</span>
                 <span className="text-slate-500">{diasLabel(a.diasSemana)}</span>
                 <span className="tabular-nums text-slate-500">{a.horaInicio}–{a.horaFim}</span>
-                {a.dataInicio || a.dataFim ?
+                {formatPeriodoAgendamento(a.dataInicio, a.dataFim) ?
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                    {a.dataInicio ?? "…"} → {a.dataFim ?? "…"}
+                    {formatPeriodoAgendamento(a.dataInicio, a.dataFim)}
                   </span>
                 : null}
                 {a.frequenciaMin ?

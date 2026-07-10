@@ -10,9 +10,18 @@ export function diasLabel(csv: string): string {
   return ds.join(", ");
 }
 
+/** Rótulo do período de datas — dataFim null após dataInicio = sem fim. */
+export function formatPeriodoAgendamento(dataInicio: string | null, dataFim: string | null): string | null {
+  if (!dataInicio && !dataFim) return null;
+  if (dataInicio && !dataFim) return `desde ${dataInicio} (sem fim)`;
+  if (!dataInicio && dataFim) return `até ${dataFim}`;
+  return `${dataInicio} → ${dataFim}`;
+}
+
 export function resumoAgendamento(a: AgendamentoRow): string {
   const parts = [diasLabel(a.diasSemana), `${a.horaInicio}–${a.horaFim}`];
-  if (a.dataInicio || a.dataFim) parts.push(`${a.dataInicio ?? "…"} → ${a.dataFim ?? "…"}`);
+  const periodo = formatPeriodoAgendamento(a.dataInicio, a.dataFim);
+  if (periodo) parts.push(periodo);
   if (a.frequenciaMin) parts.push(`a cada ${a.frequenciaMin} min`);
   if (a.frequenciaMusicas) {
     parts.push(`a cada ${a.frequenciaMusicas} música${a.frequenciaMusicas === 1 ? "" : "s"}`);
@@ -28,7 +37,7 @@ function agendamentosDoAlvo(
   return ags.filter((a) => a.alvoTipo === alvoTipo && a.alvoId === alvoId);
 }
 
-/** Badge ao lado da pasta/vinheta — «Tocar sempre» ou resumo do cronograma. */
+/** Badge ao lado da pasta/vinheta — «Tocar sempre» (pasta) ou cronograma. */
 export function CronogramaAlvoBadges({
   ags,
   alvoTipo,
@@ -43,6 +52,16 @@ export function CronogramaAlvoBadges({
   const paused = rules.filter((a) => !a.ativo);
 
   if (rules.length === 0) {
+    if (alvoTipo === "vinheta") {
+      return (
+        <span
+          className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-200"
+          title="Vinhetas só vão ao player com ao menos uma regra de cronograma"
+        >
+          Sem cronograma
+        </span>
+      );
+    }
     return (
       <span className="rounded-md bg-emerald-500/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 ring-1 ring-emerald-500/35 dark:bg-emerald-500/15 dark:text-emerald-200">
         TOCAR SEMPRE
