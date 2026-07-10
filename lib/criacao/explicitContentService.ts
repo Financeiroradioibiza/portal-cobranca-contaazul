@@ -24,6 +24,7 @@ export type ExplicitCheckResult = {
   explicit: boolean;
   updated: boolean;
   geminiStatus?: "sim" | "nao" | "desconhecida";
+  geminiFailed?: boolean;
 };
 
 function tagsToJson(tags: ExternalAutoTag[]): Prisma.InputJsonValue {
@@ -118,10 +119,11 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
   updated: number;
   skippedGemini: number;
   geminiEnabled: boolean;
+  geminiFailed: number;
   results: ExplicitCheckResult[];
 }> {
   if (!geminiEnabled()) {
-    return { processed: 0, explicit: 0, updated: 0, skippedGemini: 0, geminiEnabled: false, results: [] };
+    return { processed: 0, explicit: 0, updated: 0, skippedGemini: 0, geminiEnabled: false, geminiFailed: 0, results: [] };
   }
 
   const limit = Math.min(30, Math.max(1, opts.limit ?? 1));
@@ -169,21 +171,30 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
           };
         }),
       )
-    : new Map<string, GeminiExplicitResult>();
+    : new Map<string, import("@/lib/criacao/explicitGeminiService").GeminiClassifyOutcome>();
 
   const results: ExplicitCheckResult[] = [];
   let explicit = 0;
   let updated = 0;
   let skippedGemini = 0;
+  let geminiFailed = 0;
 
   for (const m of rows) {
     const existing = parseTagsFromJson(m.tagsAuto);
     const dz = extractExplicitApiStatus(existing, "deezer");
     const mb = extractExplicitApiStatus(existing, "musicbrainz");
     const apiConfirmed = canConfirmExplicitFromApis(dz, mb);
-    const geminiRaw: GeminiExplicitResult =
-      apiConfirmed ? "desconhecida" : (geminiMap.get(m.id) ?? "desconhecida");
+    const outcome = apiConfirmed ? undefined : geminiMap.get(m.id);
     if (apiConfirmed) skippedGemini += 1;
+
+    if (!apiConfirmed && outcome?.apiFailed) {
+      geminiFailed += 1;
+      results.push({ musicaId: m.id, explicit: false, updated: false, geminiFailed: true });
+      continue;
+    }
+
+    const geminiRaw: GeminiExplicitResult =
+      apiConfirmed ? "desconhecida" : (outcome?.result ?? "desconhecida");
     const geminiTag = finalizeGeminiExplicitVerdict(geminiRaw, dz, mb);
     const merged = mergeGeminiExplicitCheck(existing, geminiTag);
     const isExp = geminiTag === "sim";
@@ -208,6 +219,7 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
     explicit,
     updated,
     skippedGemini,
+    geminiFailed,
     geminiEnabled: true,
     results,
   };

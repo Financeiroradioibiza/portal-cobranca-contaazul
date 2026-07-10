@@ -242,8 +242,9 @@ export async function enrichGeminiForMusica(musicaId: string): Promise<void> {
       musicbrainzExplicit: mb,
     },
   ]);
-  const geminiRaw = geminiMap.get(musicaId) ?? 'desconhecida';
-  const geminiTag = finalizeGeminiExplicitVerdict(geminiRaw, dz, mb);
+  const outcome = geminiMap.get(musicaId);
+  if (outcome?.apiFailed) return;
+  const geminiTag = finalizeGeminiExplicitVerdict(outcome?.result ?? 'desconhecida', dz, mb);
   const merged = mergeGeminiExplicitCheck(existing, geminiTag);
 
   await portalQuery(

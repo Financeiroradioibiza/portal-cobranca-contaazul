@@ -1,8 +1,19 @@
-const DEFAULT_MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
 const DEFAULT_TIMEOUT_MS = Math.min(
   20_000,
-  Math.max(4_000, Number(process.env.GEMINI_TIMEOUT_MS) || 8_000),
+  Math.max(4_000, Number(process.env.GEMINI_TIMEOUT_MS) || 12_000),
 );
+
+/** Modelos em ordem de tentativa — 2.0-flash desligado em jun/2026. */
+const MODEL_FALLBACKS = [
+  process.env.GEMINI_MODEL?.trim(),
+  "gemini-2.5-flash",
+  "gemini-3.5-flash",
+  "gemini-2.5-flash-lite",
+].filter((m): m is string => Boolean(m));
+
+export function geminiDefaultModel(): string {
+  return MODEL_FALLBACKS[0] ?? "gemini-2.5-flash";
+}
 
 export function geminiEnabled(): boolean {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
@@ -27,16 +38,15 @@ function extractJsonArray(text: string): unknown[] | null {
   }
 }
 
-/** Chamada server-side ao Gemini (JSON). Retorna null se desabilitado, timeout ou falha. */
-export async function geminiGenerateJson<T>(
+async function geminiGenerateJsonWithModel<T>(
+  model: string,
   prompt: string,
-  opts?: { timeoutMs?: number },
-): Promise<T | null> {
+  timeoutMs: number,
+): Promise<{ data: T | null; httpStatus?: number; error?: string }> {
   const key = process.env.GEMINI_API_KEY?.trim();
-  if (!key) return null;
+  if (!key) return { data: null, error: "no_key" };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(DEFAULT_MODEL)}:generateContent?key=${encodeURIComponent(key)}`;
-  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
 
   try {
     const res = await fetch(url, {
@@ -53,23 +63,53 @@ export async function geminiGenerateJson<T>(
       }),
     });
     if (!res.ok) {
-      console.warn("[gemini] HTTP", res.status, await res.text().catch(() => ""));
-      return null;
+      const errText = await res.text().catch(() => "");
+      console.warn("[gemini] HTTP", model, res.status, errText.slice(0, 200));
+      return { data: null, httpStatus: res.status, error: errText.slice(0, 120) || `http_${res.status}` };
     }
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: { text?: string }[] } }[];
     };
     const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-    if (!text.trim()) return null;
+    if (!text.trim()) return { data: null, error: "empty_response" };
     try {
-      return JSON.parse(text) as T;
+      return { data: JSON.parse(text) as T };
     } catch {
       const arr = extractJsonArray(text);
-      return (arr as T) ?? null;
+      return arr ? { data: arr as T } : { data: null, error: "parse_failed" };
     }
   } catch (e) {
     const aborted = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
-    console.warn(aborted ? "[gemini] timeout" : "[gemini] fetch failed", e);
-    return null;
+    console.warn(aborted ? "[gemini] timeout" : "[gemini] fetch failed", model, e);
+    return { data: null, error: aborted ? "timeout" : "fetch_failed" };
   }
+}
+
+export type GeminiJsonResult<T> = {
+  data: T | null;
+  modelUsed: string | null;
+  error?: string;
+};
+
+/** Chamada server-side ao Gemini (JSON). Tenta modelos fallback se o principal falhar. */
+export async function geminiGenerateJson<T>(
+  prompt: string,
+  opts?: { timeoutMs?: number },
+): Promise<GeminiJsonResult<T>> {
+  if (!geminiEnabled()) return { data: null, modelUsed: null, error: "disabled" };
+
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let lastError: string | undefined;
+
+  for (const model of MODEL_FALLBACKS) {
+    const attempt = await geminiGenerateJsonWithModel<T>(model, prompt, timeoutMs);
+    if (attempt.data != null) {
+      return { data: attempt.data, modelUsed: model };
+    }
+    lastError = attempt.error ?? `http_${attempt.httpStatus ?? "unknown"}`;
+    if (attempt.httpStatus === 404 || attempt.httpStatus === 400) continue;
+    if (attempt.error === "timeout") break;
+  }
+
+  return { data: null, modelUsed: null, error: lastError ?? "all_models_failed" };
 }

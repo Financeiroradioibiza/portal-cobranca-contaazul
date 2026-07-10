@@ -204,7 +204,7 @@ export function BibliotecaMusicalPanel() {
         });
         const data = (await res.json().catch(() => null)) as {
           error?: string;
-          results?: { musicaId: string; geminiStatus?: "sim" | "nao" | "desconhecida"; explicit?: boolean }[];
+          results?: { musicaId: string; geminiStatus?: "sim" | "nao" | "desconhecida"; geminiFailed?: boolean; explicit?: boolean }[];
         } | null;
         if (!res.ok) {
           if (res.status === 504) throw new Error("Timeout do servidor (504) — tente IA em uma faixa por vez.");
@@ -212,14 +212,19 @@ export function BibliotecaMusicalPanel() {
           throw new Error(data?.error ?? "check_failed");
         }
         await patchMusica(m.id);
-        const st = data?.results?.[0]?.geminiStatus;
+        const r = data?.results?.[0];
         const titulo = m.titulo || "(sem título)";
+        if (r?.geminiFailed) {
+          setRowMsg(`«${titulo}» — Gemini não respondeu. Confira GEMINI_MODEL=gemini-2.5-flash no Netlify.`);
+          return;
+        }
+        const st = r?.geminiStatus;
         if (st === "sim") {
           setRowMsg(`«${titulo}» — EXP (letra explícita).`);
         } else if (st === "nao") {
           setRowMsg(`«${titulo}» — IA ok (letra limpa para rádio).`);
         } else if (st === "desconhecida") {
-          setRowMsg(`«${titulo}» — IA inconclusiva (faixa desconhecida).`);
+          setRowMsg(`«${titulo}» — IA não conhece esta faixa (artista+título).`);
         } else {
           setRowMsg(`Check IA concluído para «${titulo}».`);
         }
@@ -240,6 +245,7 @@ export function BibliotecaMusicalPanel() {
     let expCount = 0;
     let okCount = 0;
     let unkCount = 0;
+    let failTotal = 0;
     try {
       while (true) {
         const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
@@ -251,7 +257,8 @@ export function BibliotecaMusicalPanel() {
           error?: string;
           processed?: number;
           hasMore?: boolean;
-          results?: { geminiStatus?: "sim" | "nao" | "desconhecida" }[];
+          results?: { geminiStatus?: "sim" | "nao" | "desconhecida"; geminiFailed?: boolean }[];
+          geminiFailed?: number;
         } | null;
         if (!res.ok) {
           if (res.status === 504) throw new Error("Timeout do servidor (504) — tente IA em uma faixa por vez.");
@@ -260,20 +267,25 @@ export function BibliotecaMusicalPanel() {
         }
         const n = data?.processed ?? 0;
         for (const r of data?.results ?? []) {
+          if (r.geminiFailed) continue;
           if (r.geminiStatus === "sim") expCount += 1;
           else if (r.geminiStatus === "nao") okCount += 1;
           else if (r.geminiStatus === "desconhecida") unkCount += 1;
         }
         total += n;
+        failTotal += data?.geminiFailed ?? 0;
         if (n > 0) {
-          setRowMsg(`IA em lote: ${total} faixa${total === 1 ? "" : "s"}… (${expCount} EXP · ${okCount} ok · ${unkCount} ?)`);
+          setRowMsg(
+            `IA em lote: ${total} faixa${total === 1 ? "" : "s"}… (${expCount} EXP · ${okCount} ok · ${unkCount} ?${failTotal ? ` · ${failTotal} falha API` : ""})`,
+          );
         }
         if (!data?.hasMore || n === 0) break;
+        if ((data?.geminiFailed ?? 0) > 0) break;
       }
       await load({ silent: true });
       setRowMsg(
         total > 0 ?
-          `IA em lote concluída — ${total} faixa${total === 1 ? "" : "s"}: ${expCount} EXP · ${okCount} IA ok · ${unkCount} inconclusiva${unkCount === 1 ? "" : "s"}.`
+          `IA em lote concluída — ${total} faixa${total === 1 ? "" : "s"}: ${expCount} EXP · ${okCount} IA ok · ${unkCount} desconhecida${failTotal > 0 ? ` · ${failTotal} falha Gemini (veja GEMINI_MODEL)` : ""}.`
         : "Nenhuma faixa pendente de avaliação IA.",
       );
     } catch (e) {
