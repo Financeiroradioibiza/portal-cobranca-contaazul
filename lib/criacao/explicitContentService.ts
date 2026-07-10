@@ -118,12 +118,22 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
   explicit: number;
   updated: number;
   skippedGemini: number;
-  geminiEnabled: boolean;
   geminiFailed: number;
+  hasMorePending: boolean;
+  geminiEnabled: boolean;
   results: ExplicitCheckResult[];
 }> {
   if (!geminiEnabled()) {
-    return { processed: 0, explicit: 0, updated: 0, skippedGemini: 0, geminiEnabled: false, geminiFailed: 0, results: [] };
+    return {
+      processed: 0,
+      explicit: 0,
+      updated: 0,
+      skippedGemini: 0,
+      geminiEnabled: false,
+      geminiFailed: 0,
+      hasMorePending: false,
+      results: [],
+    };
   }
 
   const limit = Math.min(30, Math.max(1, opts.limit ?? 1));
@@ -141,7 +151,7 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
     const pool = await prisma.musicaBiblioteca.findMany({
       where: { status: "pronta" },
       orderBy: { updatedAt: "asc" },
-      take: limit * 8,
+      take: limit * 32,
       select: { id: true, titulo: true, artista: true, isrc: true, tagsAuto: true },
     });
     rows =
@@ -214,12 +224,24 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
     if (isExp) explicit += 1;
   }
 
+  let hasMorePending = false;
+  if (onlyMissing && ids.length === 0) {
+    const peek = await prisma.musicaBiblioteca.findMany({
+      where: { status: "pronta" },
+      orderBy: { updatedAt: "asc" },
+      take: 80,
+      select: { tagsAuto: true },
+    });
+    hasMorePending = peek.some((m) => needsGeminiExplicitCheck(parseTagsFromJson(m.tagsAuto)));
+  }
+
   return {
     processed: results.length,
     explicit,
     updated,
     skippedGemini,
     geminiFailed,
+    hasMorePending,
     geminiEnabled: true,
     results,
   };

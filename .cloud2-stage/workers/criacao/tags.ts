@@ -20,7 +20,12 @@ const EXPLICIT_TAG_VALOR = 'EXP';
 const EXPLICIT_CHECKED_VALOR = 'OK';
 
 function hasGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
-  return tags.some((t) => t.fonte === 'gemini' && t.chave === EXPLICIT_TAG_CHAVE);
+  const gemini = tags.find((t) => t.fonte === 'gemini' && t.chave === EXPLICIT_TAG_CHAVE)?.valor;
+  if (gemini === 'sim' || gemini === 'nao') return true;
+  if (gemini === 'desconhecida') {
+    return tags.some((t) => t.fonte === 'gemini' && t.chave === 'explicit_avaliado' && t.valor === 'sim');
+  }
+  return false;
 }
 
 function extractExplicitStatus(tags: ExternalAutoTag[], fonte: 'deezer' | 'musicbrainz' | 'gemini') {
@@ -47,15 +52,16 @@ function mergeGeminiExplicitCheck(
   const out = tags.filter(
     (t) =>
       !(
-        (t.fonte === 'gemini' && t.chave === EXPLICIT_TAG_CHAVE) ||
+        (t.fonte === 'gemini' && (t.chave === EXPLICIT_TAG_CHAVE || t.chave === 'explicit_avaliado')) ||
         (t.fonte === EXPLICIT_TAG_FONTE && t.chave === EXPLICIT_TAG_CHAVE)
       ),
   );
   out.push({ fonte: 'gemini', chave: EXPLICIT_TAG_CHAVE, valor: geminiTag });
+  out.push({ fonte: 'gemini', chave: 'explicit_avaliado', valor: 'sim' });
   out.push({
     fonte: EXPLICIT_TAG_FONTE,
     chave: EXPLICIT_TAG_CHAVE,
-    valor: geminiTag === 'sim' ? EXPLICIT_TAG_VALOR : EXPLICIT_CHECKED_VALOR,
+    valor: geminiTag === 'sim' ? EXPLICIT_TAG_VALOR : geminiTag === 'desconhecida' ? 'INC' : EXPLICIT_CHECKED_VALOR,
   });
   return out;
 }

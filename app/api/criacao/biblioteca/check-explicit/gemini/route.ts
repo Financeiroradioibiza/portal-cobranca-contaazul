@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ...result,
-      hasMore: onlyMissing && result.processed >= limit,
+      hasMore: onlyMissing && result.hasMorePending,
     });
   } catch (e) {
     if (e instanceof Response) return e;

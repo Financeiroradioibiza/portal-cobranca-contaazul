@@ -7,6 +7,10 @@ export const EXPLICIT_CHECKED_VALOR = "OK";
 export const EXPLICIT_API_SIM = "sim";
 export const EXPLICIT_API_NAO = "nao";
 export const EXPLICIT_API_DESCONHECIDA = "desconhecida";
+/** Gravado após resposta real do Gemini (distinguir de falha API / dado antigo). */
+export const GEMINI_AVALIADO_CHAVE = "explicit_avaliado";
+export const GEMINI_AVALIADO_VALOR = "sim";
+export const EXPLICIT_INCONCLUSIVO_VALOR = "INC";
 
 export type ExplicitApiStatus = "sim" | "nao" | "desconhecida" | null;
 
@@ -36,11 +40,27 @@ export function hasApiExplicitCheck(tags: ExternalAutoTag[]): boolean {
 }
 
 export function hasGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
-  return extractExplicitApiStatus(tags, "gemini") !== null;
+  return isGeminiExplicitlyResolved(tags);
 }
 
-/** Faixa ainda precisa de check IA (nunca feito ou veredicto desatualizado vs Deezer/MB). */
+/** IA concluiu: veredicto sim/nao, ou desconhecida após avaliação real. */
+export function isGeminiExplicitlyResolved(tags: ExternalAutoTag[]): boolean {
+  const gemini = extractExplicitApiStatus(tags, "gemini");
+  if (gemini === "sim" || gemini === "nao") return true;
+  if (gemini === "desconhecida") {
+    return tags.some(
+      (t) =>
+        t.fonte === "gemini" &&
+        t.chave === GEMINI_AVALIADO_CHAVE &&
+        t.valor === GEMINI_AVALIADO_VALOR,
+    );
+  }
+  return false;
+}
+
+/** Faixa ainda precisa de check IA. */
 export function needsGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
+  if (!isGeminiExplicitlyResolved(tags)) return true;
   const gemini = extractExplicitApiStatus(tags, "gemini");
   if (gemini === null) return true;
   const deezer = extractExplicitApiStatus(tags, "deezer");
@@ -75,7 +95,9 @@ function stripApiExplicit(tags: ExternalAutoTag[]): ExternalAutoTag[] {
 
 function stripGeminiExplicit(tags: ExternalAutoTag[]): ExternalAutoTag[] {
   return tags.filter((t) => {
-    if (t.fonte === "gemini" && t.chave === EXPLICIT_TAG_CHAVE) return false;
+    if (t.fonte === "gemini" && (t.chave === EXPLICIT_TAG_CHAVE || t.chave === GEMINI_AVALIADO_CHAVE)) {
+      return false;
+    }
     if (t.fonte === EXPLICIT_TAG_FONTE && t.chave === EXPLICIT_TAG_CHAVE) return false;
     return true;
   });
@@ -108,10 +130,14 @@ export function mergeGeminiExplicitCheck(
 ): ExternalAutoTag[] {
   const out = stripGeminiExplicit(tags);
   out.push({ fonte: "gemini", chave: EXPLICIT_TAG_CHAVE, valor: geminiTag });
+  out.push({ fonte: "gemini", chave: GEMINI_AVALIADO_CHAVE, valor: GEMINI_AVALIADO_VALOR });
   out.push({
     fonte: EXPLICIT_TAG_FONTE,
     chave: EXPLICIT_TAG_CHAVE,
-    valor: geminiTag === "sim" ? EXPLICIT_TAG_VALOR : EXPLICIT_CHECKED_VALOR,
+    valor:
+      geminiTag === "sim" ? EXPLICIT_TAG_VALOR
+      : geminiTag === "desconhecida" ? EXPLICIT_INCONCLUSIVO_VALOR
+      : EXPLICIT_CHECKED_VALOR,
   });
   return out;
 }
