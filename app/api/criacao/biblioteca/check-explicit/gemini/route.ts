@@ -5,6 +5,7 @@ import { checkMusicasExplicitGeminiBatch } from "@/lib/criacao/explicitContentSe
 export const maxDuration = 26;
 
 const BATCH_MAX = 30;
+const BATCH_DEFAULT = 5;
 
 type Body = {
   limit?: number;
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
   try {
     requirePortalSession(await getPortalSession());
     const body = (await request.json().catch(() => ({}))) as Body;
-    const limit = Math.min(BATCH_MAX, Math.max(1, Number(body.limit) || BATCH_MAX));
+    const limit = Math.min(BATCH_MAX, Math.max(1, Number(body.limit) || BATCH_DEFAULT));
     const musicaIds = Array.isArray(body.musicaIds) ? body.musicaIds.filter(Boolean) : undefined;
     const onlyMissing = body.onlyMissing !== false;
 

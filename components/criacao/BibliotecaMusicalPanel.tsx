@@ -95,6 +95,7 @@ export function BibliotecaMusicalPanel() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshingTagId, setRefreshingTagId] = useState<string | null>(null);
   const [checkingGeminiId, setCheckingGeminiId] = useState<string | null>(null);
+  const [batchGeminiRunning, setBatchGeminiRunning] = useState(false);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
   const [renameFor, setRenameFor] = useState<Musica | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("full");
@@ -215,6 +216,47 @@ export function BibliotecaMusicalPanel() {
     },
     [patchMusica],
   );
+
+  const checkGeminiBatch = useCallback(async () => {
+    if (batchGeminiRunning) return;
+    setBatchGeminiRunning(true);
+    setRowMsg(null);
+    let total = 0;
+    try {
+      while (true) {
+        const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ onlyMissing: true, limit: 5 }),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+          processed?: number;
+          hasMore?: boolean;
+        } | null;
+        if (!res.ok) {
+          if (data?.error === "gemini_desabilitado") throw new Error("Configure GEMINI_API_KEY no Netlify.");
+          throw new Error(data?.error ?? "check_failed");
+        }
+        const n = data?.processed ?? 0;
+        total += n;
+        if (n > 0) {
+          setRowMsg(`IA em lote: ${total} faixa${total === 1 ? "" : "s"} avaliada${total === 1 ? "" : "s"}…`);
+        }
+        if (!data?.hasMore || n === 0) break;
+      }
+      await load({ silent: true });
+      setRowMsg(
+        total > 0 ?
+          `IA em lote concluída — ${total} faixa${total === 1 ? "" : "s"} sem avaliação IA processada${total === 1 ? "" : "s"}.`
+        : "Nenhuma faixa pendente de avaliação IA.",
+      );
+    } catch (e) {
+      setRowMsg(e instanceof Error ? e.message : "Falha no lote IA.");
+    } finally {
+      setBatchGeminiRunning(false);
+    }
+  }, [batchGeminiRunning, load]);
 
   const apagarMusica = useCallback(
     async (m: Musica) => {
@@ -381,6 +423,15 @@ export function BibliotecaMusicalPanel() {
               Lista slim
             </button>
           </div>
+          <button
+            type="button"
+            disabled={batchGeminiRunning || checkingGeminiId != null}
+            onClick={() => void checkGeminiBatch()}
+            className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200 dark:hover:bg-violet-900"
+            title="Avalia conteúdo explícito (Gemini) em faixas ainda sem check IA — 5 por vez"
+          >
+            {batchGeminiRunning ? "IA em lote…" : "IA EXP em lote"}
+          </button>
           <button
             type="button"
             onClick={() => setShowTagManager(true)}

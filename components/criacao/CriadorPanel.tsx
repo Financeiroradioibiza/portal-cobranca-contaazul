@@ -1,11 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
+import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
 import { formatPastaMusicaAddedAt } from "@/lib/criacao/pastaMusicaUi";
+import {
+  OFF_PERCENT_OPTIONS,
+  pickOldestMusicaIdsForOffPercent,
+  type OffPercent,
+} from "@/lib/criacao/pastaOffSelect";
 
 type SortKey = "titulo" | "artista" | "addedAt";
 
@@ -69,14 +76,27 @@ function sortMusicas(list: PastaMusicaSlim[], key: SortKey | null): PastaMusicaS
   });
 }
 
+const OPEN_PROG_KEY = "criacao-open-prog";
+const pastasAbertasKey = (progId: string) => `criacao-pastas-abertas:${progId}`;
+
+async function fetchPastaMusicas(pastaId: string, programacaoId: string): Promise<PastaMusicaSlim[]> {
+  const qs = `?programacaoId=${encodeURIComponent(programacaoId)}`;
+  const res = await fetch(`/api/criacao/pastas/${pastaId}/musicas${qs}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { musicas?: PastaMusicaSlim[] };
+  return data.musicas ?? [];
+}
+
 function PastaMusicasInline({
   pastaId,
   programacaoId,
   sortKey,
+  selectedIds,
 }: {
   pastaId: string;
   programacaoId: string;
   sortKey: SortKey | null;
+  selectedIds?: Set<string>;
 }) {
   const [musicas, setMusicas] = useState<PastaMusicaSlim[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,10 +133,17 @@ function PastaMusicasInline({
   return (
     <>
     <ul className="divide-y divide-slate-100 bg-slate-50/40 dark:divide-slate-800/60 dark:bg-slate-950/30">
-      {sorted.map((m, idx) => (
+      {sorted.map((m, idx) => {
+        const isSelected = selectedIds?.has(m.id) ?? false;
+        return (
         <li
           key={m.id}
-          className="flex items-center gap-3 py-1.5 pl-14 pr-4 text-sm hover:bg-slate-50/80 dark:hover:bg-slate-800/30"
+          className={
+            "flex items-center gap-3 py-1.5 pl-14 pr-4 text-sm " +
+            (isSelected ?
+              "bg-orange-50/90 ring-1 ring-inset ring-orange-200 dark:bg-orange-950/30 dark:ring-orange-900"
+            : "hover:bg-slate-50/80 dark:hover:bg-slate-800/30")
+          }
         >
           <span className="w-6 shrink-0 text-right text-xs tabular-nums text-slate-400">{idx + 1}</span>
           {m.previewUrl ?
@@ -177,7 +204,8 @@ function PastaMusicasInline({
           </span>
           <span className="shrink-0 text-xs tabular-nums text-slate-400">{fmtDur(m.durationMs)}</span>
         </li>
-      ))}
+        );
+      })}
     </ul>
     <MusicaVotosModal
       musicaId={votosModal?.id ?? null}
@@ -190,12 +218,19 @@ function PastaMusicasInline({
 }
 
 export function CriadorPanel() {
+  const router = useRouter();
   const [clientes, setClientes] = useState<CriadorCliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedProgs, setExpandedProgs] = useState<Set<string>>(new Set());
   const [expandedPastas, setExpandedPastas] = useState<Set<string>>(new Set());
   const [sortByPasta, setSortByPasta] = useState<Record<string, SortKey>>({});
   const [busca, setBusca] = useState("");
+  const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
+  const [offPercentByPasta, setOffPercentByPasta] = useState<Record<string, OffPercent>>({});
+  const [offMenuPastaId, setOffMenuPastaId] = useState<string | null>(null);
+  const [offApplying, setOffApplying] = useState<string | null>(null);
+  const [offRemoving, setOffRemoving] = useState<string | null>(null);
+  const [offMsg, setOffMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -233,6 +268,80 @@ export function CriadorPanel() {
     });
   }
 
+  const applyOffPercent = useCallback(
+    async (pasta: CriadorPasta, prog: CriadorProg, percent: OffPercent) => {
+      if (pasta.musicasCount === 0) return;
+      setOffApplying(pasta.id);
+      setOffMsg(null);
+      setOffMenuPastaId(null);
+      try {
+        const musicas = await fetchPastaMusicas(pasta.id, prog.id);
+        const ids = pickOldestMusicaIdsForOffPercent(musicas, percent);
+        if (ids.length === 0) {
+          setOffMsg("Nenhuma faixa para selecionar nesta pasta.");
+          return;
+        }
+        setSelectedByPasta((prev) => ({ ...prev, [pasta.id]: new Set(ids) }));
+        setOffPercentByPasta((prev) => ({ ...prev, [pasta.id]: percent }));
+        setExpandedProgs((prev) => new Set(prev).add(prog.id));
+        setExpandedPastas((prev) => new Set(prev).add(pasta.id));
+        setSortByPasta((prev) => ({ ...prev, [pasta.id]: "addedAt" }));
+      } catch {
+        setOffMsg("Falha ao carregar faixas da pasta.");
+      } finally {
+        setOffApplying(null);
+      }
+    },
+    [],
+  );
+
+  const clearOffSelection = useCallback((pastaId: string) => {
+    setSelectedByPasta((prev) => {
+      const next = { ...prev };
+      delete next[pastaId];
+      return next;
+    });
+    setOffPercentByPasta((prev) => {
+      const next = { ...prev };
+      delete next[pastaId];
+      return next;
+    });
+  }, []);
+
+  const removeOffSelection = useCallback(
+    async (pasta: CriadorPasta, prog: CriadorProg) => {
+      const ids = [...(selectedByPasta[pasta.id] ?? [])];
+      if (ids.length === 0) return;
+      const pct = offPercentByPasta[pasta.id];
+      const pctLabel = pct ? ` (${pct}% OFF — mais antigas)` : "";
+      if (
+        !window.confirm(
+          `Retirar ${ids.length} faixa${ids.length === 1 ? "" : "s"} da pasta «${pasta.nome}»${pctLabel}?\n\nA programação será aberta na central de programações.`,
+        )
+      ) {
+        return;
+      }
+      setOffRemoving(pasta.id);
+      setOffMsg(null);
+      try {
+        await marcarAtualizacaoAberta(prog.id);
+        const res = await fetch(`/api/criacao/pastas/${pasta.id}/musicas`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ musicaIds: ids }),
+        });
+        if (!res.ok) throw new Error("delete_failed");
+        sessionStorage.setItem(OPEN_PROG_KEY, prog.id);
+        sessionStorage.setItem(pastasAbertasKey(prog.id), JSON.stringify([pasta.id]));
+        router.push("/criacao/programacoes");
+      } catch {
+        setOffMsg("Não foi possível remover as faixas selecionadas.");
+        setOffRemoving(null);
+      }
+    },
+    [selectedByPasta, offPercentByPasta, router],
+  );
+
   const clientesFiltrados = busca.trim()
     ? clientes.filter(
         (c) =>
@@ -267,6 +376,12 @@ export function CriadorPanel() {
           className="w-full max-w-[240px] rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
         />
       </header>
+
+      {offMsg ?
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {offMsg}
+        </div>
+      : null}
 
       {loading ?
         <div className="py-12 text-center text-sm text-slate-500">Carregando suas programações…</div>
@@ -330,6 +445,9 @@ export function CriadorPanel() {
                           {prog.pastas.map((pasta) => {
                             const pastaOpen = expandedPastas.has(pasta.id);
                             const currentSort = sortByPasta[pasta.id] ?? null;
+                            const selected = selectedByPasta[pasta.id] ?? new Set<string>();
+                            const selectedCount = selected.size;
+                            const offPct = offPercentByPasta[pasta.id];
                             return (
                               <li key={pasta.id} className="border-b border-slate-100/40 last:border-b-0 dark:border-slate-800/30">
                                 <div className="flex flex-wrap items-center gap-2 py-1.5 pl-8 pr-4">
@@ -352,7 +470,58 @@ export function CriadorPanel() {
                                   <CronogramaAlvoBadges ags={prog.agendamentos} alvoTipo="pasta" alvoId={pasta.id} />
                                   <span className="shrink-0 text-[10px] text-slate-400">
                                     {pasta.musicasCount} faixa{pasta.musicasCount === 1 ? "" : "s"}
+                                    {selectedCount > 0 ?
+                                      <span className="ml-1 font-semibold text-orange-600 dark:text-orange-400">
+                                        · {selectedCount} OFF{offPct ? ` (${offPct}%)` : ""}
+                                      </span>
+                                    : null}
                                   </span>
+                                  <div className="relative shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={pasta.musicasCount === 0 || offApplying === pasta.id || offRemoving === pasta.id}
+                                      onClick={() =>
+                                        setOffMenuPastaId((prev) => (prev === pasta.id ? null : pasta.id))
+                                      }
+                                      className="rounded border border-orange-300 bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-800 hover:bg-orange-100 disabled:opacity-40 dark:border-orange-800 dark:bg-orange-950 dark:text-orange-200 dark:hover:bg-orange-900"
+                                      title="Selecionar faixas mais antigas para retirar (OFF)"
+                                    >
+                                      {offApplying === pasta.id ? "…" : "OFF"}
+                                    </button>
+                                    {offMenuPastaId === pasta.id ?
+                                      <div className="absolute right-0 top-full z-20 mt-1 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                                        {OFF_PERCENT_OPTIONS.map((pct) => (
+                                          <button
+                                            key={pct}
+                                            type="button"
+                                            onClick={() => void applyOffPercent(pasta, prog, pct)}
+                                            className="rounded px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-orange-100 dark:text-slate-200 dark:hover:bg-orange-950"
+                                          >
+                                            {pct}%
+                                          </button>
+                                        ))}
+                                      </div>
+                                    : null}
+                                  </div>
+                                  {selectedCount > 0 ?
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={offRemoving === pasta.id}
+                                        onClick={() => void removeOffSelection(pasta, prog)}
+                                        className="shrink-0 rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+                                      >
+                                        {offRemoving === pasta.id ? "Removendo…" : `Retirar (${selectedCount})`}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => clearOffSelection(pasta.id)}
+                                        className="shrink-0 text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                                      >
+                                        Limpar
+                                      </button>
+                                    </>
+                                  : null}
                                   {pastaOpen ?
                                     <select
                                       value={currentSort ?? ""}
@@ -376,7 +545,12 @@ export function CriadorPanel() {
                                   : null}
                                 </div>
                                 {pastaOpen ?
-                                  <PastaMusicasInline pastaId={pasta.id} programacaoId={prog.id} sortKey={currentSort} />
+                                  <PastaMusicasInline
+                                    pastaId={pasta.id}
+                                    programacaoId={prog.id}
+                                    sortKey={currentSort}
+                                    selectedIds={selectedCount > 0 ? selected : undefined}
+                                  />
                                 : null}
                               </li>
                             );
