@@ -54,13 +54,20 @@ type DragMode = "trim-start" | "trim-end" | "mix" | "region-start" | "region-end
 export function WaveformEditBadges({
   hasTrim,
   hasManualMix,
+  trimColor,
+  mixColor,
   className = "",
 }: {
   hasTrim: boolean;
   hasManualMix: boolean;
+  trimColor?: string | null;
+  mixColor?: string | null;
   className?: string;
 }) {
   if (!hasTrim && !hasManualMix) return null;
+  const trimBg = trimColor?.trim() || "#facc15";
+  const mixBg = mixColor?.trim() || "#f97316";
+  const trimText = trimBg.toLowerCase() === "#facc15" ? "text-yellow-950" : "text-white";
   return (
     <div
       className={
@@ -69,8 +76,8 @@ export function WaveformEditBadges({
     >
       {hasTrim ?
         <span
-          className="rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide text-yellow-950 shadow-sm"
-          style={{ backgroundColor: "#facc15" }}
+          className={`rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide shadow-sm ${trimText}`}
+          style={{ backgroundColor: trimBg }}
           title="Trim aplicado (corte início ou fim)"
         >
           TRIM
@@ -79,7 +86,7 @@ export function WaveformEditBadges({
       {hasManualMix ?
         <span
           className="rounded px-1 py-px text-[8px] font-bold uppercase tracking-wide text-white shadow-sm"
-          style={{ backgroundColor: "#f97316" }}
+          style={{ backgroundColor: mixBg }}
           title="Ponto de mix ajustado manualmente"
         >
           PMIX

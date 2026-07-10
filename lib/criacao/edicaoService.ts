@@ -11,6 +11,9 @@ import {
   type MusicaTagManualView,
 } from "@/lib/criacao/bibliotecaService";
 import { resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
+import { pickDefaultTagCor } from "@/lib/config/portalUserService";
+
+const DEFAULT_EDITOR_COR = "#6366f1";
 
 export type FaixaEdicaoRow = {
   id: string;
@@ -22,6 +25,8 @@ export type FaixaEdicaoRow = {
   mixAuto: boolean;
   trimInicioMs: number;
   trimFimMs: number;
+  mixEditadoCor: string | null;
+  trimEditadoCor: string | null;
   previewUrl: string | null;
   createdAt: string;
   tagsManuais: MusicaTagManualView[];
@@ -67,6 +72,8 @@ export async function listFaixasEdicao(opts: {
       mixAuto: true,
       trimInicioMs: true,
       trimFimMs: true,
+      mixEditadoUserId: true,
+      trimEditadoUserId: true,
       tagsAuto: true,
       bpm: true,
       energia: true,
@@ -79,7 +86,11 @@ export async function listFaixasEdicao(opts: {
   const criativoEmails = [
     ...new Set(
       items.flatMap((m) =>
-        m.tagsManuais.map((tm) => tm.tag.criativoUserId).filter((e): e is string => Boolean(e)),
+        [
+          ...m.tagsManuais.map((tm) => tm.tag.criativoUserId),
+          m.mixEditadoUserId,
+          m.trimEditadoUserId,
+        ].filter((e): e is string => Boolean(e)),
       ),
     ),
   ];
@@ -87,10 +98,16 @@ export async function listFaixasEdicao(opts: {
     criativoEmails.length > 0 ?
       await prisma.portalUser.findMany({
         where: { email: { in: criativoEmails } },
-        select: { email: true, tagIniciais: true, displayName: true },
+        select: { email: true, tagIniciais: true, displayName: true, tagCor: true },
       })
     : [];
   const criativoUserMap = new Map(criativoUsers.map((u) => [u.email, u]));
+
+  function editorCor(userId: string | null | undefined): string | null {
+    if (!userId) return null;
+    const u = criativoUserMap.get(userId);
+    return u?.tagCor?.trim() || pickDefaultTagCor(userId) || DEFAULT_EDITOR_COR;
+  }
 
   return items.map((m) => {
     const formatoUso = pickLowestPreviewFormato(m.versoes);
@@ -106,6 +123,8 @@ export async function listFaixasEdicao(opts: {
       mixAuto: m.mixAuto,
       trimInicioMs: m.trimInicioMs ?? 0,
       trimFimMs: m.trimFimMs ?? 0,
+      mixEditadoCor: editorCor(m.mixEditadoUserId),
+      trimEditadoCor: editorCor(m.trimEditadoUserId),
       previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
       createdAt: m.createdAt.toISOString(),
       tagsManuais: m.tagsManuais.map((tm) => {
@@ -138,19 +157,24 @@ function clampInt(v: unknown, min: number, max: number): number | null {
 export async function updateFaixaEdicao(
   id: string,
   patch: { mixSegundosFinais?: number | null; trimInicioMs?: number | null; trimFimMs?: number | null },
+  editorUserId?: string | null,
 ): Promise<boolean> {
   const data: Prisma.MusicaBibliotecaUpdateInput = {};
+  const editor = editorUserId?.trim() || null;
 
   if ("mixSegundosFinais" in patch) {
     const mix = clampInt(patch.mixSegundosFinais, 0, 30);
     data.mixSegundosFinais = mix;
     data.mixAuto = false;
+    if (editor) data.mixEditadoUserId = editor;
   }
   if ("trimInicioMs" in patch) {
     data.trimInicioMs = clampInt(patch.trimInicioMs, 0, 600_000);
+    if (editor) data.trimEditadoUserId = editor;
   }
   if ("trimFimMs" in patch) {
     data.trimFimMs = clampInt(patch.trimFimMs, 0, 600_000);
+    if (editor) data.trimEditadoUserId = editor;
   }
 
   if (Object.keys(data).length === 0) return false;

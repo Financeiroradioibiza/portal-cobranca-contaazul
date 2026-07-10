@@ -96,6 +96,7 @@ export function BibliotecaMusicalPanel() {
   const [refreshingTagId, setRefreshingTagId] = useState<string | null>(null);
   const [checkingGeminiId, setCheckingGeminiId] = useState<string | null>(null);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
+  const [renameFor, setRenameFor] = useState<Musica | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("full");
 
   const loadTags = useCallback(async () => {
@@ -722,6 +723,14 @@ export function BibliotecaMusicalPanel() {
                   : null}
                   <button
                     type="button"
+                    onClick={() => setRenameFor(m)}
+                    title="Renomear título e artista"
+                    className="inline-flex h-5 items-center rounded border border-dashed border-slate-300 px-1.5 text-[10px] font-bold text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setTagFor(m)}
                     title="Tags criativas"
                     className="inline-flex h-5 items-center rounded border border-dashed border-slate-300 px-1.5 text-[10px] font-bold text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600"
@@ -813,6 +822,16 @@ export function BibliotecaMusicalPanel() {
           musica={rejectFor}
           onClose={() => setRejectFor(null)}
           onChanged={load}
+        />
+      : null}
+
+      {renameFor ?
+        <RenameMusicaModal
+          musica={renameFor}
+          onClose={() => setRenameFor(null)}
+          onChanged={async () => {
+            await load({ silent: true });
+          }}
         />
       : null}
 
@@ -940,6 +959,87 @@ function TagManagerModal({
               ))}
             </ul>
           }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RenameMusicaModal({
+  musica,
+  onClose,
+  onChanged,
+}: {
+  musica: Musica;
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [titulo, setTitulo] = useState(musica.titulo || "");
+  const [artista, setArtista] = useState(musica.artista || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    if (!titulo.trim()) {
+      setErr("Informe o título");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/criacao/biblioteca/${musica.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ titulo: titulo.trim(), artista: artista.trim() }),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
+        setErr(d.error === "titulo_obrigatorio" ? "Informe o título" : "Não foi possível salvar");
+        return;
+      }
+      await onChanged();
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <div className="text-sm font-bold">Renomear faixa</div>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="space-y-3 p-4">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-semibold text-slate-500">Título</span>
+            <input
+              value={titulo}
+              onChange={(e) => setTitulo(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-semibold text-slate-500">Artista</span>
+            <input
+              value={artista}
+              onChange={(e) => setArtista(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            />
+          </label>
+          {err ? <p className="text-xs text-red-600">{err}</p> : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="w-full rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+          >
+            {busy ? "Salvando…" : "Salvar"}
+          </button>
         </div>
       </div>
     </div>

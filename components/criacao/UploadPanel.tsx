@@ -4,10 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import { ServidorUpMultiUploadPanel } from "@/components/criacao/ServidorUpMultiUploadPanel";
-import {
-  FilaBrowserGuidance,
-  FilaBrowserGuidanceOverview,
-} from "@/components/criacao/FilaBrowserGuidance";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import {
   groupStagingByJob,
@@ -134,11 +130,6 @@ export function UploadPanel() {
       router.replace("/criacao/upload?servidorUp=1");
     }
   }, [servidorUpMode, router]);
-
-  const servidorUpStagingGroups = useMemo(
-    () => stagingGroups.filter((g) => /servidor\s*up/i.test(g.titulo)),
-    [stagingGroups],
-  );
 
   const updateLote = useCallback((id: string, patch: Partial<UploadLote>) => {
     setLotes((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -409,8 +400,9 @@ export function UploadPanel() {
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Upload</div>
         <h1 className="text-2xl font-bold tracking-tight">Upload de músicas 192k</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um
-          clique. Faixas baixadas no Download link podem ser importadas do servidor (sem arrastar MP3 do seu PC).
+          {servidorUpMode ?
+            "Fluxo Servidor UP: importe lotes do Download link e distribua cada faixa na pasta correta do cliente."
+          : "Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um clique."}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -437,41 +429,16 @@ export function UploadPanel() {
           >
             Multi-Upload (Servidor UP)
           </button>
-          <Link
-            href="/criacao/multi-upload-legado"
-            className="rounded-lg border-2 border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-600 dark:text-emerald-100"
-          >
-            Página Multi-Upload legado →
-          </Link>
-        </div>
-      </div>
-
-      {!servidorUpMode && servidorUpStagingGroups.length > 0 ?
-        <div className="mb-5 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/40">
-          <p className="text-sm font-bold text-amber-950 dark:text-amber-100">
-            Lotes «Servidor UP» prontos no servidor ({servidorUpStagingGroups.reduce((n, g) => n + g.tracks.length, 0)}{" "}
-            faixa(s))
-          </p>
-          <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">
-            Não use «Adicionar ao lote» abaixo — isso manda tudo para uma pasta só. Use o{" "}
-            <strong>Multi-Upload legado</strong> para ir cada faixa à pasta correta (Bossa, Brasil, POP…).
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          {servidorUpMode ?
             <Link
               href="/criacao/multi-upload-legado"
-              className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white"
+              className="rounded-lg border-2 border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-600 dark:text-emerald-100"
             >
-              Abrir Multi-Upload legado
+              Página Multi-Upload legado →
             </Link>
-            <Link
-              href="/criacao/servidor-up"
-              className="rounded-lg border border-amber-600 px-4 py-2 text-sm font-semibold"
-            >
-              Servidor UP (passo 5)
-            </Link>
-          </div>
+          : null}
         </div>
-      : null}
+      </div>
 
       {servidorUpMode ?
         <ServidorUpMultiUploadPanel />
@@ -479,76 +446,6 @@ export function UploadPanel() {
 
       {!servidorUpMode ?
         <>
-      <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/30">
-        <h2 className="mb-1 text-sm font-bold text-violet-950 dark:text-violet-100">Importar do Download link</h2>
-        <p className="mb-3 text-xs text-violet-900/80 dark:text-violet-200/80">
-          Lotes concluídos no servidor aparecem aqui. Escolha um lote e adicione ao card de upload abaixo — não precisa
-          baixar no seu computador.
-        </p>
-        {stagingLoading ?
-          <p className="text-xs text-violet-800/70 dark:text-violet-300/70">Carregando pastas de download…</p>
-        : stagingGroups.length === 0 ?
-          <p className="text-xs text-violet-800/70 dark:text-violet-300/70">
-            Nenhuma pasta pronta. Baixe faixas em{" "}
-            <a href="/criacao/download" className="font-semibold underline">
-              Download link
-            </a>
-            .
-          </p>
-        : <ul className="space-y-2">
-            {stagingGroups.slice(0, 12).map((group) => (
-              <li
-                key={group.jobId}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200/80 bg-white/80 px-3 py-2 dark:border-violet-800 dark:bg-slate-900/60"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-                    {group.titulo}
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    {group.tracks.length} faixa(s) · {group.provider}
-                    {group.tracks.some((t) => isInvalidStagingMp3(t.sizeBytes)) ?
-                      <span className="font-semibold text-red-600 dark:text-red-400">
-                        {" "}
-                        · {group.tracks.filter((t) => isInvalidStagingMp3(t.sizeBytes)).length} inválida(s) (~1 KB)
-                      </span>
-                    : null}
-                    {group.finishedAt ?
-                      ` · ${new Date(group.finishedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`
-                    : null}
-                  </div>
-                </div>
-                <label className="flex shrink-0 items-center gap-2 text-xs">
-                  <span className="text-slate-500">Adicionar ao lote</span>
-                  <select
-                    className="rounded border border-slate-200 px-2 py-1 dark:border-slate-700 dark:bg-slate-950"
-                    defaultValue=""
-                    onChange={(e) => {
-                      const loteId = e.target.value;
-                      if (!loteId) return;
-                      addStagingGroupToLote(loteId, group);
-                      e.target.value = "";
-                    }}
-                  >
-                    <option value="">Escolher…</option>
-                    {lotes.map((l, i) => (
-                      <option key={l.id} value={l.id}>
-                        Lote {i + 1}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </li>
-            ))}
-          </ul>
-        }
-      </div>
-
-      <div className="mb-5 space-y-3">
-        <FilaBrowserGuidanceOverview />
-        <FilaBrowserGuidance phase={submitting ? "upload-enviando" : "upload-preparando"} />
-      </div>
-
       <div className="mb-5">
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-semibold text-slate-500">Título geral do envio (opcional)</span>

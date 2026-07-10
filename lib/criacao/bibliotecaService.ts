@@ -472,6 +472,29 @@ export async function getMusicaBibliotecaRow(musicaId: string): Promise<MusicaBi
   return mapMusicaToRow(m, criativoUserMap, rejMap, progMap, votoMap);
 }
 
+export async function updateMusicaBibliotecaMeta(
+  musicaId: string,
+  patch: { titulo?: string; artista?: string },
+): Promise<MusicaBibliotecaRow> {
+  const data: Prisma.MusicaBibliotecaUpdateInput = {};
+  if ("titulo" in patch) {
+    const t = (patch.titulo ?? "").trim();
+    if (!t) throw new Error("titulo_obrigatorio");
+    data.titulo = t.slice(0, 500);
+  }
+  if ("artista" in patch) {
+    data.artista = (patch.artista ?? "").trim().slice(0, 500);
+  }
+  if (Object.keys(data).length === 0) throw new Error("nada_para_atualizar");
+
+  try {
+    await prisma.musicaBiblioteca.update({ where: { id: musicaId }, data });
+  } catch {
+    throw new Error("not_found");
+  }
+  return getMusicaBibliotecaRow(musicaId);
+}
+
 export type MusicaDeleteInfo = {
   id: string;
   titulo: string;

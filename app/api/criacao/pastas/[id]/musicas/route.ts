@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { abrirProgramacaoAposMusica } from "@/lib/criacao/abrirProgramacaoMusica";
 import { addMusicasToPasta, removeMusicasFromPasta, reorderPastaMusicas } from "@/lib/criacao/programacaoService";
 import { prisma } from "@/lib/prisma";
 import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
@@ -84,10 +85,20 @@ export async function GET(request: Request, ctx: Ctx) {
 
 export async function POST(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as { musicaIds?: string[] };
     const added = await addMusicasToPasta(id, Array.isArray(body.musicaIds) ? body.musicaIds : []);
+    if (added > 0) {
+      const pasta = await prisma.pasta.findUnique({
+        where: { id },
+        select: { programacaoId: true },
+      });
+      await abrirProgramacaoAposMusica(
+        pasta?.programacaoId,
+        session.displayName ?? session.email,
+      );
+    }
     return NextResponse.json({ added });
   } catch (e) {
     if (e instanceof Response) return e;

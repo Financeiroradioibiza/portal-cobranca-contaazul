@@ -848,6 +848,9 @@ model MusicaBiblioteca {
   /// Trim manual ("tapa"): corta início/fim em ms. Null = sem corte.
   trimInicioMs      Int?    @map("trim_inicio_ms")
   trimFimMs         Int?    @map("trim_fim_ms")
+  /// Criativo que ajustou mix/trim manualmente (cor do badge na Edição).
+  mixEditadoUserId  String? @map("mix_editado_user_id") @db.VarChar(200)
+  trimEditadoUserId String? @map("trim_editado_user_id") @db.VarChar(200)
 
   status    MusicaProcessStatus @default(pendente)
   createdAt DateTime            @default(now()) @map("created_at")

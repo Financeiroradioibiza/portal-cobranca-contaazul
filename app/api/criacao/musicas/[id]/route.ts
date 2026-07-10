@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { updateFaixaEdicao } from "@/lib/criacao/edicaoService";
+import { updateFaixaEdicao, listFaixasEdicao } from "@/lib/criacao/edicaoService";
 import { cloud2Enabled, cloud2Fetch, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 
 export const runtime = "nodejs";
@@ -9,15 +9,20 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as {
       mixSegundosFinais?: number | null;
       trimInicioMs?: number | null;
       trimFimMs?: number | null;
     };
-    const ok = await updateFaixaEdicao(id, body);
+    const ok = await updateFaixaEdicao(id, body, session.email);
     if (!ok) return NextResponse.json({ ok: false });
+
+    const [faixa] = await listFaixasEdicao({ musicaIds: [id], limit: 1 });
+    const editorMeta = faixa ?
+      { mixEditadoCor: faixa.mixEditadoCor, trimEditadoCor: faixa.trimEditadoCor }
+    : {};
 
     const trimChanged = "trimInicioMs" in body || "trimFimMs" in body;
     if (trimChanged && cloud2Enabled()) {
@@ -29,17 +34,17 @@ export async function PATCH(request: Request, ctx: Ctx) {
         const data = await parseCloud2Json<{ ok?: boolean; error?: string }>(res, "reprocess_edicao");
         if (!res.ok || !data.ok) {
           return NextResponse.json(
-            { ok: true, reprocessOk: false, reprocessError: data.error ?? "reprocess_falhou" },
+            { ok: true, reprocessOk: false, reprocessError: data.error ?? "reprocess_falhou", ...editorMeta },
           );
         }
-        return NextResponse.json({ ok: true, reprocessOk: true });
+        return NextResponse.json({ ok: true, reprocessOk: true, ...editorMeta });
       } catch (e) {
         console.error("[criacao/musicas/:id PATCH] reprocess", e);
-        return NextResponse.json({ ok: true, reprocessOk: false, reprocessError: "reprocess_falhou" });
+        return NextResponse.json({ ok: true, reprocessOk: false, reprocessError: "reprocess_falhou", ...editorMeta });
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...editorMeta });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/musicas/:id PATCH]", e);

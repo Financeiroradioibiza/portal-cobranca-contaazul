@@ -20,6 +20,8 @@ type Faixa = {
   mixAuto: boolean;
   trimInicioMs: number;
   trimFimMs: number;
+  mixEditadoCor: string | null;
+  trimEditadoCor: string | null;
   previewUrl: string | null;
   createdAt: string;
   tagsManuais: ManualTag[];
@@ -405,7 +407,12 @@ export function EdicaoPanel() {
                       </div>
                       <div className="relative min-w-0">
                         <LazyWaveformBars previewUrl={f.previewUrl} height={44} barCount={120} barColor="rgba(255,255,255,0.7)" />
-                        <WaveformEditBadges hasTrim={hasTrim} hasManualMix={hasManualMix} />
+                        <WaveformEditBadges
+                          hasTrim={hasTrim}
+                          hasManualMix={hasManualMix}
+                          trimColor={f.trimEditadoCor}
+                          mixColor={f.mixEditadoCor}
+                        />
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-100">{f.titulo || "(sem título)"}</div>
@@ -557,13 +564,20 @@ function FaixaEditor({
         }),
       });
       if (!res.ok) throw new Error();
-      const data = (await res.json().catch(() => ({}))) as { reprocessOk?: boolean; reprocessError?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        reprocessOk?: boolean;
+        reprocessError?: string;
+        mixEditadoCor?: string | null;
+        trimEditadoCor?: string | null;
+      };
       onSaved({
         ...faixa,
         mixSegundosFinais: Math.round(mix),
         mixAuto: false,
         trimInicioMs: Math.round(trimIni * 1000),
         trimFimMs: Math.round(trimFim * 1000),
+        mixEditadoCor: data.mixEditadoCor ?? faixa.mixEditadoCor,
+        trimEditadoCor: data.trimEditadoCor ?? faixa.trimEditadoCor,
       });
       if (data.reprocessOk === false) {
         setSavedMsg("Salvo, mas falhou reprocessar áudio — tente de novo");
@@ -644,6 +658,8 @@ function FaixaEditor({
         <WaveformEditBadges
           hasTrim={faixa.trimInicioMs > 0 || faixa.trimFimMs > 0 || trimIni > 0 || trimFim > 0}
           hasManualMix={!faixa.mixAuto}
+          trimColor={faixa.trimEditadoCor}
+          mixColor={faixa.mixEditadoCor}
         />
       </div>
       <div className="mb-4 flex items-center justify-between text-[10px] text-slate-400">

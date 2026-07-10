@@ -8,6 +8,7 @@ import {
   type UploadLoteInput,
 } from "@/lib/criacao/filaService";
 import { markCriativoEntregueAuto, markSubidaFilaPainel } from "@/lib/criacao/atualizacaoPainelService";
+import { abrirProgramacaoAposMusica } from "@/lib/criacao/abrirProgramacaoMusica";
 import { CRIACAO_INGEST_URL, ingestEnabled, signTicket } from "@/lib/criacao/ingestTicket";
 import { ingestFromStagingOnCloud2 } from "@/lib/criacao/ingestFromStaging";
 import { prisma } from "@/lib/prisma";
@@ -166,6 +167,7 @@ export async function POST(request: Request) {
         if (job.programacaoId) {
           await markSubidaFilaPainel(job.programacaoId, job.id, uploaderNome);
           await markCriativoEntregueAuto(job.programacaoId, uploaderNome);
+          await abrirProgramacaoAposMusica(job.programacaoId, uploaderNome);
         }
       }
 
@@ -225,6 +227,7 @@ export async function POST(request: Request) {
     if (job.programacaoId) {
       await markSubidaFilaPainel(job.programacaoId, job.id, uploaderNome);
       await markCriativoEntregueAuto(job.programacaoId, uploaderNome);
+      await abrirProgramacaoAposMusica(job.programacaoId, uploaderNome);
     }
 
     return NextResponse.json({
