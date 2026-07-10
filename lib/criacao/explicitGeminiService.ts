@@ -1,4 +1,4 @@
-import { geminiEnabled, geminiGenerateJson } from "@/lib/criacao/geminiClient";
+import { geminiEnabled, geminiGenerateJson, geminiTimeoutMs } from "@/lib/criacao/geminiClient";
 
 export type ExplicitTrackInput = {
   id: string;
@@ -89,7 +89,7 @@ Responda SOMENTE JSON — array com um objeto por faixa (mesmo se for só uma):
 Faixas:
 ${lines}`;
 
-  const parsed = await geminiGenerateJson<unknown>(prompt);
+  const parsed = await geminiGenerateJson<unknown>(prompt, { timeoutMs: geminiTimeoutMs() });
   const rows = normalizeGeminiExplicitRows(parsed);
   if (rows.length === 0) {
     for (const t of tracks) out.set(t.id, "desconhecida");

@@ -48,6 +48,14 @@ export function needsGeminiExplicitCheck(tags: ExternalAutoTag[]): boolean {
   return finalizeGeminiExplicitVerdict(gemini, deezer, musicbrainz) !== gemini;
 }
 
+/** Deezer/MB já marcam explicit — não precisa esperar Gemini (evita 504 Netlify). */
+export function canConfirmExplicitFromApis(
+  deezer: ExplicitApiStatus,
+  musicbrainz: ExplicitApiStatus,
+): boolean {
+  return deezer === "sim" || musicbrainz === "sim";
+}
+
 /** Combina veredicto Gemini com sinais Deezer/MB (explicit_lyrics). */
 export function finalizeGeminiExplicitVerdict(
   gemini: "sim" | "nao" | "desconhecida",

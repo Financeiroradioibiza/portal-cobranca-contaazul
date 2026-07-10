@@ -1,11 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
+  canConfirmExplicitFromApis,
   explicitTagsChanged,
   extractExplicitApiStatus,
   finalizeGeminiExplicitVerdict,
   hasApiExplicitCheck,
-  hasGeminiExplicitCheck,
   mergeApiExplicitCheck,
   mergeGeminiExplicitCheck,
   needsGeminiExplicitCheck,
@@ -116,14 +116,15 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
   processed: number;
   explicit: number;
   updated: number;
+  skippedGemini: number;
   geminiEnabled: boolean;
   results: ExplicitCheckResult[];
 }> {
   if (!geminiEnabled()) {
-    return { processed: 0, explicit: 0, updated: 0, geminiEnabled: false, results: [] };
+    return { processed: 0, explicit: 0, updated: 0, skippedGemini: 0, geminiEnabled: false, results: [] };
   }
 
-  const limit = Math.min(30, Math.max(1, opts.limit ?? 30));
+  const limit = Math.min(30, Math.max(1, opts.limit ?? 1));
   const ids = opts.musicaIds?.filter(Boolean) ?? [];
   const onlyMissing = opts.onlyMissing !== false;
 
@@ -147,28 +148,42 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
       : pool.slice(0, limit);
   }
 
-  const geminiMap = await classifyExplicitLyricsWithGemini(
-    rows.map((r) => {
-      const tags = parseTagsFromJson(r.tagsAuto);
-      return {
-        id: r.id,
-        titulo: r.titulo,
-        artista: r.artista,
-        deezerExplicit: extractExplicitApiStatus(tags, "deezer"),
-        musicbrainzExplicit: extractExplicitApiStatus(tags, "musicbrainz"),
-      };
-    }),
-  );
+  const geminiRows = rows.filter((r) => {
+    const tags = parseTagsFromJson(r.tagsAuto);
+    const dz = extractExplicitApiStatus(tags, "deezer");
+    const mb = extractExplicitApiStatus(tags, "musicbrainz");
+    return !canConfirmExplicitFromApis(dz, mb);
+  });
+
+  const geminiMap =
+    geminiRows.length > 0 ?
+      await classifyExplicitLyricsWithGemini(
+        geminiRows.map((r) => {
+          const tags = parseTagsFromJson(r.tagsAuto);
+          return {
+            id: r.id,
+            titulo: r.titulo,
+            artista: r.artista,
+            deezerExplicit: extractExplicitApiStatus(tags, "deezer"),
+            musicbrainzExplicit: extractExplicitApiStatus(tags, "musicbrainz"),
+          };
+        }),
+      )
+    : new Map<string, GeminiExplicitResult>();
 
   const results: ExplicitCheckResult[] = [];
   let explicit = 0;
   let updated = 0;
+  let skippedGemini = 0;
 
   for (const m of rows) {
     const existing = parseTagsFromJson(m.tagsAuto);
     const dz = extractExplicitApiStatus(existing, "deezer");
     const mb = extractExplicitApiStatus(existing, "musicbrainz");
-    const geminiRaw: GeminiExplicitResult = geminiMap.get(m.id) ?? "desconhecida";
+    const apiConfirmed = canConfirmExplicitFromApis(dz, mb);
+    const geminiRaw: GeminiExplicitResult =
+      apiConfirmed ? "desconhecida" : (geminiMap.get(m.id) ?? "desconhecida");
+    if (apiConfirmed) skippedGemini += 1;
     const geminiTag = finalizeGeminiExplicitVerdict(geminiRaw, dz, mb);
     const merged = mergeGeminiExplicitCheck(existing, geminiTag);
     const isExp = geminiTag === "sim";
@@ -192,6 +207,7 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
     processed: results.length,
     explicit,
     updated,
+    skippedGemini,
     geminiEnabled: true,
     results,
   };

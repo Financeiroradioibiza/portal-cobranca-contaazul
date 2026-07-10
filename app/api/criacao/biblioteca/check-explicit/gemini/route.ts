@@ -4,8 +4,8 @@ import { checkMusicasExplicitGeminiBatch } from "@/lib/criacao/explicitContentSe
 
 export const maxDuration = 26;
 
-const BATCH_MAX = 30;
-const BATCH_DEFAULT = 5;
+const BATCH_MAX = 5;
+const BATCH_DEFAULT = 1;
 
 type Body = {
   limit?: number;

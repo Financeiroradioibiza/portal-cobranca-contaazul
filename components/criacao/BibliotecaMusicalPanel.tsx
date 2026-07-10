@@ -207,6 +207,7 @@ export function BibliotecaMusicalPanel() {
           results?: { musicaId: string; geminiStatus?: "sim" | "nao" | "desconhecida"; explicit?: boolean }[];
         } | null;
         if (!res.ok) {
+          if (res.status === 504) throw new Error("Timeout do servidor (504) — tente IA em uma faixa por vez.");
           if (data?.error === "gemini_desabilitado") throw new Error("Configure GEMINI_API_KEY no Netlify.");
           throw new Error(data?.error ?? "check_failed");
         }
@@ -244,7 +245,7 @@ export function BibliotecaMusicalPanel() {
         const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ onlyMissing: true, limit: 5 }),
+          body: JSON.stringify({ onlyMissing: true, limit: 1 }),
         });
         const data = (await res.json().catch(() => null)) as {
           error?: string;
@@ -253,6 +254,7 @@ export function BibliotecaMusicalPanel() {
           results?: { geminiStatus?: "sim" | "nao" | "desconhecida" }[];
         } | null;
         if (!res.ok) {
+          if (res.status === 504) throw new Error("Timeout do servidor (504) — tente IA em uma faixa por vez.");
           if (data?.error === "gemini_desabilitado") throw new Error("Configure GEMINI_API_KEY no Netlify.");
           throw new Error(data?.error ?? "check_failed");
         }
