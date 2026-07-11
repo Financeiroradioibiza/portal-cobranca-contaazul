@@ -24,7 +24,7 @@ import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 type Cliente = CriacaoClienteRow & { pdvCount: number; tagCobranca?: RioTagCobranca };
 
-type ArvorePasta = { id: string; nome: string; velocidade: string; selecionavel: boolean; prioritaria: boolean; musicasCount: number };
+type ArvorePasta = { id: string; nome: string; velocidade: string; selecionavel: boolean; musicasCount: number };
 type ArvoreVinheta = {
   id: string;
   nome: string;
@@ -621,20 +621,14 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                               key={pasta.id}
                               className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40"
                             >
-                              {pasta.prioritaria ?
-                                <span className="shrink-0 text-base" title="Pasta prioritária">
-                                  ⭐
-                                </span>
-                              : pasta.selecionavel ?
+                              {pasta.selecionavel ?
                                 <span className="shrink-0 text-base" title="Pasta selecionável no player">
                                   ✋
                                 </span>
                               : <span className="shrink-0 text-slate-400">📁</span>}
                               <span className="min-w-0 shrink font-medium text-slate-800 dark:text-slate-200">
                                 {pasta.nome}
-                                {pasta.prioritaria ?
-                                  <span className="ml-1 font-semibold text-amber-600 dark:text-amber-400">(pri)</span>
-                                : pasta.selecionavel ?
+                                {pasta.selecionavel ?
                                   <span className="ml-1 font-semibold text-orange-600 dark:text-orange-400">(sel)</span>
                                 : null}
                               </span>

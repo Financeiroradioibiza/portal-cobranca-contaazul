@@ -161,8 +161,8 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       const prog = progRes.rows[0];
       const formatoAlvo = prog.formato_padrao || FORMATO_FALLBACK;
 
-      const pastasRes = await portalQuery<{ id: string; nome: string; selecionavel: boolean; prioritaria: boolean }>(
-        `SELECT id, nome, COALESCE(selecionavel, false) AS selecionavel, COALESCE(prioritaria, false) AS prioritaria
+      const pastasRes = await portalQuery<{ id: string; nome: string; selecionavel: boolean }>(
+        `SELECT id, nome, COALESCE(selecionavel, false) AS selecionavel
            FROM pasta WHERE programacao_id = $1 ORDER BY sort_order, nome`,
         [programacaoId],
       );
@@ -222,17 +222,15 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
 
           const totalSeg = musRes.rows.reduce((s, m) => s + Math.round((m.duration_ms ?? 0) / 1000), 0);
           const selecionavel = neonSelecionavelAtivo(pasta.selecionavel);
-          const prioritaria = neonSelecionavelAtivo(pasta.prioritaria);
           const pl = await gw.query<{ id: number }>(
             `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, selecionavel, prioritaria, tempo_total, origem_pasta_id, publicado)
-               VALUES ($1, NULL, $2, 'N', $3, $4, $5, make_interval(secs => $6), $7, 'S')
+               VALUES ($1, NULL, $2, 'N', $3, $4, 'N', make_interval(secs => $5), $6, 'S')
              RETURNING id`,
             [
               programaId,
               pasta.nome,
-              selecionavel || prioritaria ? 'N' : 'S',
+              selecionavel ? 'N' : 'S',
               selecionavel ? 'S' : 'N',
-              prioritaria ? 'S' : 'N',
               totalSeg,
               pasta.id,
             ],
@@ -367,8 +365,15 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         );
         const pastaPlaylistMap = new Map(pls.rows.map((r) => [r.origem_pasta_id, r.id]));
         const updated = await syncPastasSelecionavelFlags(gw, programacaoId, pastaPlaylistMap);
+        /** Cronogramas no Neon (cadência, horários) — republica /agendas/ no gateway. */
+        const cron = await publishCronogramasAndVinhetas(gw, programacaoId, programaId, pastaPlaylistMap);
         await gw.query('COMMIT');
-        return reply.send({ ok: true, updated });
+        return reply.send({
+          ok: true,
+          updated,
+          agendas: cron.agendas,
+          vinhetas: cron.vinhetas,
+        });
       } catch (e) {
         await gw.query('ROLLBACK').catch(() => {});
         const detail = e instanceof Error ? e.message : String(e);

@@ -125,8 +125,8 @@ export async function publicarProgramacao(
 }
 
 /**
- * Propaga só a flag «Selecionável» das pastas ao gateway (sem republicar faixas).
- * Usado ao marcar/desmarcar no portal — evita exigir republicação completa.
+ * Propaga flags das pastas **e** cronogramas (agendas/vinhetas) ao gateway — sem republicar faixas.
+ * Usado ao marcar selecionável ou editar agendamentos no portal.
  */
 export async function syncPastaFlagsProgramacao(programacaoId: string): Promise<void> {
   if (!cloud2Enabled()) return;

@@ -1061,8 +1061,6 @@ model Pasta {
   velocidade    String   @default("media") @db.VarChar(16)
   /// Só toca no player quando o operador seleciona na grade (não entra no slot automático).
   selecionavel  Boolean  @default(false)
-  /// No cronograma ativo, domina o player — as demais pastas aguardam.
-  prioritaria   Boolean  @default(false)
   sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")
 

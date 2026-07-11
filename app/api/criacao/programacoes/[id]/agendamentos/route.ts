@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { createAgendamento, listAgendamentos } from "@/lib/criacao/agendamentoService";
+import { syncPastaFlagsProgramacao } from "@/lib/criacao/publicarService";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,9 @@ export async function POST(request: Request, ctx: Ctx) {
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const created = await createAgendamento(id, body as never);
+    await syncPastaFlagsProgramacao(id).catch((e) => {
+      console.error("[criacao/programacoes/:id/agendamentos POST] sync gateway", e);
+    });
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch (e) {
     if (e instanceof Response) return e;

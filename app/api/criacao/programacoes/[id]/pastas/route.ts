@@ -14,13 +14,11 @@ export async function POST(request: Request, ctx: Ctx) {
       nome?: string;
       velocidade?: string;
       selecionavel?: boolean;
-      prioritaria?: boolean;
     };
     const created = await createPasta(id, {
       nome: body.nome ?? "",
       velocidade: body.velocidade,
       selecionavel: body.selecionavel,
-      prioritaria: body.prioritaria,
     });
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch (e) {
