@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 import { cloud2Enabled, cloud2FetchWithTimeout } from "@/lib/criacao/cloud2Client";
 
@@ -16,13 +17,14 @@ export type CreateUploadJobInput = {
   uploadTagNome?: string;
   programacaoId?: string;
   pastaId?: string;
+  pastaEspecialId?: string;
   arquivos: UploadArquivo[];
 };
 
-/** Um lote = um job na fila (uma pasta ou tag de biblioteca). */
+/** Um lote = um job na fila (pasta de programação, pasta especial ou tag de biblioteca). */
 export type UploadLoteInput = CreateUploadJobInput & {
-  /** pasta = programação do cliente; biblioteca = só tag no acervo */
-  destinoTipo?: "pasta" | "biblioteca";
+  /** pasta = programação do cliente; pasta_especial = coringa global; biblioteca = só tag no acervo */
+  destinoTipo?: "pasta" | "biblioteca" | "pasta_especial";
 };
 
 const ETAPAS = ["upload", "deduplicacao", "ponto_mix", "normalizacao", "tags", "armazenamento"] as const;
@@ -52,6 +54,7 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       uploadTagNome: ((input.uploadTagNome ?? "").trim() || defaultUploadCompetenciaTag()).slice(0, 80),
       programacaoId: input.programacaoId || null,
       pastaId: input.pastaId || null,
+      pastaEspecialId: input.pastaEspecialId || null,
       totalItens: arquivos.length,
       itensFeitos: 0,
       itens: {
@@ -181,6 +184,7 @@ export async function getJobDetail(id: string) {
 
   let pastaNome = "";
   let programacaoNome = "";
+  let pastaEspecialNome = "";
   if (job.pastaId) {
     const pasta = await prisma.pasta.findUnique({
       where: { id: job.pastaId },
@@ -188,6 +192,13 @@ export async function getJobDetail(id: string) {
     });
     pastaNome = pasta?.nome ?? "";
     programacaoNome = pasta?.programacao?.nome ?? "";
+  }
+  if (job.pastaEspecialId) {
+    const especial = await prisma.pastaEspecial.findUnique({
+      where: { id: job.pastaEspecialId },
+      select: { nome: true },
+    });
+    pastaEspecialNome = especial?.nome ?? "";
   }
 
   return {
@@ -202,8 +213,10 @@ export async function getJobDetail(id: string) {
     uploadTagNome: job.uploadTagNome,
     programacaoId: job.programacaoId,
     pastaId: job.pastaId,
+    pastaEspecialId: job.pastaEspecialId,
     pastaNome,
     programacaoNome,
+    pastaEspecialNome,
     totalItens: job.totalItens,
     itensFeitos: job.itensFeitos,
     erroMsg: job.erroMsg,
@@ -267,6 +280,7 @@ export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status
   if (nextStatus === "concluido") {
     await applyPendingUploadTags(200).catch(() => {});
     await applyPendingPastaUploads(200).catch(() => {});
+    await applyPendingPastaEspecialUploads(200).catch(() => {});
   }
 
   return { ok: nextStatus === "concluido", status: nextStatus };

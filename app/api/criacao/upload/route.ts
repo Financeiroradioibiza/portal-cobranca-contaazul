@@ -76,13 +76,14 @@ function buildStagingPairs(
 
 type LoteBody = {
   titulo?: string;
-  destinoTipo?: "pasta" | "biblioteca";
+  destinoTipo?: "pasta" | "biblioteca" | "pasta_especial";
   clienteRef?: string;
   clienteNome?: string;
   uploadTagNome?: string;
   tagCriativoUserId?: string;
   programacaoId?: string;
   pastaId?: string;
+  pastaEspecialId?: string;
   arquivos?: UploadArquivo[];
   downloadItemIds?: string[];
 };
@@ -137,7 +138,10 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: "staging_item_invalido" }, { status: 400 });
         }
         if (arquivos.length === 0) continue;
-        const destinoTipo = l.destinoTipo === "biblioteca" ? "biblioteca" : "pasta";
+        const destinoTipo =
+          l.destinoTipo === "biblioteca" ? "biblioteca"
+          : l.destinoTipo === "pasta_especial" ? "pasta_especial"
+          : "pasta";
         const tagCriativo = await resolveTagCriativoUser(
           l.tagCriativoUserId ?? body.tagCriativoUserId,
           session.email,
@@ -149,6 +153,7 @@ export async function POST(request: Request) {
           clienteNome: destinoTipo === "pasta" ? l.clienteNome : undefined,
           programacaoId: destinoTipo === "pasta" ? l.programacaoId : undefined,
           pastaId: destinoTipo === "pasta" ? l.pastaId : undefined,
+          pastaEspecialId: destinoTipo === "pasta_especial" ? l.pastaEspecialId : undefined,
           uploadTagNome: (l.uploadTagNome || body.uploadTagNome || "").trim() || undefined,
           criativoUserId: tagCriativo.email,
           criativoNome: tagCriativo.displayName,

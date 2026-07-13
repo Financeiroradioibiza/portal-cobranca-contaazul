@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { autoFinishJobsReady } from "@/lib/criacao/filaService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
 export const runtime = "nodejs";
@@ -10,7 +11,7 @@ export const runtime = "nodejs";
 export async function POST() {
   try {
     requirePortalSession(await getPortalSession());
-    const [tags, pastas, jobsFinished] = await Promise.all([
+    const [tags, pastas, pastasEspeciais, jobsFinished] = await Promise.all([
       applyPendingUploadTags(20).catch((e) => {
         console.error("[criacao/fila/sync-pending] tags", e);
         return 0;
@@ -19,12 +20,16 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] pastas", e);
         return 0;
       }),
+      applyPendingPastaEspecialUploads(20).catch((e) => {
+        console.error("[criacao/fila/sync-pending] pastas-especiais", e);
+        return 0;
+      }),
       autoFinishJobsReady().catch((e) => {
         console.error("[criacao/fila/sync-pending] autoFinish", e);
         return 0;
       }),
     ]);
-    return NextResponse.json({ ok: true, tags, pastas, jobsFinished });
+    return NextResponse.json({ ok: true, tags, pastas, pastasEspeciais, jobsFinished });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/fila/sync-pending POST]", e);

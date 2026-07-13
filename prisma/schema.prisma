@@ -1211,6 +1211,8 @@ model ProcessamentoJob {
   uploadTagNome  String  @default("") @map("upload_tag_nome") @db.VarChar(80)
   programacaoId  String? @map("programacao_id")
   pastaId        String? @map("pasta_id")
+  /// Destino alternativo: pasta coringa global (Pastas Especiais).
+  pastaEspecialId String? @map("pasta_especial_id")
   totalItens   Int       @default(0) @map("total_itens")
   itensFeitos  Int       @default(0) @map("itens_feitos")
   erroMsg      String    @default("") @map("erro_msg") @db.Text

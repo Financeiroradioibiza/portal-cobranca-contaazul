@@ -21,6 +21,7 @@ type JobMeta = {
   uploadTagNome: string;
   pastaNome: string;
   programacaoNome: string;
+  pastaEspecialNome?: string;
   criativoNome?: string;
 };
 
@@ -54,6 +55,8 @@ export function FilaRevisaoWorkflow({
   const destinoLabel =
     jobMeta.pastaNome ?
       `${jobMeta.clienteNome ? `${jobMeta.clienteNome} · ` : ""}${jobMeta.programacaoNome} / ${jobMeta.pastaNome}`
+    : jobMeta.pastaEspecialNome ?
+      `Pasta especial · ${jobMeta.pastaEspecialNome}${jobMeta.uploadTagNome ? ` · tag ${jobMeta.uploadTagNome}` : ""}`
     : jobMeta.uploadTagNome ?
       `Biblioteca · tag ${jobMeta.uploadTagNome}`
     : "Biblioteca";

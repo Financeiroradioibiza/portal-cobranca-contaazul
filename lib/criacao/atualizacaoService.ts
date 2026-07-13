@@ -248,6 +248,116 @@ export async function listAtualizacoesLog(programacaoId: string): Promise<Atuali
   });
 }
 
+export type RestoreProgramacaoResult = {
+  ok: true;
+  rotuloLog: string;
+  faixasRestauradas: number;
+  pastasAfetadas: number;
+};
+
+/** Restaura a montagem de pastas/faixas da programação a partir de um snapshot de log anterior. */
+export async function restoreProgramacaoFromSnapshot(
+  programacaoId: string,
+  atualizacaoId: string,
+  restoredBy: string,
+): Promise<RestoreProgramacaoResult> {
+  const row = await prisma.programacaoAtualizacao.findFirst({
+    where: { id: atualizacaoId, programacaoId },
+    select: { snapshotJson: true, rotuloLog: true, codigo: true },
+  });
+  if (!row) throw new Error("atualizacao_nao_encontrada");
+
+  const snapshot = parseSnapshot(row.snapshotJson);
+  const faixaList = Object.values(snapshot.faixas);
+  if (faixaList.length === 0) throw new Error("snapshot_vazio");
+
+  const pastaOrder: string[] = [];
+  const byPasta = new Map<string, string[]>();
+  for (const f of faixaList) {
+    const nome = (f.pastaNome || "").trim() || "Sem pasta";
+    if (!byPasta.has(nome)) {
+      pastaOrder.push(nome);
+      byPasta.set(nome, []);
+    }
+    const list = byPasta.get(nome)!;
+    if (!list.includes(f.musicaId)) list.push(f.musicaId);
+  }
+
+  const snapshotIds = Array.from(new Set(faixaList.map((f) => f.musicaId)));
+  const validIds = new Set(
+    (
+      await prisma.musicaBiblioteca.findMany({
+        where: { id: { in: snapshotIds } },
+        select: { id: true },
+      })
+    ).map((m) => m.id),
+  );
+
+  await prisma.$transaction(async (tx) => {
+    const pastas = await tx.pasta.findMany({
+      where: { programacaoId },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, nome: true, sortOrder: true },
+    });
+    const pastaByNome = new Map(pastas.map((p) => [p.nome, p.id]));
+    let nextSort = pastas.reduce((max, p) => Math.max(max, p.sortOrder), -1) + 1;
+
+    await tx.pastaMusica.deleteMany({
+      where: { pasta: { programacaoId } },
+    });
+
+    const now = new Date();
+    for (const pastaNome of pastaOrder) {
+      const musicaIds = (byPasta.get(pastaNome) ?? []).filter((id) => validIds.has(id));
+      if (musicaIds.length === 0) continue;
+
+      let pastaId = pastaByNome.get(pastaNome);
+      if (!pastaId) {
+        const created = await tx.pasta.create({
+          data: {
+            programacaoId,
+            nome: pastaNome.slice(0, 120),
+            velocidade: "media",
+            sortOrder: nextSort++,
+          },
+          select: { id: true },
+        });
+        pastaId = created.id;
+        pastaByNome.set(pastaNome, pastaId);
+      }
+
+      await tx.pastaMusica.createMany({
+        data: musicaIds.map((musicaId, idx) => ({
+          pastaId: pastaId!,
+          musicaId,
+          sortOrder: idx,
+          addedAt: now,
+        })),
+      });
+    }
+
+    await tx.programacao.update({
+      where: { id: programacaoId },
+      data: {
+        snapshotAtual: row.snapshotJson as Prisma.InputJsonValue,
+      },
+    });
+  });
+
+  const afterCount = await prisma.pastaMusica.count({
+    where: { pasta: { programacaoId } },
+  });
+
+  await abrirAtualizacao(programacaoId, restoredBy.slice(0, 200));
+
+  return {
+    ok: true,
+    rotuloLog: row.rotuloLog || row.codigo,
+    faixasRestauradas: afterCount,
+    pastasAfetadas: pastaOrder.length,
+  };
+}
+
 export type DispararAtualizacaoResult = {
   ok: true;
   codigo: string;

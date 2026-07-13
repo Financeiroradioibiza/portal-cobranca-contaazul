@@ -6,6 +6,7 @@ import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
 import { countVotosPorMusica, type MusicaVotoCounts } from "@/lib/criacao/musicaVotoService";
 import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
 import {
   extractExplicitApiStatus,
   isGeminiExplicitTagged,
@@ -356,6 +357,7 @@ export async function listMusicasBiblioteca(opts: {
   if (opts.syncPending) {
     await applyPendingUploadTags().catch(() => {});
     await applyPendingPastaUploads().catch(() => {});
+    await applyPendingPastaEspecialUploads().catch(() => {});
   }
 
   const page = Math.max(1, opts.page);

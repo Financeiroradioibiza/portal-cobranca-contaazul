@@ -74,6 +74,7 @@ type JobDetailMeta = {
   uploadTagNome: string;
   pastaNome: string;
   programacaoNome: string;
+  pastaEspecialNome: string;
 };
 
 export function FilaPanel() {
@@ -144,6 +145,7 @@ export function FilaPanel() {
           uploadTagNome: string;
           pastaNome: string;
           programacaoNome: string;
+          pastaEspecialNome: string;
         };
       };
       setItems((prev) => ({ ...prev, [id]: data.job.itens }));
@@ -155,6 +157,7 @@ export function FilaPanel() {
           uploadTagNome: data.job.uploadTagNome,
           pastaNome: data.job.pastaNome,
           programacaoNome: data.job.programacaoNome,
+          pastaEspecialNome: data.job.pastaEspecialNome,
         },
       }));
     } catch {

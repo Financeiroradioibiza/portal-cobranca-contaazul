@@ -29,7 +29,8 @@ type PickedFile =
   | { source: "local"; nome: string; sizeBytes: number; file: File }
   | { source: "staging"; nome: string; sizeBytes: number; downloadItemId: string; label: string };
 type Ticket = { itemId: string; arquivoNome: string; token: string; exp: number };
-type DestinoTipo = "pasta" | "biblioteca";
+type DestinoTipo = "pasta" | "biblioteca" | "pasta_especial";
+type PastaEspecialOpt = { id: string; nome: string };
 
 type UploadLote = {
   id: string;
@@ -39,6 +40,7 @@ type UploadLote = {
   arvore: ArvoreProg[];
   progSel: string;
   pastaSel: string;
+  pastaEspecialSel: string;
   tagCriativoUserId: string;
   tagCriativoIniciais: string;
   uploadTag: string;
@@ -54,6 +56,7 @@ function newLote(): UploadLote {
     arvore: [],
     progSel: "",
     pastaSel: "",
+    pastaEspecialSel: "",
     tagCriativoUserId: "",
     tagCriativoIniciais: "",
     uploadTag: defaultUploadCompetenciaTag(),
@@ -67,9 +70,14 @@ function formatBytes(b: number): string {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
 }
 
-function loteLabel(l: UploadLote): string {
+function loteLabel(l: UploadLote, pastasEspeciais: PastaEspecialOpt[] = []): string {
   if (l.destinoTipo === "biblioteca") {
     return l.uploadTag.trim() ? `Biblioteca · ${l.uploadTag.trim()}` : "Biblioteca (defina a tag)";
+  }
+  if (l.destinoTipo === "pasta_especial") {
+    const pe = pastasEspeciais.find((p) => p.id === l.pastaEspecialSel);
+    const base = pe ? `Pasta especial · ${pe.nome}` : "Pasta especial — escolha qual";
+    return l.uploadTag.trim() ? `${base} · ${l.uploadTag.trim()}` : base;
   }
   if (!l.clienteSel) return "Pasta — escolha o cliente";
   const prog = l.arvore.find((p) => p.id === l.progSel);
@@ -91,6 +99,7 @@ export function UploadPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [stagingGroups, setStagingGroups] = useState<StagingJobGroup[]>([]);
   const [stagingLoading, setStagingLoading] = useState(true);
+  const [pastasEspeciais, setPastasEspeciais] = useState<PastaEspecialOpt[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingLoteId = useRef<string | null>(null);
 
@@ -123,6 +132,23 @@ export function UploadPanel() {
   useEffect(() => {
     void loadStaging();
   }, [loadStaging]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/criacao/pastas-especiais")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.pastas) {
+          setPastasEspeciais(
+            (d.pastas as PastaEspecialOpt[]).map((p) => ({ id: p.id, nome: p.nome })),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (servidorUpMode) return;
@@ -215,13 +241,20 @@ export function UploadPanel() {
     for (const l of lotes) {
       if (l.files.length === 0) continue;
       if (l.destinoTipo === "biblioteca") {
-        if (!l.uploadTag.trim()) return `Defina a tag criativa do lote «${loteLabel(l)}».`;
+        if (!l.uploadTag.trim()) return `Defina a tag criativa do lote «${loteLabel(l, pastasEspeciais)}».`;
+        continue;
+      }
+      if (l.destinoTipo === "pasta_especial") {
+        if (!l.pastaEspecialSel) return "Escolha a pasta especial em cada lote com arquivos.";
+        if (!l.uploadTag.trim()) {
+          return `Defina a tag criativa em «${loteLabel(l, pastasEspeciais)}» — as faixas vão para a biblioteca e ficam difíceis de achar sem tag.`;
+        }
         continue;
       }
       if (!l.clienteSel) return "Escolha o cliente em cada lote com arquivos.";
-      if (!l.progSel || !l.pastaSel) return `Escolha programação e pasta em «${loteLabel(l)}».`;
+      if (!l.progSel || !l.pastaSel) return `Escolha programação e pasta em «${loteLabel(l, pastasEspeciais)}».`;
       if (!l.uploadTag.trim()) {
-        return `Defina a tag criativa em «${loteLabel(l)}» — as faixas vão para a biblioteca e ficam difíceis de achar sem tag.`;
+        return `Defina a tag criativa em «${loteLabel(l, pastasEspeciais)}» — as faixas vão para a biblioteca e ficam difíceis de achar sem tag.`;
       }
     }
     const withFiles = lotes.filter((l) => l.files.length > 0);
@@ -259,6 +292,8 @@ export function UploadPanel() {
               titulo.trim() ||
               (l.destinoTipo === "pasta" && l.clienteSel ?
                 `${l.clienteSel.nome} · ${l.arvore.find((p) => p.id === l.progSel)?.pastas.find((p) => p.id === l.pastaSel)?.nome ?? "pasta"}`
+              : l.destinoTipo === "pasta_especial" ?
+                loteLabel(l, pastasEspeciais)
               : l.uploadTag.trim() ?
                 `Biblioteca · ${l.uploadTag.trim()}`
               : `Upload ${i + 1}`),
@@ -267,6 +302,7 @@ export function UploadPanel() {
             clienteNome: l.clienteSel?.nome,
             programacaoId: l.progSel || undefined,
             pastaId: l.pastaSel || undefined,
+            pastaEspecialId: l.destinoTipo === "pasta_especial" ? l.pastaEspecialSel || undefined : undefined,
             uploadTagNome: l.uploadTag.trim() || undefined,
             tagCriativoUserId: l.tagCriativoUserId || undefined,
             arquivos: l.files.map((f) =>
@@ -326,18 +362,18 @@ export function UploadPanel() {
           continue;
         }
         const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
-        setProgress({ done, total: totalUpload, lote: loteLabel(lote) });
+        setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
         for (const f of lote.files) {
           if (f.source === "staging") {
             done += 1;
-            setProgress({ done, total: totalUpload, lote: loteLabel(lote) });
+            setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
             continue;
           }
           const ticket = ticketByNome.get(f.nome.slice(0, 500));
           if (!ticket) {
             falhas.push(f.nome);
             done += 1;
-            setProgress({ done, total: totalUpload, lote: loteLabel(lote) });
+            setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
             continue;
           }
           const fd = new FormData();
@@ -350,7 +386,7 @@ export function UploadPanel() {
             falhas.push(f.nome);
           }
           done += 1;
-          setProgress({ done, total: totalUpload, lote: loteLabel(lote) });
+          setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
         }
       }
 
@@ -465,6 +501,7 @@ export function UploadPanel() {
             index={idx}
             lote={lote}
             clientes={clientes}
+            pastasEspeciais={pastasEspeciais}
             canRemove={lotes.length > 1}
             onUpdate={(patch) => updateLote(lote.id, patch)}
             onRemove={() => setLotes((prev) => prev.filter((l) => l.id !== lote.id))}
@@ -521,6 +558,7 @@ function LoteCard({
   index,
   lote,
   clientes,
+  pastasEspeciais,
   canRemove,
   onUpdate,
   onRemove,
@@ -532,6 +570,7 @@ function LoteCard({
   index: number;
   lote: UploadLote;
   clientes: Cliente[];
+  pastasEspeciais: PastaEspecialOpt[];
   canRemove: boolean;
   onUpdate: (patch: Partial<UploadLote>) => void;
   onRemove: () => void;
@@ -557,7 +596,7 @@ function LoteCard({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Lote {index + 1}</div>
-          <div className="text-sm font-semibold">{loteLabel(lote)}</div>
+          <div className="text-sm font-semibold">{loteLabel(lote, pastasEspeciais)}</div>
         </div>
         {canRemove ?
           <button type="button" onClick={onRemove} className="text-xs text-slate-400 hover:text-red-600">
@@ -569,7 +608,7 @@ function LoteCard({
       <div className="mb-3 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => onUpdate({ destinoTipo: "pasta" })}
+          onClick={() => onUpdate({ destinoTipo: "pasta", pastaEspecialSel: "" })}
           className={
             "rounded-lg px-3 py-1.5 text-xs font-semibold " +
             (lote.destinoTipo === "pasta" ?
@@ -582,7 +621,27 @@ function LoteCard({
         <button
           type="button"
           onClick={() =>
-            onUpdate({ destinoTipo: "biblioteca", clienteSel: null, arvore: [], progSel: "", pastaSel: "" })
+            onUpdate({
+              destinoTipo: "pasta_especial",
+              clienteSel: null,
+              arvore: [],
+              progSel: "",
+              pastaSel: "",
+            })
+          }
+          className={
+            "rounded-lg px-3 py-1.5 text-xs font-semibold " +
+            (lote.destinoTipo === "pasta_especial" ?
+              "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+            : "border border-slate-200 text-slate-500 dark:border-slate-700")
+          }
+        >
+          Pasta especial
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onUpdate({ destinoTipo: "biblioteca", clienteSel: null, arvore: [], progSel: "", pastaSel: "", pastaEspecialSel: "" })
           }
           className={
             "rounded-lg px-3 py-1.5 text-xs font-semibold " +
@@ -595,7 +654,34 @@ function LoteCard({
         </button>
       </div>
 
-      {lote.destinoTipo === "biblioteca" ?
+      {lote.destinoTipo === "pasta_especial" ?
+        <div className="mb-3">
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-semibold text-slate-500">Pasta especial destino</span>
+            <select
+              value={lote.pastaEspecialSel}
+              onChange={(e) => onUpdate({ pastaEspecialSel: e.target.value })}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            >
+              <option value="">Selecione…</option>
+              {pastasEspeciais.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          {pastasEspeciais.length === 0 ?
+            <p className="mt-1 text-[10px] text-slate-400">
+              Nenhuma pasta especial cadastrada — crie em{" "}
+              <Link href="/criacao/pastas-especiais" className="underline">
+                Pastas Especiais
+              </Link>
+              .
+            </p>
+          : null}
+        </div>
+      : lote.destinoTipo === "biblioteca" ?
         null
       : <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="text-sm sm:col-span-2">
@@ -693,6 +779,8 @@ function LoteCard({
           help={
             lote.destinoTipo === "biblioteca" ?
               "Quem define iniciais e cor da tag neste lote."
+            : lote.destinoTipo === "pasta_especial" ?
+              "Quem define iniciais e cor da tag neste lote."
             : "Quem define iniciais e cor da tag neste lote (pode ser diferente em cada pasta)."
           }
         />
@@ -703,6 +791,8 @@ function LoteCard({
           hint={
             lote.destinoTipo === "biblioteca" ?
               "As faixas entram só na biblioteca com esta tag."
+            : lote.destinoTipo === "pasta_especial" ?
+              "Obrigatória — após processar, as faixas vão para a biblioteca e para a pasta especial escolhida."
             : "Obrigatória — após processar, as faixas vão para a pasta do cliente e para a biblioteca com esta tag."
           }
         />
