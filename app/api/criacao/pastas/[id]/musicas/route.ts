@@ -109,10 +109,19 @@ export async function POST(request: Request, ctx: Ctx) {
 
 export async function PUT(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as { musicaIds?: string[] };
     await reorderPastaMusicas(id, Array.isArray(body.musicaIds) ? body.musicaIds : []);
+    await abrirProgramacaoAposMusica(
+      (
+        await prisma.pasta.findUnique({
+          where: { id },
+          select: { programacaoId: true },
+        })
+      )?.programacaoId,
+      session.displayName ?? session.email,
+    );
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -123,13 +132,20 @@ export async function PUT(request: Request, ctx: Ctx) {
 
 export async function DELETE(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as { musicaIds?: string[] };
+    const pasta = await prisma.pasta.findUnique({
+      where: { id },
+      select: { programacaoId: true },
+    });
     const removed = await removeMusicasFromPasta(
       id,
       Array.isArray(body.musicaIds) ? body.musicaIds : [],
     );
+    if (removed > 0) {
+      await abrirProgramacaoAposMusica(pasta?.programacaoId, session.displayName ?? session.email);
+    }
     return NextResponse.json({ removed });
   } catch (e) {
     if (e instanceof Response) return e;

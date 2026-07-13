@@ -43,7 +43,7 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as {
-      tipoSubida?: "atl" | "especial";
+      tipoSubida?: "atl" | "especial" | "off";
       especialNome?: string;
     };
     const resultado = await dispararAtualizacao(id, session.displayName ?? session.email, {

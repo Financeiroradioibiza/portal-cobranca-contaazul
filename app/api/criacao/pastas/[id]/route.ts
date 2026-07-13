@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { abrirProgramacaoAposMusica } from "@/lib/criacao/abrirProgramacaoMusica";
 import { deletePasta, updatePasta } from "@/lib/criacao/programacaoService";
 import { syncPastaFlagsProgramacao } from "@/lib/criacao/publicarService";
 import { prisma } from "@/lib/prisma";
@@ -10,7 +11,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as {
       nome?: string;
@@ -18,12 +19,16 @@ export async function PATCH(request: Request, ctx: Ctx) {
       selecionavel?: boolean;
     };
     const ok = await updatePasta(id, body);
-    if (typeof body.selecionavel === "boolean") {
-      const pasta = await prisma.pasta.findUnique({
-        where: { id },
-        select: { programacaoId: true },
-      });
-      if (pasta?.programacaoId) {
+    const pasta =
+      ok || typeof body.selecionavel === "boolean" ?
+        await prisma.pasta.findUnique({
+          where: { id },
+          select: { programacaoId: true },
+        })
+      : null;
+    if (pasta?.programacaoId) {
+      await abrirProgramacaoAposMusica(pasta.programacaoId, session.displayName ?? session.email);
+      if (typeof body.selecionavel === "boolean") {
         await syncPastaFlagsProgramacao(pasta.programacaoId).catch((e) => {
           console.error("[criacao/pastas/:id PATCH] sync-pasta-flags", e);
         });
@@ -39,9 +44,14 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
 export async function DELETE(_request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
+    const pasta = await prisma.pasta.findUnique({
+      where: { id },
+      select: { programacaoId: true },
+    });
     await deletePasta(id);
+    await abrirProgramacaoAposMusica(pasta?.programacaoId, session.displayName ?? session.email);
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof Response) return e;

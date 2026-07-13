@@ -356,12 +356,13 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
     }
   });
 
-  /** Atualiza só pdvs.status (tag Rio cancelado / bloqueio financeiro). */
-  app.post<{ Body: { pdvs?: Array<{ id?: number; status?: string }> } }>(
+  /** Atualiza pdvs.status (+ clientes.status em bloqueio de linha Rio). */
+  app.post<{ Body: { pdvs?: Array<{ id?: number; status?: string }>; rioKeys?: Array<{ key?: string; status?: string }> } }>(
     `${PLAYER_PREFIX}/patch-pdv-status`,
     async (req, reply) => {
       if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
       const raw = Array.isArray(req.body?.pdvs) ? req.body.pdvs : [];
+      const rioRaw = Array.isArray(req.body?.rioKeys) ? req.body.rioKeys : [];
       const pool = getPool();
       let updated = 0;
       for (const row of raw) {
@@ -373,6 +374,30 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
           id,
         ]);
         updated += r.rowCount ?? 0;
+      }
+      for (const row of rioRaw) {
+        const key = String(row?.key ?? "").trim();
+        const status = row?.status === "I" ? "I" : "A";
+        if (!key) continue;
+        if (key.startsWith("linha:")) {
+          const linhaId = key.slice("linha:".length);
+          const rp = await pool.query(
+            `UPDATE pdvs SET status = $1, updated_at = now() WHERE origem_rio_linha_id = $2`,
+            [status, linhaId],
+          );
+          updated += rp.rowCount ?? 0;
+          const rc = await pool.query(`UPDATE clientes SET status = $1 WHERE origem_rio_linha_id = $2`, [
+            status,
+            linhaId,
+          ]);
+          updated += rc.rowCount ?? 0;
+        } else {
+          const rp = await pool.query(
+            `UPDATE pdvs SET status = $1, updated_at = now() WHERE origem_rio_pdv_id = $2`,
+            [status, key],
+          );
+          updated += rp.rowCount ?? 0;
+        }
       }
       return reply.send({ ok: true, updated });
     },

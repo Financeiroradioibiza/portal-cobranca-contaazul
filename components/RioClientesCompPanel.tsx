@@ -1109,8 +1109,18 @@ export function RioClientesCompPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      const { data } = await readJsonFromResponse<{ pdv?: RioPdv }>(res);
+      const { data } = await readJsonFromResponse<{
+        pdv?: RioPdv;
+        gatewaySync?: { ok?: boolean; error?: string };
+      }>(res);
       if (!res.ok || !data?.pdv) return;
+      if (data.gatewaySync && data.gatewaySync.ok === false) {
+        setMsg(
+          data.gatewaySync.error === "cloud2_desabilitado" ?
+            "Tag salva, mas o gateway do player não está configurado (cloud2). O bloqueio não chegou ao player."
+          : `Tag salva, mas falhou ao sincronizar bloqueio no player: ${data.gatewaySync.error ?? "erro"}`,
+        );
+      }
       setLinhas((prev) =>
         prev.map((ln) => ({
           ...ln,

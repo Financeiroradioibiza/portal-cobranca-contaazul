@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { abrirProgramacaoAposMusica } from "@/lib/criacao/abrirProgramacaoMusica";
 import { createVinheta, listVinhetas } from "@/lib/criacao/vinhetaService";
 
 export const runtime = "nodejs";
@@ -21,7 +22,7 @@ export async function GET(_request: Request, ctx: Ctx) {
 
 export async function POST(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as {
       nome?: string;
@@ -35,6 +36,7 @@ export async function POST(request: Request, ctx: Ctx) {
       texto: body.texto,
       voz: body.voz,
     });
+    await abrirProgramacaoAposMusica(id, session.displayName ?? session.email);
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch (e) {
     if (e instanceof Response) return e;

@@ -110,8 +110,9 @@ export async function PATCH(request: Request, context: Ctx) {
   }
 
   await patchRioCompClienteLinha(linha.id, patch);
+  let gatewaySync: Awaited<ReturnType<typeof syncPlayerGatewayAfterRioLinhaTagChange>> | undefined;
   if ("tagCobranca" in body) {
-    void syncPlayerGatewayAfterRioLinhaTagChange(linha.id);
+    gatewaySync = await syncPlayerGatewayAfterRioLinhaTagChange(linha.id);
   }
   const raw = await prisma.rioCompClienteLinha.findUniqueOrThrow({
     where: { id: linha.id },
@@ -133,7 +134,7 @@ export async function PATCH(request: Request, context: Ctx) {
         }
       : null,
   };
-  return NextResponse.json({ ok: true, linha: linhaOut });
+  return NextResponse.json({ ok: true, linha: linhaOut, gatewaySync });
 }
 
 export async function DELETE(_request: Request, context: Ctx) {

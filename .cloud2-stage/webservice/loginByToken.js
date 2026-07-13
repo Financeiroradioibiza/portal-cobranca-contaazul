@@ -1,4 +1,5 @@
 import { loadSessionByToken, sessionArrayFromRow } from '../loginByToken.js';
+import { avaliarBloqueioReproducao } from './rioCobrancaBlock.js';
 
 export { loadSessionByToken, sessionArrayFromRow };
 
@@ -18,6 +19,10 @@ export async function registerLoginByTokenRoutes(app, prefix) {
     if (row.data_fim && new Date(row.data_fim).getTime() < Date.now()) {
       return reply.send({ mensagem: 'token_invalido' });
     }
+
+    const avaliacao = await avaliarBloqueioReproducao(row);
+    row.pdv_status = avaliacao.pdvStatus;
+    row.cliente_status = avaliacao.clienteStatus;
 
     return reply.send(sessionArrayFromRow(row));
   });

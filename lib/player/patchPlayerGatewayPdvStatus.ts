@@ -5,9 +5,15 @@ export type PlayerGatewayPdvStatusPatch = {
   status: "A" | "I";
 };
 
-/** Atualiza só `pdvs.status` no gateway — usado após tag Rio na Planilha. */
+export type PlayerGatewayRioKeyStatusPatch = {
+  key: string;
+  status: "A" | "I";
+};
+
+/** Atualiza `pdvs.status` (e `clientes.status` em bloqueio de linha) no gateway. */
 export async function patchPlayerGatewayPdvStatus(
   pdvs: PlayerGatewayPdvStatusPatch[],
+  rioKeys: PlayerGatewayRioKeyStatusPatch[] = [],
 ): Promise<{ updated: number }> {
   if (!cloud2Enabled()) throw new Error("cloud2_desabilitado");
 
@@ -18,14 +24,24 @@ export async function patchPlayerGatewayPdvStatus(
     byId.set(id, p.status === "I" ? "I" : "A");
   }
   const payload = [...byId.entries()].map(([id, status]) => ({ id, status }));
-  if (payload.length === 0) return { updated: 0 };
+
+  const rioPayload: PlayerGatewayRioKeyStatusPatch[] = [];
+  const seenRio = new Set<string>();
+  for (const row of rioKeys) {
+    const key = String(row.key ?? "").trim();
+    if (!key || seenRio.has(key)) continue;
+    seenRio.add(key);
+    rioPayload.push({ key, status: row.status === "I" ? "I" : "A" });
+  }
+
+  if (payload.length === 0 && rioPayload.length === 0) return { updated: 0 };
 
   const res = await cloud2FetchWithTimeout(
     "/player/patch-pdv-status",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdvs: payload }),
+      body: JSON.stringify({ pdvs: payload, rioKeys: rioPayload }),
     },
     15_000,
   );
@@ -36,5 +52,5 @@ export async function patchPlayerGatewayPdvStatus(
   if (!res?.ok || !data.ok) {
     throw new Error(data.error ?? "patch_pdv_status_falhou");
   }
-  return { updated: data.updated ?? payload.length };
+  return { updated: data.updated ?? payload.length + rioPayload.length };
 }

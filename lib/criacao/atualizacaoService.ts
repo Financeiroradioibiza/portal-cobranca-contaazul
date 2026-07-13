@@ -41,7 +41,7 @@ export type AtualizacaoLogRow = {
 };
 
 export type DispararAtualizacaoOpts = {
-  tipoSubida?: "atl" | "especial";
+  tipoSubida?: "atl" | "especial" | "off";
   especialNome?: string;
 };
 
@@ -49,6 +49,7 @@ export type FecharAtualizacaoInfo = {
   revisionAtual: number;
   isInstall: boolean;
   atlSugerido: string;
+  offSugerido: string;
   programacaoNome: string;
   clienteNome: string;
   pdvsAmarrados: number;
@@ -82,6 +83,16 @@ export async function previewRotuloAtl(programacaoId: string, when = new Date())
   return `ATL ${mes} ${count + 1}`;
 }
 
+/** Próximo rótulo OFF do mês: OFF Julho 1, OFF Julho 2… (zera na competência seguinte). */
+export async function previewRotuloOff(programacaoId: string, when = new Date()): Promise<string> {
+  const mes = mesNomeCurtoFromDate(when);
+  const competencia = competenciaFromDate(when);
+  const count = await prisma.programacaoAtualizacao.count({
+    where: { programacaoId, competencia, tipoSubida: "off" },
+  });
+  return `OFF ${mes} ${count + 1}`;
+}
+
 export async function getFecharAtualizacaoInfo(programacaoId: string): Promise<FecharAtualizacaoInfo> {
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
@@ -97,11 +108,13 @@ export async function getFecharAtualizacaoInfo(programacaoId: string): Promise<F
 
   const pdvsNomes = await pdvsNomesForProgramacao(programacaoId, prog.clienteRef);
   const isInstall = prog.revisionAtual === 0;
+  const when = new Date();
 
   return {
     revisionAtual: prog.revisionAtual,
     isInstall,
-    atlSugerido: isInstall ? "INSTALL" : await previewRotuloAtl(programacaoId),
+    atlSugerido: isInstall ? "INSTALL" : await previewRotuloAtl(programacaoId, when),
+    offSugerido: isInstall ? "INSTALL" : await previewRotuloOff(programacaoId, when),
     programacaoNome: prog.nome,
     clienteNome: prog.clienteNome,
     pdvsAmarrados: pdvsNomes.length,
@@ -188,6 +201,13 @@ function resolveSubida(
     const nome = (opts.especialNome ?? "").trim().toUpperCase();
     if (!nome) return Promise.reject(new Error("especial_nome_obrigatorio"));
     return Promise.resolve({ tipo: "especial", rotulo: `ESPECIAL ${nome}`, especialNome: nome });
+  }
+  if (opts?.tipoSubida === "off") {
+    return previewRotuloOff(programacaoId, when).then((rotulo) => ({
+      tipo: "off" as const,
+      rotulo,
+      especialNome: "",
+    }));
   }
   return previewRotuloAtl(programacaoId, when).then((rotulo) => ({
     tipo: "atl" as const,

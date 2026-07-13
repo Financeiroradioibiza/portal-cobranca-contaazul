@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { abrirProgramacaoAposMusica } from "@/lib/criacao/abrirProgramacaoMusica";
 import { deleteAgendamento, updateAgendamento } from "@/lib/criacao/agendamentoService";
 import { syncPastaFlagsProgramacao } from "@/lib/criacao/publicarService";
 import { prisma } from "@/lib/prisma";
@@ -19,11 +20,16 @@ async function syncGatewayAposAgendamento(agendamentoId: string): Promise<void> 
 
 export async function PATCH(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const row = await prisma.agendamento.findUnique({
+      where: { id },
+      select: { programacaoId: true },
+    });
     const ok = await updateAgendamento(id, body as never);
     if (ok) {
+      await abrirProgramacaoAposMusica(row?.programacaoId, session.displayName ?? session.email);
       await syncGatewayAposAgendamento(id).catch((e) => {
         console.error("[criacao/agendamentos/:id PATCH] sync gateway", e);
       });
@@ -38,7 +44,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
 
 export async function DELETE(_request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
     const row = await prisma.agendamento.findUnique({
       where: { id },
@@ -46,6 +52,7 @@ export async function DELETE(_request: Request, ctx: Ctx) {
     });
     await deleteAgendamento(id);
     if (row?.programacaoId) {
+      await abrirProgramacaoAposMusica(row.programacaoId, session.displayName ?? session.email);
       await syncPastaFlagsProgramacao(row.programacaoId).catch((e) => {
         console.error("[criacao/agendamentos/:id DELETE] sync gateway", e);
       });

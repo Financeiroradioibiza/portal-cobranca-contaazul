@@ -51,11 +51,12 @@ export async function PATCH(request: Request, context: Ctx) {
   }
 
   await patchRioCompPdv(pdvId, data);
+  let gatewaySync: Awaited<ReturnType<typeof syncPlayerGatewayAfterRioPdvTagChange>> | undefined;
   if ("tagCobranca" in body) {
-    void syncPlayerGatewayAfterRioPdvTagChange(pdvId);
+    gatewaySync = await syncPlayerGatewayAfterRioPdvTagChange(pdvId);
   }
   const pdv = await prisma.rioCompPdv.findUniqueOrThrow({ where: { id: pdvId } });
-  return NextResponse.json({ ok: true, pdv });
+  return NextResponse.json({ ok: true, pdv, gatewaySync });
 }
 
 export async function DELETE(_req: Request, context: Ctx) {

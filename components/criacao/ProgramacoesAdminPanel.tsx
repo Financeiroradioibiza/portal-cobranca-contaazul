@@ -1254,6 +1254,7 @@ export function FecharAtualizacaoModal({
   const [info, setInfo] = useState<{
     isInstall: boolean;
     atlSugerido: string;
+    offSugerido: string;
     pdvsAmarrados: number;
     pdvsNomes: string[];
   } | null>(null);
@@ -1261,7 +1262,7 @@ export function FecharAtualizacaoModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
-  const [tipoSubida, setTipoSubida] = useState<"atl" | "especial">("atl");
+  const [tipoSubida, setTipoSubida] = useState<"atl" | "especial" | "off">("atl");
   const [especialNome, setEspecialNome] = useState("");
 
   useEffect(() => {
@@ -1273,6 +1274,7 @@ export function FecharAtualizacaoModal({
         setInfo({
           isInstall: Boolean(d.isInstall),
           atlSugerido: String(d.atlSugerido ?? "ATL"),
+          offSugerido: String(d.offSugerido ?? "OFF"),
           pdvsAmarrados: Number(d.pdvsAmarrados ?? 0),
           pdvsNomes: Array.isArray(d.pdvsNomes) ? (d.pdvsNomes as string[]) : [],
         });
@@ -1347,6 +1349,8 @@ export function FecharAtualizacaoModal({
     info?.isInstall ? "INSTALL"
     : tipoSubida === "especial" && especialNome.trim() ?
       `ESPECIAL ${especialNome.trim().toUpperCase()}`
+    : tipoSubida === "off" ?
+      (info?.offSugerido ?? "OFF")
     : info?.atlSugerido ?? "ATL";
 
   return (
@@ -1400,6 +1404,17 @@ export function FecharAtualizacaoModal({
                         onChange={() => setTipoSubida("especial")}
                       />
                       <span>Especial — PASCOA, NATAL, vinheta…</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="tipo-subida"
+                        checked={tipoSubida === "off"}
+                        onChange={() => setTipoSubida("off")}
+                      />
+                      <span>
+                        <strong>{info?.offSugerido}</strong> — retirada de faixas (OFF)
+                      </span>
                     </label>
                     {tipoSubida === "especial" ?
                       <input

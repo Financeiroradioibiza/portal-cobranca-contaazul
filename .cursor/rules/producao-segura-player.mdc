@@ -1,0 +1,39 @@
+---
+description: Proteger produção — player, cronogramas, sync e logins sem regressão
+alwaysApply: true
+---
+
+# Produção segura (Portal + Player 5 + Cloud2)
+
+## O que não pode quebrar
+
+Em produção, estes comportamentos são **intocáveis** salvo plano explícito aprovado:
+
+- Player 5 tocando (loop, vinhetas, pastas, cadência, MIX, shuffle)
+- Cronogramas e campanhas já publicados (`data_fim`, horários, agendas)
+- Sync portal ↔ cloud2 ↔ player (publicação, ping, login, tokens)
+- Logins, PDVs, bloqueio financeiro Rio, programação em cache local
+
+## Regra de ouro
+
+**Nenhuma feature nova pode regredir o que já funciona.**  
+Exemplo real: «+Prioritária» alterou publicação/player e afetou cronogramas — **não repetir** esse padrão.
+
+## Antes de implementar
+
+1. **Escopo mínimo** — mudança aditiva; não refatorar loop/publicação/sync «de brinde».
+2. **Compatibilidade** — player e cloud2 devem aceitar programações **já publicadas** sem republicar tudo.
+3. **Risco player/cloud2** — se tocar `loop.ts`, `programacao.ts`, `publishCronogramas`, `publicar`, ping, login:
+   - **Parar e avaliar com Rafael** antes de deploy, **ou**
+   - Desenvolver em **cópia externa** (outra pasta / branch), testar com PDV real de homologação, **só então** merge + deploy produção.
+4. **Deploy** — ordem típica: cloud2 (retrocompatível) → portal → player; nunca player que exija gateway já alterado sem fallback.
+5. **Revertível** — preferir flag/campo opcional com default que preserva comportamento atual; evitar `DELETE`/migration destrutiva em dados de programação.
+
+## Quando pedir OK explícito
+
+- Mudança de hierarquia de reprodução no player
+- Novo campo na publicação que altere playlists/agendas existentes
+- Sync que sobrescreva `status`, cronograma ou flags em massa
+- Qualquer coisa que exija «republicar todas as programações»
+
+Se houver dúvida: **perguntar antes de deploy em produção.**

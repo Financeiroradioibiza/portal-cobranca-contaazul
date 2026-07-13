@@ -44,7 +44,10 @@ export async function loadSessionByToken(token) {
        c.id AS cliente_id, c.nome AS cliente_nome,
        COALESCE(c.status, 'A') AS cliente_status,
        COALESCE(c.logotipo, '') AS logotipo,
-       c.logotipo_jpeg
+       c.logotipo_jpeg,
+       p.origem_rio_pdv_id,
+       p.origem_rio_linha_id,
+       c.origem_rio_linha_id AS cliente_origem_rio_linha_id
      FROM tokens t
      JOIN pdvs p ON p.id = t.pdv_id
      JOIN clientes c ON c.id = p.cliente_id

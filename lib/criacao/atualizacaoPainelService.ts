@@ -5,7 +5,7 @@ import { hasAtualizacaoPainelTable } from "@/lib/criacao/atualizacaoPainelSchema
 
 export type FechamentoPainelItem = {
   rotulo: string;
-  tipo: "install" | "atl" | "especial";
+  tipo: "install" | "atl" | "especial" | "off";
   em: string;
   atualizacaoId: string;
 };
@@ -32,7 +32,7 @@ function parseFechamentos(raw: Prisma.JsonValue): FechamentoPainelItem[] {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const o = item as Record<string, unknown>;
     const tipo = o.tipo;
-    if (tipo !== "install" && tipo !== "atl" && tipo !== "especial") continue;
+    if (tipo !== "install" && tipo !== "atl" && tipo !== "especial" && tipo !== "off") continue;
     out.push({
       rotulo: String(o.rotulo ?? ""),
       tipo,
@@ -236,7 +236,7 @@ export async function appendFechamentoPainel(input: {
   competencia: string;
   atualizacaoId: string;
   rotulo: string;
-  tipo: "install" | "atl" | "especial";
+  tipo: "install" | "atl" | "especial" | "off";
   when?: Date;
 }): Promise<void> {
   if (!(await hasAtualizacaoPainelTable())) return;

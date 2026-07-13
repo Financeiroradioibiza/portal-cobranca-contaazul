@@ -80,6 +80,8 @@ function FechamentoBadges({ items }: { items: FechamentoPainelItem[] }) {
               "bg-emerald-600 text-white"
             : f.tipo === "especial" ?
               "bg-violet-600 text-white"
+            : f.tipo === "off" ?
+              "bg-slate-600 text-white"
             : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100")
           }
         >

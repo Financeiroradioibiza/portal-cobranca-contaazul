@@ -963,13 +963,14 @@ enum TipoSubidaAtualizacao {
   install
   atl
   especial
+  off
 }
 
 /// Registro de cada disparo de atualização (log + diff entraram/saíram).
 model ProgramacaoAtualizacao {
   id                  String                 @id @default(cuid())
   programacaoId       String                 @map("programacao_id")
-  /// Rótulo legível: INSTALL, ATL Junho 1, ESPECIAL PASCOA…
+  /// Rótulo legível: INSTALL, ATL Junho 1, ESPECIAL PASCOA, OFF Julho 1…
   codigo              String                 @db.VarChar(80)
   tipoSubida          TipoSubidaAtualizacao  @default(atl) @map("tipo_subida")
   especialNome        String                 @default("") @map("especial_nome") @db.VarChar(80)

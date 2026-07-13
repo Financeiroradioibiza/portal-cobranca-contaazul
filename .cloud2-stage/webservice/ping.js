@@ -1,6 +1,7 @@
 import { getPool } from '../../db/pool.js';
 import { loadSessionByToken } from './loginByToken.js';
 import { portalQuery } from '../../criacao/portalDb.js';
+import { avaliarBloqueioReproducao, healGatewayStatusSeNecessario } from './rioCobrancaBlock.js';
 import { randomUUID } from 'node:crypto';
 
 function buildPingPdvPayload(row) {
@@ -83,20 +84,28 @@ export async function registerPingRoutes(app, prefix) {
       return reply.send({ mensagem: 'token_invalido' });
     }
 
-    /** Cancelado / bloqueio financeiro / inativo no cadastro — informa status I sem deslogar. */
-    if (row.pdv_status === 'I' || row.cliente_status === 'I') {
+    const avaliacao = await avaliarBloqueioReproducao(row);
+
+    /** Cancelado / bloqueio financeiro / inativo — Planilha Rio prevalece; gateway desatualizado é corrigido. */
+    if (avaliacao.bloqueado) {
       return reply.send({
         pdv: buildPingPdvPayload({ ...row, pdv_status: 'I' }),
-        cliente: buildPingClientePayload(row),
+        cliente: buildPingClientePayload({ ...row, cliente_status: 'I' }),
         mensagem: 'pdv_bloqueado',
       });
     }
 
     const pool = getPool();
+    await healGatewayStatusSeNecessario(pool, row, avaliacao);
+    const rowAtivo = {
+      ...row,
+      pdv_status: avaliacao.pdvStatus,
+      cliente_status: avaliacao.clienteStatus,
+    };
     try {
       await pool.query(
         `INSERT INTO ping_log (pdv_id, ma, ip, versao_player) VALUES ($1, $2, $3, $4)`,
-        [row.pdv_id, req.query.ma ?? null, req.query.ip ?? null, req.query.versao_player ?? null],
+        [rowAtivo.pdv_id, req.query.ma ?? null, req.query.ip ?? null, req.query.versao_player ?? null],
       );
     } catch {
       /* ping_log opcional */
@@ -107,27 +116,27 @@ export async function registerPingRoutes(app, prefix) {
       await pool
         .query(
           `UPDATE pdvs SET versao_player = $1, date_last_update = now(), updated_at = now() WHERE id = $2`,
-          [versao, row.pdv_id],
+          [versao, rowAtivo.pdv_id],
         )
         .catch(() => null);
     } else {
       await pool
-        .query(`UPDATE pdvs SET date_last_update = now(), updated_at = now() WHERE id = $1`, [row.pdv_id])
+        .query(`UPDATE pdvs SET date_last_update = now(), updated_at = now() WHERE id = $1`, [rowAtivo.pdv_id])
         .catch(() => null);
     }
 
     if (req.query.pdv_atualizado === '1') {
       await pool
-        .query(`UPDATE pdvs SET atualizacao_pendente = 'N' WHERE id = $1`, [row.pdv_id])
+        .query(`UPDATE pdvs SET atualizacao_pendente = 'N' WHERE id = $1`, [rowAtivo.pdv_id])
         .catch(() => null);
-      row.atualizacao_pendente = 'N';
+      rowAtivo.atualizacao_pendente = 'N';
     }
 
-    await gravarVotoMusicaPing(row, req);
+    await gravarVotoMusicaPing(rowAtivo, req);
 
     return reply.send({
-      pdv: buildPingPdvPayload(row),
-      cliente: buildPingClientePayload(row),
+      pdv: buildPingPdvPayload(rowAtivo),
+      cliente: buildPingClientePayload(rowAtivo),
       mensagem: 'ping_salvo',
     });
   });
