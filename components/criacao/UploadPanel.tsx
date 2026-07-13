@@ -326,10 +326,12 @@ export function UploadPanel() {
             "Uma ou mais faixas do servidor já foram importadas ou não existem mais."
           : errData?.error === "staging_import_falhou" && errData.message ?
             `Importação do servidor falhou: ${errData.message}`
-          : errData?.message ?
-            errData.message
           : errData?.error === "ingest_desabilitado" ?
             "Upload indisponível — configure CRIACAO_INGEST_SECRET no Netlify."
+          : errData?.error === "migration_pendente" && errData.message ?
+            errData.message
+          : errData?.message ?
+            errData.message
           : "Não foi possível criar os jobs de processamento.",
         );
         setSubmitting(false);

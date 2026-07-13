@@ -253,12 +253,22 @@ export async function POST(request: Request) {
     if (msg === "staging_item_invalido") {
       return NextResponse.json({ error: "staging_item_invalido" }, { status: 400 });
     }
-    const hint =
-      /timed out|timeout|AbortError/i.test(msg) ?
-        "Importação do servidor demorou demais — tente menos faixas por lote ou aguarde e tente de novo."
-      : msg.includes("pasta_especial_id") || msg.includes("column") ?
-        "Banco desatualizado — confira se o deploy Netlify rodou as migrações Prisma."
-      : msg;
-    return NextResponse.json({ error: "server_error", message: hint }, { status: 500 });
+    if (msg === "nenhum_arquivo") {
+      return NextResponse.json({ error: "no_files" }, { status: 400 });
+    }
+    if (msg === "pasta_especial_migration_pendente") {
+      return NextResponse.json(
+        {
+          error: "migration_pendente",
+          message:
+            "Não foi possível preparar a fila de upload no banco. Rode prisma migrate deploy no Neon ou refaça o deploy Netlify.",
+        },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(
+      { error: "server_error", message: msg !== "server_error" ? msg : undefined },
+      { status: 500 },
+    );
   }
 }

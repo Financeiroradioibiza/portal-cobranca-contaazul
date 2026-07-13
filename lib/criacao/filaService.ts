@@ -5,6 +5,10 @@ import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 import { cloud2Enabled, cloud2FetchWithTimeout } from "@/lib/criacao/cloud2Client";
+import {
+  ensureProcessamentoPastaEspecialColumn,
+  hasProcessamentoPastaEspecialColumn,
+} from "@/lib/criacao/processamentoJobSchemaCompat";
 
 export type UploadArquivo = { nome: string; sizeBytes?: number; downloadItemId?: string };
 
@@ -40,6 +44,15 @@ export const ETAPA_LABEL: Record<string, string> = {
 export async function createUploadJob(input: CreateUploadJobInput) {
   const titulo = (input.titulo || "").trim() || "Upload sem título";
   const arquivos = (input.arquivos ?? []).filter((a) => a?.nome?.trim() || a?.downloadItemId);
+  if (arquivos.length === 0) {
+    throw new Error("nenhum_arquivo");
+  }
+
+  if (!(await ensureProcessamentoPastaEspecialColumn())) {
+    throw new Error("pasta_especial_migration_pendente");
+  }
+
+  const pastaEspecialId = input.pastaEspecialId?.trim();
 
   const job = await prisma.processamentoJob.create({
     data: {
@@ -54,7 +67,7 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       uploadTagNome: ((input.uploadTagNome ?? "").trim() || defaultUploadCompetenciaTag()).slice(0, 80),
       programacaoId: input.programacaoId || null,
       pastaId: input.pastaId || null,
-      pastaEspecialId: input.pastaEspecialId || null,
+      ...(pastaEspecialId ? { pastaEspecialId } : {}),
       totalItens: arquivos.length,
       itensFeitos: 0,
       itens: {
@@ -193,7 +206,7 @@ export async function getJobDetail(id: string) {
     pastaNome = pasta?.nome ?? "";
     programacaoNome = pasta?.programacao?.nome ?? "";
   }
-  if (job.pastaEspecialId) {
+  if (job.pastaEspecialId && (await hasProcessamentoPastaEspecialColumn())) {
     const especial = await prisma.pastaEspecial.findUnique({
       where: { id: job.pastaEspecialId },
       select: { nome: true },
@@ -280,7 +293,9 @@ export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status
   if (nextStatus === "concluido") {
     await applyPendingUploadTags(200).catch(() => {});
     await applyPendingPastaUploads(200).catch(() => {});
-    await applyPendingPastaEspecialUploads(200).catch(() => {});
+    if (await hasProcessamentoPastaEspecialColumn()) {
+      await applyPendingPastaEspecialUploads(200).catch(() => {});
+    }
   }
 
   return { ok: nextStatus === "concluido", status: nextStatus };
