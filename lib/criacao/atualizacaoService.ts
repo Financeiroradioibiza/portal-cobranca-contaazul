@@ -6,6 +6,7 @@ import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompa
 import { appendFechamentoPainel } from "@/lib/criacao/atualizacaoPainelService";
 import { ensureTipoSubidaOffEnum } from "@/lib/criacao/atualizacaoSchemaCompat";
 import { competenciaFromDate, mesNomeCurtoFromDate } from "@/lib/criacao/competencia";
+import { pushPlayerAvisoAtualizacao } from "@/lib/criacao/pushPlayerAvisoAtualizacao";
 
 export type FaixaLogItem = {
   musicaId: string;
@@ -485,6 +486,17 @@ export async function dispararAtualizacao(
     tipo,
     when,
   });
+
+  try {
+    await pushPlayerAvisoAtualizacao({
+      portalClienteId: gatewayId,
+      portalPdvIds,
+      rotulo,
+      programacaoNome: prog.nome,
+    });
+  } catch (e) {
+    console.error("[dispararAtualizacao] aviso player", e);
+  }
 
   return {
     ok: true,

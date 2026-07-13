@@ -5,6 +5,7 @@ import { getPool } from '../../db/pool.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { criacaoConfig } from '../../criacao/config.js';
 import { publishCronogramasAndVinhetas, syncPastasSelecionavelFlags, neonSelecionavelAtivo } from './publishCronogramas.js';
+import { pulseAtualizacaoPendente } from './atualizacaoPendentePulse.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;
@@ -292,9 +293,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         if (pdvIds.length > 0) {
           const linkRes = await gw.query(
             `UPDATE pdvs
-                SET programa_id = $1,
-                    atualizacao_pendente = 'S',
-                    atualizacao_pendente_agenda = 'S'
+                SET programa_id = $1
               WHERE id = ANY($2::int[]) AND cliente_id = $3
               RETURNING id`,
             [programaId, pdvIds, clienteId],
@@ -308,6 +307,7 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
               detail: `Esperados ${pdvIds.length} PDV(s), amarrados ${pdvsLinked}`,
             });
           }
+          await pulseAtualizacaoPendente(gw, { pdvIds });
         }
 
         await gw.query('COMMIT');

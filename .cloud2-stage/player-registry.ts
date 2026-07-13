@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { pulseAtualizacaoPendente } from "./atualizacaoPendentePulse.js";
 import crypto from "node:crypto";
 import { getPool } from "../../db/pool.js";
 import { criacaoConfig } from "../../criacao/config.js";
@@ -413,17 +414,11 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
     const pdvIdsRaw = Array.isArray(req.body?.pdvIds) ? req.body.pdvIds : [];
     const pdvIds = pdvIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0);
     const pool = getPool();
-    const r =
+    const count =
       pdvIds.length > 0 ?
-        await pool.query(
-          `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE id = ANY($1::int[])`,
-          [pdvIds],
-        )
-      : await pool.query(
-          `UPDATE pdvs SET atualizacao_pendente = 'S', atualizacao_pendente_agenda = 'S' WHERE cliente_id = $1`,
-          [clienteId],
-        );
-    return reply.send({ ok: true, pdvs: r.rowCount ?? 0 });
+        await pulseAtualizacaoPendente(pool, { pdvIds })
+      : await pulseAtualizacaoPendente(pool, { clienteId });
+    return reply.send({ ok: true, pdvs: count });
   });
 
   /** Login cliente Player 5 — email + senha → cliente id + lista PDVs. */
