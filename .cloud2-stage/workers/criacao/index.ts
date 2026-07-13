@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { runPipelineLoop } from '../../criacao/pipeline.js';
+import { runStorageGarbageCollect } from '../../criacao/storageCleanup.js';
+import { criacaoConfig } from '../../criacao/config.js';
 import { enrichLabelsForMusica } from './tags.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 
@@ -25,6 +27,12 @@ async function enrichRecentLabels(): Promise<void> {
 
 async function main(): Promise<void> {
   setInterval(() => void enrichRecentLabels(), 60_000);
+  setInterval(() => {
+    runStorageGarbageCollect().catch((e) => {
+      console.error('[criacao-worker] storage gc:', e);
+    });
+  }, criacaoConfig.storageGcIntervalMs);
+  void runStorageGarbageCollect().catch(() => {});
   await runPipelineLoop();
 }
 

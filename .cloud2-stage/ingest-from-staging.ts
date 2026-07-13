@@ -9,6 +9,7 @@ import {
   uploadKey,
   uploadPath,
 } from '../../criacao/storage.js';
+import { cleanupDownloadStagingFile } from '../../criacao/storageCleanup.js';
 
 type Pair = { processamentoItemId: string; downloadItemId: string };
 
@@ -130,6 +131,8 @@ export async function registerIngestFromStagingRoutes(
             WHERE id = $1`,
           [downloadItemId, `import:${processamentoItemId}`],
         );
+
+        await cleanupDownloadStagingFile(downloadItemId);
 
         imported += 1;
       } catch (e) {

@@ -5,6 +5,7 @@ import { downloadMasterToFile } from './b2.js';
 import { encodeTrimmedUso128Mono } from './ffmpeg.js';
 import { portalQuery } from './portalDb.js';
 import { decryptRib, isRibFile, packUsoAudio } from './rib.js';
+import { cleanupStaleUsoFiles } from './storageCleanup.js';
 import {
   ensureStorageDirs,
   masterLocalPath,
@@ -104,6 +105,8 @@ export async function reprocessMusicaEdicao(musicaId: string): Promise<{ duratio
     `UPDATE musica_biblioteca SET duration_ms = $2, updated_at = now() WHERE id = $1`,
     [musicaId, durationMs],
   );
+
+  await cleanupStaleUsoFiles(musicaId, `mp3_128_mono${packed.ext}`);
 
   await fsp.rm(work, { recursive: true, force: true }).catch(() => null);
 

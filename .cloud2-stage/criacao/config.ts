@@ -13,6 +13,9 @@ export const criacaoConfig = {
   /** Legado — publicação usa mix detectado; 0 se ausente. */
   defaultMixSegundos: Number(process.env.CRIACAO_DEFAULT_MIX_SEG ?? '0'),
   workerPollMs: Number(process.env.CRIACAO_WORKER_POLL_MS ?? '2000'),
+  /** Mantém upload/work em erro por N horas antes do GC (retentativa manual). */
+  scratchRetentionErroHours: Number(process.env.CRIACAO_SCRATCH_RETENTION_ERRO_HOURS ?? '48'),
+  storageGcIntervalMs: Number(process.env.CRIACAO_STORAGE_GC_INTERVAL_MS ?? '300000'),
   maxUploadBytes: Number(process.env.CRIACAO_MAX_UPLOAD_BYTES ?? String(100 * 1024 * 1024)),
   /** AES-256-GCM para .rib (mín. 16 chars). Vazio = grava MP3 plano em uso/. */
   ribSecret: process.env.CRIACAO_RIB_SECRET ?? process.env.CRIACAO_INGEST_SECRET ?? '',

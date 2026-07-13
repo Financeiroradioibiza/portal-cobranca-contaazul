@@ -22,6 +22,10 @@ import {
   workDir,
 } from './storage.js';
 import { enrichTags } from '../workers/criacao/tags.js';
+import {
+  cleanupAfterItemPersisted,
+  cleanupStaleUsoFiles,
+} from './storageCleanup.js';
 
 export type ClaimedItem = {
   id: string;
@@ -123,21 +127,19 @@ async function refreshMixOrProduceOnDuplicate(
   );
   if (!r.rows[0]?.hasUso) {
     await stepProduce(item, existenteId, inputPath);
-    await fsp.rm(workDir(item.id), { recursive: true, force: true }).catch(() => {});
-    await fsp.unlink(inputPath).catch(() => {});
-    return;
+  } else {
+    const resolved = await resolveMixTrim(inputPath);
+    await persistMixTrimForMusica(existenteId, resolved, true, true);
+    pipelineLog(
+      { itemId: item.id, jobId: item.job_id, musicaId: existenteId, etapa: 'ponto_mix' },
+      'mix_detectado_duplicata',
+      {
+        mixSegundos: resolved.appliedMixSegundos,
+        quietOutro: resolved.quietOutro,
+      },
+    );
   }
-
-  const resolved = await resolveMixTrim(inputPath);
-  await persistMixTrimForMusica(existenteId, resolved, true, true);
-  pipelineLog(
-    { itemId: item.id, jobId: item.job_id, musicaId: existenteId, etapa: 'ponto_mix' },
-    'mix_detectado_duplicata',
-    {
-      mixSegundos: resolved.appliedMixSegundos,
-      quietOutro: resolved.quietOutro,
-    },
-  );
+  await cleanupAfterItemPersisted(item.id);
 }
 
 /** Hash idêntico — confirma duplicata sem revisão humana; aplica tag na faixa existente. */
@@ -402,6 +404,8 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
       ],
     );
 
+    await cleanupStaleUsoFiles(musicaId, `mp3_128_mono${packed.ext}`);
+
     pipelineLog({ ...ctx, etapa: 'armazenamento' }, 'uso_gravado', {
       storageKey: usoKey,
       bytes: packed.data.length,
@@ -436,8 +440,7 @@ export async function processClaimedItem(item: ClaimedItem): Promise<void> {
     }
     musicaId = musicaOrDup;
     await stepProduce(item, musicaId, inputPath);
-    await fsp.rm(workDir(item.id), { recursive: true, force: true }).catch(() => {});
-    await fsp.unlink(inputPath).catch(() => {});
+    await cleanupAfterItemPersisted(item.id);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'pipeline_falhou';
     pipelineLog(
@@ -450,6 +453,7 @@ export async function processClaimedItem(item: ClaimedItem): Promise<void> {
         [musicaId],
       ).catch(() => {});
     }
+    await fsp.rm(workDir(item.id), { recursive: true, force: true }).catch(() => {});
     await finishItemErro(item, msg);
   }
 }

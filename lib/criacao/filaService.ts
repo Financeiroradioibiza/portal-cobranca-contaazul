@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
+import { cloud2Enabled, cloud2FetchWithTimeout } from "@/lib/criacao/cloud2Client";
 
 export type UploadArquivo = { nome: string; sizeBytes?: number; downloadItemId?: string };
 
@@ -306,6 +307,19 @@ export async function approveJob(id: string): Promise<{ ok: boolean; reason?: st
   return { ok: false, reason: "not_in_revisao" };
 }
 
+/** Remove upload/work no cloud2 após item terminalizado (duplicata descartada, etc.). */
+async function cloud2CleanupScratch(itemIds: string[]): Promise<void> {
+  if (!cloud2Enabled() || itemIds.length === 0) return;
+  await cloud2FetchWithTimeout(
+    "/cleanup/scratch",
+    {
+      method: "POST",
+      body: JSON.stringify({ itemIds }),
+    },
+    12_000,
+  ).catch(() => null);
+}
+
 /** Resolução manual de duplicata: "nova" mantém como faixa nova; "existente" descarta o item. */
 export async function resolveDuplicata(itemId: string, decision: "nova" | "existente"): Promise<boolean> {
   const item = await prisma.processamentoItem.findUnique({
@@ -323,6 +337,7 @@ export async function resolveDuplicata(itemId: string, decision: "nova" | "exist
     },
   });
   if (decision === "existente") {
+    await cloud2CleanupScratch([itemId]);
     await tryFinishJob(item.jobId).catch(() => {});
   }
   return true;
@@ -333,6 +348,13 @@ export async function resolveDuplicatasBulk(
   jobId: string,
   decision: "nova" | "existente",
 ): Promise<number> {
+  const dupes =
+    decision === "existente" ?
+      await prisma.processamentoItem.findMany({
+        where: { jobId, status: "duplicata" },
+        select: { id: true },
+      })
+    : [];
   const result = await prisma.processamentoItem.updateMany({
     where: { jobId, status: "duplicata" },
     data: {
@@ -341,6 +363,7 @@ export async function resolveDuplicatasBulk(
     },
   });
   if (decision === "existente") {
+    await cloud2CleanupScratch(dupes.map((d) => d.id));
     await tryFinishJob(jobId).catch(() => {});
   }
   return result.count;

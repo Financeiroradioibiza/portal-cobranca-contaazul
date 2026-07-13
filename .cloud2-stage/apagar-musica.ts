@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
+import path from 'node:path';
 import { criacaoConfig } from '../../criacao/config.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { masterLocalPath, usoPath } from '../../criacao/storage.js';
@@ -64,7 +65,13 @@ async function deleteMasterStorageKey(masterKey: string | null): Promise<string[
     const full = masterLocalPath(musicaId);
     await fsp.rm(full, { force: true }).catch(() => {});
     removed.push(masterKey);
+    return removed;
   }
+
+  if (masterKey.includes('/') && masterKey.endsWith('.mp3')) {
+    if (await deleteB2Object(masterKey)) removed.push(masterKey);
+  }
+
   return removed;
 }
 
@@ -106,6 +113,9 @@ export async function registerApagarMusicaRoutes(app: FastifyInstance, prefix: s
           removed.push(v.storage_key);
         }
       }
+
+      const usoDir = path.join(criacaoConfig.storageRoot, 'uso', 'musicas', musicaId);
+      await fsp.rm(usoDir, { recursive: true, force: true }).catch(() => {});
 
       removed.push(...(await deleteMasterStorageKey(musica.rows[0].master_storage_key)));
 

@@ -104,7 +104,7 @@ export async function collectOrphanStorageReport(): Promise<{
     orphanCount: stagingOrphans.length,
     orphanBytesEstimate: null,
     samples: stagingOrphans.slice(0, 8).map((id) => `${id}.mp3`),
-    note: 'MP3 baixados (Deemix/Spotizerr/YT). ingest-from-staging copia sem apagar — acumula mesmo após import.',
+      note: 'MP3 baixados (Deemix/Spotizerr/YT). Após import → upload, staging é removido; GC varre import:* restantes.',
   });
 
   // --- work/ ---
