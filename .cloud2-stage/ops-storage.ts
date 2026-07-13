@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import { criacaoConfig } from '../../criacao/config.js';
 import { collectOpsStorageSnapshot } from '../../criacao/opsStorage.js';
+import { collectOrphanStorageReport } from '../../criacao/orphanStorage.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;
@@ -26,6 +27,22 @@ export async function registerOpsStorageRoutes(app: FastifyInstance, prefix: str
       return reply.send(snapshot);
     } catch (e) {
       app.log.error(e, '[ops/storage]');
+      return reply.code(500).send({
+        ok: false,
+        error: e instanceof Error ? e.message : 'erro',
+      });
+    }
+  });
+
+  app.get(`${prefix}/ops/orphans`, async (req, reply) => {
+    if (!authorized(req)) {
+      return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+    }
+    try {
+      const report = await collectOrphanStorageReport();
+      return reply.send(report);
+    } catch (e) {
+      app.log.error(e, '[ops/orphans]');
       return reply.code(500).send({
         ok: false,
         error: e instanceof Error ? e.message : 'erro',

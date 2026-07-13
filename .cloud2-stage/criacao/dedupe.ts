@@ -4,7 +4,11 @@ import { sha256File } from './hash.js';
 
 export type DedupeResult =
   | { kind: 'nova' }
-  | { kind: 'duplicata'; existenteId: string; via: 'content_hash' | 'chromaprint' | 'metadata' };
+  | {
+      kind: 'duplicata';
+      existenteId: string;
+      via: 'content_hash' | 'chromaprint' | 'metadata' | 'isrc';
+    };
 
 export function normalizeMetaForDedupe(s: string): string {
   return s
@@ -15,12 +19,32 @@ export function normalizeMetaForDedupe(s: string): string {
     .trim();
 }
 
+/** Título para dedupe — remove feat/ft e variantes ortográficas comuns. */
+export function normalizeTitleForDedupe(s: string): string {
+  let t = normalizeMetaForDedupe(s);
+  t = t.replace(/\b(feat|ft|featuring|with|vs|x)\b.+$/i, '').trim();
+  t = t.replace(/\blivin\b/g, 'living');
+  t = t.replace(/\bgoin\b/g, 'going');
+  return t.trim();
+}
+
+async function findDuplicateByIsrc(isrc: string): Promise<{ id: string } | null> {
+  const rows = await portalQuery<{ id: string }>(
+    `SELECT id FROM musica_biblioteca
+     WHERE isrc = $1
+       AND status IN ('pronta', 'processando')
+     LIMIT 1`,
+    [isrc],
+  );
+  return rows.rows[0] ?? null;
+}
+
 async function findDuplicateByMetadata(
   artista: string,
   titulo: string,
 ): Promise<{ id: string } | null> {
   const na = normalizeMetaForDedupe(artista);
-  const nt = normalizeMetaForDedupe(titulo);
+  const nt = normalizeTitleForDedupe(titulo);
   if (na.length < 2 || nt.length < 2) return null;
 
   const rows = await portalQuery<{ id: string; artista: string; titulo: string }>(
@@ -32,7 +56,10 @@ async function findDuplicateByMetadata(
      LIMIT 8000`,
   );
   for (const row of rows.rows) {
-    if (normalizeMetaForDedupe(row.artista) === na && normalizeMetaForDedupe(row.titulo) === nt) {
+    if (
+      normalizeMetaForDedupe(row.artista) === na &&
+      normalizeTitleForDedupe(row.titulo) === nt
+    ) {
       return { id: row.id };
     }
   }
@@ -68,7 +95,12 @@ async function tryChromaprint(filePath: string): Promise<string | null> {
 /** Dedupe por SHA256 + Chromaprint opcional (fpcalc no PATH) + título/artista normalizado. */
 export async function findDuplicate(
   filePath: string,
-  opts?: { skipChromaprintMatchId?: string | null; artista?: string; titulo?: string },
+  opts?: {
+    skipChromaprintMatchId?: string | null;
+    artista?: string;
+    titulo?: string;
+    isrc?: string | null;
+  },
 ): Promise<DedupeResult & { contentHash: string; chromaprint: string | null }> {
   const contentHash = await sha256File(filePath);
 
@@ -84,6 +116,20 @@ export async function findDuplicate(
       contentHash,
       chromaprint: null,
     };
+  }
+
+  const isrc = opts?.isrc?.trim() ?? '';
+  if (isrc.length >= 10) {
+    const byIsrc = await findDuplicateByIsrc(isrc);
+    if (byIsrc?.id) {
+      return {
+        kind: 'duplicata',
+        existenteId: byIsrc.id,
+        via: 'isrc',
+        contentHash,
+        chromaprint: null,
+      };
+    }
   }
 
   const chromaprint = await tryChromaprint(filePath);

@@ -280,19 +280,19 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
   return pipelineTimed(ctx, async () => {
     await setItemEtapa(item.id, 'deduplicacao');
     let { artista, titulo } = parseMp3Filename(item.arquivo_nome);
-    if (!artista.trim()) {
-      const id3 = await probeArtistTitleFromFile(inputPath);
-      if (id3?.artista.trim()) artista = id3.artista.trim();
-      if ((!titulo.trim() || titulo === 'Faixa') && id3?.titulo.trim()) titulo = id3.titulo.trim();
-    }
+    const id3 = await probeArtistTitleFromFile(inputPath);
+    if (id3?.artista.trim()) artista = id3.artista.trim();
+    if (id3?.titulo.trim()) titulo = id3.titulo.trim();
+    const isrc = await probeIsrcFromFile(inputPath);
     const dup = await findDuplicate(inputPath, {
       skipChromaprintMatchId: item.duplicata_de_id,
       artista,
       titulo,
+      isrc,
     });
     if (dup.kind === 'duplicata') {
       pipelineLog(ctx, 'duplicata', { via: dup.via, existenteId: dup.existenteId });
-      if (dup.via === 'content_hash' || dup.via === 'metadata') {
+      if (dup.via === 'content_hash' || dup.via === 'metadata' || dup.via === 'isrc') {
         await refreshMixOrProduceOnDuplicate(item, dup.existenteId, inputPath);
         await finishItemDuplicataAutoConfirmada(item, dup.existenteId);
       } else {

@@ -50,6 +50,20 @@ section "Logs worker (últimas 15 linhas JSON)"
 section "Health API"
 curl -sf -o /dev/null -w "cloud2 GET /health → HTTP %{http_code}\n" "https://cloud2.radioibiza.app.br/health" 2>/dev/null || echo "curl health falhou (rede local?)"
 
+section "Storage dirs (du -sh)"
+"${SSH[@]}" "$REMOTE" "for d in upload work download-staging uso/musicas master-local; do du -sh '$STORAGE'/\$d 2>/dev/null || true; done"
+
+section "Órfãos (GET /criacao/ops/orphans — read-only)"
+if [[ -n "${CRIACAO_INGEST_SECRET:-}" ]]; then
+  curl -sf -H "x-criacao-secret: $CRIACAO_INGEST_SECRET" \
+    "https://cloud2.radioibiza.app.br/criacao/ops/orphans" 2>/dev/null \
+    | python3 -m json.tool 2>/dev/null \
+    || echo "ops/orphans indisponível (deploy pendente ou secret inválido)"
+else
+  echo "Defina CRIACAO_INGEST_SECRET localmente para consultar /criacao/ops/orphans"
+  echo "Ou após deploy: curl -H 'x-criacao-secret: …' https://cloud2.radioibiza.app.br/criacao/ops/orphans"
+fi
+
 echo ""
 echo "Checklist:"
 echo "  [ ] worker-audio Up"
