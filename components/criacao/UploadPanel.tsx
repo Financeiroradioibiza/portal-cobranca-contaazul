@@ -3,12 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
+import { DownloadLinkImportSection } from "@/components/criacao/DownloadLinkImportSection";
 import { ServidorUpMultiUploadPanel } from "@/components/criacao/ServidorUpMultiUploadPanel";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import {
-  groupStagingByJob,
   isInvalidStagingMp3,
-  type StagingFileRow,
   type StagingJobGroup,
 } from "@/lib/criacao/downloadService";
 import Link from "next/link";
@@ -97,8 +96,7 @@ export function UploadPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; lote?: string } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [stagingGroups, setStagingGroups] = useState<StagingJobGroup[]>([]);
-  const [stagingLoading, setStagingLoading] = useState(true);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
   const [pastasEspeciais, setPastasEspeciais] = useState<PastaEspecialOpt[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingLoteId = useRef<string | null>(null);
@@ -116,22 +114,24 @@ export function UploadPanel() {
     };
   }, []);
 
-  const loadStaging = useCallback(async () => {
-    try {
-      const res = await fetch("/api/criacao/download?view=staging");
-      if (!res.ok) return;
-      const data = (await res.json()) as { staging?: StagingFileRow[] };
-      setStagingGroups(groupStagingByJob(data.staging ?? []));
-    } catch {
-      /* ignore */
-    } finally {
-      setStagingLoading(false);
-    }
-  }, []);
+  const stagingIdsInLotes = useMemo(
+    () =>
+      new Set(
+        lotes.flatMap((l) =>
+          l.files.filter((f) => f.source === "staging").map((f) => f.downloadItemId),
+        ),
+      ),
+    [lotes],
+  );
 
-  useEffect(() => {
-    void loadStaging();
-  }, [loadStaging]);
+  const loteOptions = useMemo(
+    () =>
+      lotes.map((l, i) => ({
+        id: l.id,
+        label: `Lote ${i + 1} — ${loteLabel(l, pastasEspeciais)}`,
+      })),
+    [lotes, pastasEspeciais],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -199,6 +199,7 @@ export function UploadPanel() {
     const valid = group.tracks.filter((t) => !isInvalidStagingMp3(t.sizeBytes));
     const skipped = group.tracks.length - valid.length;
     if (valid.length === 0) {
+      setOkMsg(null);
       setMsg(
         skipped > 0 ?
           "Nenhuma faixa válida neste lote — todos os arquivos têm ~1 KB (download Deemix falhou). Refaça no Download link."
@@ -206,8 +207,11 @@ export function UploadPanel() {
       );
       return;
     }
+    setMsg(null);
     if (skipped > 0) {
-      setMsg(`${skipped} faixa(s) ignorada(s) por arquivo inválido (~1 KB). Importadas só as válidas.`);
+      setOkMsg(`${skipped} faixa(s) ignorada(s) por arquivo inválido (~1 KB). Importadas só as válidas.`);
+    } else {
+      setOkMsg(`${valid.length} faixa(s) adicionada(s) ao lote — escolha pasta/tag e clique «Subir para a fila».`);
     }
     setLotes((prev) =>
       prev.map((l) => {
@@ -272,10 +276,12 @@ export function UploadPanel() {
     const err = validateLotes();
     if (err) {
       setMsg(err);
+      setOkMsg(null);
       return;
     }
     setSubmitting(true);
     setMsg(null);
+    setOkMsg(null);
 
     const lotesComArquivos = lotes.filter((l) => l.files.length > 0);
     const totalUpload = lotesComArquivos.reduce((n, l) => n + l.files.length, 0);
@@ -482,6 +488,13 @@ export function UploadPanel() {
 
       {!servidorUpMode ?
         <>
+      <DownloadLinkImportSection
+        lotes={loteOptions}
+        excludedDownloadItemIds={stagingIdsInLotes}
+        onImport={addStagingGroupToLote}
+        highlightOnMount={searchParams.get("fromDownload") === "1"}
+      />
+
       <div className="mb-5">
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-semibold text-slate-500">Título geral do envio (opcional)</span>
@@ -529,6 +542,7 @@ export function UploadPanel() {
         </button>
       </div>
 
+      {okMsg ? <div className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">{okMsg}</div> : null}
       {msg ? <div className="mt-3 text-sm text-red-600">{msg}</div> : null}
 
       <div className="mt-5 flex flex-wrap items-center gap-3">

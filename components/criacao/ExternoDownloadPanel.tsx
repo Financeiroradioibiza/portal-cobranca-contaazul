@@ -14,35 +14,20 @@ type Props = {
   onFilesReady: (files: File[]) => void;
 };
 
-type ResolveMode = "spotify" | "txt";
-
-async function resolveTracksApi(
-  mode: ResolveMode,
-  spotifyUrl: string,
-  txt: string,
-): Promise<ResolvedTrack[]> {
+async function resolveTracksApi(txt: string): Promise<ResolvedTrack[]> {
   const res = await fetch("/api/criacao/download/resolve", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(
-      mode === "spotify" ?
-        { mode: "spotify", spotifyUrl: spotifyUrl.trim() }
-      : { mode: "txt", text: txt },
-    ),
+    body: JSON.stringify({ mode: "txt", text: txt }),
   });
   const data = (await res.json()) as { ok?: boolean; tracks?: ResolvedTrack[]; error?: string };
   if (!res.ok || !data.ok) {
-    if (data.error === "spotify_not_configured") {
-      throw new Error("Spotify não configurado — use lista TXT ou configure SPOTIFY_CLIENT_ID/SECRET.");
-    }
-    throw new Error(data.error ?? "Não foi possível ler a playlist.");
+    throw new Error(data.error === "lista_vazia" ? "Nenhuma faixa na lista." : data.error ?? "Não foi possível ler a lista.");
   }
   return data.tracks ?? [];
 }
 
 export function ExternoDownloadPanel({ onFilesReady }: Props) {
-  const [mode, setMode] = useState<ResolveMode>("spotify");
-  const [spotifyUrl, setSpotifyUrl] = useState("");
   const [txt, setTxt] = useState("");
   const [tracks, setTracks] = useState<ResolvedTrack[]>([]);
   const [busy, setBusy] = useState(false);
@@ -119,7 +104,7 @@ export function ExternoDownloadPanel({ onFilesReady }: Props) {
 
     setBusy(true);
     try {
-      const resolved = await resolveTracksApi(mode, spotifyUrl, txt);
+      const resolved = await resolveTracksApi(txt);
       if (resolved.length === 0) throw new Error("Nenhuma faixa encontrada.");
       setTracks(resolved);
       setMsg(`Baixando ${resolved.length} faixa(s)… pode deixar esta aba aberta.`);
@@ -149,32 +134,12 @@ export function ExternoDownloadPanel({ onFilesReady }: Props) {
       <div>
         <p className="text-sm font-semibold text-sky-900 dark:text-sky-100">Baixar playlist</p>
         <p className="mt-1 text-xs text-sky-800/90 dark:text-sky-200/80">
-          Cole o link (como no player-preview) e clique <strong>Baixar</strong>. O áudio baixa no{" "}
-          <strong>seu PC</strong> — a empresa bloqueia download no servidor Netlify.
+          Cole a lista de faixas (exporte do Soundiiz/TuneMyMusic como TXT) e clique <strong>Baixar</strong>.
+          O áudio baixa no <strong>seu PC</strong> — a empresa bloqueia download no servidor Netlify.
         </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <button
-          type="button"
-          onClick={() => setMode("spotify")}
-          className={
-            "rounded-lg px-3 py-1.5 font-semibold " +
-            (mode === "spotify" ? "bg-sky-900 text-white" : "bg-white text-sky-800 dark:bg-slate-900")
-          }
-        >
-          Spotify
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("txt")}
-          className={
-            "rounded-lg px-3 py-1.5 font-semibold " +
-            (mode === "txt" ? "bg-sky-900 text-white" : "bg-white text-sky-800 dark:bg-slate-900")
-          }
-        >
-          Lista TXT
-        </button>
         <span
           className={
             "ml-auto rounded-lg px-2 py-1.5 font-semibold " +
@@ -185,46 +150,23 @@ export function ExternoDownloadPanel({ onFilesReady }: Props) {
         </span>
       </div>
 
-      {mode === "spotify" ?
-        <form
-          className="flex flex-col gap-2 sm:flex-row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void baixar();
-          }}
+      <div className="space-y-2">
+        <textarea
+          value={txt}
+          onChange={(e) => setTxt(e.target.value)}
+          rows={5}
+          placeholder={"Artista - Título\nMadonna - Like a Prayer"}
+          className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 font-mono text-sm dark:border-sky-800 dark:bg-slate-950"
+        />
+        <button
+          type="button"
+          disabled={busy || !txt.trim()}
+          onClick={() => void baixar()}
+          className="rounded-lg bg-sky-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          <input
-            value={spotifyUrl}
-            onChange={(e) => setSpotifyUrl(e.target.value)}
-            placeholder="https://open.spotify.com/playlist/…"
-            className="min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm dark:border-sky-800 dark:bg-slate-950"
-          />
-          <button
-            type="submit"
-            disabled={busy || !spotifyUrl.trim()}
-            className="rounded-lg bg-sky-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {busy ? "Iniciando…" : downloadJob?.status === "running" ? "Baixando…" : "Baixar playlist"}
-          </button>
-        </form>
-      : <div className="space-y-2">
-          <textarea
-            value={txt}
-            onChange={(e) => setTxt(e.target.value)}
-            rows={5}
-            placeholder={"Artista - Título\nMadonna - Like a Prayer"}
-            className="w-full rounded-lg border border-sky-200 bg-white px-3 py-2 font-mono text-sm dark:border-sky-800 dark:bg-slate-950"
-          />
-          <button
-            type="button"
-            disabled={busy || !txt.trim()}
-            onClick={() => void baixar()}
-            className="rounded-lg bg-sky-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {busy ? "Iniciando…" : "Baixar lista"}
-          </button>
-        </div>
-      }
+          {busy ? "Iniciando…" : downloadJob?.status === "running" ? "Baixando…" : "Baixar lista"}
+        </button>
+      </div>
 
       {progress ?
         <p className="text-xs text-sky-900 dark:text-sky-100">

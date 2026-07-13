@@ -1,7 +1,8 @@
 export type DownloadProviderId = "spotizerr" | "deemix" | "youtube";
 
 /** Motores exibidos no portal (Download link). Spotizerr fica só no worker/legado. */
-export const PORTAL_DOWNLOAD_PROVIDERS = ["deemix", "youtube"] as const satisfies readonly DownloadProviderId[];
+/** Motores visíveis no Download link (YouTube fica no worker até implementação futura). */
+export const PORTAL_DOWNLOAD_PROVIDERS = ["deemix"] as const satisfies readonly DownloadProviderId[];
 
 export type PortalDownloadProviderId = (typeof PORTAL_DOWNLOAD_PROVIDERS)[number];
 
@@ -15,7 +16,7 @@ export const DOWNLOAD_PROVIDER_HINT: Record<DownloadProviderId, string> = {
   spotizerr:
     "Uma linha por faixa: link Spotify (track/album/playlist) ou «Artista - Música». Download no servidor via Spotizerr.",
   deemix:
-    "Uma linha por faixa: «Artista - Música», link Deezer, playlist Deezer ou link Spotify (playlist/álbum). Spotify → busca equivalente no Deezer e baixa via Deemix. Várias versões → escolha manual antes do download.",
+    "Uma linha por faixa: «Artista - Música», link Deezer ou playlist Deezer. Várias versões no Deezer → escolha manual antes do download. Playlist Spotify: converta fora (Soundiiz/TuneMyMusic) e cole link Deezer ou TXT.",
   youtube:
     "Uma linha por faixa: link YouTube ou «Artista - Música». Download 100% no servidor (yt-dlp API).",
 };
@@ -63,8 +64,7 @@ export function parseDownloadLines(raw: string, provider: DownloadProviderId): P
     const key = trimmed.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const inputTipo =
-      urlRe?.test(trimmed) || (provider === "deemix" && isSpotifyUrl(trimmed)) ? "url" : "texto";
+    const inputTipo = urlRe?.test(trimmed) ? "url" : "texto";
     out.push({ linhaOriginal: trimmed, inputTipo });
   }
 

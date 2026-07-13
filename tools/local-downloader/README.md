@@ -3,7 +3,7 @@
 > **Pausado no portal** — a opção “Música baixada” foi retirada da tela de Upload por enquanto.
 > O código permanece aqui para uso futuro (SpotiFLAC / yt-dlp local).
 
-Baixa músicas **no seu computador** — o portal só resolve metadados (Spotify/lista TXT).
+Baixa músicas **no seu computador** — o portal só resolve metadados (lista TXT).
 
 ## Por quê?
 
@@ -40,19 +40,10 @@ cd tools/local-downloader
 # ou Iniciar-Downloader.bat no Windows
 ```
 
-## Spotify no portal
-
-Configure no Netlify (só leitura de metadados — **não baixa áudio**):
-
-- `SPOTIFY_CLIENT_ID`
-- `SPOTIFY_CLIENT_SECRET`
-
-App em https://developer.spotify.com/dashboard
-
 ## Fluxo
 
-1. Cole link de playlist Spotify **ou** lista TXT no portal
-2. Portal resolve títulos/artistas (API Spotify ou parse local)
+1. Exporte a playlist como TXT (Soundiiz/TuneMyMusic) ou monte «Artista - Título» manualmente
+2. Portal faz parse local da lista
 3. Portal manda faixas para `http://127.0.0.1:8765`
 4. Este app busca no YouTube e salva MP3 em `~/Downloads/RadioIbiza-downloads/`
 5. Portal puxa os arquivos e segue para a fila de processamento normal

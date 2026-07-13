@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DOWNLOAD_PROVIDER_HINT,
   DOWNLOAD_PROVIDER_LABEL,
+  PORTAL_DOWNLOAD_PROVIDERS,
   type DownloadProviderId,
   type PortalDownloadProviderId,
 } from "@/lib/criacao/downloadParse";
@@ -24,10 +25,9 @@ type JobDetail = {
   itens: DownloadItemRow[];
 };
 
-const TABS: { id: PortalDownloadProviderId; icon: string }[] = [
-  { id: "deemix", icon: "🟣" },
-  { id: "youtube", icon: "▶️" },
-];
+const TAB_ICONS: Record<PortalDownloadProviderId, string> = {
+  deemix: "🟣",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   aguardando: "Aguardando",
@@ -145,12 +145,12 @@ export function DownloadLinkPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [jobs, setJobs] = useState<DownloadJobRow[]>([]);
   const [staging, setStaging] = useState<StagingFileRow[]>([]);
-  const [config, setConfig] = useState<Record<PortalDownloadProviderId, boolean>>({
-    deemix: false,
-    youtube: false,
-  });
-  const [spotifyOk, setSpotifyOk] = useState<boolean | null>(null);
-  const [spotifyUrl, setSpotifyUrl] = useState("");
+  const [config, setConfig] = useState<Record<PortalDownloadProviderId, boolean>>(() =>
+    Object.fromEntries(PORTAL_DOWNLOAD_PROVIDERS.map((p) => [p, false])) as Record<
+      PortalDownloadProviderId,
+      boolean
+    >,
+  );
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -178,11 +178,9 @@ export function DownloadLinkPanel() {
         const data = (await jobsRes.json()) as {
           jobs?: DownloadJobRow[];
           config?: Record<PortalDownloadProviderId, boolean>;
-          spotifyConfigured?: boolean;
         };
         setJobs(data.jobs ?? []);
         if (data.config) setConfig(data.config);
-        if (typeof data.spotifyConfigured === "boolean") setSpotifyOk(data.spotifyConfigured);
       }
       if (stagingRes.ok) {
         const data = (await stagingRes.json()) as { staging?: StagingFileRow[] };
@@ -213,13 +211,9 @@ export function DownloadLinkPanel() {
 
   async function submit() {
     setMsg(null);
-    const combined = [spotifyUrl.trim(), linhas.trim()].filter(Boolean).join("\n");
+    const combined = linhas.trim();
     if (!combined) {
-      setMsg("Cole um link Spotify, links Deezer ou nomes das faixas.");
-      return;
-    }
-    if (spotifyUrl.trim() && spotifyOk === false) {
-      setMsg("Leitura Spotify não configurada — peça SPOTIFY_CLIENT_ID/SECRET no Netlify ou use só links Deezer.");
+      setMsg("Cole links Deezer ou nomes das faixas (Artista - Música).");
       return;
     }
     setSubmitting(true);
@@ -251,7 +245,6 @@ export function DownloadLinkPanel() {
         return;
       }
       setLinhas("");
-      setSpotifyUrl("");
       setTitulo("");
       const parts = [`${data.totalItens ?? 0} faixa(s) no lote.`];
       if ((data.itensPick ?? 0) > 0) {
@@ -311,28 +304,30 @@ export function DownloadLinkPanel() {
         </p>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900">
-        {TABS.map(({ id, icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={
-              "rounded-lg px-3 py-2 text-xs font-semibold transition " +
-              (tab === id ?
-                "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-              : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800")
-            }
-          >
-            {icon} {DOWNLOAD_PROVIDER_LABEL[id]}
-          </button>
-        ))}
-      </div>
+      {PORTAL_DOWNLOAD_PROVIDERS.length > 1 ?
+        <div className="mb-4 flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900">
+          {PORTAL_DOWNLOAD_PROVIDERS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={
+                "rounded-lg px-3 py-2 text-xs font-semibold transition " +
+                (tab === id ?
+                  "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800")
+              }
+            >
+              {TAB_ICONS[id]} {DOWNLOAD_PROVIDER_LABEL[id]}
+            </button>
+          ))}
+        </div>
+      : null}
 
       {!config[tab] ?
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           Motor ainda não configurado no Netlify — você pode criar lotes, mas o download só roda quando{" "}
-          <code className="text-xs">CRIACAO_{tab === "deemix" ? "DEEMIX" : "YOUTUBE_DL"}_URL</code> estiver definido.
+          <code className="text-xs">CRIACAO_DEEMIX_URL</code> estiver definido.
         </div>
       : null}
 
@@ -345,9 +340,6 @@ export function DownloadLinkPanel() {
           Cloud2 online
           {typeof diagnostics.cloud2Health.deemix === "boolean" ?
             ` · Deemix ${diagnostics.cloud2Health.deemix ? "ok" : "off"}`
-          : null}
-          {typeof diagnostics.cloud2Health.youtube === "boolean" ?
-            ` · YouTube ${diagnostics.cloud2Health.youtube ? "ok" : "off"}`
           : null}
         </div>
       : null}
@@ -366,27 +358,29 @@ export function DownloadLinkPanel() {
                 pode colar o link curto ou a playlist Deezer: o portal resolve e envia faixa a faixa para o
                 servidor.
               </p>
-              <div className="mb-3 rounded-xl border border-[#1db954]/40 bg-[#1db954]/5 p-3 dark:border-emerald-800 dark:bg-emerald-950/20">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  Link Spotify (playlist, álbum ou faixa)
-                  {spotifyOk === true ?
-                    <span className="ml-2 font-normal text-emerald-700 dark:text-emerald-400">· leitura ativa</span>
-                  : spotifyOk === false ?
-                    <span className="ml-2 font-normal text-amber-700 dark:text-amber-400">· não configurado</span>
-                  : null}
-                  <input
-                    value={spotifyUrl}
-                    onChange={(e) => setSpotifyUrl(e.target.value)}
-                    placeholder="https://open.spotify.com/playlist/…"
-                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                  />
-                </label>
-                <p className="mt-1.5 text-[11px] text-slate-500">
-                  O portal lê a playlist no Spotify, acha cada faixa no Deezer e enfileira no Deemix — mesmo fluxo
-                  de sempre. Playlist precisa ser <strong>pública</strong>. Faixas sem equivalente ou com várias
-                  versões aparecem no lote para escolha ou erro.
-                </p>
-              </div>
+              <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+                Playlist no Spotify? Converta fora do portal com{" "}
+                <a
+                  href="https://soundiiz.com/tutorial/spotify-to-deezer"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline"
+                >
+                  Soundiiz
+                </a>{" "}
+                ou{" "}
+                <a
+                  href="https://www.tunemymusic.com/transfer?source=spotify&target=deezer"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline"
+                >
+                  TuneMyMusic
+                </a>
+                , depois cole o link{" "}
+                <code className="text-[11px]">deezer.com/playlist/…</code> aqui — ou exporte TXT
+                «Artista - Música».
+              </p>
             </>
           : null}
 
@@ -407,9 +401,7 @@ export function DownloadLinkPanel() {
               onChange={(e) => setLinhas(e.target.value)}
               rows={10}
               placeholder={
-                tab === "deemix" ?
-                  "https://open.spotify.com/playlist/… (ou use o campo acima)\nArtista - Nome da música\nhttps://www.deezer.com/track/…"
-                : "https://www.youtube.com/watch?v=…\nArtista - Nome da música"
+                "https://www.deezer.com/playlist/…\nArtista - Nome da música\nhttps://www.deezer.com/track/…"
               }
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-950"
             />
@@ -447,7 +439,7 @@ export function DownloadLinkPanel() {
               </ul>
             }
             <Link
-              href="/criacao/upload"
+              href="/criacao/upload?fromDownload=1#import-download"
               className="mt-3 inline-block rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-300"
             >
               Importar no Upload →
