@@ -61,6 +61,95 @@ export async function cleanupDownloadStagingFile(downloadItemId: string): Promis
   }
 }
 
+/** Deemix/YT/Spotizerr: apaga staging não importado ou com erro (sem uso no pipeline). */
+export async function cleanupUnusedDownloadStaging(limit = 200): Promise<{
+  filesRemoved: number;
+  dbUpdated: number;
+}> {
+  const rows = await portalQuery<{ id: string; status: string }>(
+    `SELECT id, status::text AS status
+       FROM download_item
+      WHERE storage_key LIKE 'download-staging:%'
+        AND status NOT IN ('aguardando', 'processando')
+        AND (
+          status = 'erro'
+          OR (status = 'concluido' AND (provider_ref = '' OR provider_ref NOT LIKE 'import:%'))
+        )
+      ORDER BY updated_at ASC
+      LIMIT ${Math.min(500, Math.max(1, limit))}`,
+  );
+
+  let filesRemoved = 0;
+  let dbUpdated = 0;
+  for (const row of rows.rows) {
+    if (await cleanupDownloadStagingFile(row.id)) filesRemoved += 1;
+    await portalQuery(
+      `UPDATE download_item
+          SET storage_key = NULL, updated_at = now()
+        WHERE id = $1`,
+      [row.id],
+    );
+    dbUpdated += 1;
+  }
+
+  const stagingDir = path.join(criacaoConfig.storageRoot, 'download-staging');
+  if (fs.existsSync(stagingDir)) {
+    const diskFiles = fs
+      .readdirSync(stagingDir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith('.mp3'))
+      .map((e) => e.name.replace(/\.mp3$/i, ''));
+    if (diskFiles.length > 0) {
+      const known = await portalQuery<{ id: string }>(
+        `SELECT id FROM download_item WHERE id = ANY($1::text[]) AND storage_key LIKE 'download-staging:%'`,
+        [diskFiles],
+      );
+      const keep = new Set(known.rows.map((r) => r.id));
+      for (const id of diskFiles) {
+        if (keep.has(id)) continue;
+        if (await cleanupDownloadStagingFile(id)) filesRemoved += 1;
+      }
+    }
+  }
+
+  if (filesRemoved > 0 || dbUpdated > 0) {
+    logCleanup('download_staging_unused', { filesRemoved, dbUpdated });
+  }
+  return { filesRemoved, dbUpdated };
+}
+
+/** Upload scratch sem linha na fila (fantasma). */
+async function gcOrphanUploadFiles(limit = 100): Promise<number> {
+  const uploadDir = path.join(criacaoConfig.storageRoot, 'upload');
+  if (!fs.existsSync(uploadDir)) return 0;
+  const diskIds = fs
+    .readdirSync(uploadDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.mp3'))
+    .map((e) => e.name.replace(/\.mp3$/i, ''))
+    .slice(0, limit);
+  if (diskIds.length === 0) return 0;
+
+  const rows = await portalQuery<{ id: string; status: string }>(
+    `SELECT id, status::text AS status FROM processamento_item WHERE id = ANY($1::text[])`,
+    [diskIds],
+  );
+  const byId = new Map(rows.rows.map((r) => [r.id, r.status]));
+  let removed = 0;
+  for (const id of diskIds) {
+    const st = byId.get(id);
+    const deletable =
+      !st || !['aguardando', 'processando', 'duplicata'].includes(st);
+    if (!deletable) continue;
+    try {
+      await fsp.unlink(uploadPath(id));
+      removed += 1;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (removed > 0) logCleanup('upload_orphan', { removed });
+  return removed;
+}
+
 /** Staging ligado a um processamento_item via provider_ref import:{itemId}. */
 export async function cleanupDownloadStagingForProcessamentoItem(
   processamentoItemId: string,
@@ -127,11 +216,14 @@ export async function runStorageGarbageCollect(): Promise<{
   uploadRemoved: number;
   workRemoved: number;
   stagingRemoved: number;
+  stagingUnusedRemoved: number;
   usoDirsRemoved: number;
 }> {
   let uploadRemoved = 0;
   let workRemoved = 0;
   let stagingRemoved = 0;
+
+  uploadRemoved += await gcOrphanUploadFiles(120);
 
   const erroHours = Math.max(1, Math.floor(criacaoConfig.scratchRetentionErroHours));
 
@@ -200,13 +292,22 @@ export async function runStorageGarbageCollect(): Promise<{
     if (await cleanupDownloadStagingFile(row.id)) stagingRemoved += 1;
   }
 
+  const unusedStaging = await cleanupUnusedDownloadStaging(200);
+  const stagingUnusedRemoved = unusedStaging.filesRemoved;
+
   const usoDirsRemoved = await gcOrphanUsoDirs(30);
 
-  if (uploadRemoved + workRemoved + stagingRemoved + usoDirsRemoved > 0) {
-    logCleanup('gc_batch', { uploadRemoved, workRemoved, stagingRemoved, usoDirsRemoved });
+  if (uploadRemoved + workRemoved + stagingRemoved + stagingUnusedRemoved + usoDirsRemoved > 0) {
+    logCleanup('gc_batch', {
+      uploadRemoved,
+      workRemoved,
+      stagingRemoved,
+      stagingUnusedRemoved,
+      usoDirsRemoved,
+    });
   }
 
-  return { uploadRemoved, workRemoved, stagingRemoved, usoDirsRemoved };
+  return { uploadRemoved, workRemoved, stagingRemoved, stagingUnusedRemoved, usoDirsRemoved };
 }
 
 /** Após armazenamento definitivo (uso + master): limpa scratch e staging importado. */

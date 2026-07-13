@@ -4,6 +4,7 @@ import { criacaoConfig } from '../../criacao/config.js';
 import {
   cleanupAfterItemPersisted,
   cleanupProcessamentoItemScratch,
+  cleanupUnusedDownloadStaging,
   runStorageGarbageCollect,
 } from '../../criacao/storageCleanup.js';
 
@@ -54,6 +55,14 @@ export async function registerCleanupScratchRoutes(
     }
     const stats = await runStorageGarbageCollect();
     return reply.send({ ok: true, ...stats });
+  });
+
+  app.post(`${prefix}/cleanup/download-staging`, async (req, reply) => {
+    if (!authorized(req)) {
+      return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+    }
+    const result = await cleanupUnusedDownloadStaging(500);
+    return reply.send({ ok: true, ...result });
   });
 }
 
