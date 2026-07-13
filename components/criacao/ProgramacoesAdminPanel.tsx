@@ -1259,6 +1259,7 @@ export function FecharAtualizacaoModal({
     pdvsNomes: string[];
   } | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(true);
+  const [infoError, setInfoError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
@@ -1267,10 +1268,21 @@ export function FecharAtualizacaoModal({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/criacao/programacoes/${programacaoId}/fechar-info`)
-      .then((r) => (r.ok ? r.json() : null))
+    setLoadingInfo(true);
+    setInfoError(null);
+    setInfo(null);
+    const qs = clienteRef.trim() ? `?clienteRef=${encodeURIComponent(clienteRef.trim())}` : "";
+    fetch(`/api/criacao/programacoes/${programacaoId}/fechar-info${qs}`)
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!r.ok) {
+          throw new Error(typeof d?.error === "string" ? d.error : "fechar_info_falhou");
+        }
+        if (!d) throw new Error("fechar_info_falhou");
+        return d;
+      })
       .then((d) => {
-        if (cancelled || !d) return;
+        if (cancelled) return;
         setInfo({
           isInstall: Boolean(d.isInstall),
           atlSugerido: String(d.atlSugerido ?? "ATL"),
@@ -1279,13 +1291,19 @@ export function FecharAtualizacaoModal({
           pdvsNomes: Array.isArray(d.pdvsNomes) ? (d.pdvsNomes as string[]) : [],
         });
       })
+      .catch(() => {
+        if (!cancelled) {
+          setInfo(null);
+          setInfoError("Não foi possível carregar os PDVs amarrados. Tente de novo em instantes.");
+        }
+      })
       .finally(() => {
         if (!cancelled) setLoadingInfo(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [programacaoId]);
+  }, [programacaoId, clienteRef]);
 
   async function disparar() {
     if (busy || !info || info.pdvsAmarrados === 0) return;
@@ -1370,17 +1388,21 @@ export function FecharAtualizacaoModal({
           <p className="mb-1 text-[10px] text-slate-500">Cliente: {clienteNome}</p>
           {loadingInfo ?
             <div className="mb-3 py-2 text-center text-sm text-slate-400">Carregando…</div>
-          : info?.pdvsAmarrados === 0 ?
+          : infoError || !info ?
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+              {infoError ?? "Erro ao carregar informações para fechar."}
+            </div>
+          : info.pdvsAmarrados === 0 ?
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               Nenhum PDV amarrado. Escolha as lojas na coluna <strong>PDVs</strong> antes de fechar.
             </div>
           : <>
               <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
-                {info?.pdvsAmarrados} PDV(s): {info?.pdvsNomes.join(", ") || "—"}
+                {info.pdvsAmarrados} PDV(s): {info.pdvsNomes.join(", ") || "—"}
               </div>
               <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Tipo de subida</p>
-                {info?.isInstall ?
+                {info.isInstall ?
                   <p className="mt-1 text-sm font-bold text-emerald-700 dark:text-emerald-400">
                     INSTALL — primeira publicação desta programação
                   </p>
@@ -1393,7 +1415,7 @@ export function FecharAtualizacaoModal({
                         onChange={() => setTipoSubida("atl")}
                       />
                       <span>
-                        <strong>{info?.atlSugerido}</strong> — atualização mensal
+                        <strong>{info.atlSugerido}</strong> — atualização mensal
                       </span>
                     </label>
                     <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -1413,7 +1435,7 @@ export function FecharAtualizacaoModal({
                         onChange={() => setTipoSubida("off")}
                       />
                       <span>
-                        <strong>{info?.offSugerido}</strong> — retirada de faixas (OFF)
+                        <strong>{info.offSugerido}</strong> — retirada de faixas (OFF)
                       </span>
                     </label>
                     {tipoSubida === "especial" ?
@@ -1444,7 +1466,7 @@ export function FecharAtualizacaoModal({
           <button
             type="button"
             onClick={() => void disparar()}
-            disabled={busy || loadingInfo || !info || info.pdvsAmarrados === 0 || !!resultado}
+            disabled={busy || loadingInfo || !!infoError || !info || info.pdvsAmarrados === 0 || !!resultado}
             className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
           >
             {busy ? "Fechando…" : info?.isInstall ? "Fechar INSTALL" : "Fechar atualização"}

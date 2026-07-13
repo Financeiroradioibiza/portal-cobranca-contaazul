@@ -6,11 +6,12 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, ctx: Ctx) {
+export async function GET(request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
-    const info = await getFecharAtualizacaoInfo(id);
+    const clienteRef = new URL(request.url).searchParams.get("clienteRef") ?? undefined;
+    const info = await getFecharAtualizacaoInfo(id, { clienteRef });
     return NextResponse.json(info);
   } catch (e) {
     if (e instanceof Response) return e;

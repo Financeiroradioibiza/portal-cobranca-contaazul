@@ -4,6 +4,7 @@ import { publicarProgramacao } from "@/lib/criacao/publicarService";
 import { getClientePdvProgramacoes, prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { appendFechamentoPainel } from "@/lib/criacao/atualizacaoPainelService";
+import { ensureTipoSubidaOffEnum } from "@/lib/criacao/atualizacaoSchemaCompat";
 import { competenciaFromDate, mesNomeCurtoFromDate } from "@/lib/criacao/competencia";
 
 export type FaixaLogItem = {
@@ -87,13 +88,24 @@ export async function previewRotuloAtl(programacaoId: string, when = new Date())
 export async function previewRotuloOff(programacaoId: string, when = new Date()): Promise<string> {
   const mes = mesNomeCurtoFromDate(when);
   const competencia = competenciaFromDate(when);
-  const count = await prisma.programacaoAtualizacao.count({
-    where: { programacaoId, competencia, tipoSubida: "off" },
-  });
-  return `OFF ${mes} ${count + 1}`;
+  await ensureTipoSubidaOffEnum();
+  try {
+    const count = await prisma.programacaoAtualizacao.count({
+      where: { programacaoId, competencia, tipoSubida: "off" },
+    });
+    return `OFF ${mes} ${count + 1}`;
+  } catch {
+    const count = await prisma.programacaoAtualizacao.count({
+      where: { programacaoId, competencia, codigo: { startsWith: `OFF ${mes}` } },
+    });
+    return `OFF ${mes} ${count + 1}`;
+  }
 }
 
-export async function getFecharAtualizacaoInfo(programacaoId: string): Promise<FecharAtualizacaoInfo> {
+export async function getFecharAtualizacaoInfo(
+  programacaoId: string,
+  opts?: { clienteRef?: string },
+): Promise<FecharAtualizacaoInfo> {
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
     select: {
@@ -106,15 +118,23 @@ export async function getFecharAtualizacaoInfo(programacaoId: string): Promise<F
   });
   if (!prog) throw new Error("programacao_nao_encontrada");
 
-  const pdvsNomes = await pdvsNomesForProgramacao(programacaoId, prog.clienteRef);
+  const clienteRef = (opts?.clienteRef?.trim() || prog.clienteRef).trim();
+  const pdvsNomes = await pdvsNomesForProgramacao(programacaoId, clienteRef);
   const isInstall = prog.revisionAtual === 0;
   const when = new Date();
+
+  await ensureTipoSubidaOffEnum();
+
+  const [atlSugerido, offSugerido] =
+    isInstall ?
+      (["INSTALL", "INSTALL"] as const)
+    : await Promise.all([previewRotuloAtl(programacaoId, when), previewRotuloOff(programacaoId, when)]);
 
   return {
     revisionAtual: prog.revisionAtual,
     isInstall,
-    atlSugerido: isInstall ? "INSTALL" : await previewRotuloAtl(programacaoId, when),
-    offSugerido: isInstall ? "INSTALL" : await previewRotuloOff(programacaoId, when),
+    atlSugerido,
+    offSugerido,
     programacaoNome: prog.nome,
     clienteNome: prog.clienteNome,
     pdvsAmarrados: pdvsNomes.length,
@@ -392,6 +412,8 @@ export async function dispararAtualizacao(
     },
   });
   if (!prog) throw new Error("programacao_nao_encontrada");
+
+  await ensureTipoSubidaOffEnum();
 
   const { portalClienteId, portalPdvIds } = await prepareDisparoProgramacao(programacaoId);
   const gatewayId = portalClienteId;

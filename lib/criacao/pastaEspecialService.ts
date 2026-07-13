@@ -1,6 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { addMusicasToPasta, createPasta } from "@/lib/criacao/programacaoService";
+import { buildPreviewUrl } from "@/lib/criacao/streamUrl";
 
 const VELOCIDADES = new Set(["baixa", "media", "alta"]);
 
@@ -13,6 +15,7 @@ export type PastaEspecialMusicaView = {
   titulo: string;
   artista: string;
   durationMs: number | null;
+  previewUrl: string | null;
   addedAt: string | null;
   tagsManuais: { id: string; nome: string; cor: string; criativoNome: string }[];
 };
@@ -34,16 +37,19 @@ function mapMusicaLink(link: {
     titulo: string;
     artista: string;
     durationMs: number | null;
+    versoes: { formato: string }[];
     tagsManuais: {
       tag: { id: string; nome: string; cor: string; criativoNome: string };
     }[];
   };
 }): PastaEspecialMusicaView {
+  const formato = pickLowestPreviewFormato(link.musica.versoes);
   return {
     id: link.musica.id,
     titulo: link.musica.titulo,
     artista: link.musica.artista,
     durationMs: link.musica.durationMs,
+    previewUrl: formato ? buildPreviewUrl(link.musica.id, formato) : null,
     addedAt: link.addedAt?.toISOString() ?? null,
     tagsManuais: link.musica.tagsManuais.map((t) => ({
       id: t.tag.id,
@@ -61,6 +67,7 @@ const musicaInclude = {
       titulo: true,
       artista: true,
       durationMs: true,
+      versoes: { select: { formato: true } },
       tagsManuais: {
         include: {
           tag: { select: { id: true, nome: true, cor: true, criativoNome: true } },

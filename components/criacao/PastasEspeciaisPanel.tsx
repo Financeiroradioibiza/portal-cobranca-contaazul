@@ -2,16 +2,33 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AddMusicasBibliotecaModal } from "@/components/criacao/AddMusicasBibliotecaModal";
+import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import type {
   PastaEspecialMusicaView,
   PastaEspecialView,
 } from "@/lib/criacao/pastaEspecialService";
+import { formatPastaMusicaAddedAt } from "@/lib/criacao/pastaMusicaUi";
 
 const VELOCIDADE_LABEL: Record<string, string> = {
   baixa: "Baixa",
   media: "Média",
   alta: "Alta",
 };
+
+function tagTextColor(hex: string): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return "#0f172a";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "#0f172a" : "#f8fafc";
+}
+
+function fmtDur(ms: number | null): string {
+  if (!ms || ms <= 0) return "—";
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
 
 export function PastasEspeciaisPanel() {
   const [pastas, setPastas] = useState<PastaEspecialView[]>([]);
@@ -242,12 +259,47 @@ export function PastasEspeciaisPanel() {
                     : musicas.map((m) => (
                         <li
                           key={m.id}
-                          className="flex items-center justify-between gap-2 px-4 py-2 text-sm"
+                          className="flex items-center gap-3 px-4 py-2 text-sm"
                         >
-                          <div className="min-w-0">
+                          {m.previewUrl ?
+                            <MusicaPreviewButton
+                              track={{
+                                id: m.id,
+                                titulo: m.titulo,
+                                artista: m.artista,
+                                previewUrl: m.previewUrl,
+                                durationMs: m.durationMs,
+                              }}
+                            />
+                          : <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-slate-100 text-xs text-slate-300 dark:bg-slate-800">
+                              🎵
+                            </span>
+                          }
+                          <div className="min-w-0 flex-1">
                             <div className="truncate font-medium">{m.titulo || "(sem título)"}</div>
-                            <div className="truncate text-xs text-slate-500">{m.artista || "—"}</div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="truncate text-xs text-slate-500">{m.artista || "—"}</span>
+                              {m.tagsManuais.map((t) => (
+                                <span
+                                  key={t.id}
+                                  className="rounded px-1 py-px text-[9px] font-bold"
+                                  style={{ backgroundColor: t.cor, color: tagTextColor(t.cor) }}
+                                  title={t.criativoNome ? `${t.criativoNome}: ${t.nome}` : t.nome}
+                                >
+                                  {t.nome}
+                                </span>
+                              ))}
+                            </div>
                           </div>
+                          <span
+                            className="shrink-0 text-[11px] tabular-nums text-slate-400"
+                            title="Data de entrada na pasta"
+                          >
+                            {formatPastaMusicaAddedAt(m.addedAt)}
+                          </span>
+                          <span className="shrink-0 text-xs tabular-nums text-slate-400">
+                            {fmtDur(m.durationMs)}
+                          </span>
                           <button
                             type="button"
                             onClick={() => void removeMusica(pasta.id, m.id)}
