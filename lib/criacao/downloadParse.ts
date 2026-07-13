@@ -15,7 +15,7 @@ export const DOWNLOAD_PROVIDER_HINT: Record<DownloadProviderId, string> = {
   spotizerr:
     "Uma linha por faixa: link Spotify (track/album/playlist) ou «Artista - Música». Download no servidor via Spotizerr.",
   deemix:
-    "Uma linha por faixa: «Artista - Música», link Deezer ou playlist. Se houver várias versões (acoustic, remix…), o portal mostra opções para você escolher antes do download.",
+    "Uma linha por faixa: «Artista - Música», link Deezer, playlist Deezer ou link Spotify (playlist/álbum). Spotify → busca equivalente no Deezer e baixa via Deemix. Várias versões → escolha manual antes do download.",
   youtube:
     "Uma linha por faixa: link YouTube ou «Artista - Música». Download 100% no servidor (yt-dlp API).",
 };
@@ -25,8 +25,14 @@ export type ParsedDownloadLine = {
   inputTipo: "url" | "texto";
 };
 
-const SPOTIFY_RE =
+export const SPOTIFY_URL_RE =
   /^https?:\/\/(?:open\.)?spotify\.com\/(?:intl-[a-z]{2}\/)?(track|album|playlist|artist)\/[a-zA-Z0-9]+/i;
+
+const SPOTIFY_RE = SPOTIFY_URL_RE;
+
+export function isSpotifyUrl(input: string): boolean {
+  return SPOTIFY_URL_RE.test(input.trim());
+}
 const DEEZER_RE =
   /^https?:\/\/(?:(?:www|link)\.)?deezer\.com\/(?:[a-z]{2}\/)?(?:track|album|playlist)\/\d+|^https?:\/\/link\.deezer\.com\/s\//i;
 const YOUTUBE_RE =
@@ -57,7 +63,8 @@ export function parseDownloadLines(raw: string, provider: DownloadProviderId): P
     const key = trimmed.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const inputTipo = urlRe?.test(trimmed) ? "url" : "texto";
+    const inputTipo =
+      urlRe?.test(trimmed) || (provider === "deemix" && isSpotifyUrl(trimmed)) ? "url" : "texto";
     out.push({ linhaOriginal: trimmed, inputTipo });
   }
 

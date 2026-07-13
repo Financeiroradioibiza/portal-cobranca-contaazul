@@ -8,6 +8,7 @@ import {
   triggerDownloadProcessing,
 } from "@/lib/criacao/downloadService";
 import { PORTAL_DOWNLOAD_PROVIDERS, type PortalDownloadProviderId } from "@/lib/criacao/downloadParse";
+import { spotifyConfigured } from "@/lib/criacao/spotifyClient";
 
 export const maxDuration = 60;
 
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
     const config = Object.fromEntries(
       PORTAL_DOWNLOAD_PROVIDERS.map((p) => [p, providerConfigured(p)]),
     ) as Record<PortalDownloadProviderId, boolean>;
-    return NextResponse.json({ jobs, config });
+    return NextResponse.json({ jobs, config, spotifyConfigured: spotifyConfigured() });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/download GET]", e);

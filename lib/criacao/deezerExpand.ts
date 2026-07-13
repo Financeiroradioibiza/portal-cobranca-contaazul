@@ -1,4 +1,5 @@
 import type { ParsedDownloadLine } from "@/lib/criacao/downloadParse";
+import { isSpotifyUrl } from "@/lib/criacao/downloadParse";
 import {
   normalizeForDeemixInput,
   resolveDeezerShareUrl,
@@ -8,6 +9,7 @@ import {
   resolveDeezerTrackFromText,
   type DeezerTrackCandidate,
 } from "@/lib/criacao/deezerTrackMatch";
+import { resolveSpotifyUrl, spotifyConfigured } from "@/lib/criacao/spotifyClient";
 
 export type ExpandedDownloadLine = ParsedDownloadLine & {
   pickCandidates?: DeezerTrackCandidate[];
@@ -17,7 +19,9 @@ export type ExpandedDownloadLine = ParsedDownloadLine & {
 type DeezerTrackLink = { link?: string; title?: string; artist?: { name?: string } };
 
 const LINE_CONCURRENCY = 6;
+const SPOTIFY_TRACK_CONCURRENCY = 4;
 const PLAYLIST_FETCH_TIMEOUT_MS = 12_000;
+const MAX_SPOTIFY_TRACKS = 300;
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -82,7 +86,7 @@ function errorLine(line: ParsedDownloadLine, message: string): ExpandedDownloadL
   };
 }
 
-async function expandOneLine(line: ParsedDownloadLine): Promise<ExpandedDownloadLine[]> {
+async function expandDeezerLineCore(line: ParsedDownloadLine): Promise<ExpandedDownloadLine[]> {
   try {
     const resolved = await resolveDeezerShareUrl(line.linhaOriginal);
     const canonical = toCanonicalDeemixUrl(resolved);
@@ -152,10 +156,100 @@ async function expandOneLine(line: ParsedDownloadLine): Promise<ExpandedDownload
   }
 }
 
+async function spotifyTrackToDeezerLine(
+  artist: string,
+  title: string,
+  sourceRef: string,
+): Promise<ExpandedDownloadLine> {
+  const textLine = `${artist.trim()} - ${title.trim()}`;
+  try {
+    const result = await resolveDeezerTrackFromText(textLine);
+    if (result.status === "resolved") {
+      return { linhaOriginal: result.url, inputTipo: "url" };
+    }
+    const candidates =
+      result.status === "pick" ? result.candidates
+      : result.candidates.length > 0 ? result.candidates
+      : null;
+    if (candidates?.length) {
+      return {
+        linhaOriginal: `${textLine} · ${sourceRef}`,
+        inputTipo: "texto",
+        pickCandidates: candidates,
+      };
+    }
+    return {
+      linhaOriginal: textLine,
+      inputTipo: "texto",
+      expandError: `Spotify «${artist} — ${title}»: nenhuma faixa equivalente no Deezer.`,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "erro_match_deezer";
+    return {
+      linhaOriginal: textLine,
+      inputTipo: "texto",
+      expandError: `Spotify «${artist} — ${title}»: ${msg}`,
+    };
+  }
+}
+
+async function expandSpotifyLine(line: ParsedDownloadLine): Promise<ExpandedDownloadLine[]> {
+  if (!spotifyConfigured()) {
+    return [
+      errorLine(
+        line,
+        "Leitura Spotify não configurada no portal — defina SPOTIFY_CLIENT_ID e SPOTIFY_CLIENT_SECRET no Netlify.",
+      ),
+    ];
+  }
+
+  let tracks;
+  try {
+    tracks = await resolveSpotifyUrl(line.linhaOriginal);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "spotify_falhou";
+    if (msg === "invalid_spotify_url") {
+      return [errorLine(line, "Link Spotify inválido — use playlist, álbum ou faixa (open.spotify.com).")];
+    }
+    if (msg === "spotify_auth_failed" || msg === "spotify_not_configured") {
+      return [errorLine(line, "Não foi possível autenticar na API do Spotify — confira SPOTIFY_CLIENT_ID/SECRET.")];
+    }
+    return [errorLine(line, `Spotify: ${msg}`)];
+  }
+
+  if (tracks.length === 0) {
+    return [errorLine(line, "Playlist/álbum Spotify vazio ou inacessível (precisa ser público).")];
+  }
+
+  const slice = tracks.slice(0, MAX_SPOTIFY_TRACKS);
+  const expanded = await mapWithConcurrency(slice, SPOTIFY_TRACK_CONCURRENCY, (t) =>
+    spotifyTrackToDeezerLine(t.artist, t.title, t.sourceRef ?? ""),
+  );
+
+  if (tracks.length > MAX_SPOTIFY_TRACKS) {
+    expanded.push(
+      errorLine(
+        line,
+        `Spotify: só as primeiras ${MAX_SPOTIFY_TRACKS} faixas foram convertidas (${tracks.length} no total).`,
+      ),
+    );
+  }
+
+  return expanded;
+}
+
+async function expandOneLine(line: ParsedDownloadLine): Promise<ExpandedDownloadLine[]> {
+  if (isSpotifyUrl(line.linhaOriginal)) {
+    return expandSpotifyLine(line);
+  }
+  return expandDeezerLineCore(line);
+}
+
 /**
  * Prepara linhas para o worker Deemix:
+ * - link Spotify (playlist/álbum/faixa) → match faixa a faixa no Deezer
  * - link.deezer.com → URL canônica www.deezer.com/…
- * - playlist/album → uma linha por faixa (URLs track canônicas)
+ * - playlist/album Deezer → uma linha por faixa (URLs track canônicas)
  * - track → URL canônica
  * - texto «Artista - Música» → resolve via API Deezer (auto, escolha manual ou erro por linha)
  */

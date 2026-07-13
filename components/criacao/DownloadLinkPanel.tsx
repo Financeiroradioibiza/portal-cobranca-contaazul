@@ -149,6 +149,8 @@ export function DownloadLinkPanel() {
     deemix: false,
     youtube: false,
   });
+  const [spotifyOk, setSpotifyOk] = useState<boolean | null>(null);
+  const [spotifyUrl, setSpotifyUrl] = useState("");
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -176,9 +178,11 @@ export function DownloadLinkPanel() {
         const data = (await jobsRes.json()) as {
           jobs?: DownloadJobRow[];
           config?: Record<PortalDownloadProviderId, boolean>;
+          spotifyConfigured?: boolean;
         };
         setJobs(data.jobs ?? []);
         if (data.config) setConfig(data.config);
+        if (typeof data.spotifyConfigured === "boolean") setSpotifyOk(data.spotifyConfigured);
       }
       if (stagingRes.ok) {
         const data = (await stagingRes.json()) as { staging?: StagingFileRow[] };
@@ -209,8 +213,13 @@ export function DownloadLinkPanel() {
 
   async function submit() {
     setMsg(null);
-    if (!linhas.trim()) {
-      setMsg("Cole pelo menos uma linha (link ou nome da faixa).");
+    const combined = [spotifyUrl.trim(), linhas.trim()].filter(Boolean).join("\n");
+    if (!combined) {
+      setMsg("Cole um link Spotify, links Deezer ou nomes das faixas.");
+      return;
+    }
+    if (spotifyUrl.trim() && spotifyOk === false) {
+      setMsg("Leitura Spotify não configurada — peça SPOTIFY_CLIENT_ID/SECRET no Netlify ou use só links Deezer.");
       return;
     }
     setSubmitting(true);
@@ -218,7 +227,7 @@ export function DownloadLinkPanel() {
       const res = await fetch("/api/criacao/download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: tab, titulo: titulo.trim() || undefined, linhas }),
+        body: JSON.stringify({ provider: tab, titulo: titulo.trim() || undefined, linhas: combined }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
@@ -242,6 +251,7 @@ export function DownloadLinkPanel() {
         return;
       }
       setLinhas("");
+      setSpotifyUrl("");
       setTitulo("");
       const parts = [`${data.totalItens ?? 0} faixa(s) no lote.`];
       if ((data.itensPick ?? 0) > 0) {
@@ -349,12 +359,35 @@ export function DownloadLinkPanel() {
           </h2>
           <p className="mb-3 text-xs text-slate-500">{DOWNLOAD_PROVIDER_HINT[tab]}</p>
           {tab === "deemix" ?
-            <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-              No Deemix direto, <strong>link.deezer.com não funciona</strong> — só{" "}
-              <code className="text-[11px]">www.deezer.com/track|playlist|album/…</code>. Aqui você
-              pode colar o link curto ou a playlist: o portal resolve e envia faixa a faixa para o
-              servidor.
-            </p>
+            <>
+              <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                No Deemix direto, <strong>link.deezer.com não funciona</strong> — só{" "}
+                <code className="text-[11px]">www.deezer.com/track|playlist|album/…</code>. Aqui você
+                pode colar o link curto ou a playlist Deezer: o portal resolve e envia faixa a faixa para o
+                servidor.
+              </p>
+              <div className="mb-3 rounded-xl border border-[#1db954]/40 bg-[#1db954]/5 p-3 dark:border-emerald-800 dark:bg-emerald-950/20">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Link Spotify (playlist, álbum ou faixa)
+                  {spotifyOk === true ?
+                    <span className="ml-2 font-normal text-emerald-700 dark:text-emerald-400">· leitura ativa</span>
+                  : spotifyOk === false ?
+                    <span className="ml-2 font-normal text-amber-700 dark:text-amber-400">· não configurado</span>
+                  : null}
+                  <input
+                    value={spotifyUrl}
+                    onChange={(e) => setSpotifyUrl(e.target.value)}
+                    placeholder="https://open.spotify.com/playlist/…"
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  />
+                </label>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  O portal lê a playlist no Spotify, acha cada faixa no Deezer e enfileira no Deemix — mesmo fluxo
+                  de sempre. Playlist precisa ser <strong>pública</strong>. Faixas sem equivalente ou com várias
+                  versões aparecem no lote para escolha ou erro.
+                </p>
+              </div>
+            </>
           : null}
 
           <label className="mb-2 block text-xs font-semibold text-slate-500">
@@ -375,7 +408,7 @@ export function DownloadLinkPanel() {
               rows={10}
               placeholder={
                 tab === "deemix" ?
-                  "Playlist (link curto ou www.deezer.com/playlist/…)\nArtista - Nome da música\nhttps://www.deezer.com/track/…"
+                  "https://open.spotify.com/playlist/… (ou use o campo acima)\nArtista - Nome da música\nhttps://www.deezer.com/track/…"
                 : "https://www.youtube.com/watch?v=…\nArtista - Nome da música"
               }
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-950"

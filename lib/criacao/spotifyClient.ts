@@ -17,6 +17,11 @@ function albumIdFromUrl(url: string): string | null {
   return m ? m[1]! : null;
 }
 
+function trackIdFromUrl(url: string): string | null {
+  const m = url.match(/track[/:]([A-Za-z0-9]+)/i);
+  return m ? m[1]! : null;
+}
+
 async function getSpotifyToken(): Promise<string> {
   const id = process.env.SPOTIFY_CLIENT_ID?.trim();
   const secret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
@@ -116,6 +121,26 @@ async function collectAlbumTracks(albumId: string, sourceUrl: string): Promise<R
   return out;
 }
 
+async function collectSingleTrack(trackId: string, sourceUrl: string): Promise<ResolvedTrack[]> {
+  type SpotifyTrack = {
+    name: string;
+    artists: Array<{ name: string }>;
+    external_urls?: { spotify?: string };
+  };
+  const tr = await spotifyGet<SpotifyTrack>(`/tracks/${trackId}`);
+  if (!tr?.name) return [];
+  const artist = tr.artists.map((a) => a.name).join(", ");
+  return [
+    {
+      title: tr.name,
+      artist,
+      source: "spotify",
+      sourceRef: tr.external_urls?.spotify ?? sourceUrl,
+      suggestedFilename: safeFilename(tr.name, artist),
+    },
+  ];
+}
+
 export async function resolveSpotifyUrl(url: string): Promise<ResolvedTrack[]> {
   const trimmed = url.trim();
   const playlistId = playlistIdFromUrl(trimmed);
@@ -123,6 +148,9 @@ export async function resolveSpotifyUrl(url: string): Promise<ResolvedTrack[]> {
 
   const albumId = albumIdFromUrl(trimmed);
   if (albumId) return collectAlbumTracks(albumId, trimmed);
+
+  const trackId = trackIdFromUrl(trimmed);
+  if (trackId) return collectSingleTrack(trackId, trimmed);
 
   throw new Error("invalid_spotify_url");
 }
