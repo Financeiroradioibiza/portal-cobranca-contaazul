@@ -31,12 +31,26 @@ export async function ingestFromStagingOnCloud2(
       body: JSON.stringify({ pairs }),
       signal: AbortSignal.timeout(120_000),
     });
-    const data = (await res.json()) as {
+    const raw = await res.text();
+    let data: {
       ok?: boolean;
       imported?: number;
       errors?: string[];
       error?: string;
-    };
+    } = {};
+    try {
+      data = JSON.parse(raw) as typeof data;
+    } catch {
+      return {
+        ok: false,
+        imported: 0,
+        errors: [
+          res.ok ?
+            "Resposta inválida do cloud2 (ingest-from-staging)."
+          : `cloud2 HTTP ${res.status}${raw ? `: ${raw.slice(0, 120)}` : ""}`,
+        ],
+      };
+    }
     if (!res.ok || !data.ok) {
       return {
         ok: false,

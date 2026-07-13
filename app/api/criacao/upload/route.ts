@@ -14,6 +14,7 @@ import { ingestFromStagingOnCloud2 } from "@/lib/criacao/ingestFromStaging";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 function stagingProcessamentoNome(dl: {
   arquivoNome: string;
@@ -134,8 +135,11 @@ export async function POST(request: Request) {
         }
         try {
           arquivos = await normalizeUploadArquivos(arquivos);
-        } catch {
-          return NextResponse.json({ error: "staging_item_invalido" }, { status: 400 });
+        } catch (e) {
+          if (e instanceof Error && e.message === "staging_item_invalido") {
+            return NextResponse.json({ error: "staging_item_invalido" }, { status: 400 });
+          }
+          throw e;
         }
         if (arquivos.length === 0) continue;
         const destinoTipo =
@@ -244,7 +248,17 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "server_error";
     console.error("[criacao/upload POST]", e);
-    return NextResponse.json({ error: "server_error" }, { status: 500 });
+    if (msg === "staging_item_invalido") {
+      return NextResponse.json({ error: "staging_item_invalido" }, { status: 400 });
+    }
+    const hint =
+      /timed out|timeout|AbortError/i.test(msg) ?
+        "Importação do servidor demorou demais — tente menos faixas por lote ou aguarde e tente de novo."
+      : msg.includes("pasta_especial_id") || msg.includes("column") ?
+        "Banco desatualizado — confira se o deploy Netlify rodou as migrações Prisma."
+      : msg;
+    return NextResponse.json({ error: "server_error", message: hint }, { status: 500 });
   }
 }

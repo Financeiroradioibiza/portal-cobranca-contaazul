@@ -39,7 +39,7 @@ export const ETAPA_LABEL: Record<string, string> = {
 
 export async function createUploadJob(input: CreateUploadJobInput) {
   const titulo = (input.titulo || "").trim() || "Upload sem título";
-  const arquivos = (input.arquivos ?? []).filter((a) => a?.nome?.trim());
+  const arquivos = (input.arquivos ?? []).filter((a) => a?.nome?.trim() || a?.downloadItemId);
 
   const job = await prisma.processamentoJob.create({
     data: {
@@ -59,7 +59,7 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       itensFeitos: 0,
       itens: {
         create: arquivos.map((a) => ({
-          arquivoNome: a.nome.slice(0, 500),
+          arquivoNome: (a.nome?.trim() || "faixa.mp3").slice(0, 500),
           status: "aguardando" as const,
         })),
       },
