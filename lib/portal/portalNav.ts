@@ -63,7 +63,8 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
     section: "Dashboard",
     items: [
       { href: PORTAL_HOME_HREF, icon: "🏠", label: "Visão geral" },
-      { href: "/clientes", icon: "👥", label: "Clientes" },
+      { href: "/clientes", icon: "👥", label: "Clientes", exact: true },
+      { href: "/clientes/likes", icon: "👍", label: "Likes" },
     ],
   },
   financeiro: {

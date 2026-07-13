@@ -183,3 +183,123 @@ export async function portalPdvIdsForProgramacao(programacaoId: string): Promise
   }
   return [...ids];
 }
+
+export type MusicaVotoFeedRow = MusicaVotoRow & {
+  musicaId: string;
+  musicaTitulo: string;
+  musicaArtista: string;
+};
+
+export type MusicaRankingRow = {
+  musicaId: string;
+  titulo: string;
+  artista: string;
+  likes: number;
+  dislikes: number;
+  ultimoVotoAt: string;
+};
+
+export type MusicaRankingSort = "most_liked" | "most_disliked";
+
+/** Feed cronológico — últimos votos primeiro (Player 5 → ping → Neon). */
+export async function listVotosFeed(input?: {
+  voto?: MusicaVotoTipo | "all";
+  limit?: number;
+  offset?: number;
+}): Promise<MusicaVotoFeedRow[]> {
+  const limit = Math.min(Math.max(input?.limit ?? 200, 1), 500);
+  const offset = Math.max(input?.offset ?? 0, 0);
+  const votoFilter = input?.voto && input.voto !== "all" ? input.voto : null;
+
+  try {
+    const rows = await prisma.musicaBibliotecaVoto.findMany({
+      where: votoFilter ? { voto: votoFilter } : undefined,
+      orderBy: [{ updatedAt: "desc" }],
+      take: limit,
+      skip: offset,
+      include: {
+        musica: { select: { titulo: true, artista: true } },
+      },
+    });
+
+    return rows
+      .map((r) => {
+        const voto = parseVoto(r.voto);
+        if (!voto) return null;
+        return {
+          id: r.id,
+          musicaId: r.musicaId,
+          musicaTitulo: r.musica.titulo.trim() || "—",
+          musicaArtista: r.musica.artista.trim() || "—",
+          portalClienteId: r.portalClienteId,
+          portalPdvId: r.portalPdvId,
+          pdvNome: r.pdvNome,
+          clienteNome: r.clienteNome,
+          voto,
+          createdAt: r.updatedAt.toISOString(),
+        } satisfies MusicaVotoFeedRow;
+      })
+      .filter((r): r is MusicaVotoFeedRow => r != null);
+  } catch (err) {
+    if (isVotoTableMissing(err)) return [];
+    throw err;
+  }
+}
+
+/** Ranking agregado por faixa — mais ou menos curtidas. */
+export async function listMusicasRanking(sort: MusicaRankingSort): Promise<MusicaRankingRow[]> {
+  try {
+    const rows = await prisma.musicaBibliotecaVoto.findMany({
+      select: {
+        musicaId: true,
+        voto: true,
+        updatedAt: true,
+        musica: { select: { titulo: true, artista: true } },
+      },
+    });
+
+    const byMusica = new Map<
+      string,
+      { titulo: string; artista: string; likes: number; dislikes: number; ultimo: Date }
+    >();
+
+    for (const r of rows) {
+      const voto = parseVoto(r.voto);
+      if (!voto) continue;
+      const cur = byMusica.get(r.musicaId) ?? {
+        titulo: r.musica.titulo.trim() || "—",
+        artista: r.musica.artista.trim() || "—",
+        likes: 0,
+        dislikes: 0,
+        ultimo: r.updatedAt,
+      };
+      if (voto === "like") cur.likes += 1;
+      else cur.dislikes += 1;
+      if (r.updatedAt > cur.ultimo) cur.ultimo = r.updatedAt;
+      byMusica.set(r.musicaId, cur);
+    }
+
+    const list: MusicaRankingRow[] = [...byMusica.entries()].map(([musicaId, m]) => ({
+      musicaId,
+      titulo: m.titulo,
+      artista: m.artista,
+      likes: m.likes,
+      dislikes: m.dislikes,
+      ultimoVotoAt: m.ultimo.toISOString(),
+    }));
+
+    list.sort((a, b) => {
+      if (sort === "most_liked") {
+        if (b.likes !== a.likes) return b.likes - a.likes;
+        return b.dislikes - a.dislikes;
+      }
+      if (b.dislikes !== a.dislikes) return b.dislikes - a.dislikes;
+      return b.likes - a.likes;
+    });
+
+    return list;
+  } catch (err) {
+    if (isVotoTableMissing(err)) return [];
+    throw err;
+  }
+}
