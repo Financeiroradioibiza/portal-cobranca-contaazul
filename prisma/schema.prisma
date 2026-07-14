@@ -1328,6 +1328,24 @@ model MusicaBibliotecaVoto {
   @@map("musica_biblioteca_voto")
 }
 
+/// Configuração do moodboard REWIND por cliente (Player gateway ID).
+model MusicboardClienteConfig {
+  portalClienteId  Int       @id @map("portal_cliente_id")
+  enabled          Boolean   @default(false)
+  emailsJson       Json      @default("[]") @map("emails_json")
+  /// 3m | 6m
+  periodo          String    @default("6m") @db.VarChar(8)
+  depoimentoTexto  String    @default("") @map("depoimento_texto") @db.Text
+  depoimentoAutor  String    @default("") @map("depoimento_autor") @db.VarChar(200)
+  narrativaCurador String    @default("") @map("narrativa_curador") @db.Text
+  ultimoEnvioEm    DateTime? @map("ultimo_envio_em")
+  atualizadoPor    String    @default("") @map("atualizado_por") @db.VarChar(120)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@map("musicboard_cliente_config")
+}
+
 enum DownloadProvider {
   spotizerr
   deemix
