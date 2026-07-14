@@ -5,6 +5,7 @@ import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 import { LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
+import { BibliotecaMusicaDragGrip } from "@/components/criacao/BibliotecaMusicaDragGrip";
 import { MusicaVotosBadges, MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
@@ -76,17 +77,66 @@ const STATUS_LABEL: Record<string, string> = {
 export type BibliotecaMusicalPanelProps = {
   sidebarMode?: boolean;
   folderFilter?: Record<string, string>;
+  folderKind?: "all" | "tag" | "custom" | "especial" | "prog";
   folderTitle?: string;
+  viewMode?: ViewMode;
+  onViewModeChange?: (mode: ViewMode) => void;
+  dragMusicaEnabled?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string, shiftKey: boolean) => void;
   onMusicasLoaded?: (ids: string[]) => void;
   refreshToken?: number;
 };
 
+function emptyFolderCopy(kind: BibliotecaMusicalPanelProps["folderKind"]): {
+  title: string;
+  desc: string;
+} {
+  if (kind === "custom") {
+    return {
+      title: "Pasta vazia",
+      desc: "Abra Biblioteca, tags ou programações na barra lateral e arraste faixas (⋮⋮) para cá — ou selecione com Shift/Ctrl+A e solte na pasta à esquerda.",
+    };
+  }
+  if (kind === "tag") {
+    return {
+      title: "Nenhuma faixa com esta tag",
+      desc: "Atribua a tag em outras faixas ou arraste músicas de outras pastas para uma pasta custom.",
+    };
+  }
+  if (kind === "especial" || kind === "prog") {
+    return {
+      title: "Nenhuma faixa nesta pasta",
+      desc: "Esta visualização é somente leitura. Selecione faixas e copie para pastas custom ou programações.",
+    };
+  }
+  return {
+    title: "A biblioteca está vazia",
+    desc: "As músicas aparecem aqui depois de passarem pelo Upload e pela Fila de processamento (dedupe, ponto de mix, normalização e tags).",
+  };
+}
+
+function slimRowGridClass(hasSelect: boolean, hasDrag: boolean): string {
+  if (hasSelect && hasDrag) {
+    return "grid-cols-[1.5rem_1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+  }
+  if (hasSelect) {
+    return "grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+  }
+  if (hasDrag) {
+    return "grid-cols-[1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+  }
+  return "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+}
+
 export function BibliotecaMusicalPanel({
   sidebarMode = false,
   folderFilter,
+  folderKind = "all",
   folderTitle,
+  viewMode: viewModeProp,
+  onViewModeChange,
+  dragMusicaEnabled = false,
   selectedIds,
   onToggleSelect,
   onMusicasLoaded,
@@ -116,7 +166,9 @@ export function BibliotecaMusicalPanel({
   const [batchGeminiRunning, setBatchGeminiRunning] = useState(false);
   const [rejectFor, setRejectFor] = useState<Musica | null>(null);
   const [renameFor, setRenameFor] = useState<Musica | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("full");
+  const [viewModeInternal, setViewModeInternal] = useState<ViewMode>("full");
+  const viewMode = viewModeProp ?? viewModeInternal;
+  const setViewMode = onViewModeChange ?? setViewModeInternal;
 
   const loadTags = useCallback(async () => {
     try {
@@ -672,25 +724,26 @@ export function BibliotecaMusicalPanel({
       : error ?
         <div className="py-10 text-sm text-red-600">{error}</div>
       : musicas.length === 0 ?
+        (() => {
+          const empty = emptyFolderCopy(folderKind);
+          return (
         <div className="rounded-xl border border-dashed border-slate-300 px-4 py-16 text-center dark:border-slate-700">
           <div className="text-3xl">🎵</div>
           <div className="mt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
-            A biblioteca está vazia
+            {empty.title}
           </div>
           <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-            As músicas aparecem aqui depois de passarem pelo Upload e pela Fila de processamento
-            (dedupe, ponto de mix, normalização e tags).
+            {empty.desc}
           </p>
         </div>
+          );
+        })()
       : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {viewMode === "slim" ?
             <>
-              <div className={`grid gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 ${
-                onToggleSelect ?
-                  "grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
-                : "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
-              }`}>
+              <div className={`grid gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 ${slimRowGridClass(!!onToggleSelect, dragMusicaEnabled)}`}>
                 {onToggleSelect ? <span /> : null}
+                {dragMusicaEnabled ? <span /> : null}
                 <span />
                 <span>Música</span>
                 <span>Banda</span>
@@ -701,11 +754,7 @@ export function BibliotecaMusicalPanel({
                 {musicas.map((m) => (
                   <li
                     key={m.id}
-                    className={`grid items-center gap-2 px-3 py-1 ${
-                      onToggleSelect ?
-                        "grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
-                      : "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
-                    } ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}
+                    className={`grid items-center gap-2 px-3 py-1 ${slimRowGridClass(!!onToggleSelect, dragMusicaEnabled)} ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}
                   >
                     {onToggleSelect ?
                       <input
@@ -719,6 +768,9 @@ export function BibliotecaMusicalPanel({
                         className="h-4 w-4 rounded border-slate-300"
                         aria-label={`Selecionar ${m.titulo}`}
                       />
+                    : null}
+                    {dragMusicaEnabled ?
+                      <BibliotecaMusicaDragGrip musicaId={m.id} titulo={m.titulo || "(sem título)"} />
                     : null}
                     {m.previewUrl ?
                       <MusicaPreviewButton
@@ -773,7 +825,12 @@ export function BibliotecaMusicalPanel({
               </ul>
             </>
           : <>
-          <div className="hidden grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 lg:grid">
+          <div className={`hidden gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 lg:grid ${
+            dragMusicaEnabled ?
+              "grid-cols-[1.25rem_40px_1fr_1.6fr_48px_120px_60px_60px]"
+            : "grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px]"
+          }`}>
+            {dragMusicaEnabled ? <span /> : null}
             <span />
             <span>Título</span>
             <span>Tags</span>
@@ -786,8 +843,15 @@ export function BibliotecaMusicalPanel({
             {musicas.map((m) => (
               <li
                 key={m.id}
-                className="grid gap-3 px-4 py-3 lg:grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px] lg:items-center"
+                className={`grid gap-3 px-4 py-3 lg:items-center ${
+                  dragMusicaEnabled ?
+                    "lg:grid-cols-[1.25rem_40px_1fr_1.6fr_48px_120px_60px_60px]"
+                  : "lg:grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px]"
+                } ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}
               >
+                {dragMusicaEnabled ?
+                  <BibliotecaMusicaDragGrip musicaId={m.id} titulo={m.titulo || "(sem título)"} />
+                : null}
                 {m.previewUrl ?
                   <MusicaPreviewButton
                     track={{

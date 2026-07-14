@@ -9,6 +9,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import { BibliotecaMusicalPanel } from "@/components/criacao/BibliotecaMusicalPanel";
 import { BibliotecaSidebar } from "@/components/criacao/BibliotecaSidebar";
@@ -17,6 +18,7 @@ import {
   BIBLIOTECA_DRAG_MUSICAS,
   folderKeyToQuery,
   parseFolderDropTargetId,
+  resolveMusicaIdsFromDrag,
   type BibliotecaFolderKey,
 } from "@/lib/criacao/bibliotecaFolderTypes";
 import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaService";
@@ -52,13 +54,17 @@ function SelectionDragHandle({
   );
 }
 
+type ViewMode = "full" | "slim";
+
 export function BibliotecaMusicalShell() {
   const [folder, setFolder] = useState<BibliotecaFolderKey>({ kind: "all", label: "Biblioteca" });
+  const [viewMode, setViewMode] = useState<ViewMode>("slim");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [sidebarKey, setSidebarKey] = useState(0);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [panelRefresh, setPanelRefresh] = useState(0);
+  const [dragOverlayLabel, setDragOverlayLabel] = useState<string | null>(null);
   const musicasOrderRef = useRef<string[]>([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -102,8 +108,10 @@ export function BibliotecaMusicalShell() {
 
   const onDragEnd = useCallback(
     async (ev: DragEndEvent) => {
+      setDragOverlayLabel(null);
       const paraId = parseFolderDropTargetId(String(ev.over?.id ?? ""));
-      if (!paraId || selectedIds.size === 0) return;
+      const ids = resolveMusicaIdsFromDrag(ev.active.id, selectedIds);
+      if (!paraId || ids.length === 0) return;
 
       const dePastaId = folder.kind === "custom" ? folder.id : null;
       try {
@@ -113,7 +121,7 @@ export function BibliotecaMusicalShell() {
           body: JSON.stringify({
             dePastaId,
             paraPastaId: paraId,
-            musicaIds: Array.from(selectedIds),
+            musicaIds: ids,
           }),
         });
         if (!res.ok) throw new Error();
@@ -121,10 +129,25 @@ export function BibliotecaMusicalShell() {
         setSidebarKey((k) => k + 1);
         setPanelRefresh((k) => k + 1);
       } catch {
-        window.alert("Não foi possível mover as faixas.");
+        window.alert("Não foi possível adicionar as faixas na pasta.");
       }
     },
     [folder, selectedIds],
+  );
+
+  const onDragStart = useCallback(
+    (ev: DragStartEvent) => {
+      if (ev.active.id === BIBLIOTECA_DRAG_MUSICAS) {
+        setDragOverlayLabel(`${selectedIds.size} faixa${selectedIds.size === 1 ? "" : "s"}`);
+        return;
+      }
+      const ids = resolveMusicaIdsFromDrag(ev.active.id, selectedIds);
+      const titulo = (ev.active.data.current as { titulo?: string } | undefined)?.titulo?.trim();
+      setDragOverlayLabel(
+        ids.length > 1 ? `${ids.length} faixas` : titulo || "1 faixa",
+      );
+    },
+    [selectedIds],
   );
 
   const folderSubtitle =
@@ -134,7 +157,12 @@ export function BibliotecaMusicalShell() {
     : undefined;
 
   return (
-    <DndContext sensors={sensors} onDragEnd={(e) => void onDragEnd(e)}>
+    <DndContext
+      sensors={sensors}
+      onDragStart={onDragStart}
+      onDragEnd={(e) => void onDragEnd(e)}
+      onDragCancel={() => setDragOverlayLabel(null)}
+    >
       <div className="flex h-[calc(100vh-4rem)] min-h-[480px] overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <BibliotecaSidebar
           key={sidebarKey}
@@ -162,6 +190,34 @@ export function BibliotecaMusicalShell() {
                 </p>
               : null}
             </div>
+            <div
+              className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700"
+              role="group"
+              aria-label="Modo de listagem"
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode("full")}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === "full" ?
+                    "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                  : "text-slate-600 hover:bg-slate-50 dark:text-slate-300"
+                }`}
+              >
+                Completa
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("slim")}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === "slim" ?
+                    "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                  : "text-slate-600 hover:bg-slate-50 dark:text-slate-300"
+                }`}
+              >
+                Slim
+              </button>
+            </div>
             <SelectionDragHandle count={selectedIds.size} label={folder.label} />
             {selectedIds.size > 0 ?
               <>
@@ -186,7 +242,11 @@ export function BibliotecaMusicalShell() {
             <BibliotecaMusicalPanel
               sidebarMode
               folderFilter={folderKeyToQuery(folder)}
+              folderKind={folder.kind}
               folderTitle={folder.label}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              dragMusicaEnabled
               selectedIds={selectedIds}
               onToggleSelect={onToggleSelect}
               onMusicasLoaded={(ids) => {
@@ -199,9 +259,9 @@ export function BibliotecaMusicalShell() {
       </div>
 
       <DragOverlay>
-        {selectedIds.size > 0 ?
+        {dragOverlayLabel ?
           <div className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white shadow-lg">
-            {selectedIds.size} faixa{selectedIds.size === 1 ? "" : "s"}
+            {dragOverlayLabel}
           </div>
         : null}
       </DragOverlay>

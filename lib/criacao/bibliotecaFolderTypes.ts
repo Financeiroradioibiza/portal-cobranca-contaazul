@@ -47,3 +47,30 @@ export function parseFolderDropTargetId(id: string): string | null {
 }
 
 export const BIBLIOTECA_DRAG_MUSICAS = "bib-musicas-drag";
+export const BIBLIOTECA_DRAG_MUSICA_PREFIX = "bib-musica-";
+
+export function musicaDragId(musicaId: string): string {
+  return `${BIBLIOTECA_DRAG_MUSICA_PREFIX}${musicaId}`;
+}
+
+export function parseMusicaDragId(id: string): string | null {
+  if (!id.startsWith(BIBLIOTECA_DRAG_MUSICA_PREFIX)) return null;
+  const musicaId = id.slice(BIBLIOTECA_DRAG_MUSICA_PREFIX.length);
+  return musicaId.trim() ? musicaId : null;
+}
+
+/** Spotify-like: arrastar faixa selecionada leva o lote inteiro. */
+export function resolveMusicaIdsFromDrag(
+  activeId: string | number,
+  selectedIds: Set<string>,
+): string[] {
+  if (activeId === BIBLIOTECA_DRAG_MUSICAS) {
+    return Array.from(selectedIds);
+  }
+  const one = parseMusicaDragId(String(activeId));
+  if (!one) return [];
+  if (selectedIds.has(one) && selectedIds.size > 1) {
+    return Array.from(selectedIds);
+  }
+  return [one];
+}
