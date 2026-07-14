@@ -859,6 +859,7 @@ model MusicaBiblioteca {
   tagsManuais MusicaTagManual[]
   versoes     MusicaVersao[]
   pastas      PastaMusica[]
+  bibliotecaPastas BibliotecaPastaMusica[]
   pastasEspeciais PastaEspecialMusica[]
   rejeicoes   MusicaRejeicao[]
   votos       MusicaBibliotecaVoto[]
@@ -899,6 +900,40 @@ model MusicaTagManual {
   @@id([musicaId, tagId])
   @@index([tagId])
   @@map("musica_tag_manual")
+}
+
+/// Pasta de organização na biblioteca (estilo playlist Spotify) — não publica no player.
+model BibliotecaPasta {
+  id               String   @id @default(cuid())
+  nome             String   @db.VarChar(120)
+  cor              String   @default("#6366f1") @db.VarChar(9)
+  /// Identificador visual: folder | party | sun | star | vinyl | wave …
+  icone            String   @default("folder") @db.VarChar(32)
+  criativoUserId   String?  @map("criativo_user_id") @db.VarChar(200)
+  criativoNome     String   @default("") @map("criativo_nome") @db.VarChar(120)
+  criativoIniciais String   @default("") @map("criativo_iniciais") @db.VarChar(8)
+  sortOrder        Int      @default(0) @map("sort_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  musicas BibliotecaPastaMusica[]
+
+  @@index([sortOrder])
+  @@map("biblioteca_pasta")
+}
+
+model BibliotecaPastaMusica {
+  pastaId   String   @map("pasta_id")
+  musicaId  String   @map("musica_id")
+  sortOrder Int      @default(0) @map("sort_order")
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  pasta  BibliotecaPasta  @relation(fields: [pastaId], references: [id], onDelete: Cascade)
+  musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+
+  @@id([pastaId, musicaId])
+  @@index([musicaId])
+  @@map("biblioteca_pasta_musica")
 }
 
 enum FormatoEntrega {

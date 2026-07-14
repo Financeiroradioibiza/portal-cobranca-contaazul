@@ -73,7 +73,25 @@ const STATUS_LABEL: Record<string, string> = {
   erro: "Erro",
 };
 
-export function BibliotecaMusicalPanel() {
+export type BibliotecaMusicalPanelProps = {
+  sidebarMode?: boolean;
+  folderFilter?: Record<string, string>;
+  folderTitle?: string;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string, shiftKey: boolean) => void;
+  onMusicasLoaded?: (ids: string[]) => void;
+  refreshToken?: number;
+};
+
+export function BibliotecaMusicalPanel({
+  sidebarMode = false,
+  folderFilter,
+  folderTitle,
+  selectedIds,
+  onToggleSelect,
+  onMusicasLoaded,
+  refreshToken = 0,
+}: BibliotecaMusicalPanelProps = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [musicas, setMusicas] = useState<Musica[]>([]);
@@ -133,10 +151,14 @@ export function BibliotecaMusicalPanel() {
     if (search.trim()) params.set("search", search.trim());
     if (status !== "all") params.set("status", status);
     if (listFilter !== "all") params.set("listFilter", listFilter);
-    if (tagIdFilter) params.set("tagId", tagIdFilter);
+    if (folderFilter?.tagId) params.set("tagId", folderFilter.tagId);
+    else if (tagIdFilter) params.set("tagId", tagIdFilter);
+    if (folderFilter?.bibliotecaPastaId) params.set("bibliotecaPastaId", folderFilter.bibliotecaPastaId);
+    if (folderFilter?.pastaEspecialId) params.set("pastaEspecialId", folderFilter.pastaEspecialId);
+    if (folderFilter?.pastaProgramacaoId) params.set("pastaProgramacaoId", folderFilter.pastaProgramacaoId);
     if (gravadoraFilter.trim()) params.set("gravadora", gravadoraFilter.trim());
     return params.toString();
-  }, [search, status, listFilter, tagIdFilter, gravadoraFilter]);
+  }, [search, status, listFilter, tagIdFilter, gravadoraFilter, folderFilter]);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -147,12 +169,17 @@ export function BibliotecaMusicalPanel() {
       const data = (await res.json()) as { musicas: Musica[]; total: number };
       setMusicas(data.musicas);
       setTotal(data.total);
+      onMusicasLoaded?.(data.musicas.map((m) => m.id));
     } catch {
       if (!opts?.silent) setError("Não foi possível carregar a biblioteca.");
     } finally {
       if (!opts?.silent) setLoading(false);
     }
-  }, [queryString]);
+  }, [queryString, onMusicasLoaded]);
+
+  useEffect(() => {
+    if (refreshToken > 0) void load({ silent: true });
+  }, [refreshToken, load]);
 
   const patchMusica = useCallback(async (musicaId: string) => {
     try {
@@ -420,8 +447,9 @@ export function BibliotecaMusicalPanel() {
   }
 
   return (
-    <div className="mx-auto max-w-[1300px] px-3 py-6 sm:px-4">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className={sidebarMode ? "" : "mx-auto max-w-[1300px] px-3 py-6 sm:px-4"}>
+      {!sidebarMode ?
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
             Criação / Biblioteca musical
@@ -481,6 +509,7 @@ export function BibliotecaMusicalPanel() {
           </div>
         </div>
       </div>
+      : null}
 
       {rowMsg ?
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
@@ -550,7 +579,8 @@ export function BibliotecaMusicalPanel() {
         </label>
       </form>
 
-      <div className="mb-4 space-y-2">
+      {!sidebarMode ?
+        <div className="mb-4 space-y-2">
         {topTags.length > 0 ?
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Top tags</span>
@@ -634,7 +664,8 @@ export function BibliotecaMusicalPanel() {
             </button>
           : null}
         </div>
-      </div>
+        </div>
+      : null}
 
       {loading && musicas.length === 0 ?
         <div className="py-10 text-sm text-slate-500">Carregando…</div>
@@ -654,7 +685,12 @@ export function BibliotecaMusicalPanel() {
       : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           {viewMode === "slim" ?
             <>
-              <div className="grid grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50">
+              <div className={`grid gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 ${
+                onToggleSelect ?
+                  "grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
+                : "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
+              }`}>
+                {onToggleSelect ? <span /> : null}
                 <span />
                 <span>Música</span>
                 <span>Banda</span>
@@ -665,8 +701,25 @@ export function BibliotecaMusicalPanel() {
                 {musicas.map((m) => (
                   <li
                     key={m.id}
-                    className="grid grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem] items-center gap-2 px-3 py-1"
+                    className={`grid items-center gap-2 px-3 py-1 ${
+                      onToggleSelect ?
+                        "grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
+                      : "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]"
+                    } ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}
                   >
+                    {onToggleSelect ?
+                      <input
+                        type="checkbox"
+                        checked={selectedIds?.has(m.id) ?? false}
+                        onChange={() => onToggleSelect(m.id, false)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleSelect(m.id, e.shiftKey);
+                        }}
+                        className="h-4 w-4 rounded border-slate-300"
+                        aria-label={`Selecionar ${m.titulo}`}
+                      />
+                    : null}
                     {m.previewUrl ?
                       <MusicaPreviewButton
                         track={{

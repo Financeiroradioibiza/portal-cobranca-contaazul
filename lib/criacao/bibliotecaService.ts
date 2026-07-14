@@ -349,6 +349,9 @@ export async function listMusicasBiblioteca(opts: {
   search?: string;
   status?: string;
   tagId?: string;
+  bibliotecaPastaId?: string;
+  pastaEspecialId?: string;
+  pastaProgramacaoId?: string;
   gravadora?: string;
   listFilter?: BibliotecaListFilter;
   /** Só use true após upload — evita travar a listagem. */
@@ -375,6 +378,25 @@ export async function listMusicasBiblioteca(opts: {
   }
   if (opts.tagId) {
     where.tagsManuais = { some: { tagId: opts.tagId } };
+  }
+  if (opts.bibliotecaPastaId) {
+    where.bibliotecaPastas = { some: { pastaId: opts.bibliotecaPastaId } };
+  }
+  if (opts.pastaEspecialId) {
+    where.id = {
+      in: (
+        await prisma.pastaEspecialMusica.findMany({
+          where: { pastaEspecialId: opts.pastaEspecialId },
+          select: { musicaId: true },
+        })
+      ).map((r) => r.musicaId),
+    };
+    if ((where.id as { in: string[] }).in.length === 0) {
+      return { rows: [], total: 0 };
+    }
+  }
+  if (opts.pastaProgramacaoId) {
+    where.pastas = { some: { pastaId: opts.pastaProgramacaoId } };
   }
   const grav = opts.gravadora?.trim();
   if (grav) {
