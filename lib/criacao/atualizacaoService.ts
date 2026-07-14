@@ -6,6 +6,7 @@ import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompa
 import { appendFechamentoPainel } from "@/lib/criacao/atualizacaoPainelService";
 import { ensureTipoSubidaOffEnum } from "@/lib/criacao/atualizacaoSchemaCompat";
 import { competenciaFromDate, mesNomeCurtoFromDate } from "@/lib/criacao/competencia";
+import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 
 export type FaixaLogItem = {
   musicaId: string;
@@ -669,15 +670,21 @@ export async function abrirAtualizacao(
 
   const prog = await prisma.programacao.findUnique({
     where: { id: programacaoId },
-    select: { id: true },
+    select: { id: true, atualizacaoAbertaPor: true },
   });
   if (!prog) throw new Error("programacao_nao_encontrada");
+
+  let porFinal = abertaPor.slice(0, 200);
+  /** Upload/fila não deve apagar origem ATL CRICA — senão some o quadro violeta na Central. */
+  if (isAtlCricaAbertura(prog.atualizacaoAbertaPor) && !isAtlCricaAbertura(porFinal)) {
+    porFinal = prog.atualizacaoAbertaPor.slice(0, 200);
+  }
 
   await prisma.programacao.update({
     where: { id: programacaoId },
     data: {
       atualizacaoAbertaEm: new Date(),
-      atualizacaoAbertaPor: abertaPor.slice(0, 200),
+      atualizacaoAbertaPor: porFinal,
     },
   });
 

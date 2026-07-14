@@ -16,7 +16,7 @@ import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges"
 import { ProgramacaoDonoInlineSelect } from "@/components/criacao/ProgramacaoDonoInlineSelect";
 import { persistProgramacaoDonoToServer } from "@/lib/criacao/atlCricaDonoPersist";
 import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
-import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
+import { atlCricaCriativoNome, isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { donoDisplayLabel, type ProgramacaoDono } from "@/lib/criacao/programacaoDonoLocal";
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
@@ -327,6 +327,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
             {atualizacoesAtlCrica.map((a) => {
               const ativo = clienteSel?.ref === a.clienteRef && focusProgId === a.programacaoId;
               const dono = resolveDonoLabel(a, map, criativos);
+              const criadorAtl = atlCricaCriativoNome(a.abertaPor) || dono;
               return (
                 <button
                   key={a.programacaoId}
@@ -347,7 +348,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                       (ativo ? "text-violet-100" : "text-violet-700 dark:text-violet-300")
                     }
                   >
-                    Dono: {dono}
+                    Criador: {criadorAtl} · Dono: {dono}
                   </span>
                 </button>
               );

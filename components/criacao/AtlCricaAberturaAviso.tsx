@@ -1,4 +1,4 @@
-import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
+import { atlCricaCriativoNome, isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 
 function fmtWhen(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -24,6 +24,7 @@ export function AtlCricaAberturaAviso({
   compact?: boolean;
 }) {
   if (!isAtlCricaAbertura(abertaPor)) return null;
+  const criadorAtl = atlCricaCriativoNome(abertaPor) || "—";
   const dono = criativoNomeDb?.trim() || "Sem dono";
   return (
     <div
@@ -34,6 +35,8 @@ export function AtlCricaAberturaAviso({
     >
       <div className="font-bold text-violet-900 dark:text-violet-100">Abertura via ATL CRICA</div>
       <div className="mt-0.5 text-violet-800 dark:text-violet-200">
+        Criador: <strong>{criadorAtl}</strong>
+        {" · "}
         Dono: <strong>{dono}</strong>
         {abertaEm ?
           <span className="text-violet-700 dark:text-violet-300"> · {fmtWhen(abertaEm)}</span>
