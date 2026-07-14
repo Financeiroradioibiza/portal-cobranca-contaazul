@@ -80,6 +80,7 @@ export async function POST(request: Request) {
         subject: `[TESTE] ${email.subject}`,
         text: email.text,
         html: email.html,
+        mailProfile: "suporte",
       });
       return NextResponse.json({ ok: true, to: TEST_EMAIL });
     }
@@ -180,6 +181,7 @@ export async function POST(request: Request) {
         subject: email.subject,
         text: email.text,
         html: email.html,
+        mailProfile: "suporte",
       });
 
       await registrarEnvio({

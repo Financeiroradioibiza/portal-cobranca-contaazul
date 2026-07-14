@@ -6,6 +6,11 @@ const INTERNAL_COBRANCA_BCC_DEFAULT = "cobranca@radioibiza.com.br";
 /** Cc visível nos envios (financeiro sempre em cópia, pedido operacional). */
 const INTERNAL_COBRANCA_CC_DEFAULT = "cobranca@radioibiza.com.br";
 
+const SUPORTE_FROM_DEFAULT = "suporte@radioibiza.com.br";
+const SUPORTE_FROM_NAME_DEFAULT = "Radio Ibiza — Suporte";
+
+export type OcSmtpMailProfile = "default" | "suporte";
+
 function envStr(name: string): string | undefined {
   const v = process.env[name];
   return typeof v === "string" && v.trim().length ? v.trim() : undefined;
@@ -13,6 +18,28 @@ function envStr(name: string): string | undefined {
 
 function emailLooksValid(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function parseEmailList(raw: string | undefined, excludeLowerSet: ReadonlySet<string>): string[] {
+  if (!raw?.trim()) return [];
+  const parts: string[] = [];
+  for (const fragment of raw.split(/[,;]/)) {
+    const t = fragment.trim();
+    if (!t.length) continue;
+    if (!emailLooksValid(t)) continue;
+    parts.push(t);
+  }
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const addr of parts) {
+    const k = addr.toLowerCase();
+    if (excludeLowerSet.has(k)) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(addr);
+  }
+  return out;
 }
 
 /**
@@ -40,6 +67,10 @@ function internalAlwaysCc(excludeLowerSet: ReadonlySet<string>): string[] {
     out.push(addr);
   }
   return out;
+}
+
+function internalSuporteCc(excludeLowerSet: ReadonlySet<string>): string[] {
+  return parseEmailList(envStr("OC_EMAIL_CC_SUPORTE") ?? SUPORTE_FROM_DEFAULT, excludeLowerSet);
 }
 
 /**
@@ -106,16 +137,33 @@ export async function sendEmailViaSmtp(opts: {
   html?: string;
   attachments?: EmailAttachment[];
   replyTo?: string;
+  /** default = cobrança (OC); suporte = instalação Player e afins */
+  mailProfile?: OcSmtpMailProfile;
 }): Promise<void> {
   if (!opts.to.length) throw new Error("Nenhum destinatário válido");
 
   const host = envStr("OC_EMAIL_SMTP_HOST");
   const user = envStr("OC_EMAIL_SMTP_USER");
   const pass = envStr("OC_EMAIL_SMTP_PASS");
-  const fromAddr = envStr("OC_EMAIL_FROM");
-  if (!host || !user || !pass || !fromAddr) {
+  const defaultFrom = envStr("OC_EMAIL_FROM");
+  if (!host || !user || !pass || !defaultFrom) {
     throw new Error("SMTP não configurado: defina OC_EMAIL_SMTP_* e OC_EMAIL_FROM no ambiente");
   }
+
+  const profile = opts.mailProfile ?? "default";
+  const fromAddr =
+    profile === "suporte"
+      ? envStr("OC_EMAIL_FROM_SUPORTE") ?? SUPORTE_FROM_DEFAULT
+      : defaultFrom;
+  const fromName =
+    profile === "suporte"
+      ? envStr("OC_EMAIL_FROM_NAME_SUPORTE") ?? SUPORTE_FROM_NAME_DEFAULT
+      : envStr("OC_EMAIL_FROM_NAME") ?? "Radio Ibiza — Cobrança";
+  const replyTo =
+    opts.replyTo ??
+    (profile === "suporte"
+      ? envStr("OC_EMAIL_REPLY_TO_SUPORTE") ?? fromAddr
+      : envStr("OC_EMAIL_REPLY_TO"));
 
   const port = Math.max(1, Number(envStr("OC_EMAIL_SMTP_PORT") ?? "587") || 587);
   /** 465 costuma usar SSL direto; 587 STARTTLS */
@@ -123,9 +171,6 @@ export async function sendEmailViaSmtp(opts: {
     envStr("OC_EMAIL_SMTP_SECURE") === "1" ||
     envStr("OC_EMAIL_SMTP_SECURE") === "true" ||
     port === 465;
-
-  const fromName = envStr("OC_EMAIL_FROM_NAME") ?? "Radio Ibiza — Cobrança";
-  const replyTo = opts.replyTo ?? envStr("OC_EMAIL_REPLY_TO");
 
   const transporter = nodemailer.createTransport({
     host,
@@ -135,10 +180,11 @@ export async function sendEmailViaSmtp(opts: {
   });
 
   const toLower = new Set(opts.to.map((a) => a.toLowerCase()));
-  const alwaysCc = internalAlwaysCc(toLower);
+  const alwaysCc =
+    profile === "suporte" ? internalSuporteCc(toLower) : internalAlwaysCc(toLower);
   const ccLower = new Set(alwaysCc.map((a) => a.toLowerCase()));
   const denyBcc = new Set<string>([...toLower, ...ccLower]);
-  const alwaysBcc = internalAlwaysBcc(denyBcc);
+  const alwaysBcc = profile === "suporte" ? [] : internalAlwaysBcc(denyBcc);
 
   await transporter.sendMail({
     from: `"${fromName.replace(/"/g, "\\\"")}" <${fromAddr}>`,
