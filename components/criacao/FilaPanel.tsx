@@ -95,7 +95,10 @@ export function FilaPanel() {
     if (now - lastSyncPendingAt.current < 25_000) return;
     lastSyncPendingAt.current = now;
     try {
-      await fetch("/api/criacao/fila/sync-pending", { method: "POST" });
+      await fetch("/api/criacao/fila/sync-pending", {
+        method: "POST",
+        headers: { "X-Skip-Error-Report": "1" },
+      });
     } catch {
       /* ignore */
     }

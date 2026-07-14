@@ -27,6 +27,11 @@ type JobRow = {
   createdAt: string;
 };
 
+const POLL_HEADERS = { "X-Skip-Error-Report": "1" } as const;
+
+const NOISE_MESSAGE_RE =
+  /^Falha de rede em (GET|POST) \/api\/criacao\/(error-log|fila(\/sync-pending)?)/;
+
 const ETAPA_LABEL: Record<string, string> = {
   upload: "Upload",
   deduplicacao: "Dedupe",
@@ -72,12 +77,16 @@ export function CriacaoErrorDock() {
     setLoading(true);
     try {
       const [errRes, filaRes] = await Promise.all([
-        fetch("/api/criacao/error-log?pageSize=15"),
-        fetch("/api/criacao/fila?limit=40"),
+        fetch("/api/criacao/error-log?pageSize=15", { headers: POLL_HEADERS }),
+        fetch("/api/criacao/fila?limit=40", { headers: POLL_HEADERS }),
       ]);
       if (errRes.ok) {
         const data = (await errRes.json()) as { logs: ErrorRow[] };
-        setErrors(data.logs ?? []);
+        setErrors(
+          (data.logs ?? []).filter(
+            (r) => r.level !== "info" && !NOISE_MESSAGE_RE.test(r.message),
+          ),
+        );
       }
       if (filaRes.ok) {
         const data = (await filaRes.json()) as { jobs: JobRow[] };
@@ -93,8 +102,25 @@ export function CriacaoErrorDock() {
 
   useEffect(() => {
     void load();
-    const t = setInterval(() => void load(), 8000);
-    return () => clearInterval(t);
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const armTimer = () => {
+      if (timer) clearInterval(timer);
+      if (document.hidden) return;
+      timer = setInterval(() => void load(), 8000);
+    };
+
+    armTimer();
+    const onVisibility = () => {
+      if (!document.hidden) void load();
+      armTimer();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (timer) clearInterval(timer);
+    };
   }, [load]);
 
   const activeJobs = useMemo(

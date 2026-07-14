@@ -247,7 +247,10 @@ function ProgramacaoEditor({
     if (!prog?.atualizacaoAberta) return;
     const tick = async () => {
       try {
-        await fetch("/api/criacao/fila/sync-pending", { method: "POST" });
+        await fetch("/api/criacao/fila/sync-pending", {
+          method: "POST",
+          headers: { "X-Skip-Error-Report": "1" },
+        });
       } catch {
         /* ignore */
       }

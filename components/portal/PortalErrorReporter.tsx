@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { isIgnoredUrl, reportClientError } from "@/lib/audit/reportClientError";
+import { reportClientError, shouldSkipClientErrorReport, isBackgroundPollUrl } from "@/lib/audit/reportClientError";
 
 /**
  * Captura erros do navegador e respostas de API com falha, enviando para
@@ -43,10 +43,12 @@ export function PortalErrorReporter() {
         : input instanceof URL ? input.toString()
         : input.url;
       const method = (init?.method || (typeof input !== "string" && !(input instanceof URL) ? input.method : "GET") || "GET").toUpperCase();
+      const req = typeof input !== "string" && !(input instanceof URL) ? input : undefined;
+      const skipReport = shouldSkipClientErrorReport(url, init, req);
 
       try {
         const res = await originalFetch(input, init);
-        if (!res.ok && !isIgnoredUrl(url)) {
+        if (!res.ok && !skipReport) {
           reportClientError({
             source: "api",
             level: res.status >= 500 ? "error" : "warn",
@@ -59,11 +61,12 @@ export function PortalErrorReporter() {
         }
         return res;
       } catch (err) {
-        if (!isIgnoredUrl(url)) {
+        if (!skipReport) {
           const isAbort = err instanceof Error && err.name === "AbortError";
           if (!isAbort) {
             reportClientError({
               source: "api",
+              level: isBackgroundPollUrl(url) ? "info" : "error",
               method,
               message: `Falha de rede em ${method} ${stripOrigin(url)}`,
               stack: err instanceof Error ? err.stack : undefined,

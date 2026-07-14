@@ -58,14 +58,51 @@ export function reportClientError(report: ClientErrorReport): void {
   }
 }
 
-/** Marca URLs que NÃO devem ser logadas (evita loop e ruído). */
+/** Marca URLs que NÃO devem ser logadas (evita loop e ruído de polling). */
 export function isIgnoredUrl(url: string): boolean {
+  const path = pathFromClientUrl(url);
   return (
-    url.includes("/api/internal/error-log") ||
-    url.includes("/api/internal/audit-log") ||
-    url.includes("/api/auth/me") ||
+    path.startsWith("/api/internal/error-log") ||
+    path.startsWith("/api/internal/audit-log") ||
+    path.startsWith("/api/auth/me") ||
+    path.startsWith("/api/criacao/error-log") ||
+    path.startsWith("/api/criacao/fila/sync-pending") ||
+    path.startsWith("/api/criacao/download/sync-pending") ||
     url.includes("_rsc=") ||
     url.includes("127.0.0.1:8765") ||
     url.includes("localhost:8765")
   );
+}
+
+/** Polling de diagnóstico — falha de rede não vira erro grave no log. */
+export function isBackgroundPollUrl(url: string): boolean {
+  const path = pathFromClientUrl(url);
+  return (
+    path.startsWith("/api/criacao/error-log") ||
+    path.startsWith("/api/criacao/fila") ||
+    path.startsWith("/api/criacao/fila/sync-pending")
+  );
+}
+
+export function shouldSkipClientErrorReport(
+  url: string,
+  init?: RequestInit,
+  request?: Request,
+): boolean {
+  if (request?.headers.get("X-Skip-Error-Report") === "1") return true;
+  const h = new Headers(init?.headers);
+  if (h.get("X-Skip-Error-Report") === "1") return true;
+  return isIgnoredUrl(url);
+}
+
+function pathFromClientUrl(url: string): string {
+  try {
+    if (url.startsWith("http")) {
+      const u = new URL(url);
+      return u.pathname + u.search;
+    }
+  } catch {
+    /* ignore */
+  }
+  return url.split("#")[0] ?? url;
 }
