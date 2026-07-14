@@ -9,11 +9,9 @@ export async function GET(request: Request) {
   try {
     const session = requirePortalSession(await getPortalSession());
     const competencia = parseCompetencia(new URL(request.url).searchParams.get("competencia"));
-    const isAdmin = session.roles.includes("master");
     const payload = await getAtlCricaBoard({
       competencia,
       sessionEmail: session.email,
-      isAdmin,
     });
     return NextResponse.json(payload);
   } catch (e) {

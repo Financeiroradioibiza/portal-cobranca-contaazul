@@ -155,8 +155,9 @@ export function AtlCricaImportExportSection({
       <div>
         <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">1 · Exportar hierarquia</h3>
         <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-          Baixa um ZIP com pastas vazias <code className="text-[10px]">Cliente/Programação/Pasta</code> e o manifesto
-          para o mês {competenciaLabel(competencia)}.
+          Baixa um ZIP com pastas vazias <code className="text-[10px]">Cliente/Programação/Pasta</code>{" "}
+          <strong>somente das programações em que você é dono</strong> (campo Dono na Central), para o mês{" "}
+          {competenciaLabel(competencia)}.
         </p>
         <button
           type="button"

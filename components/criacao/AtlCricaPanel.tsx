@@ -13,7 +13,6 @@ import {
   submitAtlCricaFileUpload,
 } from "@/lib/criacao/atlCricaUploadClient";
 import { AtlCricaImportExportSection } from "@/components/criacao/AtlCricaImportExportSection";
-import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
 import type { ArvoreProgramacaoNode } from "@/lib/criacao/programacaoService";
 
 type ModoAtualizacao = "upload" | "inteligente" | "spotify";
@@ -66,7 +65,6 @@ function StatusPills({ c }: { c: AtlCricaClienteGroup }) {
 }
 
 export function AtlCricaPanel() {
-  const { map: donoMap } = useProgramacaoDonoMap();
   const [competencia, setCompetencia] = useState("");
   const [board, setBoard] = useState<AtlCricaBoardPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,18 +95,7 @@ export function AtlCricaPanel() {
     void load();
   }, [load]);
 
-  const clientesVisiveis = useMemo(() => {
-    if (!board) return [];
-    const email = board.sessionEmail.toLowerCase();
-    if (board.isAdmin) return board.clientes;
-    return board.clientes.filter((c) =>
-      c.programacoes.some((p) => {
-        const dono = donoMap[p.programacaoId];
-        if (dono?.criativoEmail.toLowerCase() === email) return true;
-        return (p.criativoUserId ?? "").toLowerCase() === email;
-      }),
-    );
-  }, [board, donoMap]);
+  const clientesVisiveis = board?.clientes ?? [];
 
   const skeletonWarnings = useMemo(() => {
     if (!board) return [];

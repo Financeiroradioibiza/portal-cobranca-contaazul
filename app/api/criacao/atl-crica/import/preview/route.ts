@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortalSession, isMasterRole, requirePortalSession } from "@/lib/auth/portalAccess";
+import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import type { AtlCricaExportManifest } from "@/lib/criacao/atlCricaHierarquiaService";
 import { previewAtlCricaImport } from "@/lib/criacao/atlCricaImportService";
 
@@ -25,7 +25,6 @@ export async function POST(request: Request) {
     const preview = await previewAtlCricaImport({
       competencia: body.competencia,
       sessionEmail: session.email,
-      isAdmin: isMasterRole(session.roles),
       manifest: body.manifest ?? null,
       files,
     });

@@ -1217,6 +1217,20 @@ function NovaVinhetaInline({
 
 export type FaixaDiff = { musicaId: string; titulo: string; artista: string; pastaNome: string };
 
+export type CronogramaDiff = {
+  agendamentoId: string;
+  alvoTipo: string;
+  alvoNome: string;
+  resumo: string;
+};
+
+export type AtualizacaoDiffUi = {
+  entraram: FaixaDiff[];
+  sairam: FaixaDiff[];
+  cronogramasEntraram: CronogramaDiff[];
+  cronogramasSairam: CronogramaDiff[];
+};
+
 export const DISPARO_ERROR: Record<string, string> = {
   nenhum_pdv_amarrado: "Nenhum PDV amarrado a esta programação. Escolha os PDVs na coluna do meio.",
   cliente_gateway_nao_configurado:
@@ -1332,7 +1346,7 @@ export function FecharAtualizacaoModal({
         codigo?: string;
         logResumo?: string;
         revision?: number;
-        diff?: { entraram?: FaixaDiff[]; sairam?: FaixaDiff[] };
+        diff?: Partial<AtualizacaoDiffUi>;
         musicas?: number;
         playlists?: number;
         semArquivo?: number;
@@ -1342,9 +1356,13 @@ export function FecharAtualizacaoModal({
       if (!res.ok) throw new Error(data.error ?? "disparo_falhou");
       const ent = data.diff?.entraram?.length ?? 0;
       const sai = data.diff?.sairam?.length ?? 0;
+      const cEnt = data.diff?.cronogramasEntraram?.length ?? 0;
+      const cSai = data.diff?.cronogramasSairam?.length ?? 0;
+      const cronResumo =
+        cEnt + cSai > 0 ? ` · cron. +${cEnt} / −${cSai}` : "";
       setResultado(
         (data.logResumo ?? data.rotuloLog ?? data.codigo ?? "Atualização") +
-          ` — rev. ${data.revision ?? "?"} · +${ent} / −${sai} faixa(s) · ${data.pdvsDisparados ?? info.pdvsAmarrados} PDV(s).` +
+          ` — rev. ${data.revision ?? "?"} · +${ent} / −${sai} faixa(s)${cronResumo} · ${data.pdvsDisparados ?? info.pdvsAmarrados} PDV(s).` +
           (data.semArquivo ? ` (${data.semArquivo} faixa(s) sem áudio)` : "") +
           (data.vinhetasSemAudio ? ` (${data.vinhetasSemAudio} vinheta(s) sem áudio)` : ""),
       );
@@ -1488,7 +1506,7 @@ type AtualizacaoLogItem = {
   revision: number;
   disparadaEm: string;
   disparadaPor: string;
-  diff: { entraram: FaixaDiff[]; sairam: FaixaDiff[] };
+  diff: AtualizacaoDiffUi;
   musicasPublicadas: number;
   playlistsPublicadas: number;
 };
@@ -1594,6 +1612,12 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
         const aberto = expanded.has(r.id);
         const ent = r.diff?.entraram ?? [];
         const sai = r.diff?.sairam ?? [];
+        const cEnt = r.diff?.cronogramasEntraram ?? [];
+        const cSai = r.diff?.cronogramasSairam ?? [];
+        const cronResumo =
+          cEnt.length + cSai.length > 0 ?
+            ` · cron. +${cEnt.length} / −${cSai.length}`
+          : "";
         return (
           <li key={r.id} className="text-[10px]">
             <button
@@ -1610,6 +1634,7 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
               {r.clienteNomeLog ? `${r.clienteNomeLog} · ` : ""}
               {r.pdvsLog ? `PDV: ${r.pdvsLog} · ` : ""}
               {r.programacaoNomeLog ?? ""} · {r.disparadaPor} · +{ent.length} / −{sai.length}
+              {cronResumo}
             </p>
             {aberto ?
               <div className="ml-4 mt-1 space-y-2">
@@ -1626,7 +1651,12 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
                         clienteNomeLog: r.clienteNomeLog,
                         pdvsLog: r.pdvsLog,
                         programacaoNomeLog: r.programacaoNomeLog,
-                        diff: r.diff ?? { entraram: [], sairam: [] },
+                        diff: r.diff ?? {
+                          entraram: [],
+                          sairam: [],
+                          cronogramasEntraram: [],
+                          cronogramasSairam: [],
+                        },
                       })
                     }
                     className="rounded border border-slate-300 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-white dark:border-slate-600 dark:text-slate-300"
@@ -1643,15 +1673,63 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
                   </button>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <DiffList titulo="Entraram" faixas={ent} cor="emerald" />
-                  <DiffList titulo="Saíram" faixas={sai} cor="red" />
+                  <DiffList titulo="Faixas entraram" faixas={ent} cor="emerald" />
+                  <DiffList titulo="Faixas saíram" faixas={sai} cor="red" />
                 </div>
+                {cEnt.length + cSai.length > 0 ?
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <CronogramaDiffList titulo="Cronogramas criados" itens={cEnt} cor="sky" />
+                    <CronogramaDiffList titulo="Cronogramas apagados" itens={cSai} cor="amber" />
+                  </div>
+                : null}
               </div>
             : null}
           </li>
         );
       })}
     </ul>
+  );
+}
+
+function CronogramaDiffList({
+  titulo,
+  itens,
+  cor,
+}: {
+  titulo: string;
+  itens: CronogramaDiff[];
+  cor: "sky" | "amber";
+}) {
+  const border =
+    cor === "sky" ?
+      "border-sky-200 dark:border-sky-900"
+    : "border-amber-200 dark:border-amber-900";
+  const head =
+    cor === "sky" ? "text-sky-700 dark:text-sky-400" : "text-amber-800 dark:text-amber-300";
+  if (itens.length === 0) {
+    return (
+      <div className={`rounded border ${border} p-2`}>
+        <p className={`font-semibold ${head}`}>{titulo}</p>
+        <p className="text-slate-400">—</p>
+      </div>
+    );
+  }
+  return (
+    <div className={`rounded border ${border} p-2`}>
+      <p className={`mb-1 font-semibold ${head}`}>
+        {titulo} ({itens.length})
+      </p>
+      <ul className="max-h-32 space-y-0.5 overflow-y-auto text-slate-600 dark:text-slate-400">
+        {itens.map((c) => (
+          <li key={c.agendamentoId}>
+            <span className="text-slate-400">
+              [{c.alvoTipo === "vinheta" ? "Vinheta" : "Pasta"}: {c.alvoNome}]
+            </span>{" "}
+            {c.resumo}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

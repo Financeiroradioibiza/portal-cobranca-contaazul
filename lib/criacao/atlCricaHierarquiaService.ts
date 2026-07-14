@@ -1,7 +1,9 @@
 import { getAtlCricaBoard } from "@/lib/criacao/atlCricaService";
-import { getClienteProgramacaoArvore } from "@/lib/criacao/programacaoService";
 import { buildAtlFolderPath } from "@/lib/criacao/pathSanitize";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
+import { prisma } from "@/lib/prisma";
+import { normalizePortalEmail } from "@/lib/auth/users";
+import { programacaoOwnedByEmail } from "@/lib/criacao/programacaoOwnership";
 
 export type AtlCricaManifestPasta = {
   path: string;
@@ -46,9 +48,9 @@ function uniquePath(base: string, used: Set<string>): string {
 export async function buildAtlCricaExportManifest(opts: {
   competencia?: string | null;
   sessionEmail: string;
-  isAdmin?: boolean;
 }): Promise<AtlCricaExportManifest> {
   const board = await getAtlCricaBoard(opts);
+  const sessionEmail = normalizePortalEmail(opts.sessionEmail);
   const warnings: string[] = [];
   const pastas: AtlCricaManifestPasta[] = [];
   const usedPaths = new Set<string>();
@@ -57,43 +59,70 @@ export async function buildAtlCricaExportManifest(opts: {
     { clienteNome: string; programacoes: Set<string>; pastas: number }
   >();
 
-  const progIdsOnBoard = new Set(board.rows.map((r) => r.programacaoId));
+  const progIdsOnBoard = board.rows.map((r) => r.programacaoId);
+  if (progIdsOnBoard.length === 0) {
+    warnings.push("Nenhuma programação sua nesta competência — defina o Dono na Central de programações.");
+    return {
+      ok: true,
+      version: 1,
+      competencia: board.competencia,
+      uploadTag: uploadTagFromCompetencia(board.competencia),
+      criadorEmail: board.sessionEmail,
+      pastas: [],
+      clientes: [],
+      warnings,
+      blockExport: true,
+    };
+  }
 
-  for (const cliente of board.clientes) {
-    const arvore = await getClienteProgramacaoArvore(cliente.clienteRef);
-    const progsFiltradas = arvore.filter((p) => progIdsOnBoard.has(p.id));
+  const progsComPastas = await prisma.programacao.findMany({
+    where: { id: { in: progIdsOnBoard } },
+    orderBy: [{ clienteNome: "asc" }, { nome: "asc" }],
+    select: {
+      id: true,
+      nome: true,
+      clienteRef: true,
+      clienteNome: true,
+      criativoUserId: true,
+      pastas: {
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, nome: true },
+      },
+    },
+  });
 
-    for (const prog of progsFiltradas) {
-      const row = board.rows.find((r) => r.programacaoId === prog.id);
-      if (row && row.pastasCount === 0) {
-        warnings.push(
-          `${cliente.clienteNome} · ${prog.nome} — sem pastas (crie na Central de programações).`,
-        );
-      }
-      if (prog.pastas.length === 0) continue;
+  for (const prog of progsComPastas) {
+    if (!programacaoOwnedByEmail(prog, sessionEmail)) continue;
 
-      for (const pasta of prog.pastas) {
-        const basePath = buildAtlFolderPath(cliente.clienteNome, prog.nome, pasta.nome);
-        const path = uniquePath(basePath, usedPaths);
-        pastas.push({
-          path,
-          clienteRef: cliente.clienteRef,
-          clienteNome: cliente.clienteNome,
-          programacaoId: prog.id,
-          programacaoNome: prog.nome,
-          pastaId: pasta.id,
-          pastaNome: pasta.nome,
-        });
+    const row = board.rows.find((r) => r.programacaoId === prog.id);
+    if (row && row.pastasCount === 0) {
+      warnings.push(
+        `${prog.clienteNome} · ${prog.nome} — sem pastas (crie na Central de programações).`,
+      );
+    }
+    if (prog.pastas.length === 0) continue;
 
-        const stat = clienteStats.get(cliente.clienteRef) ?? {
-          clienteNome: cliente.clienteNome,
-          programacoes: new Set<string>(),
-          pastas: 0,
-        };
-        stat.programacoes.add(prog.id);
-        stat.pastas += 1;
-        clienteStats.set(cliente.clienteRef, stat);
-      }
+    for (const pasta of prog.pastas) {
+      const basePath = buildAtlFolderPath(prog.clienteNome, prog.nome, pasta.nome);
+      const path = uniquePath(basePath, usedPaths);
+      pastas.push({
+        path,
+        clienteRef: prog.clienteRef,
+        clienteNome: prog.clienteNome,
+        programacaoId: prog.id,
+        programacaoNome: prog.nome,
+        pastaId: pasta.id,
+        pastaNome: pasta.nome,
+      });
+
+      const stat = clienteStats.get(prog.clienteRef) ?? {
+        clienteNome: prog.clienteNome,
+        programacoes: new Set<string>(),
+        pastas: 0,
+      };
+      stat.programacoes.add(prog.id);
+      stat.pastas += 1;
+      clienteStats.set(prog.clienteRef, stat);
     }
   }
 

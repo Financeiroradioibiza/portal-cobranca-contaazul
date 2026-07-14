@@ -174,14 +174,12 @@ function resolveClienteRefByFolderName(
 export async function previewAtlCricaImport(opts: {
   competencia?: string | null;
   sessionEmail: string;
-  isAdmin?: boolean;
   manifest?: AtlCricaExportManifest | null;
   files: AtlCricaImportFileInput[];
 }): Promise<AtlCricaImportPreview> {
   const board = await getAtlCricaBoard({
     competencia: opts.competencia,
     sessionEmail: opts.sessionEmail,
-    isAdmin: opts.isAdmin,
   });
   const progIdsAllowed = new Set(board.rows.map((r) => r.programacaoId));
   const clienteNomeByRef = new Map(board.clientes.map((c) => [c.clienteRef, c.clienteNome]));
@@ -191,7 +189,6 @@ export async function previewAtlCricaImport(opts: {
     manifest = await buildAtlCricaExportManifest({
       competencia: board.competencia,
       sessionEmail: opts.sessionEmail,
-      isAdmin: opts.isAdmin,
     });
   }
 

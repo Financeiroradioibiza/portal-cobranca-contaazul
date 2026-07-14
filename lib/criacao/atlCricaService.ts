@@ -9,6 +9,7 @@ import { listPainelCompetencia, type PainelRow } from "@/lib/criacao/atualizacao
 import { hasAtualizacaoPainelTable } from "@/lib/criacao/atualizacaoPainelSchemaCompat";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { ATL_CRICA_MIN_COMPETENCIA } from "@/lib/criacao/atlCricaConstants";
+import { programacaoOwnedByEmail } from "@/lib/criacao/programacaoOwnership";
 
 export type AtlCricaProgramacaoRow = PainelRow & {
   atualizacaoAberta: boolean;
@@ -92,7 +93,6 @@ function rollupCliente(rows: AtlCricaProgramacaoRow[]): AtlCricaClienteGroup[] {
 export async function getAtlCricaBoard(opts: {
   competencia?: string | null;
   sessionEmail: string;
-  isAdmin?: boolean;
 }): Promise<AtlCricaBoardPayload> {
   const competencia = resolveCompetencia(opts.competencia);
   const competenciaAtual = competenciaFromDate();
@@ -129,17 +129,9 @@ export async function getAtlCricaBoard(opts: {
   });
 
   const sessionEmail = normalizePortalEmail(opts.sessionEmail);
-  const filtered =
-    opts.isAdmin ?
-      rows
-    : rows.filter((r) => {
-        const uid = (r.criativoUserId ?? "").toLowerCase();
-        if (uid === sessionEmail) return true;
-        if (!uid && r.criativoNomeDb.toLowerCase().includes(sessionEmail.split("@")[0] ?? "")) {
-          return true;
-        }
-        return false;
-      });
+  const filtered = rows.filter((r) =>
+    programacaoOwnedByEmail({ criativoUserId: r.criativoUserId }, sessionEmail),
+  );
 
   return {
     ok: true,
@@ -148,7 +140,7 @@ export async function getAtlCricaBoard(opts: {
     competencias: competenciasDisponiveis(),
     migrationPendente,
     sessionEmail,
-    isAdmin: Boolean(opts.isAdmin),
+    isAdmin: false,
     clientes: rollupCliente(filtered),
     rows: filtered,
   };

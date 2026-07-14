@@ -5,6 +5,13 @@ export type AtualizacaoLogExportFaixa = {
   pastaNome: string;
 };
 
+export type AtualizacaoLogExportCronograma = {
+  agendamentoId: string;
+  alvoTipo: string;
+  alvoNome: string;
+  resumo: string;
+};
+
 export type AtualizacaoLogExportData = {
   rotuloLog: string;
   codigo: string;
@@ -17,6 +24,8 @@ export type AtualizacaoLogExportData = {
   diff: {
     entraram: AtualizacaoLogExportFaixa[];
     sairam: AtualizacaoLogExportFaixa[];
+    cronogramasEntraram?: AtualizacaoLogExportCronograma[];
+    cronogramasSairam?: AtualizacaoLogExportCronograma[];
   };
 };
 
@@ -34,10 +43,17 @@ function faixaLine(f: AtualizacaoLogExportFaixa): string {
   return `${pasta}${f.titulo}${artista}`;
 }
 
+function cronogramaLine(c: AtualizacaoLogExportCronograma): string {
+  const alvo = c.alvoTipo === "vinheta" ? "Vinheta" : "Pasta";
+  return `[${alvo}: ${c.alvoNome}] ${c.resumo}`;
+}
+
 /** Abre janela de impressão (Salvar como PDF) com logo Radio Ibiza e detalhes da atualização. */
 export function printAtualizacaoLogPdf(log: AtualizacaoLogExportData): void {
   const ent = log.diff?.entraram ?? [];
   const sai = log.diff?.sairam ?? [];
+  const cEnt = log.diff?.cronogramasEntraram ?? [];
+  const cSai = log.diff?.cronogramasSairam ?? [];
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -59,6 +75,9 @@ export function printAtualizacaoLogPdf(log: AtualizacaoLogExportData): void {
     .box h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 8px; }
     .ent h2 { color: #047857; }
     .sai h2 { color: #b91c1c; }
+    .cron-ent h2 { color: #0369a1; }
+    .cron-sai h2 { color: #b45309; }
+    .section { margin-top: 16px; }
     ul { margin: 0; padding-left: 16px; }
     li { margin-bottom: 3px; }
     @media print { body { padding: 16px; } }
@@ -82,14 +101,28 @@ export function printAtualizacaoLogPdf(log: AtualizacaoLogExportData): void {
   </div>
   <div class="grid">
     <div class="box ent">
-      <h2>Entraram (${ent.length})</h2>
+      <h2>Faixas entraram (${ent.length})</h2>
       ${ent.length ? `<ul>${ent.map((f) => `<li>${escapeHtml(faixaLine(f))}</li>`).join("")}</ul>` : "<p>—</p>"}
     </div>
     <div class="box sai">
-      <h2>Saíram (${sai.length})</h2>
+      <h2>Faixas saíram (${sai.length})</h2>
       ${sai.length ? `<ul>${sai.map((f) => `<li>${escapeHtml(faixaLine(f))}</li>`).join("")}</ul>` : "<p>—</p>"}
     </div>
   </div>
+  ${
+    cEnt.length + cSai.length > 0 ?
+      `<div class="grid section">
+    <div class="box cron-ent">
+      <h2>Cronogramas criados (${cEnt.length})</h2>
+      ${cEnt.length ? `<ul>${cEnt.map((c) => `<li>${escapeHtml(cronogramaLine(c))}</li>`).join("")}</ul>` : "<p>—</p>"}
+    </div>
+    <div class="box cron-sai">
+      <h2>Cronogramas apagados (${cSai.length})</h2>
+      ${cSai.length ? `<ul>${cSai.map((c) => `<li>${escapeHtml(cronogramaLine(c))}</li>`).join("")}</ul>` : "<p>—</p>"}
+    </div>
+  </div>`
+    : ""
+  }
 </body>
 </html>`;
 

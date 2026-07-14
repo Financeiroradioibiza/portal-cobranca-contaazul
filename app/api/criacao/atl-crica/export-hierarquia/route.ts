@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortalSession, isMasterRole, requirePortalSession } from "@/lib/auth/portalAccess";
+import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { buildAtlCricaExportManifest } from "@/lib/criacao/atlCricaHierarquiaService";
 
 export const runtime = "nodejs";
@@ -11,7 +11,6 @@ export async function GET(request: Request) {
     const manifest = await buildAtlCricaExportManifest({
       competencia,
       sessionEmail: session.email,
-      isAdmin: isMasterRole(session.roles),
     });
     return NextResponse.json(manifest);
   } catch (e) {

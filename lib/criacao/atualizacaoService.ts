@@ -14,13 +14,23 @@ export type FaixaLogItem = {
   pastaNome: string;
 };
 
+export type CronogramaLogItem = {
+  agendamentoId: string;
+  alvoTipo: string;
+  alvoNome: string;
+  resumo: string;
+};
+
 export type AtualizacaoDiff = {
   entraram: FaixaLogItem[];
   sairam: FaixaLogItem[];
+  cronogramasEntraram: CronogramaLogItem[];
+  cronogramasSairam: CronogramaLogItem[];
 };
 
 export type ProgramacaoSnapshot = {
   faixas: Record<string, FaixaLogItem>;
+  cronogramas: Record<string, CronogramaLogItem>;
 };
 
 export type AtualizacaoLogRow = {
@@ -143,17 +153,40 @@ export async function getFecharAtualizacaoInfo(
 }
 
 export async function buildProgramacaoSnapshot(programacaoId: string): Promise<ProgramacaoSnapshot> {
-  const pastas = await prisma.pasta.findMany({
-    where: { programacaoId },
-    select: {
-      nome: true,
-      musicas: {
-        select: {
-          musica: { select: { id: true, titulo: true, artista: true } },
+  const [pastas, ags, vinhetas] = await Promise.all([
+    prisma.pasta.findMany({
+      where: { programacaoId },
+      select: {
+        id: true,
+        nome: true,
+        musicas: {
+          select: {
+            musica: { select: { id: true, titulo: true, artista: true } },
+          },
         },
       },
-    },
-  });
+    }),
+    prisma.agendamento.findMany({
+      where: { programacaoId },
+      select: {
+        id: true,
+        alvoTipo: true,
+        alvoId: true,
+        diasSemana: true,
+        horaInicio: true,
+        horaFim: true,
+        dataInicio: true,
+        dataFim: true,
+        frequenciaMin: true,
+        frequenciaMusicas: true,
+        ativo: true,
+      },
+    }),
+    prisma.vinheta.findMany({
+      where: { programacaoId },
+      select: { id: true, nome: true },
+    }),
+  ]);
 
   const faixas: Record<string, FaixaLogItem> = {};
   for (const pasta of pastas) {
@@ -166,25 +199,110 @@ export async function buildProgramacaoSnapshot(programacaoId: string): Promise<P
       };
     }
   }
-  return { faixas };
+
+  const nomeAlvo = new Map<string, string>();
+  for (const p of pastas) nomeAlvo.set(`pasta:${p.id}`, p.nome);
+  for (const v of vinhetas) nomeAlvo.set(`vinheta:${v.id}`, v.nome);
+
+  const cronogramas: Record<string, CronogramaLogItem> = {};
+  for (const a of ags) {
+    const alvoNome = nomeAlvo.get(`${a.alvoTipo}:${a.alvoId}`) ?? "(removido)";
+    cronogramas[a.id] = {
+      agendamentoId: a.id,
+      alvoTipo: a.alvoTipo,
+      alvoNome,
+      resumo: formatCronogramaResumo(a),
+    };
+  }
+
+  return { faixas, cronogramas };
+}
+
+const DOW_CRON = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+function diasSemanaLabel(csv: string): string {
+  if (!csv.trim()) return "todos os dias";
+  return csv
+    .split(",")
+    .map((n) => DOW_CRON[Number(n.trim())] ?? "")
+    .filter(Boolean)
+    .join(", ");
+}
+
+function formatPeriodoCronograma(dataInicio: Date | null, dataFim: Date | null): string | null {
+  const ini = dataInicio ? dataInicio.toISOString().slice(0, 10) : null;
+  const fim = dataFim ? dataFim.toISOString().slice(0, 10) : null;
+  if (!ini && !fim) return null;
+  if (ini && !fim) return `desde ${ini} (sem fim)`;
+  if (!ini && fim) return `até ${fim}`;
+  return `${ini} → ${fim}`;
+}
+
+function formatCronogramaResumo(a: {
+  diasSemana: string;
+  horaInicio: string;
+  horaFim: string;
+  dataInicio: Date | null;
+  dataFim: Date | null;
+  frequenciaMin: number | null;
+  frequenciaMusicas: number | null;
+  ativo: boolean;
+}): string {
+  const parts = [diasSemanaLabel(a.diasSemana), `${a.horaInicio}–${a.horaFim}`];
+  const periodo = formatPeriodoCronograma(a.dataInicio, a.dataFim);
+  if (periodo) parts.push(periodo);
+  if (a.frequenciaMin) parts.push(`a cada ${a.frequenciaMin} min`);
+  if (a.frequenciaMusicas) {
+    parts.push(`a cada ${a.frequenciaMusicas} música${a.frequenciaMusicas === 1 ? "" : "s"}`);
+  }
+  if (!a.ativo) parts.push("pausado");
+  return parts.join(" · ");
 }
 
 function parseSnapshot(raw: Prisma.JsonValue | null): ProgramacaoSnapshot {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { faixas: {} };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { faixas: {}, cronogramas: {} };
   const faixasRaw = (raw as { faixas?: unknown }).faixas;
-  if (!faixasRaw || typeof faixasRaw !== "object" || Array.isArray(faixasRaw)) return { faixas: {} };
+  const cronRaw = (raw as { cronogramas?: unknown }).cronogramas;
   const faixas: Record<string, FaixaLogItem> = {};
-  for (const [id, v] of Object.entries(faixasRaw as Record<string, unknown>)) {
-    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
-    const o = v as Record<string, unknown>;
-    faixas[id] = {
-      musicaId: id,
-      titulo: String(o.titulo ?? ""),
-      artista: String(o.artista ?? ""),
-      pastaNome: String(o.pastaNome ?? ""),
-    };
+  if (faixasRaw && typeof faixasRaw === "object" && !Array.isArray(faixasRaw)) {
+    for (const [id, v] of Object.entries(faixasRaw as Record<string, unknown>)) {
+      if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+      const o = v as Record<string, unknown>;
+      faixas[id] = {
+        musicaId: id,
+        titulo: String(o.titulo ?? ""),
+        artista: String(o.artista ?? ""),
+        pastaNome: String(o.pastaNome ?? ""),
+      };
+    }
   }
-  return { faixas };
+  const cronogramas: Record<string, CronogramaLogItem> = {};
+  if (cronRaw && typeof cronRaw === "object" && !Array.isArray(cronRaw)) {
+    for (const [id, v] of Object.entries(cronRaw as Record<string, unknown>)) {
+      if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+      const o = v as Record<string, unknown>;
+      cronogramas[id] = {
+        agendamentoId: String(o.agendamentoId ?? id),
+        alvoTipo: String(o.alvoTipo ?? ""),
+        alvoNome: String(o.alvoNome ?? ""),
+        resumo: String(o.resumo ?? ""),
+      };
+    }
+  }
+  return { faixas, cronogramas };
+}
+
+function cronogramaFingerprint(c: CronogramaLogItem): string {
+  return `${c.alvoTipo}:${c.alvoNome}:${c.resumo}`;
+}
+
+function sortCronogramas(xs: CronogramaLogItem[]): CronogramaLogItem[] {
+  return [...xs].sort(
+    (a, b) =>
+      a.alvoNome.localeCompare(b.alvoNome) ||
+      a.alvoTipo.localeCompare(b.alvoTipo) ||
+      a.resumo.localeCompare(b.resumo),
+  );
 }
 
 export function computeAtualizacaoDiff(
@@ -205,7 +323,31 @@ export function computeAtualizacaoDiff(
 
   entraram.sort((a, b) => a.pastaNome.localeCompare(b.pastaNome) || a.titulo.localeCompare(b.titulo));
   sairam.sort((a, b) => a.pastaNome.localeCompare(b.pastaNome) || a.titulo.localeCompare(b.titulo));
-  return { entraram, sairam };
+
+  const prevCron = anterior?.cronogramas ?? {};
+  const currCron = atual.cronogramas ?? {};
+  const cronogramasEntraram: CronogramaLogItem[] = [];
+  const cronogramasSairam: CronogramaLogItem[] = [];
+
+  for (const [id, c] of Object.entries(currCron)) {
+    const old = prevCron[id];
+    if (!old) {
+      cronogramasEntraram.push(c);
+    } else if (cronogramaFingerprint(old) !== cronogramaFingerprint(c)) {
+      cronogramasSairam.push(old);
+      cronogramasEntraram.push(c);
+    }
+  }
+  for (const [id, c] of Object.entries(prevCron)) {
+    if (!currCron[id]) cronogramasSairam.push(c);
+  }
+
+  return {
+    entraram,
+    sairam,
+    cronogramasEntraram: sortCronogramas(cronogramasEntraram),
+    cronogramasSairam: sortCronogramas(cronogramasSairam),
+  };
 }
 
 function resolveSubida(
@@ -261,6 +403,8 @@ export async function listAtualizacoesLog(programacaoId: string): Promise<Atuali
       diff: {
         entraram: Array.isArray(diff?.entraram) ? diff.entraram : [],
         sairam: Array.isArray(diff?.sairam) ? diff.sairam : [],
+        cronogramasEntraram: Array.isArray(diff?.cronogramasEntraram) ? diff.cronogramasEntraram : [],
+        cronogramasSairam: Array.isArray(diff?.cronogramasSairam) ? diff.cronogramasSairam : [],
       },
       musicasPublicadas: r.musicasPublicadas,
       playlistsPublicadas: r.playlistsPublicadas,
