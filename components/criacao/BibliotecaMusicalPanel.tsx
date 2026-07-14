@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 import { LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
@@ -83,9 +83,10 @@ export type BibliotecaMusicalPanelProps = {
   onViewModeChange?: (mode: ViewMode) => void;
   dragMusicaEnabled?: boolean;
   selectedIds?: Set<string>;
-  onToggleSelect?: (id: string, shiftKey: boolean) => void;
+  onToggleSelect?: (id: string, shiftKey: boolean, metaKey?: boolean) => void;
   onMusicasLoaded?: (ids: string[]) => void;
   refreshToken?: number;
+  removePatch?: { token: number; ids: string[] } | null;
 };
 
 function emptyFolderCopy(kind: BibliotecaMusicalPanelProps["folderKind"]): {
@@ -116,6 +117,15 @@ function emptyFolderCopy(kind: BibliotecaMusicalPanelProps["folderKind"]): {
   };
 }
 
+function rowSelectFromEvent(
+  onToggleSelect: (id: string, shiftKey: boolean, metaKey?: boolean) => void,
+  id: string,
+  e: MouseEvent,
+) {
+  if ((e.target as HTMLElement).closest("button, input, a, label")) return;
+  onToggleSelect(id, e.shiftKey, e.metaKey || e.ctrlKey);
+}
+
 function slimRowGridClass(hasSelect: boolean, hasDrag: boolean): string {
   if (hasSelect && hasDrag) {
     return "grid-cols-[1.5rem_1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
@@ -141,6 +151,7 @@ export function BibliotecaMusicalPanel({
   onToggleSelect,
   onMusicasLoaded,
   refreshToken = 0,
+  removePatch = null,
 }: BibliotecaMusicalPanelProps = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -232,6 +243,17 @@ export function BibliotecaMusicalPanel({
   useEffect(() => {
     if (refreshToken > 0) void load({ silent: true });
   }, [refreshToken, load]);
+
+  useEffect(() => {
+    if (!removePatch?.ids.length) return;
+    const removed = new Set(removePatch.ids);
+    setMusicas((prev) => {
+      const next = prev.filter((m) => !removed.has(m.id));
+      onMusicasLoaded?.(next.map((m) => m.id));
+      return next;
+    });
+    setTotal((t) => Math.max(0, t - removePatch.ids.length));
+  }, [removePatch?.token, removePatch?.ids, onMusicasLoaded]);
 
   const patchMusica = useCallback(async (musicaId: string) => {
     try {
@@ -754,23 +776,30 @@ export function BibliotecaMusicalPanel({
                 {musicas.map((m) => (
                   <li
                     key={m.id}
-                    className={`grid items-center gap-2 px-3 py-1 ${slimRowGridClass(!!onToggleSelect, dragMusicaEnabled)} ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}
+                    onClick={(e) => {
+                      if (onToggleSelect) rowSelectFromEvent(onToggleSelect, m.id, e);
+                    }}
+                    className={`grid items-center gap-2 px-3 py-1 ${slimRowGridClass(!!onToggleSelect, dragMusicaEnabled)} ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""} ${onToggleSelect ? "cursor-pointer select-none" : ""}`}
                   >
                     {onToggleSelect ?
                       <input
                         type="checkbox"
                         checked={selectedIds?.has(m.id) ?? false}
-                        onChange={() => onToggleSelect(m.id, false)}
+                        readOnly
                         onClick={(e) => {
                           e.stopPropagation();
-                          onToggleSelect(m.id, e.shiftKey);
+                          onToggleSelect(m.id, e.shiftKey, true);
                         }}
-                        className="h-4 w-4 rounded border-slate-300"
+                        className="h-4 w-4 cursor-pointer rounded border-slate-300"
                         aria-label={`Selecionar ${m.titulo}`}
                       />
                     : null}
                     {dragMusicaEnabled ?
-                      <BibliotecaMusicaDragGrip musicaId={m.id} titulo={m.titulo || "(sem título)"} />
+                      <BibliotecaMusicaDragGrip
+                        musicaId={m.id}
+                        titulo={m.titulo || "(sem título)"}
+                        selectedIds={selectedIds}
+                      />
                     : null}
                     {m.previewUrl ?
                       <MusicaPreviewButton
@@ -843,14 +872,21 @@ export function BibliotecaMusicalPanel({
             {musicas.map((m) => (
               <li
                 key={m.id}
+                onClick={(e) => {
+                  if (onToggleSelect) rowSelectFromEvent(onToggleSelect, m.id, e);
+                }}
                 className={`grid gap-3 px-4 py-3 lg:items-center ${
                   dragMusicaEnabled ?
                     "lg:grid-cols-[1.25rem_40px_1fr_1.6fr_48px_120px_60px_60px]"
                   : "lg:grid-cols-[40px_1fr_1.6fr_48px_120px_60px_60px]"
-                } ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}
+                } ${selectedIds?.has(m.id) ? "bg-violet-50 dark:bg-violet-950/30" : ""} ${onToggleSelect ? "cursor-pointer select-none" : ""}`}
               >
                 {dragMusicaEnabled ?
-                  <BibliotecaMusicaDragGrip musicaId={m.id} titulo={m.titulo || "(sem título)"} />
+                  <BibliotecaMusicaDragGrip
+                    musicaId={m.id}
+                    titulo={m.titulo || "(sem título)"}
+                    selectedIds={selectedIds}
+                  />
                 : null}
                 {m.previewUrl ?
                   <MusicaPreviewButton

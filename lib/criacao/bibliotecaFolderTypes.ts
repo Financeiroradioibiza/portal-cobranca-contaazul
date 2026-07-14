@@ -59,11 +59,21 @@ export function parseMusicaDragId(id: string): string | null {
   return musicaId.trim() ? musicaId : null;
 }
 
+export type BibliotecaMusicaDragData = {
+  musicaId?: string;
+  titulo?: string;
+  musicaIds?: string[];
+};
+
 /** Spotify-like: arrastar faixa selecionada leva o lote inteiro. */
 export function resolveMusicaIdsFromDrag(
   activeId: string | number,
+  dragData: BibliotecaMusicaDragData | undefined,
   selectedIds: Set<string>,
 ): string[] {
+  if (Array.isArray(dragData?.musicaIds) && dragData.musicaIds.length > 0) {
+    return dragData.musicaIds;
+  }
   if (activeId === BIBLIOTECA_DRAG_MUSICAS) {
     return Array.from(selectedIds);
   }
@@ -73,4 +83,11 @@ export function resolveMusicaIdsFromDrag(
     return Array.from(selectedIds);
   }
   return [one];
+}
+
+export function musicaIdsForDrag(musicaId: string, selectedIds: Set<string> | undefined): string[] {
+  if (selectedIds?.has(musicaId) && selectedIds.size > 1) {
+    return Array.from(selectedIds);
+  }
+  return [musicaId];
 }

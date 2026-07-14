@@ -1,18 +1,26 @@
 "use client";
 
+import { useMemo } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { musicaDragId } from "@/lib/criacao/bibliotecaFolderTypes";
+import { musicaDragId, musicaIdsForDrag } from "@/lib/criacao/bibliotecaFolderTypes";
 
 export function BibliotecaMusicaDragGrip({
   musicaId,
   titulo,
+  selectedIds,
 }: {
   musicaId: string;
   titulo: string;
+  selectedIds?: Set<string>;
 }) {
+  const musicaIds = useMemo(
+    () => musicaIdsForDrag(musicaId, selectedIds),
+    [musicaId, selectedIds],
+  );
+
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: musicaDragId(musicaId),
-    data: { musicaId, titulo },
+    data: { musicaId, titulo, musicaIds },
   });
 
   return (

@@ -20,20 +20,23 @@ import {
   parseFolderDropTargetId,
   resolveMusicaIdsFromDrag,
   type BibliotecaFolderKey,
+  type BibliotecaMusicaDragData,
 } from "@/lib/criacao/bibliotecaFolderTypes";
 import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaService";
 
 function SelectionDragHandle({
   count,
   label,
+  musicaIds,
 }: {
   count: number;
   label: string;
+  musicaIds: string[];
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: BIBLIOTECA_DRAG_MUSICAS,
     disabled: count === 0,
-    data: { count },
+    data: { count, musicaIds },
   });
 
   if (count === 0) return null;
@@ -61,31 +64,40 @@ export function BibliotecaMusicalShell() {
   const [viewMode, setViewMode] = useState<ViewMode>("slim");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
-  const [sidebarKey, setSidebarKey] = useState(0);
+  const [sidebarRefresh, setSidebarRefresh] = useState(0);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [panelRefresh, setPanelRefresh] = useState(0);
+  const [removePatch, setRemovePatch] = useState<{ token: number; ids: string[] } | null>(null);
   const [dragOverlayLabel, setDragOverlayLabel] = useState<string | null>(null);
+  const [moveToast, setMoveToast] = useState<string | null>(null);
   const musicasOrderRef = useRef<string[]>([]);
+  const panelScrollRef = useRef<HTMLDivElement>(null);
+  const panelScrollTopRef = useRef(0);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const onToggleSelect = useCallback(
-    (id: string, shiftKey: boolean) => {
+    (id: string, shiftKey: boolean, metaKey = false) => {
       setSelectedIds((prev) => {
-        const next = new Set(prev);
         if (shiftKey && anchorId && musicasOrderRef.current.length > 0) {
           const order = musicasOrderRef.current;
           const a = order.indexOf(anchorId);
           const b = order.indexOf(id);
           if (a >= 0 && b >= 0) {
+            const next = metaKey ? new Set(prev) : new Set<string>();
             const [lo, hi] = a < b ? [a, b] : [b, a];
             for (let i = lo; i <= hi; i++) next.add(order[i]);
             return next;
           }
         }
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
+        if (metaKey) {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        }
+        if (prev.size === 1 && prev.has(id)) return new Set();
+        return new Set([id]);
       });
       setAnchorId(id);
     },
@@ -110,10 +122,24 @@ export function BibliotecaMusicalShell() {
     async (ev: DragEndEvent) => {
       setDragOverlayLabel(null);
       const paraId = parseFolderDropTargetId(String(ev.over?.id ?? ""));
-      const ids = resolveMusicaIdsFromDrag(ev.active.id, selectedIds);
+      const dragData = ev.active.data.current as BibliotecaMusicaDragData | undefined;
+      const ids = resolveMusicaIdsFromDrag(ev.active.id, dragData, selectedIds);
       if (!paraId || ids.length === 0) return;
 
       const dePastaId = folder.kind === "custom" ? folder.id : null;
+      panelScrollTopRef.current = panelScrollRef.current?.scrollTop ?? 0;
+
+      setSelectedIds(new Set());
+      setSidebarRefresh((k) => k + 1);
+      if (dePastaId && dePastaId !== paraId) {
+        setRemovePatch({ token: Date.now(), ids });
+      }
+      setMoveToast(
+        ids.length === 1 ?
+          "Faixa adicionada à pasta"
+        : `${ids.length} faixas adicionadas à pasta`,
+      );
+
       try {
         const res = await fetch("/api/criacao/biblioteca/pastas/move", {
           method: "POST",
@@ -125,27 +151,41 @@ export function BibliotecaMusicalShell() {
           }),
         });
         if (!res.ok) throw new Error();
-        setSelectedIds(new Set());
-        setSidebarKey((k) => k + 1);
-        setPanelRefresh((k) => k + 1);
       } catch {
+        setMoveToast(null);
+        setPanelRefresh((k) => k + 1);
+        setSidebarRefresh((k) => k + 1);
         window.alert("Não foi possível adicionar as faixas na pasta.");
       }
     },
     [folder, selectedIds],
   );
 
+  useEffect(() => {
+    if (!moveToast) return;
+    const t = setTimeout(() => setMoveToast(null), 2200);
+    return () => clearTimeout(t);
+  }, [moveToast]);
+
+  useEffect(() => {
+    if (removePatch == null) return;
+    requestAnimationFrame(() => {
+      if (panelScrollRef.current) {
+        panelScrollRef.current.scrollTop = panelScrollTopRef.current;
+      }
+    });
+  }, [removePatch?.token]);
+
   const onDragStart = useCallback(
     (ev: DragStartEvent) => {
-      if (ev.active.id === BIBLIOTECA_DRAG_MUSICAS) {
-        setDragOverlayLabel(`${selectedIds.size} faixa${selectedIds.size === 1 ? "" : "s"}`);
+      const dragData = ev.active.data.current as BibliotecaMusicaDragData | undefined;
+      const ids = resolveMusicaIdsFromDrag(ev.active.id, dragData, selectedIds);
+      if (ev.active.id === BIBLIOTECA_DRAG_MUSICAS || ids.length > 1) {
+        setDragOverlayLabel(`${ids.length} faixa${ids.length === 1 ? "" : "s"}`);
         return;
       }
-      const ids = resolveMusicaIdsFromDrag(ev.active.id, selectedIds);
-      const titulo = (ev.active.data.current as { titulo?: string } | undefined)?.titulo?.trim();
-      setDragOverlayLabel(
-        ids.length > 1 ? `${ids.length} faixas` : titulo || "1 faixa",
-      );
+      const titulo = dragData?.titulo?.trim();
+      setDragOverlayLabel(titulo || "1 faixa");
     },
     [selectedIds],
   );
@@ -165,13 +205,13 @@ export function BibliotecaMusicalShell() {
     >
       <div className="flex h-[calc(100vh-4rem)] min-h-[480px] overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <BibliotecaSidebar
-          key={sidebarKey}
           active={folder}
+          refreshToken={sidebarRefresh}
           onSelect={(f) => {
             setFolder(f);
             setSelectedIds(new Set());
           }}
-          onPastasChange={() => setSidebarKey((k) => k + 1)}
+          onPastasChange={() => setSidebarRefresh((k) => k + 1)}
         />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
@@ -187,6 +227,10 @@ export function BibliotecaMusicalShell() {
               {(folder.kind === "prog" || folder.kind === "especial") ?
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">
                   Somente leitura — selecione e copie para pastas custom ou programação
+                </p>
+              : folder.kind !== "custom" ?
+                <p className="text-[10px] text-slate-400">
+                  Clique na faixa para selecionar · Shift+clique intervalo · ⌘/Ctrl+A todas
                 </p>
               : null}
             </div>
@@ -218,7 +262,11 @@ export function BibliotecaMusicalShell() {
                 Slim
               </button>
             </div>
-            <SelectionDragHandle count={selectedIds.size} label={folder.label} />
+            <SelectionDragHandle
+              count={selectedIds.size}
+              label={folder.label}
+              musicaIds={Array.from(selectedIds)}
+            />
             {selectedIds.size > 0 ?
               <>
                 <button
@@ -238,7 +286,7 @@ export function BibliotecaMusicalShell() {
               </>
             : null}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div ref={panelScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4">
             <BibliotecaMusicalPanel
               sidebarMode
               folderFilter={folderKeyToQuery(folder)}
@@ -248,15 +296,22 @@ export function BibliotecaMusicalShell() {
               onViewModeChange={setViewMode}
               dragMusicaEnabled
               selectedIds={selectedIds}
-              onToggleSelect={onToggleSelect}
+              onToggleSelect={(id, shiftKey, metaKey) => onToggleSelect(id, shiftKey, metaKey)}
               onMusicasLoaded={(ids) => {
                 musicasOrderRef.current = ids;
               }}
               refreshToken={panelRefresh}
+              removePatch={removePatch}
             />
           </div>
         </div>
       </div>
+
+      {moveToast ?
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-lg dark:bg-slate-100 dark:text-slate-900">
+          {moveToast}
+        </div>
+      : null}
 
       <DragOverlay>
         {dragOverlayLabel ?

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   iconeBibliotecaPastaEmoji,
@@ -94,33 +94,44 @@ export function BibliotecaSidebar({
   active,
   onSelect,
   onPastasChange,
+  refreshToken = 0,
 }: {
   active: BibliotecaFolderKey;
   onSelect: (f: BibliotecaFolderKey) => void;
   onPastasChange?: () => void;
+  refreshToken?: number;
 }) {
   const [tree, setTree] = useState<BibliotecaSidebarTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [progOpen, setProgOpen] = useState<Record<string, boolean>>({});
   const [criando, setCriando] = useState(false);
   const [novoNome, setNovoNome] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const scrollTop = scrollRef.current?.scrollTop ?? 0;
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await fetch("/api/criacao/biblioteca/sidebar");
       if (!res.ok) throw new Error();
       setTree((await res.json()) as BibliotecaSidebarTree);
     } catch {
-      setTree(null);
+      if (!opts?.silent) setTree(null);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
+      requestAnimationFrame(() => {
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollTop;
+      });
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (refreshToken > 0) void load({ silent: true });
+  }, [refreshToken, load]);
 
   async function criarPasta() {
     const nome = novoNome.trim();
@@ -164,7 +175,7 @@ export function BibliotecaSidebar({
 
   return (
     <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/50">
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
         <SidebarItem
           active={isActive({ kind: "all", label: "Biblioteca" })}
           label="Biblioteca"
