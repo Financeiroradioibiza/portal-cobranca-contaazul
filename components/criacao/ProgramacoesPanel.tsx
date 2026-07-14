@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddMusicasBibliotecaModal } from "@/components/criacao/AddMusicasBibliotecaModal";
 import { EscolherPastaEspecialModal } from "@/components/criacao/EscolherPastaEspecialModal";
+import { EscolherBibliotecaPastaModal } from "@/components/criacao/EscolherBibliotecaPastaModal";
 import { FecharAtualizacaoModal, ProgramacoesAdminPanel } from "@/components/criacao/ProgramacoesAdminPanel";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
@@ -121,6 +122,9 @@ function ProgramacaoEditor({
   const [novaPastaSelecionavel, setNovaPastaSelecionavel] = useState(false);
   const [addTo, setAddTo] = useState<PastaView | null>(null);
   const [showEspecial, setShowEspecial] = useState(false);
+  const [customModal, setCustomModal] = useState<
+    { kind: "new-pasta" } | { kind: "add-to-pasta"; pasta: PastaView } | null
+  >(null);
   const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
   /** Faixas adicionadas nesta sessão do editor — destaque até fechar a programação. */
   const [sessionAddedIds, setSessionAddedIds] = useState<Set<string>>(() => new Set());
@@ -299,6 +303,69 @@ function ProgramacaoEditor({
       );
     }
     setShowEspecial(false);
+    await load();
+  }
+
+  function trackSessionAdded(ids: string[]) {
+    if (ids.length === 0) return;
+    setSessionAddedIds((prev) => {
+      const next = new Set(prev);
+      for (const mid of ids) next.add(mid);
+      return next;
+    });
+  }
+
+  async function addPastaFromCustom(bibliotecaPastaId: string) {
+    await registrarEdicao();
+    const res = await fetch(`/api/criacao/programacoes/${id}/pastas-from-custom`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bibliotecaPastaId }),
+    });
+    if (!res.ok) {
+      alert("Não foi possível copiar a pasta custom.");
+      return;
+    }
+    const data = (await res.json()) as {
+      added?: number;
+      skipped?: number;
+      addedMusicaIds?: string[];
+    };
+    trackSessionAdded(data.addedMusicaIds ?? []);
+    if ((data.skipped ?? 0) > 0) {
+      alert(
+        `Pasta criada com ${data.added ?? 0} faixa(s). ${data.skipped} faixa(s) já estavam em outra pasta desta programação.`,
+      );
+    }
+    setCustomModal(null);
+    await load();
+  }
+
+  async function addCustomToPasta(pasta: PastaView, bibliotecaPastaId: string) {
+    await registrarEdicao();
+    const res = await fetch(`/api/criacao/pastas/${pasta.id}/musicas-from-custom`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bibliotecaPastaId }),
+    });
+    if (!res.ok) {
+      alert("Não foi possível adicionar as faixas da pasta custom.");
+      return;
+    }
+    const data = (await res.json()) as {
+      added?: number;
+      skipped?: number;
+      addedMusicaIds?: string[];
+    };
+    trackSessionAdded(data.addedMusicaIds ?? []);
+    if ((data.skipped ?? 0) > 0) {
+      alert(
+        `${data.added ?? 0} faixa(s) adicionada(s). ${data.skipped} já estavam em outra pasta desta programação.`,
+      );
+    } else if ((data.added ?? 0) === 0) {
+      alert("Nenhuma faixa nova — todas já estavam nesta programação ou a pasta custom está vazia.");
+    }
+    setCustomModal(null);
     await load();
   }
 
@@ -518,6 +585,13 @@ function ProgramacaoEditor({
         >
           + Especial
         </button>
+        <button
+          type="button"
+          onClick={() => setCustomModal({ kind: "new-pasta" })}
+          className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+        >
+          + Custom
+        </button>
       </div>
 
       {prog.pastas.length === 0 ?
@@ -632,6 +706,13 @@ function ProgramacaoEditor({
                   </button>
                   <button
                     type="button"
+                    onClick={() => setCustomModal({ kind: "add-to-pasta", pasta })}
+                    className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    + Custom
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void delPasta(pasta.id)}
                     className="rounded px-2 py-1 text-xs text-slate-400 hover:text-red-600"
                     title="Excluir pasta"
@@ -644,7 +725,7 @@ function ProgramacaoEditor({
               {isOpen ?
                 pasta.musicas.length === 0 ?
                   <div className="px-4 py-6 text-center text-xs text-slate-400">
-                    Pasta vazia — clique em “+ Músicas” para adicionar da biblioteca.
+                    Pasta vazia — use “+ Músicas” ou “+ Custom” para adicionar faixas.
                   </div>
                 : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                     {musicas.map((m, idx) => {
@@ -768,6 +849,27 @@ function ProgramacaoEditor({
         <EscolherPastaEspecialModal
           onClose={() => setShowEspecial(false)}
           onSelect={addPastaFromEspecial}
+        />
+      : null}
+
+      {customModal ?
+        <EscolherBibliotecaPastaModal
+          title={
+            customModal.kind === "new-pasta" ?
+              "+ Custom — nova pasta"
+            : `+ Custom → “${customModal.pasta.nome}”`
+          }
+          subtitle={
+            customModal.kind === "new-pasta" ?
+              "Cria uma pasta na programação com o nome e as faixas da pasta custom escolhida."
+            : "Adiciona todas as faixas da pasta custom escolhida nesta pasta da programação."
+          }
+          onClose={() => setCustomModal(null)}
+          onSelect={(bibliotecaPastaId) =>
+            customModal.kind === "new-pasta" ?
+              addPastaFromCustom(bibliotecaPastaId)
+            : addCustomToPasta(customModal.pasta, bibliotecaPastaId)
+          }
         />
       : null}
     </>

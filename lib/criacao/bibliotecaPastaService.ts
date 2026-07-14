@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { assignTag, createTag } from "@/lib/criacao/tagService";
+import { addMusicasToPasta, createPasta } from "@/lib/criacao/programacaoService";
 import { resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { pickDefaultTagCor } from "@/lib/config/portalUserService";
 
@@ -245,6 +246,91 @@ export async function copyMusicasParaBibliotecaPastaFromSource(input: {
   musicaIds: string[];
 }): Promise<{ added: number }> {
   return addMusicasToBibliotecaPasta(input.paraPastaId, input.musicaIds);
+}
+
+async function musicaIdsFromBibliotecaPasta(bibliotecaPastaId: string): Promise<string[]> {
+  const bib = await prisma.bibliotecaPasta.findUnique({
+    where: { id: bibliotecaPastaId },
+    include: { musicas: { orderBy: { sortOrder: "asc" }, select: { musicaId: true } } },
+  });
+  if (!bib) throw new Error("pasta_nao_encontrada");
+  return bib.musicas.map((m) => m.musicaId);
+}
+
+/** Adiciona todas as faixas de uma pasta custom da biblioteca a uma pasta da programação. */
+export async function addMusicasFromBibliotecaPastaToProgramacaoPasta(
+  pastaProgramacaoId: string,
+  bibliotecaPastaId: string,
+): Promise<{ added: number; skipped: number; addedMusicaIds: string[] }> {
+  const musicaIds = await musicaIdsFromBibliotecaPasta(bibliotecaPastaId);
+  if (musicaIds.length === 0) return { added: 0, skipped: 0, addedMusicaIds: [] };
+
+  const pasta = await prisma.pasta.findUnique({
+    where: { id: pastaProgramacaoId },
+    select: { programacaoId: true },
+  });
+  if (!pasta) throw new Error("pasta_programacao_nao_encontrada");
+
+  const existentesNaProgramacao = await prisma.pastaMusica.findMany({
+    where: {
+      musicaId: { in: musicaIds },
+      pasta: { programacaoId: pasta.programacaoId },
+    },
+    select: { musicaId: true },
+  });
+  const jaTem = new Set(existentesNaProgramacao.map((e) => e.musicaId));
+  const validas = await prisma.musicaBiblioteca.findMany({
+    where: { id: { in: musicaIds } },
+    select: { id: true },
+  });
+  const validSet = new Set(validas.map((v) => v.id));
+  const novos = musicaIds.filter((id) => validSet.has(id) && !jaTem.has(id));
+  const added = await addMusicasToPasta(pastaProgramacaoId, musicaIds);
+  return {
+    added,
+    skipped: musicaIds.length - added,
+    addedMusicaIds: novos,
+  };
+}
+
+/** Cria pasta na programação copiando nome e faixas de uma pasta custom da biblioteca. */
+export async function createPastaFromBibliotecaCustom(
+  programacaoId: string,
+  bibliotecaPastaId: string,
+): Promise<{ pastaId: string; added: number; skipped: number; addedMusicaIds: string[] }> {
+  const bib = await prisma.bibliotecaPasta.findUnique({
+    where: { id: bibliotecaPastaId },
+    include: { musicas: { orderBy: { sortOrder: "asc" }, select: { musicaId: true } } },
+  });
+  if (!bib) throw new Error("pasta_nao_encontrada");
+
+  const pasta = await createPasta(programacaoId, { nome: bib.nome });
+  const musicaIds = bib.musicas.map((m) => m.musicaId);
+  if (musicaIds.length === 0) {
+    return { pastaId: pasta.id, added: 0, skipped: 0, addedMusicaIds: [] };
+  }
+
+  const existentesNaProgramacao = await prisma.pastaMusica.findMany({
+    where: {
+      musicaId: { in: musicaIds },
+      pasta: { programacaoId },
+    },
+    select: { musicaId: true },
+  });
+  const jaTem = new Set(existentesNaProgramacao.map((e) => e.musicaId));
+  const validas = await prisma.musicaBiblioteca.findMany({
+    where: { id: { in: musicaIds } },
+    select: { id: true },
+  });
+  const validSet = new Set(validas.map((v) => v.id));
+  const novos = musicaIds.filter((id) => validSet.has(id) && !jaTem.has(id));
+  const added = await addMusicasToPasta(pasta.id, musicaIds);
+  return {
+    pastaId: pasta.id,
+    added,
+    skipped: musicaIds.length - added,
+    addedMusicaIds: novos,
+  };
 }
 
 export const BIBLIOTECA_PASTA_ICONES = [...ICONES_VALIDOS];
