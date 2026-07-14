@@ -793,6 +793,7 @@ function PdvProgramacaoColumn({
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         hint?: string;
+        gatewaySyncDeferred?: boolean;
         pdvs?: PdvProgramacaoRow[];
         programacoes?: ProgOption[];
       };
@@ -803,6 +804,9 @@ function PdvProgramacaoColumn({
       }
       setPdvs(data.pdvs ?? []);
       setProgramacoes(data.programacoes ?? []);
+      if (data.gatewaySyncDeferred && data.hint) {
+        setError(data.hint);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao salvar.");
     } finally {

@@ -109,7 +109,18 @@ export async function PATCH(request: Request, ctx: Ctx) {
     }
 
     const payload = await getClientePdvProgramacoes(clienteRef);
-    return NextResponse.json({ ok: true, gatewaySync, ...payload });
+    return NextResponse.json({
+      ok: true,
+      gatewaySync,
+      gatewaySyncDeferred: deferGatewayVerify,
+      ...(deferGatewayVerify ?
+        {
+          hint:
+            "Programação destino ainda não publicada — amarração ficou só no portal até o primeiro disparo.",
+        }
+      : {}),
+      ...payload,
+    });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";

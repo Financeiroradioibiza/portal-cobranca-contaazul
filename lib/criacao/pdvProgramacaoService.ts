@@ -226,21 +226,22 @@ export async function syncRegistryAfterPdvAssignment(
 }
 
 /**
- * Amarração em rascunho ou com atualização aberta fica só no portal;
- * sync/verify no gateway ocorre no disparo (Fechar atualização).
+ * Só adia sync no gateway quando a programação **destino** nunca foi publicada
+ * (rascunho sem snapshot no cloud2). ATL aberta ou programação anterior com
+ * atualização aberta **não** bloqueiam troca de PDV — senão o player fica preso
+ * na programação antiga do gateway.
  */
 export async function shouldDeferGatewayVerifyOnPdvAssignment(
   programacaoId: string | null,
-  previousProgramacaoId: string | null,
+  _previousProgramacaoId: string | null,
 ): Promise<boolean> {
-  const ids = [...new Set([programacaoId, previousProgramacaoId].filter(Boolean))] as string[];
-  if (ids.length === 0) return true;
+  if (!programacaoId) return false;
 
-  const progs = await prisma.programacao.findMany({
-    where: { id: { in: ids } },
-    select: { publicada: true, atualizacaoAbertaEm: true },
+  const prog = await prisma.programacao.findUnique({
+    where: { id: programacaoId },
+    select: { publicada: true },
   });
-  if (progs.length === 0) return true;
+  if (!prog) return true;
 
-  return progs.some((p) => !p.publicada || p.atualizacaoAbertaEm != null);
+  return !prog.publicada;
 }
