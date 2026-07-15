@@ -12,6 +12,7 @@ import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
 import { userHasRole } from "@/lib/auth/roles";
+import { isFluxoRafaelAdmin } from "@/lib/financeiro/fluxoRafaelAccess";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -106,6 +107,16 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/config")
   ) {
     if (!userHasRole(session.roles, "master")) {
+      return portalAccessDenied(request);
+    }
+  }
+
+  if (
+    pathname.startsWith("/financeiro/fluxo-rafael") ||
+    pathname.startsWith("/api/financeiro/fluxo-rafael") ||
+    pathname.startsWith("/fluxo-rafael/")
+  ) {
+    if (!isFluxoRafaelAdmin(session)) {
       return portalAccessDenied(request);
     }
   }

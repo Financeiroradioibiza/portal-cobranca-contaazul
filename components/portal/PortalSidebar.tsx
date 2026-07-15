@@ -21,9 +21,12 @@ export function PortalSidebar() {
   const router = useRouter();
   const moduleId = resolvePortalModule(pathname);
   const menu = PORTAL_SIDEBARS[moduleId];
-  const [session, setSession] = useState<{ displayName: string; email: string; isMaster: boolean } | null>(
-    null,
-  );
+  const [session, setSession] = useState<{
+    displayName: string;
+    email: string;
+    isMaster: boolean;
+    fluxoRafaelAdmin: boolean;
+  } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [atlCadastrosPendentes, setAtlCadastrosPendentes] = useState(0);
 
@@ -37,6 +40,7 @@ export function PortalSidebar() {
             email: data.email,
             displayName: data.displayName ?? data.email,
             isMaster: Boolean(data.isMaster),
+            fluxoRafaelAdmin: Boolean(data.fluxoRafaelAdmin),
           });
         }
       })
@@ -94,7 +98,9 @@ export function PortalSidebar() {
         }
       >
         <div className="portal-sidebar-heading">{menu.section}</div>
-        {menu.items.map((item, idx) => {
+        {menu.items
+          .filter((item) => !item.fluxoRafaelOnly || session?.fluxoRafaelAdmin)
+          .map((item, idx) => {
           if (item.separator) {
             return (
               <div

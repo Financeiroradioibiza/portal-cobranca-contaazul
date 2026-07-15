@@ -64,6 +64,14 @@ export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null
   }
 
   if (
+    pathname.startsWith("/financeiro/fluxo-rafael") ||
+    pathname.startsWith("/api/financeiro/fluxo-rafael") ||
+    pathname.startsWith("/fluxo-rafael/")
+  ) {
+    return { kind: "authenticated" };
+  }
+
+  if (
     pathname === "/api/contaazul/disconnect" ||
     pathname.startsWith("/api/contaazul/disconnect/")
   ) {

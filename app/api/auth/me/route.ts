@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession } from "@/lib/auth/portalAccess";
+import { isFluxoRafaelAdmin } from "@/lib/financeiro/fluxoRafaelAccess";
 
 export async function GET() {
   const session = await getPortalSession();
@@ -11,5 +12,6 @@ export async function GET() {
     displayName: session.displayName ?? session.email,
     roles: session.roles,
     isMaster: session.roles.includes("master"),
+    fluxoRafaelAdmin: isFluxoRafaelAdmin(session),
   });
 }

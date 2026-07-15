@@ -13,6 +13,7 @@ import {
   type PortalSessionPayload,
 } from "@/lib/auth/sessionToken";
 import { isVinhetaConfigAdmin } from "@/lib/criacao/vinhetaConfigAccess";
+import { isFluxoRafaelAdmin } from "@/lib/financeiro/fluxoRafaelAccess";
 
 export async function getPortalSession(): Promise<PortalSessionPayload | null> {
   const jar = await cookies();
@@ -57,6 +58,21 @@ export function requireVinhetaConfigAdmin(session: PortalSessionPayload): void {
 export async function requireVinhetaConfigSession(): Promise<PortalSessionPayload> {
   const session = requirePortalSession(await getPortalSession());
   requireVinhetaConfigAdmin(session);
+  return session;
+}
+
+export function requireFluxoRafaelAdmin(session: PortalSessionPayload): void {
+  if (!isFluxoRafaelAdmin(session)) {
+    throw new Response(JSON.stringify({ error: "forbidden" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+export async function requireFluxoRafaelSession(): Promise<PortalSessionPayload> {
+  const session = requirePortalSession(await getPortalSession());
+  requireFluxoRafaelAdmin(session);
   return session;
 }
 

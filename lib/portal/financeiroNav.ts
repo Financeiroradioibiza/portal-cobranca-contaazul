@@ -8,6 +8,12 @@ export const FINANCEIRO_NAV = [
   { href: "/financeiro/vencidos", label: "Vencidos", icon: "🚨" },
   { href: "/financeiro/envios-oc", label: "Envios OC", icon: "📅" },
   { href: "/financeiro/consulta-painel", label: "Consulta painel", icon: "🔍" },
+  {
+    href: "/financeiro/fluxo-rafael",
+    label: "Fluxo Rafael",
+    icon: "💵",
+    fluxoRafaelOnly: true,
+  },
 ] as const;
 
 export const FINANCEIRO_HOME_HREF = "/financeiro/visao-geral";

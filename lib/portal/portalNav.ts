@@ -32,6 +32,8 @@ export type PortalSidebarItem = {
   separator?: boolean;
   /** Só marca ativo na URL exata (ex.: /suporte vs /suporte/avisos-player). */
   exact?: boolean;
+  /** Visível somente para Rafael Gasparian (fluxo interno). */
+  fluxoRafaelOnly?: boolean;
 };
 
 export type PortalTopNavItem = {
@@ -74,6 +76,7 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
       href: x.href,
       icon: x.icon,
       label: x.label,
+      fluxoRafaelOnly: "fluxoRafaelOnly" in x ? x.fluxoRafaelOnly : undefined,
     })),
   },
   cadastros: {
