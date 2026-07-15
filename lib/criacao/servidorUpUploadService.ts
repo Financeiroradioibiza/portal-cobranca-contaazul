@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { pathSegmentLooseKey } from "@/lib/criacao/pathSanitize";
 import type { ServidorUpHierarchyRow } from "@/lib/criacao/servidorUpHierarchyService";
 import type { UploadLoteInput } from "@/lib/criacao/filaService";
+import { mixSegundosFromRelativePath } from "@/lib/criacao/legacyMixFilename";
 
 export type ServidorUpUploadDraftInput = {
   uploadTag?: string;
@@ -175,10 +176,14 @@ export function servidorUpPlanToUploadLotes(
       pastaId: l.pastaId,
       uploadTagNome: l.uploadTagNome,
       criativoUserId: l.tagCriativoUserId ?? undefined,
-      arquivos: l.tracks.map((t) => ({
-        nome: "",
-        downloadItemId: t.downloadItemId,
-        sizeBytes: t.sizeBytes ?? undefined,
-      })),
+      arquivos: l.tracks.map((t) => {
+        const mix = mixSegundosFromRelativePath(t.relativePath);
+        return {
+          nome: "",
+          downloadItemId: t.downloadItemId,
+          sizeBytes: t.sizeBytes ?? undefined,
+          ...(mix != null ? { mixSegundosFromLegacy: mix } : {}),
+        };
+      }),
     }));
 }

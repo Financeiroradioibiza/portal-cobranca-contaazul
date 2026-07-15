@@ -69,3 +69,18 @@ export async function persistMixTrimForMusica(
     [musicaId, mix],
   );
 }
+
+/** Ponto de mix definido pelo criativo no MP3 legado (Servidor UP, ~N no nome). */
+export async function persistLegacyMixPreset(musicaId: string, mixSegundos: number): Promise<void> {
+  const mix = Math.min(30, Math.max(0, Math.round(mixSegundos)));
+  await portalQuery(
+    `UPDATE musica_biblioteca
+        SET mix_segundos_finais = $2,
+            trim_inicio_ms = 0,
+            trim_fim_ms = 0,
+            mix_auto = false,
+            updated_at = now()
+      WHERE id = $1`,
+    [musicaId, mix],
+  );
+}

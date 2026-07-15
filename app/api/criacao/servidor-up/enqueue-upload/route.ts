@@ -13,12 +13,18 @@ import {
   type ServidorUpUploadTrackInput,
 } from "@/lib/criacao/servidorUpUploadService";
 import type { ServidorUpHierarchyRow } from "@/lib/criacao/servidorUpHierarchyService";
+import { appendLegacyMixSuffixToMp3Nome } from "@/lib/criacao/legacyMixFilename";
 import { prisma } from "@/lib/prisma";
 
 export const maxDuration = 120;
 
 async function normalizeUploadArquivos(
-  arquivos: Array<{ nome?: string; sizeBytes?: number; downloadItemId?: string }>,
+  arquivos: Array<{
+    nome?: string;
+    sizeBytes?: number;
+    downloadItemId?: string;
+    mixSegundosFromLegacy?: number;
+  }>,
 ) {
   const out: Array<{ nome: string; sizeBytes?: number; downloadItemId?: string }> = [];
   for (const a of arquivos) {
@@ -36,11 +42,14 @@ async function normalizeUploadArquivos(
       if (!dl) throw new Error("staging_item_invalido");
       const artista = dl.artista.trim();
       const titulo = dl.titulo.trim();
-      const nome =
+      let nome =
         artista && titulo ? `${artista} - ${titulo}.mp3`.slice(0, 500)
         : dl.arquivoNome.trim() ?
           dl.arquivoNome.slice(0, 500)
         : `${titulo || "faixa"}.mp3`.slice(0, 500);
+      if (a.mixSegundosFromLegacy != null) {
+        nome = appendLegacyMixSuffixToMp3Nome(nome, a.mixSegundosFromLegacy);
+      }
       out.push({ nome, sizeBytes: dl.sizeBytes ?? a.sizeBytes, downloadItemId: dl.id });
       continue;
     }

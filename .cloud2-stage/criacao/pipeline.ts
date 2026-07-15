@@ -6,8 +6,8 @@ import { criacaoConfig } from './config.js';
 import { findDuplicate } from './dedupe.js';
 import { analyzeAudio } from './analyze.js';
 import { produceMasterAndUso, probeArtistTitleFromFile, probeBpmFromFile, probeIsrcFromFile } from './ffmpeg.js';
-import { persistMixTrimForMusica, resolveMixTrim } from './mixTrimApply.js';
-import { parseMp3Filename } from './parseFilename.js';
+import { persistMixTrimForMusica, persistLegacyMixPreset, resolveMixTrim } from './mixTrimApply.js';
+import { parseMixSegundosFromLegacyFilename, parseMp3Filename } from './parseFilename.js';
 import { portalQuery } from './portalDb.js';
 import { pipelineLog, pipelineTimed } from './pipelineLogger.js';
 import { packUsoAudio } from './rib.js';
@@ -277,6 +277,14 @@ function resolveInputPath(item: ClaimedItem): string {
   return uploadPath(item.id);
 }
 
+async function isServidorUpJob(jobId: string): Promise<boolean> {
+  const r = await portalQuery<{ titulo: string }>(
+    `SELECT titulo FROM processamento_job WHERE id = $1`,
+    [jobId],
+  );
+  return /servidor\s*up/i.test(r.rows[0]?.titulo ?? '');
+}
+
 async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string | 'duplicata'> {
   const ctx = { itemId: item.id, jobId: item.job_id, etapa: 'deduplicacao' };
   return pipelineTimed(ctx, async () => {
@@ -326,18 +334,30 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
 
   await pipelineTimed({ ...ctx, etapa: 'ponto_mix' }, async () => {
     await setItemEtapa(item.id, 'ponto_mix');
-    const resolved = await resolveMixTrim(inputPath);
-    await persistMixTrimForMusica(musicaId, resolved, true, false);
-    pipelineLog(
-      { ...ctx, etapa: 'ponto_mix' },
-      'mix_detectado',
-      {
-        mixSegundos: resolved.appliedMixSegundos,
-        detectedMix: resolved.mixSegundosFinais,
-        quietOutro: resolved.quietOutro,
-        envelopeOk: resolved.envelopeOk,
-      },
-    );
+    const servidorUp = await isServidorUpJob(item.job_id);
+    const presetMix =
+      servidorUp ? parseMixSegundosFromLegacyFilename(item.arquivo_nome) : null;
+    if (presetMix != null) {
+      await persistLegacyMixPreset(musicaId, presetMix);
+      pipelineLog(
+        { ...ctx, etapa: 'ponto_mix' },
+        'mix_legado_arquivo',
+        { mixSegundos: presetMix, arquivoNome: item.arquivo_nome },
+      );
+    } else {
+      const resolved = await resolveMixTrim(inputPath);
+      await persistMixTrimForMusica(musicaId, resolved, true, false);
+      pipelineLog(
+        { ...ctx, etapa: 'ponto_mix' },
+        'mix_detectado',
+        {
+          mixSegundos: resolved.appliedMixSegundos,
+          detectedMix: resolved.mixSegundosFinais,
+          quietOutro: resolved.quietOutro,
+          envelopeOk: resolved.envelopeOk,
+        },
+      );
+    }
   });
 
   const produced = await pipelineTimed({ ...ctx, etapa: 'normalizacao' }, async () => {

@@ -816,13 +816,22 @@ export function BibliotecaMusicalPanel({
                         🎵
                       </div>
                     }
-                    <div className="min-w-0 truncate text-xs font-medium text-slate-900 dark:text-slate-100">
-                      {m.titulo || "(sem título)"}
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+                      <span className="truncate text-xs font-medium text-slate-900 dark:text-slate-100">
+                        {m.titulo || "(sem título)"}
+                      </span>
                       {m.legacyMotivos.length > 0 ?
-                        <span className="ml-1 text-[9px] font-semibold text-orange-700 dark:text-orange-300">
+                        <span className="text-[9px] font-semibold text-orange-700 dark:text-orange-300">
                           legado
                         </span>
                       : null}
+                      <MusicaVotosBadges
+                        musicaId={m.id}
+                        titulo={m.titulo || "(sem título)"}
+                        likes={m.likesCount}
+                        dislikes={m.dislikesCount}
+                        onOpen={(id, titulo) => setVotosModal({ id, titulo })}
+                      />
                     </div>
                     <div className="min-w-0 truncate text-xs text-slate-500">{m.artista || "—"}</div>
                     <div className="flex min-w-0 flex-wrap items-center gap-0.5 overflow-hidden">

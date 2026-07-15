@@ -10,7 +10,13 @@ import {
   hasProcessamentoPastaEspecialColumn,
 } from "@/lib/criacao/processamentoJobSchemaCompat";
 
-export type UploadArquivo = { nome: string; sizeBytes?: number; downloadItemId?: string };
+export type UploadArquivo = {
+  nome: string;
+  sizeBytes?: number;
+  downloadItemId?: string;
+  /** Servidor UP: ponto de mix do MP3 legado (~N no nome original). */
+  mixSegundosFromLegacy?: number;
+};
 
 export type CreateUploadJobInput = {
   titulo: string;
