@@ -33,7 +33,8 @@
 }
 body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;font-size:14px;transition:background .2s,color .2s}
 
-#denied-screen,#blocked-screen{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:2000;flex-direction:column;gap:12px;text-align:center}
+#denied-screen,#blocked-screen,#boot-loading,#boot-error{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:2000;flex-direction:column;gap:12px;text-align:center}
+#boot-loading{display:flex}
 .screen-icon{font-size:48px}.screen-title{font-size:20px;font-weight:600;color:var(--red)}.screen-sub{font-size:13px;color:var(--text2)}
 .b-count{font-family:var(--mono);font-size:32px;color:var(--yellow);margin-top:8px}
 
@@ -227,6 +228,8 @@ tr:hover td{background:var(--bg3)}
 </style>
 </head>
 <body>
+<div id="boot-loading"><div class="screen-icon">⟳</div><div class="screen-title">Carregando fluxo</div><div class="screen-sub">Buscando dados no servidor…</div></div>
+<div id="boot-error"><div class="screen-icon">⚠</div><div class="screen-title">Falha ao carregar</div><div class="screen-sub">Não foi possível ler os dados do servidor. Tente recarregar a página.</div><button class="login-btn" style="width:auto;padding:10px 24px;margin-top:8px" onclick="location.reload()">Recarregar</button></div>
 <div id="denied-screen"><div class="screen-icon">🔒</div><div class="screen-title">Acesso negado</div><div class="screen-sub">URL inválida ou token incorreto.</div></div>
 <div id="blocked-screen"><div class="screen-icon">🚫</div><div class="screen-title">Acesso bloqueado</div><div class="screen-sub">Muitas tentativas. Aguarde:</div><div class="b-count" id="bc">15:00</div></div>
 <div id="login-screen">
@@ -359,7 +362,8 @@ tr:hover td{background:var(--bg3)}
         <button class="bp" onclick="expData()">Exportar JSON</button>
         <label class="bs" style="cursor:pointer;margin:0">Importar JSON<input type="file" accept=".json" style="display:none" onchange="impData(event)"></label>
       </div>
-      <div style="margin-top:8px;font-size:12px;color:var(--text3)">Dados sincronizados com o portal. Exporte regularmente como backup.</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text3)">Dados gravados no servidor (Neon). Use exportar JSON como backup local.</div>
+      <div id="srv-meta" style="margin-top:6px;font-size:11px;color:var(--text3);font-family:var(--mono)"></div>
     </div>
   </div>
 </div>
@@ -402,16 +406,34 @@ tr:hover td{background:var(--bg3)}
 <script>
 // ══ CONFIG (portal) ══
 const API_DADOS='/api/financeiro/fluxo-rafael/dados';
-const MA=5,BM=15*60*1000,IW=5*60*1000,SK='fc_v7';
+const MA=5,BM=15*60*1000,IW=5*60*1000;
 
 let saveTimer=null;
 let saveQueue=false;
 let isSaving=false;
+let serverUpdatedAt=null;
+
+function defaultState(){
+  return{
+    cm:'',theme:'light',idleMin:0,
+    previstos:[],
+    lanc:{},
+    si:{},
+    receb:{},
+    prevReal:{},
+    prevDesativ:{},
+    cats:{E:['Mensalidades','Serviços prestados','Sócios (aporte)','Outros'],S:['Salários/Pessoal','Impostos (DAS/IR/FGTS)','Aluguel/Condomínio','Planos de saúde','Fornecedores/Serviços','Cartão de crédito','Outros']}
+  };
+}
+
+function ensureCm(){
+  if(!S.cm){
+    const n=new Date();
+    S.cm=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+  }
+}
 
 function sv(){
-  // Sempre salva no localStorage como fallback imediato
-  localStorage.setItem(SK,JSON.stringify(S));
-  // Debounce: aguarda 800ms sem novas mudanças antes de mandar pro servidor
   if(saveTimer)clearTimeout(saveTimer);
   saveQueue=true;
   saveTimer=setTimeout(()=>svRemoto(),800);
@@ -429,10 +451,16 @@ async function svRemoto(){
       body:JSON.stringify(S)
     });
     if(!r.ok)throw new Error('HTTP '+r.status);
+    const meta=await r.json().catch(()=>null);
+    if(meta?.updatedAt){
+      serverUpdatedAt=meta.updatedAt;
+      updServerMeta();
+    }
     setSyncStatus('ok');
   }catch(e){
     setSyncStatus('error');
-    console.warn('Falha ao salvar remotamente:',e.message);
+    console.warn('Falha ao salvar no servidor:',e.message);
+    alert('Não foi possível salvar no servidor. Verifique a conexão e tente novamente.');
   }finally{
     isSaving=false;
     if(saveQueue)svRemoto();
@@ -441,37 +469,34 @@ async function svRemoto(){
 
 async function ldRemoto(){
   setSyncStatus('loading');
-  try{
-    const r=await fetch(API_DADOS,{
-      credentials:'same-origin'
-    });
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const dados=await r.json();
-    if(dados&&Object.keys(dados).length>0){
-      S={...S,...dados};
-      // Atualiza localStorage com dados do servidor
-      localStorage.setItem(SK,JSON.stringify(S));
-      setSyncStatus('ok');
-      return true;
-    }
-    // Sem dados remotos ainda — usa localStorage como base
-    setSyncStatus('ok');
-    return false;
-  }catch(e){
-    setSyncStatus('error');
-    console.warn('Usando localStorage (falha remota):',e.message);
-    return false;
-  }
+  const r=await fetch(API_DADOS,{credentials:'same-origin'});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const payload=await r.json();
+  const dados=(payload&&payload.dados)?payload.dados:payload;
+  S={...defaultState(),...(dados&&typeof dados==='object'?dados:{})};
+  ensureCm();
+  serverUpdatedAt=payload?.updatedAt||null;
+  updServerMeta();
+  setSyncStatus('ok');
+  return true;
+}
+
+function updServerMeta(){
+  const el=document.getElementById('srv-meta');
+  if(!el)return;
+  if(!serverUpdatedAt){el.textContent='Servidor: sem gravação anterior';return;}
+  const d=new Date(serverUpdatedAt);
+  el.textContent='Última gravação no servidor: '+d.toLocaleString('pt-BR');
 }
 
 function setSyncStatus(st){
   const el=document.getElementById('sync-status');
   if(!el)return;
   const map={
-    saving:{icon:'⟳',color:'var(--yellow)',tip:'Salvando...'},
-    ok:    {icon:'✓', color:'var(--green)', tip:'Dados salvos'},
-    error: {icon:'⚠', color:'var(--red)',   tip:'Falha ao salvar — dados no navegador'},
-    loading:{icon:'⟳',color:'var(--blue)',  tip:'Carregando dados...'}
+    saving:{icon:'⟳',color:'var(--yellow)',tip:'Salvando no servidor...'},
+    ok:    {icon:'✓', color:'var(--green)', tip:'Salvo no servidor'},
+    error: {icon:'⚠', color:'var(--red)',   tip:'Falha ao salvar no servidor'},
+    loading:{icon:'⟳',color:'var(--blue)',  tip:'Carregando do servidor...'}
   };
   const m=map[st]||map.ok;
   el.textContent=m.icon;
@@ -481,28 +506,7 @@ function setSyncStatus(st){
 const WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MN=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-let S={
-  cm:'',theme:'light',idleMin:0,
-  // previstos: [{id,tipo,nome,valor,dia,cat,obs,recorr}]
-  previstos:[],
-  // lancamentos reais: {'YYYY-MM':[{id,data,valor,tipo,desc,cat,obs}]}
-  lanc:{},
-  // saldo inicial por mes: {'YYYY-MM':number}
-  si:{},
-  // recebimentos do XLS: {'YYYY-MM':[{nome,valor,dia}]}
-  receb:{},
-  // prevReal: {'YYYY-MM-prevId': {valor, desc}} — saída prevista confirmada como real neste mês
-  prevReal:{},
-  // prevDesativ: {'YYYY-MM-prevId': true} — previsto desativado somente neste mês (sem excluir)
-  prevDesativ:{},
-  cats:{E:['Mensalidades','Serviços prestados','Sócios (aporte)','Outros'],S:['Salários/Pessoal','Impostos (DAS/IR/FGTS)','Aluguel/Condomínio','Planos de saúde','Fornecedores/Serviços','Cartão de crédito','Outros']}
-};
-
-function ld(){
-  const d=localStorage.getItem(SK);
-  if(d){try{const p=JSON.parse(d);S={...S,...p};}catch(e){}}
-  if(!S.cm){const n=new Date();S.cm=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;}
-}
+let S=defaultState();
 
 // ── THEME
 function applyTh(t){document.documentElement.setAttribute('data-theme',t);const ic=t==='dark'?'🌙':'☀';document.querySelectorAll('#thbtn,.tgl-theme').forEach(b=>b.textContent=ic);const l=document.getElementById('thlbl');if(l)l.textContent=t==='dark'?'🌙 Escuro':'☀ Claro';}
@@ -531,13 +535,28 @@ function resetIdle(){document.getElementById('sw').style.display='none';wS=false
 ['click','keydown','mousemove','touchstart'].forEach(ev=>{document.addEventListener(ev,()=>{if(document.getElementById('app').style.display==='block'){if(wS){document.getElementById('sw').style.display='none';wS=false;}startIdle();}},{passive:true});});
 function saveIdle(){S.idleMin=parseInt(document.getElementById('idle-sel').value)||0;sv();if(document.getElementById('app').style.display==='block')startIdle();}
 
-// ── BOOT (portal: sessão já autenticada)
-ld();applyTh(S.theme);
-document.getElementById('app').style.display='block';
-init();
+// ── BOOT (portal: dados sempre do servidor)
+async function boot(){
+  document.getElementById('app').style.display='none';
+  document.getElementById('boot-error').style.display='none';
+  document.getElementById('boot-loading').style.display='flex';
+  try{
+    await ldRemoto();
+  }catch(e){
+    console.error('Falha ao carregar do servidor:',e);
+    document.getElementById('boot-loading').style.display='none';
+    document.getElementById('boot-error').style.display='flex';
+    return;
+  }
+  applyTh(S.theme);
+  document.getElementById('boot-loading').style.display='none';
+  document.getElementById('app').style.display='block';
+  init();
+}
+boot();
 
 // ── INIT
-function init(){updL();updSI();renderFluxo();renderLanc();renderCfgCats();fetch('/api/auth/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{const el=document.getElementById('cu');if(el&&d)el.textContent=d.displayName||d.email;});ldRemoto().then(had=>{if(had){updL();updSI();renderFluxo();renderLanc();applyTh(S.theme);}});}
+function init(){updL();updSI();renderFluxo();renderLanc();renderCfgCats();fetch('/api/auth/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(d=>{const el=document.getElementById('cu');if(el&&d)el.textContent=d.displayName||d.email;});}
 
 // ── URL
 function updUrl(){const b=window.location.origin+window.location.pathname;const el=document.getElementById('curl');if(el)el.textContent=`${b}?k=${S.urlKey}`;}
@@ -1051,7 +1070,7 @@ function renderCfgCats(){
 function addCat(){const n=document.getElementById('ncn').value.trim(),t=document.getElementById('nct').value;if(!n)return;if(!S.cats[t].includes(n)){S.cats[t].push(n);sv();renderCfgCats();}document.getElementById('ncn').value='';}
 function delCat(t,i){S.cats[t].splice(i,1);sv();renderCfgCats();}
 function expData(){const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`fluxo-${S.cm}.json`;a.click();}
-function impData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{S=JSON.parse(ev.target.result);sv();init();alert('Importado!');}catch{alert('Arquivo inválido.');}};r.readAsText(f);}
+async function impData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=async ev=>{try{S={...defaultState(),...JSON.parse(ev.target.result)};ensureCm();await svRemoto();init();alert('Importado e gravado no servidor!');}catch{alert('Arquivo inválido ou falha ao salvar no servidor.');}};r.readAsText(f);e.target.value='';}
 
 
 // ── EMAIL LEMBRETE ────────────────────────────────────────────────────────
