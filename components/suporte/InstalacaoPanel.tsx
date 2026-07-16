@@ -20,6 +20,8 @@ type Contexto = {
   contatoLojaNome: string;
   contatoLojaEmail: string;
   contatoLojaTelefone: string;
+  playerInstaladoEm: string | null;
+  podeGerarCodigoPlay: boolean;
 };
 
 type LogRow = {
@@ -32,7 +34,12 @@ type LogRow = {
   createdAt: string;
 };
 
-type Tipo = "padrao_cliente" | "pdv_login" | "pdv_senha_temp" | "pdv_senha_temp_migracao";
+type Tipo =
+  | "padrao_cliente"
+  | "pdv_login"
+  | "pdv_senha_temp"
+  | "pdv_senha_temp_migracao"
+  | "pdv_play5";
 type Plataforma = "windows" | "mobile";
 
 const inputClass =
@@ -61,6 +68,11 @@ const TIPOS: { id: Tipo; label: string; desc: string }[] = [
     label: "4 · Atualização Player 5 + remover player antigo",
     desc: "Igual ao tipo 3 (senha temporária). Após instalar o Player 5, o cliente recebe um passo para desinstalar a Rádio Ibiza antiga no Windows (.bat).",
   },
+  {
+    id: "pdv_play5",
+    label: "5 · Instalação Google Play (Android)",
+    desc: "Código PL5 de uso único para o app da Play Store. Só gera com PDV sem player instalado (regenerar serial antes). Não usa login e senha.",
+  },
 ];
 
 function mapErr(data: unknown): string {
@@ -70,6 +82,9 @@ function mapErr(data: unknown): string {
   if (err === "pdv_nao_encontrado") return "PDV não encontrado (sem ID Player?).";
   if (err === "tipo_plataforma_invalido") return "Escolha o tipo e a plataforma.";
   if (err === "email_invalido") return "E-mail de destino inválido.";
+  if (err === "pdv_com_player_instalado") {
+    return "PDV com player instalado. Regenerar a chave serial no Suporte antes de gerar código Play.";
+  }
   if (err === "smtp_nao_configurado") return "SMTP não configurado no ambiente (OC_EMAIL_SMTP_*).";
   if (typeof err === "string" && err.trim()) return err;
   return "Operação falhou.";
@@ -92,6 +107,7 @@ async function postInstalacao(body: Record<string, unknown>) {
 }
 
 function tipoLabel(t: string): string {
+  if (t === "pdv_play5") return "Google Play (PL5)";
   if (t === "pdv_login") return "PDV com login";
   if (t === "pdv_senha_temp") return "PDV senha temporária";
   if (t === "pdv_senha_temp_migracao") return "Atualização + remover antigo";
@@ -230,6 +246,7 @@ export function InstalacaoPanel() {
 
   const [link, setLink] = useState("");
   const [senhaTemp, setSenhaTemp] = useState("");
+  const [codigoPlay, setCodigoPlay] = useState("");
 
   const [destinatario, setDestinatario] = useState<"loja" | "novo">("loja");
   const [emailNovo, setEmailNovo] = useState("");
@@ -259,6 +276,7 @@ export function InstalacaoPanel() {
   useEffect(() => {
     setLink("");
     setSenhaTemp("");
+    setCodigoPlay("");
     setStatus(null);
     if (selected) void loadContextoELog(selected);
     else {
@@ -283,6 +301,10 @@ export function InstalacaoPanel() {
     setLog(Array.isArray(rows) ? rows : []);
   }, [selected]);
 
+  useEffect(() => {
+    if (tipo === "pdv_play5") setPlataforma("mobile");
+  }, [tipo]);
+
   async function handleGerarLink() {
     if (!selected) return;
     setBusy(true);
@@ -293,18 +315,37 @@ export function InstalacaoPanel() {
         portalClienteId: selected.portalClienteId,
         portalPdvId: selected.portalPdvId,
         tipo,
-        plataforma,
+        plataforma: tipo === "pdv_play5" ? "mobile" : plataforma,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setStatus({ kind: "err", text: mapErr(data) });
         return;
       }
-      const d = data as { link?: string; senhaTemporaria?: string };
+      const d = data as { link?: string; senhaTemporaria?: string; codigoPlay?: string };
+      if (tipo === "pdv_play5") {
+        setCodigoPlay(d.codigoPlay ?? "");
+        setLink("");
+        setSenhaTemp("");
+        setStatus({ kind: "ok", text: "Código Google Play gerado (uso único)." });
+        void loadContextoELog(selected);
+        return;
+      }
       setLink(d.link ?? "");
       setSenhaTemp(d.senhaTemporaria ?? "");
+      setCodigoPlay("");
       setStatus({ kind: "ok", text: "Link gerado." });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleCopiarCodigoPlay() {
+    if (!codigoPlay) return;
+    try {
+      await navigator.clipboard.writeText(codigoPlay.trim());
+      setStatus({ kind: "ok", text: "Código PL5 copiado." });
+    } catch {
+      setStatus({ kind: "err", text: "Não foi possível copiar o código." });
     }
   }
 
@@ -438,7 +479,31 @@ export function InstalacaoPanel() {
               ))}
             </div>
 
-            {podeMobile ? (
+            {tipo === "pdv_play5" && contexto ? (
+              <div
+                className={
+                  "mt-4 rounded-lg border px-3 py-2.5 text-sm " +
+                  (contexto.podeGerarCodigoPlay
+                    ? "border-emerald-700/60 bg-emerald-950/20 text-emerald-200"
+                    : "border-amber-700/60 bg-amber-950/20 text-amber-100")
+                }
+              >
+                {contexto.podeGerarCodigoPlay ? (
+                  <p>PDV livre para novo código Play (sem player instalado).</p>
+                ) : (
+                  <p>
+                    PDV com player instalado
+                    {contexto.playerInstaladoEm ?
+                      ` desde ${new Date(contexto.playerInstaladoEm).toLocaleString("pt-BR")}`
+                    : ""}
+                    . Regenerar a <strong>chave serial</strong> no Suporte (cadastro do PDV) antes de gerar
+                    outro código.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {tipo !== "pdv_play5" && podeMobile ? (
               <div className="mt-4">
                 <p className="mb-1.5 text-xs text-zinc-500">Plataforma</p>
                 <div className="inline-flex rounded-lg border border-zinc-700 p-0.5">
@@ -462,12 +527,21 @@ export function InstalacaoPanel() {
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || (tipo === "pdv_play5" && contexto != null && !contexto.podeGerarCodigoPlay)}
                 onClick={handleGerarLink}
                 className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white hover:bg-fuchsia-500 disabled:opacity-50"
               >
-                Gerar link
+                {tipo === "pdv_play5" ? "Gerar código Play" : "Gerar link"}
               </button>
+              {tipo === "pdv_play5" && codigoPlay ? (
+                <button
+                  type="button"
+                  onClick={() => void handleCopiarCodigoPlay()}
+                  className="rounded-lg border border-fuchsia-600/60 bg-fuchsia-950/30 px-4 py-2 text-sm text-fuchsia-200 hover:bg-fuchsia-950/50"
+                >
+                  Copiar código
+                </button>
+              ) : null}
               {link ? (
                 <button
                   type="button"
@@ -496,6 +570,20 @@ export function InstalacaoPanel() {
                 </>
               ) : null}
             </div>
+
+            {codigoPlay ? (
+              <div className="mt-3 space-y-2 rounded-lg border border-fuchsia-600/50 bg-fuchsia-950/20 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-300/90">
+                  Código Google Play (uso único)
+                </p>
+                <p className="select-all font-mono text-2xl font-bold tracking-[0.2em] text-fuchsia-100">
+                  {codigoPlay}
+                </p>
+                <p className="text-[11px] text-zinc-400">
+                  Digite no app instalado pela Play Store. Não compartilhe publicamente.
+                </p>
+              </div>
+            ) : null}
 
             {link ? (
               <div className="mt-3 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950 p-3">
@@ -529,6 +617,7 @@ export function InstalacaoPanel() {
             ) : null}
           </section>
 
+          {tipo !== "pdv_play5" ? (
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <h2 className="mb-3 text-sm font-semibold text-zinc-200">3. Enviar por e-mail</h2>
             <div className="space-y-2">
@@ -586,6 +675,7 @@ export function InstalacaoPanel() {
               </button>
             </div>
           </section>
+          ) : null}
 
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <div className="mb-3 flex items-center justify-between">

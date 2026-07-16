@@ -399,6 +399,24 @@ model PdvInstalacaoEnvio {
   @@map("pdv_instalacao_envio")
 }
 
+/// Código de uso único para instalação via Google Play (Instalação 5).
+model PdvInstalacaoPlayCodigo {
+  id              String    @id @default(cuid())
+  portalClienteId Int       @map("portal_cliente_id")
+  portalPdvId     Int       @map("portal_pdv_id")
+  rioPdvKey       String    @default("") @map("rio_pdv_key") @db.VarChar(80)
+  /// SHA-256 hex do código normalizado (PL5…, sem hífens).
+  codigoHash      String    @map("codigo_hash") @db.VarChar(128)
+  ativa           Boolean   @default(true)
+  usadaEm         DateTime? @map("usada_em")
+  criadaPor       String    @default("") @map("criada_por") @db.VarChar(120)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([portalClienteId, portalPdvId])
+  @@index([codigoHash])
+  @@map("pdv_instalacao_play_codigo")
+}
+
 /// Logotipo JPEG do cliente no Player 5 (sync → gateway `clientes.logotipo_jpeg`).
 model PlayerClienteLogotipo {
   portalClienteId Int      @id @map("portal_cliente_id")

@@ -11,6 +11,10 @@ import {
   type InstalacaoPlataforma,
   type InstalacaoTipo,
 } from "@/lib/suporte/instalacaoService";
+import {
+  gerarCodigoPlayInstalacao,
+  listCodigosPlayForPdv,
+} from "@/lib/suporte/instalacaoPlayService";
 
 export const runtime = "nodejs";
 
@@ -30,7 +34,8 @@ function parseTipo(raw: unknown): InstalacaoTipo | null {
   return raw === "padrao_cliente" ||
     raw === "pdv_login" ||
     raw === "pdv_senha_temp" ||
-    raw === "pdv_senha_temp_migracao"
+    raw === "pdv_senha_temp_migracao" ||
+    raw === "pdv_play5"
     ? raw
     : null;
 }
@@ -105,8 +110,15 @@ export async function POST(request: Request) {
           contatoLojaNome: ctx.contatoLojaNome,
           contatoLojaEmail: ctx.contatoLojaEmail,
           contatoLojaTelefone: ctx.contatoLojaTelefone,
+          playerInstaladoEm: ctx.playerInstaladoEm,
+          podeGerarCodigoPlay: ctx.podeGerarCodigoPlay,
         },
       });
+    }
+
+    if (action === "listar_codigos_play") {
+      const rows = await listCodigosPlayForPdv(portalClienteId, portalPdvId, 20);
+      return NextResponse.json({ ok: true, rows });
     }
 
     if (action === "listar_log") {
@@ -126,6 +138,36 @@ export async function POST(request: Request) {
     const link = buildInstallLink(tipo, plataforma, { portalClienteId, portalPdvId });
 
     if (action === "gerar_link") {
+      if (tipo === "pdv_play5") {
+        try {
+          const codigoPlay = await gerarCodigoPlayInstalacao({
+            portalClienteId,
+            portalPdvId,
+            rioPdvKey: ctx.rioPdvKey,
+            criadaPor: actorFrom(session),
+          });
+          await registrarEnvio({
+            portalClienteId,
+            portalPdvId,
+            tipo: "pdv_play5",
+            plataforma: "mobile",
+            canal: "link",
+            destinoEmail: "",
+            link: `codigo:${codigoPlay}`,
+            enviadoPor: actorFrom(session),
+          });
+          return NextResponse.json({ ok: true, codigoPlay });
+        } catch (e) {
+          if (e instanceof Error && e.message === "pdv_com_player_instalado") {
+            return NextResponse.json(
+              { ok: false, error: "pdv_com_player_instalado" },
+              { status: 409 },
+            );
+          }
+          throw e;
+        }
+      }
+
       let senhaTemporaria: string | undefined;
       if (tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") {
         senhaTemporaria = await gerarSenhaTemporaria(portalClienteId, portalPdvId, actorFrom(session));

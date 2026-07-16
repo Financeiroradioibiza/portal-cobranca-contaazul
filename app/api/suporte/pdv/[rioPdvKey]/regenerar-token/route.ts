@@ -3,10 +3,12 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { userHasRole } from "@/lib/auth/roles";
 import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 import { regenerarPdvInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
+import { invalidarCodigosPlayPendentes } from "@/lib/suporte/instalacaoPlayService";
 import {
   resolvePortalPdvIdFromRioPdvKey,
   syncPlayerGatewayRegistryForPdvIds,
 } from "@/lib/player/playerGatewaySync";
+import { portalClienteIdFromPdvId } from "@/lib/player/portalPlayerIds";
 import { resetPlayerInstalacaoTelemetry } from "@/lib/player/resetPlayerInstalacaoTelemetry";
 
 export const runtime = "nodejs";
@@ -24,14 +26,19 @@ export async function POST(_req: Request, ctx: Ctx) {
     const rioPdvKey = decodeURIComponent(raw ?? "").trim();
     if (!rioPdvKey) return NextResponse.json({ error: "invalid_key" }, { status: 400 });
 
+    const portalPdvId = await resolvePortalPdvIdFromRioPdvKey(rioPdvKey);
     const token = await regenerarPdvInstalacaoToken(rioPdvKey);
+
+    let codigosPlayInvalidados = 0;
+    if (portalPdvId) {
+      const portalClienteId = portalClienteIdFromPdvId(portalPdvId);
+      codigosPlayInvalidados = await invalidarCodigosPlayPendentes(portalClienteId, portalPdvId);
+    }
 
     let gatewaySync: { clientes: number; pdvs: number } | null = null;
     let gatewaySyncError: string | null = null;
     let telemetryReset = false;
     let telemetryResetError: string | null = null;
-
-    const portalPdvId = await resolvePortalPdvIdFromRioPdvKey(rioPdvKey);
 
     if (cloud2Enabled()) {
       if (!portalPdvId) {
@@ -70,6 +77,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     return NextResponse.json({
       ok: true,
       playerInstalacaoToken: token,
+      codigosPlayInvalidados,
       gatewaySync,
       gatewaySyncError,
       telemetryReset,

@@ -2,9 +2,15 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { listPortalPlayerRows } from "@/lib/player/listPortalPlayerRows";
 import { ensurePdvInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
+import { pdvLivreParaCodigoPlay } from "@/lib/suporte/instalacaoPlayService";
 import { formatPortalPdvIdDisplay, portalClienteIdFromPdvId } from "@/lib/player/portalPlayerIds";
 
-export type InstalacaoTipo = "padrao_cliente" | "pdv_login" | "pdv_senha_temp" | "pdv_senha_temp_migracao";
+export type InstalacaoTipo =
+  | "padrao_cliente"
+  | "pdv_login"
+  | "pdv_senha_temp"
+  | "pdv_senha_temp_migracao"
+  | "pdv_play5";
 export type InstalacaoPlataforma = "windows" | "mobile";
 export type InstalacaoCanal = "email" | "link";
 
@@ -25,6 +31,8 @@ export type InstalacaoPdvContext = {
   contatoLojaNome: string;
   contatoLojaEmail: string;
   contatoLojaTelefone: string;
+  playerInstaladoEm: string | null;
+  podeGerarCodigoPlay: boolean;
 };
 
 /** Resolve um par cliente/PDV do Player em contexto completo (nomes, token, contato loja). */
@@ -48,8 +56,11 @@ export async function resolveInstalacaoPdv(
       contatoLojaNome: true,
       contatoLojaEmail: true,
       contatoLojaTelefone: true,
+      playerInstaladoEm: true,
     },
   });
+
+  const podeGerarCodigoPlay = await pdvLivreParaCodigoPlay(rioPdvKey);
 
   return {
     portalClienteId,
@@ -62,6 +73,8 @@ export async function resolveInstalacaoPdv(
     contatoLojaNome: cadastro?.contatoLojaNome?.trim() ?? "",
     contatoLojaEmail: cadastro?.contatoLojaEmail?.trim() ?? "",
     contatoLojaTelefone: cadastro?.contatoLojaTelefone?.trim() ?? "",
+    playerInstaladoEm: cadastro?.playerInstaladoEm?.toISOString() ?? null,
+    podeGerarCodigoPlay,
   };
 }
 
