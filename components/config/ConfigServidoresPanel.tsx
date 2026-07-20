@@ -96,6 +96,7 @@ export function ConfigServidoresPanel() {
 
   const disk = status?.cloud2.ops.disk;
   const r2 = status?.cloud2.ops.r2;
+  const tempLimbo = status?.cloud2.ops.tempLimbo;
 
   return (
     <div className="mx-auto max-w-4xl px-3 py-6 sm:px-4">
@@ -208,6 +209,75 @@ export function ConfigServidoresPanel() {
           : <p className="text-sm text-amber-700 dark:text-amber-300">
               {status?.cloud2.ops.error ??
                 "Disco indisponível — faça deploy da rota ops no cloud2 (scripts/sync-cloud2-to-portal-ibiza.sh)."}
+            </p>
+          }
+        </ServerCard>
+
+        <ServerCard
+          title="Cloud2 — Limbo (temporários)"
+          subtitle={
+            tempLimbo?.available ?
+              `Pastas upload/, download-staging/, work/ com mais de ${tempLimbo.limboDays} dia(s) sem uso`
+            : tempLimbo?.error ?? "Métricas via /criacao/ops/orphans"
+          }
+          active={Boolean(tempLimbo?.available)}
+        >
+          {tempLimbo?.available ?
+            <>
+              <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-slate-500">Tamanho estimado</dt>
+                  <dd className="text-lg font-semibold">
+                    {fmtBytes(tempLimbo.totalBytesEstimate)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Itens no limbo</dt>
+                  <dd>
+                    {tempLimbo.totalEntries.toLocaleString("pt-BR")}
+                    {tempLimbo.totalEntries > 0 ?
+                      <span className="ml-1 text-amber-700 dark:text-amber-300">(revisar)</span>
+                    : null}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Limiar (dias)</dt>
+                  <dd>{tempLimbo.limboDays}</dd>
+                </div>
+              </dl>
+              {tempLimbo.warnings.length > 0 ?
+                <ul className="mt-2 list-disc pl-4 text-xs text-amber-700 dark:text-amber-300">
+                  {tempLimbo.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              : null}
+              {tempLimbo.entries.length > 0 ?
+                <ul className="mt-3 max-h-48 space-y-1 overflow-auto border-t border-slate-100 pt-3 text-xs dark:border-slate-800">
+                  {tempLimbo.entries.slice(0, 40).map((e) => (
+                    <li key={`${e.bucket}/${e.name}`} className="flex justify-between gap-2">
+                      <span className="truncate text-slate-600 dark:text-slate-300">
+                        {e.bucket}/{e.name}
+                        <span className="text-slate-400"> · {e.ageDays}d</span>
+                      </span>
+                      <span className="shrink-0 font-mono">{fmtBytes(e.sizeBytes)}</span>
+                    </li>
+                  ))}
+                  {tempLimbo.entries.length > 40 ?
+                    <li className="text-slate-400">
+                      +{tempLimbo.entries.length - 40} item(ns)…
+                    </li>
+                  : null}
+                </ul>
+              : (
+                <p className="mt-2 text-xs text-slate-500">
+                  Nenhuma pasta temporária acima do limiar — bom sinal.
+                </p>
+              )}
+            </>
+          : <p className="text-sm text-amber-700 dark:text-amber-300">
+              {tempLimbo?.error ??
+                "Limbo indisponível — faça deploy de /criacao/ops/orphans no cloud2."}
             </p>
           }
         </ServerCard>

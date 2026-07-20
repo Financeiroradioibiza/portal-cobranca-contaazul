@@ -1520,8 +1520,6 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
   const [rows, setRows] = useState<AtualizacaoLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [restoringId, setRestoringId] = useState<string | null>(null);
-  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1558,46 +1556,6 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
     });
   }
 
-  async function restaurar(r: AtualizacaoLogItem) {
-    const rotulo = r.rotuloLog ?? r.codigo;
-    if (
-      !window.confirm(
-        `Restaurar a programação para o estado de «${rotulo}» (rev. ${r.revision})?\n\nIsso substitui as faixas nas pastas pelo snapshot daquela atualização e abre uma nova revisão — não publica no player.`,
-      )
-    ) {
-      return;
-    }
-    setRestoringId(r.id);
-    setRestoreMsg(null);
-    try {
-      const res = await fetch(
-        `/api/criacao/programacoes/${programacaoId}/atualizacoes/${r.id}/restore`,
-        { method: "POST" },
-      );
-      const data = (await res.json().catch(() => null)) as {
-        ok?: boolean;
-        faixasRestauradas?: number;
-        rotuloLog?: string;
-        error?: string;
-      } | null;
-      if (!res.ok) {
-        setRestoreMsg(
-          data?.error === "snapshot_vazio" ?
-            "Este log não tem snapshot restaurável."
-          : "Não foi possível restaurar.",
-        );
-        return;
-      }
-      setRestoreMsg(
-        `Restaurado «${data?.rotuloLog ?? rotulo}» — ${data?.faixasRestauradas ?? 0} faixa(s) nas pastas. Programação reaberta para edição.`,
-      );
-    } catch {
-      setRestoreMsg("Erro de rede ao restaurar.");
-    } finally {
-      setRestoringId(null);
-    }
-  }
-
   if (loading) {
     return <p className="mt-2 text-[10px] text-slate-400">Carregando log…</p>;
   }
@@ -1608,11 +1566,6 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
 
   return (
     <ul className="mt-2 space-y-1 rounded border border-slate-100 bg-slate-50/80 p-2 dark:border-slate-800 dark:bg-slate-950/50">
-      {restoreMsg ?
-        <li className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-          {restoreMsg}
-        </li>
-      : null}
       {rows.map((r) => {
         const aberto = expanded.has(r.id);
         const ent = r.diff?.entraram ?? [];
@@ -1668,14 +1621,9 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
                   >
                     Exportar log em PDF
                   </button>
-                  <button
-                    type="button"
-                    disabled={restoringId === r.id}
-                    onClick={() => void restaurar(r)}
-                    className="rounded border border-amber-400 px-2 py-0.5 text-[10px] font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-950/50"
-                  >
-                    {restoringId === r.id ? "Restaurando…" : "Restaurar programação deste log"}
-                  </button>
+                  <span className="self-center text-[10px] text-slate-500">
+                    Para reutilizar faixas de um OFF antigo: Biblioteca → OFFs (arraste para pasta custom ou programação).
+                  </span>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <DiffList titulo="Faixas entraram" faixas={ent} cor="emerald" />

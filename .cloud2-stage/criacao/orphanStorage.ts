@@ -3,6 +3,7 @@ import path from 'node:path';
 import { criacaoConfig } from './config.js';
 import { portalQuery } from './portalDb.js';
 import { uploadKey } from './storage.js';
+import { TEMP_STORAGE_BUCKETS } from './tempStorageBuckets.js';
 
 export type OrphanBucketReport = {
   name: string;
@@ -40,17 +41,87 @@ async function fileSizeBytes(full: string): Promise<number | null> {
   }
 }
 
+export type TempLimboEntry = {
+  bucket: string;
+  name: string;
+  ageDays: number;
+  sizeBytes: number | null;
+};
+
+export type TempLimboReport = {
+  limboDays: number;
+  totalEntries: number;
+  totalBytesEstimate: number;
+  entries: TempLimboEntry[];
+};
+
+async function scanTempLimbo(limboDays: number): Promise<TempLimboReport> {
+  const root = criacaoConfig.storageRoot;
+  const cutoffMs = Date.now() - limboDays * 24 * 60 * 60 * 1000;
+  const entries: TempLimboEntry[] = [];
+  let totalBytesEstimate = 0;
+
+  for (const bucket of TEMP_STORAGE_BUCKETS) {
+    const dir = path.join(root, bucket.subdir);
+    if (!fs.existsSync(dir)) continue;
+
+    if (bucket.entryKind === 'file') {
+      for (const name of listMp3Files(dir)) {
+        const full = path.join(dir, name);
+        const st = await fs.promises.stat(full).catch(() => null);
+        if (!st || st.mtimeMs > cutoffMs) continue;
+        const ageDays = Math.floor((Date.now() - st.mtimeMs) / (24 * 60 * 60 * 1000));
+        entries.push({
+          bucket: bucket.id,
+          name,
+          ageDays,
+          sizeBytes: st.size,
+        });
+        totalBytesEstimate += st.size;
+      }
+    } else {
+      for (const name of listSubdirs(dir)) {
+        const full = path.join(dir, name);
+        const st = await fs.promises.stat(full).catch(() => null);
+        if (!st || st.mtimeMs > cutoffMs) continue;
+        const ageDays = Math.floor((Date.now() - st.mtimeMs) / (24 * 60 * 60 * 1000));
+        entries.push({
+          bucket: bucket.id,
+          name: `${name}/`,
+          ageDays,
+          sizeBytes: null,
+        });
+      }
+    }
+  }
+
+  entries.sort((a, b) => b.ageDays - a.ageDays);
+  return {
+    limboDays,
+    totalEntries: entries.length,
+    totalBytesEstimate,
+    entries: entries.slice(0, 100),
+  };
+}
+
 /** Inventário read-only de arquivos provavelmente órfãos (não apaga nada). */
 export async function collectOrphanStorageReport(): Promise<{
   ok: true;
   collectedAt: string;
   storageRoot: string;
+  tempBuckets: typeof TEMP_STORAGE_BUCKETS;
   buckets: OrphanBucketReport[];
+  tempLimbo: TempLimboReport;
   warnings: string[];
 }> {
   const root = criacaoConfig.storageRoot;
+  const limboDays = Math.max(
+    1,
+    Math.floor(Number(criacaoConfig.tempLimboDays) || 7),
+  );
   const warnings: string[] = [];
   const buckets: OrphanBucketReport[] = [];
+  const tempLimbo = await scanTempLimbo(limboDays);
 
   // --- upload/ ---
   const uploadDir = path.join(root, 'upload');
@@ -194,6 +265,12 @@ export async function collectOrphanStorageReport(): Promise<{
     );
   }
 
+  if (tempLimbo.totalEntries > 0) {
+    warnings.push(
+      `Limbo temp: ${tempLimbo.totalEntries} entrada(s) com mais de ${limboDays} dias em upload/work/download-staging (~${Math.round(tempLimbo.totalBytesEstimate / (1024 * 1024))} MB amostrados). Ver tempLimbo.entries.`,
+    );
+  }
+
   warnings.push(
     'B2 masters gravados como masters/{id}.mp3 (sem prefixo b2:) — DELETE biblioteca pode não remover objeto remoto.',
   );
@@ -203,7 +280,9 @@ export async function collectOrphanStorageReport(): Promise<{
     ok: true,
     collectedAt: new Date().toISOString(),
     storageRoot: root,
+    tempBuckets: TEMP_STORAGE_BUCKETS,
     buckets,
+    tempLimbo,
     warnings,
   };
 }

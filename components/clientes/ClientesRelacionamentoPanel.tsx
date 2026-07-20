@@ -395,7 +395,7 @@ function ClienteDetailView({
         {data.atualizacoes.length === 0 ?
           <p className="text-sm text-slate-500">Nenhuma atualização registrada.</p>
         : <ul className="space-y-2">
-            {data.atualizacoes.slice(0, 30).map((a) => (
+            {data.atualizacoes.slice(0, 50).map((a) => (
               <AtualizacaoRow key={`${a.tipo}-${a.id}`} item={a} />
             ))}
           </ul>
@@ -457,21 +457,73 @@ function ChamadoRow({ chamado }: { chamado: ChamadoView }) {
 }
 
 function AtualizacaoRow({ item }: { item: ClienteAtualizacaoItem }) {
+  const [open, setOpen] = useState(false);
+  const ent = item.entraram ?? [];
+  const sai = item.sairam ?? [];
+  const hasDiff = item.tipo === "programacao" && (ent.length > 0 || sai.length > 0);
+
   return (
     <li className="rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.rotulo}</span>
+      <button
+        type="button"
+        disabled={!hasDiff}
+        onClick={() => hasDiff && setOpen((v) => !v)}
+        className={`flex w-full flex-wrap items-center justify-between gap-2 text-left ${hasDiff ? "cursor-pointer" : "cursor-default"}`}
+      >
+        <span className="font-semibold text-slate-800 dark:text-slate-100">
+          {hasDiff ? (open ? "▾ " : "▸ ") : null}
+          {item.rotulo}
+        </span>
         <span className="text-xs text-slate-500">{fmtWhen(item.quando)}</span>
-      </div>
+      </button>
       <p className="mt-0.5 text-xs text-slate-500">
         {item.tipo === "cadastro" ? "Cadastro Player" : "Programação musical"}
+        {item.programacaoNome ?
+          ` · ${item.programacaoNome}${item.programacaoExcluida ? " (programação excluída)" : ""}`
+        : null}
         {item.pdvNome ? ` · ${item.pdvNome}` : ""}
         {item.status ? ` · ${item.status}` : ""}
+        {item.revision != null ? ` · rev. ${item.revision}` : ""}
+        {hasDiff ? ` · +${ent.length} / −${sai.length}` : ""}
       </p>
       {item.detalhe ?
         <p className="mt-1 text-xs text-slate-400">{item.detalhe}</p>
       : null}
+      {open && hasDiff ?
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <ClienteDiffList titulo="Entraram" faixas={ent} />
+          <ClienteDiffList titulo="Saíram" faixas={sai} />
+        </div>
+      : null}
     </li>
+  );
+}
+
+function ClienteDiffList({
+  titulo,
+  faixas,
+}: {
+  titulo: string;
+  faixas: { titulo: string; artista: string; pastaNome?: string }[];
+}) {
+  if (faixas.length === 0) {
+    return (
+      <div className="rounded border border-slate-100 p-2 text-xs text-slate-400 dark:border-slate-800">—</div>
+    );
+  }
+  return (
+    <div className="rounded border border-slate-100 p-2 dark:border-slate-800">
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">{titulo}</p>
+      <ul className="max-h-40 space-y-0.5 overflow-y-auto text-xs text-slate-700 dark:text-slate-300">
+        {faixas.map((f, i) => (
+          <li key={`${f.titulo}-${i}`}>
+            {f.artista ? `${f.artista} — ` : ""}
+            {f.titulo || "—"}
+            {f.pastaNome ? ` (${f.pastaNome})` : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

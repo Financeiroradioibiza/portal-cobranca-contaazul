@@ -622,6 +622,11 @@ export async function dispararAtualizacao(
     return row;
   });
 
+  const { archiveProgramacaoAtualizacao } = await import("@/lib/criacao/atualizacaoArquivoService");
+  await archiveProgramacaoAtualizacao(prog.clienteRef, created).catch((e) => {
+    console.error("[dispararAtualizacao] archive", e);
+  });
+
   await appendFechamentoPainel({
     programacaoId,
     competencia,

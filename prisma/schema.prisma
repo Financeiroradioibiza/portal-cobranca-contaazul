@@ -1048,6 +1048,35 @@ model ProgramacaoAtualizacao {
   @@map("programacao_atualizacao")
 }
 
+/// Cópia imutável dos logs de atualização por cliente — sobrevive à exclusão da programação.
+model ClienteProgramacaoAtualizacaoArquivo {
+  id                         String                @id @default(cuid())
+  clienteRef                 String                @map("cliente_ref") @db.VarChar(120)
+  programacaoId              String?               @map("programacao_id")
+  programacaoAtualizacaoId   String                @unique @map("programacao_atualizacao_id")
+  codigo                     String                @db.VarChar(80)
+  tipoSubida                 TipoSubidaAtualizacao @default(atl) @map("tipo_subida")
+  especialNome               String                @default("") @map("especial_nome") @db.VarChar(80)
+  competencia                String                @default("") @map("competencia") @db.VarChar(7)
+  rotuloLog                  String                @default("") @map("rotulo_log") @db.VarChar(120)
+  clienteNomeLog             String                @default("") @map("cliente_nome_log") @db.VarChar(200)
+  programacaoNomeLog         String                @default("") @map("programacao_nome_log") @db.VarChar(120)
+  pdvsLog                    String                @default("") @map("pdvs_log") @db.VarChar(500)
+  revision                   Int
+  disparadaEm                DateTime              @map("disparada_em")
+  disparadaPor               String                @default("") @map("disparada_por") @db.VarChar(200)
+  diffJson                   Json                  @map("diff_json")
+  snapshotJson               Json                  @map("snapshot_json")
+  musicasPublicadas          Int                   @default(0) @map("musicas_publicadas")
+  playlistsPublicadas        Int                   @default(0) @map("playlists_publicadas")
+  programacaoExcluidaEm      DateTime?             @map("programacao_excluida_em")
+
+  @@index([clienteRef, disparadaEm(sort: Desc)])
+  @@index([clienteRef, tipoSubida, competencia])
+  @@index([programacaoId, tipoSubida, competencia])
+  @@map("cliente_programacao_atualizacao_arquivo")
+}
+
 /// Painel mensal de acompanhamento (Renato / produção) por programação.
 model CriacaoAtualizacaoPainel {
   id                 String    @id @default(cuid())

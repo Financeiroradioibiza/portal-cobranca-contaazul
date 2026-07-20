@@ -33,6 +33,23 @@ export type BucketStatsView = {
   error: string | null;
 };
 
+export type TempLimboEntryView = {
+  bucket: string;
+  name: string;
+  ageDays: number;
+  sizeBytes: number | null;
+};
+
+export type TempLimboView = {
+  available: boolean;
+  error: string | null;
+  limboDays: number;
+  totalEntries: number;
+  totalBytesEstimate: number;
+  entries: TempLimboEntryView[];
+  warnings: string[];
+};
+
 export type ServidoresStatus = {
   collectedAt: string;
   cloud2: {
@@ -47,6 +64,7 @@ export type ServidoresStatus = {
       r2: BucketStatsView | null;
       b2: BucketStatsView | null;
       providers: Record<string, boolean>;
+      tempLimbo: TempLimboView | null;
     };
   };
   neon: {
@@ -105,6 +123,7 @@ async function fetchCloud2Ops(): Promise<ServidoresStatus["cloud2"]["ops"]> {
     r2: null,
     b2: null,
     providers: {},
+    tempLimbo: null,
   };
   if (!cloud2Enabled()) return empty;
 
@@ -141,11 +160,69 @@ async function fetchCloud2Ops(): Promise<ServidoresStatus["cloud2"]["ops"]> {
       r2: data.r2 ?? null,
       b2: data.b2 ?? null,
       providers: data.providers ?? {},
+      tempLimbo: null,
     };
   } catch (e) {
     return {
       ...empty,
       error: e instanceof Error ? e.message : "ops_parse_error",
+    };
+  }
+}
+
+async function fetchCloud2TempLimbo(): Promise<TempLimboView> {
+  const unavailable: TempLimboView = {
+    available: false,
+    error: cloud2Enabled() ? null : "CRIACAO_INGEST_SECRET não configurado",
+    limboDays: 7,
+    totalEntries: 0,
+    totalBytesEstimate: 0,
+    entries: [],
+    warnings: [],
+  };
+  if (!cloud2Enabled()) return unavailable;
+
+  const res = await cloud2FetchWithTimeout("/ops/orphans", {}, 25000);
+  if (!res) {
+    return {
+      ...unavailable,
+      error: "Timeout ao consultar cloud2 /ops/orphans.",
+    };
+  }
+  if (res.status === 404) {
+    return {
+      ...unavailable,
+      error: "Rota /criacao/ops/orphans ainda não deployada no cloud2.",
+    };
+  }
+  if (!res.ok) {
+    return { ...unavailable, error: `cloud2 orphans HTTP ${res.status}` };
+  }
+
+  try {
+    const data = await parseCloud2Json<{
+      tempLimbo?: {
+        limboDays?: number;
+        totalEntries?: number;
+        totalBytesEstimate?: number;
+        entries?: TempLimboEntryView[];
+      };
+      warnings?: string[];
+    }>(res, "ops_orphans");
+    const tl = data.tempLimbo;
+    return {
+      available: true,
+      error: null,
+      limboDays: tl?.limboDays ?? 7,
+      totalEntries: tl?.totalEntries ?? 0,
+      totalBytesEstimate: tl?.totalBytesEstimate ?? 0,
+      entries: tl?.entries ?? [],
+      warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    };
+  } catch (e) {
+    return {
+      ...unavailable,
+      error: e instanceof Error ? e.message : "orphans_parse_error",
     };
   }
 }
@@ -237,7 +314,7 @@ async function fetchCloudflareR2Analytics(): Promise<{
 
 export async function loadServidoresStatus(): Promise<ServidoresStatus> {
   const publicBase = cloud2PublicBase();
-  const [api, downloadDiag, ops, neon, cloudflare] = await Promise.all([
+  const [api, downloadDiag, ops, tempLimbo, neon, cloudflare] = await Promise.all([
     probeUrl(`${publicBase}/health`),
     (async (): Promise<HealthProbe> => {
       const d = await getDownloadDiagnostics();
@@ -249,9 +326,12 @@ export async function loadServidoresStatus(): Promise<ServidoresStatus> {
       };
     })(),
     fetchCloud2Ops(),
+    fetchCloud2TempLimbo(),
     fetchNeonStorageTotals(),
     fetchCloudflareR2Analytics(),
   ]);
+
+  ops.tempLimbo = tempLimbo;
 
   return {
     collectedAt: new Date().toISOString(),

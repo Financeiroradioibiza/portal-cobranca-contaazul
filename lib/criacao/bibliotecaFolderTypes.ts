@@ -19,6 +19,16 @@ export type BibliotecaFolderKey =
       programacaoNome: string;
       clienteNome: string;
       readOnly: true;
+    }
+  | {
+      kind: "off";
+      archiveId: string;
+      label: string;
+      programacaoId: string | null;
+      programacaoNome: string;
+      clienteNome: string;
+      competencia: string;
+      readOnly: true;
     };
 
 export function folderKeyToQuery(f: BibliotecaFolderKey): Record<string, string> {
@@ -31,6 +41,8 @@ export function folderKeyToQuery(f: BibliotecaFolderKey): Record<string, string>
       return { pastaEspecialId: f.id };
     case "prog":
       return { pastaProgramacaoId: f.id };
+    case "off":
+      return { offArquivoId: f.archiveId };
     default:
       return {};
   }

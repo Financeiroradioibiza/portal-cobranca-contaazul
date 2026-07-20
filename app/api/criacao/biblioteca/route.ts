@@ -15,6 +15,7 @@ export async function GET(request: Request) {
     const bibliotecaPastaId = url.searchParams.get("bibliotecaPastaId") ?? undefined;
     const pastaEspecialId = url.searchParams.get("pastaEspecialId") ?? undefined;
     const pastaProgramacaoId = url.searchParams.get("pastaProgramacaoId") ?? undefined;
+    const offArquivoId = url.searchParams.get("offArquivoId") ?? undefined;
     const gravadora = url.searchParams.get("gravadora") ?? undefined;
     const listFilterRaw = url.searchParams.get("listFilter");
     const listFilter =
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
       bibliotecaPastaId,
       pastaEspecialId,
       pastaProgramacaoId,
+      offArquivoId,
       gravadora,
       listFilter,
     });

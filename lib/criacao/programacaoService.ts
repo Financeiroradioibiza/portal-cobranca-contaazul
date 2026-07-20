@@ -400,6 +400,10 @@ export async function updateProgramacao(
 }
 
 export async function deleteProgramacao(id: string): Promise<void> {
+  const { archiveProgramacaoLogsBeforeDelete } = await import(
+    "@/lib/criacao/atualizacaoArquivoService"
+  );
+  await archiveProgramacaoLogsBeforeDelete(id);
   await prisma.programacao.delete({ where: { id } });
 }
 

@@ -15,6 +15,8 @@ export const criacaoConfig = {
   workerPollMs: Number(process.env.CRIACAO_WORKER_POLL_MS ?? '2000'),
   /** Mantém upload/work em erro por N horas antes do GC (retentativa manual). */
   scratchRetentionErroHours: Number(process.env.CRIACAO_SCRATCH_RETENTION_ERRO_HOURS ?? '48'),
+  /** Arquivos/pastas em pastas temp com mtime mais antigo que N dias → alerta «limbo» no /ops/orphans. */
+  tempLimboDays: Number(process.env.CRIACAO_TEMP_LIMBO_DAYS ?? '7'),
   storageGcIntervalMs: Number(process.env.CRIACAO_STORAGE_GC_INTERVAL_MS ?? '300000'),
   maxUploadBytes: Number(process.env.CRIACAO_MAX_UPLOAD_BYTES ?? String(100 * 1024 * 1024)),
   /** AES-256-GCM para .rib (mín. 16 chars). Vazio = grava MP3 plano em uso/. */

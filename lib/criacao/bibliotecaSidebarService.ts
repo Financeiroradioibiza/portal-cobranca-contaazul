@@ -2,6 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { listTags, type TagCriativoRow } from "@/lib/criacao/tagService";
 import { listBibliotecaPastas, type BibliotecaPastaView } from "@/lib/criacao/bibliotecaPastaService";
 import { listPastasEspeciais } from "@/lib/criacao/pastaEspecialService";
+import {
+  listOffArquivoForBibliotecaSidebar,
+  type BibliotecaOffSidebarItem,
+} from "@/lib/criacao/atualizacaoArquivoService";
 
 export type BibliotecaSidebarTag = TagCriativoRow & { kind: "tag" };
 
@@ -31,6 +35,13 @@ export type BibliotecaSidebarProgramacao = {
   nome: string;
   clienteNome: string;
   pastas: BibliotecaSidebarPastaProgramacao[];
+  offs: BibliotecaOffSidebarItem[];
+};
+
+export type BibliotecaSidebarProgramacaoArquivada = {
+  programacaoNome: string;
+  clienteNome: string;
+  offs: BibliotecaOffSidebarItem[];
 };
 
 export type BibliotecaSidebarTree = {
@@ -38,10 +49,11 @@ export type BibliotecaSidebarTree = {
   pastasCustom: BibliotecaSidebarPastaCustom[];
   pastasEspeciais: BibliotecaSidebarPastaEspecial[];
   programacoes: BibliotecaSidebarProgramacao[];
+  programacoesArquivadas: BibliotecaSidebarProgramacaoArquivada[];
 };
 
 export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree> {
-  const [tags, pastasCustom, especiais, progs] = await Promise.all([
+  const [tags, pastasCustom, especiais, progs, offIndex] = await Promise.all([
     listTags(),
     listBibliotecaPastas(),
     listPastasEspeciais(),
@@ -62,6 +74,7 @@ export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree
         },
       },
     }),
+    listOffArquivoForBibliotecaSidebar(),
   ]);
 
   return {
@@ -78,6 +91,7 @@ export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree
       id: prog.id,
       nome: prog.nome,
       clienteNome: prog.clienteNome,
+      offs: offIndex.byProgramacaoId.get(prog.id) ?? [],
       pastas: prog.pastas.map((pa) => ({
         kind: "prog" as const,
         id: pa.id,
@@ -89,5 +103,6 @@ export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree
         readOnly: true as const,
       })),
     })),
+    programacoesArquivadas: offIndex.arquivadas.filter((a) => a.offs.length > 0),
   };
 }

@@ -41,6 +41,11 @@ function securityHeaders(): { key: string; value: string }[] {
 const nextConfig: NextConfig = {
   async redirects() {
     return [
+      {
+        source: "/privacidade",
+        destination: "/privacidade.html",
+        permanent: true,
+      },
       { source: "/planilha-rio", destination: "/financeiro/planilha-rio", permanent: true },
       { source: "/manual", destination: "/financeiro/envios-oc", permanent: true },
       { source: "/cobranca", destination: "/financeiro/planilha-rio", permanent: false },

@@ -352,6 +352,7 @@ export async function listMusicasBiblioteca(opts: {
   bibliotecaPastaId?: string;
   pastaEspecialId?: string;
   pastaProgramacaoId?: string;
+  offArquivoId?: string;
   gravadora?: string;
   listFilter?: BibliotecaListFilter;
   /** Só use true após upload — evita travar a listagem. */
@@ -397,6 +398,12 @@ export async function listMusicasBiblioteca(opts: {
   }
   if (opts.pastaProgramacaoId) {
     where.pastas = { some: { pastaId: opts.pastaProgramacaoId } };
+  }
+  if (opts.offArquivoId) {
+    const { musicaIdsForOffArquivo } = await import("@/lib/criacao/atualizacaoArquivoService");
+    const ids = await musicaIdsForOffArquivo(opts.offArquivoId);
+    if (ids.length === 0) return { rows: [], total: 0 };
+    where.id = { in: ids };
   }
   const grav = opts.gravadora?.trim();
   if (grav) {

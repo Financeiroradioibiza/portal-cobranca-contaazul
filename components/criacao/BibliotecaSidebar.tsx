@@ -166,8 +166,81 @@ export function BibliotecaSidebar({
   const isActive = (f: BibliotecaFolderKey) => {
     if (f.kind !== active.kind) return false;
     if (f.kind === "all") return active.kind === "all";
+    if (f.kind === "off" && active.kind === "off") return f.archiveId === active.archiveId;
     return "id" in f && "id" in active && f.id === active.id;
   };
+
+  function groupOffsByCompetencia(offs: import("@/lib/criacao/atualizacaoArquivoService").BibliotecaOffSidebarItem[]) {
+    const map = new Map<string, typeof offs>();
+    for (const o of offs) {
+      const k = o.competencia || "—";
+      const list = map.get(k) ?? [];
+      list.push(o);
+      map.set(k, list);
+    }
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }
+
+  function renderOffTree(
+    offs: import("@/lib/criacao/atualizacaoArquivoService").BibliotecaOffSidebarItem[],
+    ctx: { programacaoId: string | null; programacaoNome: string; clienteNome: string },
+    keyPrefix: string,
+  ) {
+    if (offs.length === 0) return null;
+    const offOpenKey = `${keyPrefix}-offs`;
+    const offOpen = progOpen[offOpenKey] ?? false;
+    return (
+      <div className="pl-3">
+        <button
+          type="button"
+          onClick={() => setProgOpen((o) => ({ ...o, [offOpenKey]: !offOpen }))}
+          className="flex w-full items-center gap-1 rounded-lg px-2 py-1 text-left text-[11px] font-semibold text-amber-800 hover:bg-amber-50 dark:text-amber-200 dark:hover:bg-amber-950/40"
+        >
+          <span>{offOpen ? "▾" : "▸"}</span>
+          <span>OFFs ({offs.length})</span>
+        </button>
+        {offOpen ?
+          groupOffsByCompetencia(offs).map(([comp, items]) => (
+            <div key={comp} className="pl-2">
+              <div className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">{comp}</div>
+              {items.map((off) => (
+                <SidebarItem
+                  key={off.archiveId}
+                  active={isActive({
+                    kind: "off",
+                    archiveId: off.archiveId,
+                    label: off.rotulo,
+                    programacaoId: ctx.programacaoId,
+                    programacaoNome: ctx.programacaoNome,
+                    clienteNome: ctx.clienteNome,
+                    competencia: off.competencia,
+                    readOnly: true,
+                  })}
+                  label={off.rotulo}
+                  subtitle="Faixas retiradas no OFF"
+                  emoji="📤"
+                  badge={off.musicaCount}
+                  readOnly
+                  onClick={() =>
+                    onSelect({
+                      kind: "off",
+                      archiveId: off.archiveId,
+                      label: off.rotulo,
+                      programacaoId: ctx.programacaoId,
+                      programacaoNome: ctx.programacaoNome,
+                      clienteNome: ctx.clienteNome,
+                      competencia: off.competencia,
+                      readOnly: true,
+                    })
+                  }
+                />
+              ))}
+            </div>
+          ))
+        : null}
+      </div>
+    );
+  }
 
   if (loading && !tree) {
     return <div className="p-4 text-sm text-slate-500">Carregando pastas…</div>;
@@ -292,24 +365,11 @@ export function BibliotecaSidebar({
                 </span>
               </button>
               {open ?
-                prog.pastas.map((pa) => (
-                  <div key={pa.id} className="pl-3">
-                    <SidebarItem
-                      active={isActive({
-                        kind: "prog",
-                        id: pa.id,
-                        label: pa.nome,
-                        programacaoId: prog.id,
-                        programacaoNome: prog.nome,
-                        clienteNome: prog.clienteNome,
-                        readOnly: true,
-                      })}
-                      label={pa.nome}
-                      emoji="📂"
-                      badge={pa.musicaCount}
-                      readOnly
-                      onClick={() =>
-                        onSelect({
+                <>
+                  {prog.pastas.map((pa) => (
+                    <div key={pa.id} className="pl-3">
+                      <SidebarItem
+                        active={isActive({
                           kind: "prog",
                           id: pa.id,
                           label: pa.nome,
@@ -317,11 +377,56 @@ export function BibliotecaSidebar({
                           programacaoNome: prog.nome,
                           clienteNome: prog.clienteNome,
                           readOnly: true,
-                        })
-                      }
-                    />
-                  </div>
-                ))
+                        })}
+                        label={pa.nome}
+                        emoji="📂"
+                        badge={pa.musicaCount}
+                        readOnly
+                        onClick={() =>
+                          onSelect({
+                            kind: "prog",
+                            id: pa.id,
+                            label: pa.nome,
+                            programacaoId: prog.id,
+                            programacaoNome: prog.nome,
+                            clienteNome: prog.clienteNome,
+                            readOnly: true,
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                  {renderOffTree(prog.offs, {
+                    programacaoId: prog.id,
+                    programacaoNome: prog.nome,
+                    clienteNome: prog.clienteNome,
+                  }, prog.id)}
+                </>
+              : null}
+            </div>
+          );
+        })}
+        {(tree?.programacoesArquivadas ?? []).map((arq) => {
+          const key = `arq-${arq.clienteNome}-${arq.programacaoNome}`;
+          const open = progOpen[key] ?? false;
+          return (
+            <div key={key} className="mb-1 opacity-90">
+              <button
+                type="button"
+                onClick={() => setProgOpen((o) => ({ ...o, [key]: !open }))}
+                className="flex w-full items-center gap-1 rounded-lg px-2 py-1 text-left text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              >
+                <span>{open ? "▾" : "▸"}</span>
+                <span className="truncate">
+                  {arq.clienteNome} · {arq.programacaoNome} (excluída)
+                </span>
+              </button>
+              {open ?
+                renderOffTree(arq.offs, {
+                  programacaoId: null,
+                  programacaoNome: arq.programacaoNome,
+                  clienteNome: arq.clienteNome,
+                }, key)
               : null}
             </div>
           );

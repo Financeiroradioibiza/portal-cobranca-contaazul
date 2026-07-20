@@ -8,6 +8,8 @@ import {
   type DashboardPdvRow,
 } from "@/lib/cadastros/producaoDashboardService";
 import type { PlayerIngestView } from "@/lib/player/playerIngestService";
+import type { FaixaLogItem } from "@/lib/criacao/atualizacaoService";
+import { listClienteAtualizacaoArquivo } from "@/lib/criacao/atualizacaoArquivoService";
 
 export type ClienteResumo = {
   key: string;
@@ -37,6 +39,11 @@ export type ClienteAtualizacaoItem = {
   pdvNome: string | null;
   status: string | null;
   detalhe: string | null;
+  programacaoNome?: string | null;
+  programacaoExcluida?: boolean;
+  revision?: number | null;
+  entraram?: FaixaLogItem[];
+  sairam?: FaixaLogItem[];
 };
 
 export type ClienteFeedbackItem = {
@@ -145,7 +152,7 @@ export async function getClienteRelacionamentoDetail(
 
   const emptyKeys = rioPdvKeys.length === 0;
 
-  const [chamados, cadastros, ingestRows, programacaoAtualizacoes] = await Promise.all([
+  const [chamados, cadastros, ingestRows, arquivoProgramacao] = await Promise.all([
     listChamadosForCliente({
       rioLinhaId: cliente.rioLinhaId,
       rioPdvKeys,
@@ -168,37 +175,7 @@ export async function getClienteRelacionamentoDetail(
         orderBy: { createdAt: "desc" },
         take: 100,
       }),
-    emptyKeys ?
-      Promise.resolve([])
-    : (async () => {
-        const programacaoIds = [
-          ...new Set(
-            (
-              await prisma.producaoPdvCadastro.findMany({
-                where: { rioPdvKey: { in: rioPdvKeys }, programacaoId: { not: null } },
-                select: { programacaoId: true },
-              })
-            )
-              .map((r) => r.programacaoId)
-              .filter((id): id is string => Boolean(id)),
-          ),
-        ];
-        if (programacaoIds.length === 0) return [];
-        return prisma.programacaoAtualizacao.findMany({
-          where: { programacaoId: { in: programacaoIds } },
-          orderBy: { disparadaEm: "desc" },
-          take: 40,
-          select: {
-            id: true,
-            codigo: true,
-            tipoSubida: true,
-            rotuloLog: true,
-            disparadaEm: true,
-            disparadaPor: true,
-            pdvsLog: true,
-          },
-        });
-      })(),
+    listClienteAtualizacaoArquivo([cliente.key, cliente.rioLinhaId], 80),
   ]);
 
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
@@ -249,14 +226,19 @@ export async function getClienteRelacionamentoDetail(
       }),
     );
 
-  const atualizacoesProgramacao: ClienteAtualizacaoItem[] = programacaoAtualizacoes.map((a) => ({
+  const atualizacoesProgramacao: ClienteAtualizacaoItem[] = arquivoProgramacao.map((a) => ({
     id: a.id,
     tipo: "programacao" as const,
-    rotulo: a.rotuloLog || a.codigo || a.tipoSubida,
-    quando: a.disparadaEm.toISOString(),
+    rotulo: a.rotulo,
+    quando: a.disparadaEm,
     pdvNome: a.pdvsLog || null,
     status: a.tipoSubida,
     detalhe: a.disparadaPor ? `Por ${a.disparadaPor}` : null,
+    programacaoNome: a.programacaoNome,
+    programacaoExcluida: a.programacaoExcluida,
+    revision: a.revision,
+    entraram: a.diff.entraram,
+    sairam: a.diff.sairam,
   }));
 
   const atualizacoes = [...atualizacoesCadastro, ...atualizacoesProgramacao].sort((a, b) =>
