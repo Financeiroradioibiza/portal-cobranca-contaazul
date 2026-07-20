@@ -30,6 +30,18 @@ export async function saveServidorUpUploadSnapshot(
   }
 }
 
+export async function deleteServidorUpUploadSnapshot(downloadJobId: string): Promise<boolean> {
+  const id = downloadJobId.trim();
+  if (!id) return false;
+  try {
+    await prisma.servidorUpUploadSnapshot.deleteMany({ where: { downloadJobId: id } });
+    return true;
+  } catch (err) {
+    if (isMissingSnapshotTable(err)) return false;
+    throw err;
+  }
+}
+
 export async function getServidorUpUploadSnapshot(
   downloadJobId: string,
 ): Promise<ServidorUpUploadSession | null> {

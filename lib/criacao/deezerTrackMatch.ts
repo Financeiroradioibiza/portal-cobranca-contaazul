@@ -10,9 +10,9 @@ const DZ_FETCH_TIMEOUT_MS = 8_000;
 const AUTO_PICK_MIN_SCORE = 92;
 const CANDIDATE_MIN_SCORE = 48;
 /** Mínimo de parecença de artista para listar candidato (ex.: Sabib ≈ Sarbib passa; Michael Bublé não). */
-const ARTIST_SIM_PICK_MIN = 0.42;
+export const ARTIST_SIM_PICK_MIN = 0.42;
 /** Artista considerado “match” com typo leve (1–2 letras). */
-const ARTIST_SIM_MATCH_MIN = 0.72;
+export const ARTIST_SIM_MATCH_MIN = 0.72;
 
 export type ParsedArtistTitle = { artista: string; titulo: string };
 
@@ -495,21 +495,37 @@ const LEGACY_CANDIDATE_MIN_SCORE = 32;
 export function isAlternateVersionTitle(title: string): boolean {
   const t = title.trim();
   if (!t) return false;
-  if (/\((?:[^)]*(?:ao vivo|live|remix|acoustic|acústic|acustic|edit|radio edit|ver\.|version|mix|tiësto|tiesto|mike mago|remaster)[^)]*)\)/i.test(t)) {
+  if (/\((?:[^)]*(?:ao vivo|live|remix|acoustic|acústic|acustic|edit|radio edit|ver\.|version|mix|tiësto|tiesto|mike mago|remaster|unplugged|session|concert|festival|tour)[^)]*)\)/i.test(t)) {
     return true;
   }
-  return /\s-\s*(?:live|remix|acoustic|acústic|edit|version)\b/i.test(t);
+  return /\s-\s*(?:live|remix|acoustic|acústic|edit|version|unplugged)\b/i.test(t);
+}
+
+/** Artistas típicos de cover/tribute/instrumental genérico — não usar se o legado pediu o artista original. */
+export function isLikelyTributeOrCoverArtist(artistName: string): boolean {
+  const raw = artistName.trim();
+  if (!raw) return true;
+  if (/^the sound of\b/i.test(raw)) return true;
+  if (/\b(studio group|zoom entertainment|white knight|vital fire|in the style of|tribute to|karaoke|as made famous|cover version|performed by|instrumental\b)/i.test(raw)) {
+    return true;
+  }
+  const key = foldAccents(raw);
+  if (/\bcover\b/.test(key) && !/\bcover\s*me\b/.test(key)) return true;
+  return false;
 }
 
 function scoreLegacyHit(parsed: ParsedArtistTitle, hit: DeezerTrackHit): number {
-  const base = scoreDeezerHit(parsed, hit);
-  if (base >= CANDIDATE_MIN_SCORE) return base;
   const hitTitle = hit.title?.trim() ?? "";
   const hitArtist = hit.artist?.name?.trim() ?? "";
-  if (!hitTitle) return base;
+  if (hitArtist && isLikelyTributeOrCoverArtist(hitArtist)) return 0;
+
+  const base = scoreDeezerHit(parsed, hit);
+  if (base >= CANDIDATE_MIN_SCORE) return base;
+  if (!hitTitle || !hitArtist) return 0;
+  const artistSim = artistSimilarity(parsed.artista, hitArtist);
+  if (artistSim < ARTIST_SIM_PICK_MIN) return 0;
   const { ok, ratio } = titleMatches(parsed.titulo, hitTitle);
-  if (!ok || ratio < 0.55) return base;
-  const artistSim = hitArtist ? artistSimilarity(parsed.artista, hitArtist) : 0.35;
+  if (!ok || ratio < 0.55) return 0;
   return Math.min(88, Math.round(ratio * 42 + artistSim * 40 + 8));
 }
 
@@ -553,11 +569,15 @@ export async function resolveDeezerLegacyCandidates(line: string): Promise<{
   }
 
   const byId = new Map<number, DeezerTrackCandidate>();
+  const legacyWantsAlt = isAlternateVersionTitle(parsed.titulo);
   for (const hit of hits) {
     const score = scoreLegacyHit(parsed, hit);
     if (score < LEGACY_CANDIDATE_MIN_SCORE) continue;
     const c = hitToCandidate(hit, score);
     if (!c) continue;
+    if (isLikelyTributeOrCoverArtist(c.artist)) continue;
+    if (!legacyWantsAlt && isAlternateVersionTitle(c.title)) continue;
+    if (artistSimilarity(parsed.artista, c.artist) < ARTIST_SIM_PICK_MIN) continue;
     const prev = byId.get(c.trackId);
     if (!prev || c.score > prev.score) byId.set(c.trackId, c);
   }

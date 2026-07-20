@@ -30,9 +30,52 @@ import type {
 } from "@/lib/criacao/servidorUpMatchService";
 import {
   persistServidorUpUploadSession,
+  readServidorUpUploadSession,
+  setActiveDeemixJobId,
   writeServidorUpUploadSession,
+  writeServidorUpWorkflowDraft,
   type ServidorUpUploadTrack,
 } from "@/lib/criacao/servidorUpUploadSession";
+
+type DeemixJobSnapshot = {
+  totalItens: number;
+  itensFeitos: number;
+  ok: number;
+  err: number;
+  pending: number;
+  processing: number;
+};
+
+async function readApiJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      res.ok ?
+        "Resposta inválida do portal (HTML em vez de JSON). Recarregue a página ou use Download link."
+      : `Portal HTTP ${res.status} — recarregue ou retome em Download link.`,
+    );
+  }
+}
+
+async function fetchDeemixJobSnapshot(jobId: string): Promise<DeemixJobSnapshot | null> {
+  const res = await fetch(`/api/criacao/download/${jobId}`);
+  if (!res.ok) return null;
+  const detailData = await readApiJson<{
+    job?: { totalItens: number; itensFeitos: number; itens: { status: string }[] };
+  }>(res);
+  const job = detailData.job;
+  if (!job) return null;
+  return {
+    totalItens: job.totalItens,
+    itensFeitos: job.itensFeitos,
+    ok: job.itens.filter((i) => i.status === "concluido").length,
+    err: job.itens.filter((i) => i.status === "erro").length,
+    pending: job.itens.filter((i) => i.status === "aguardando").length,
+    processing: job.itens.filter((i) => i.status === "processando").length,
+  };
+}
 
 type RowDraft = {
   uploadTag: string;
@@ -133,6 +176,8 @@ export function ServidorUpPanel() {
   const [matchPicks, setMatchPicks] = useState<Record<string, number>>({});
   const [skippedTracks, setSkippedTracks] = useState<Set<string>>(() => new Set());
   const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
+  const [deemixJobSnapshot, setDeemixJobSnapshot] = useState<DeemixJobSnapshot | null>(null);
+  const [snapshotMsg, setSnapshotMsg] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
@@ -151,9 +196,25 @@ export function ServidorUpPanel() {
     void getLocalServidorUpConfig().then((p) => {
       if (p) setRootPath(p);
     });
+    const saved = readServidorUpUploadSession();
+    if (saved?.downloadJobId) setDownloadJobId(saved.downloadJobId);
     const t = setInterval(() => void checkLocal(), 10_000);
     return () => clearInterval(t);
   }, [checkLocal]);
+
+  const refreshDeemixJobSnapshot = useCallback(async (jobId: string) => {
+    const snap = await fetchDeemixJobSnapshot(jobId);
+    setDeemixJobSnapshot(snap);
+    return snap;
+  }, []);
+
+  useEffect(() => {
+    if (!downloadJobId) {
+      setDeemixJobSnapshot(null);
+      return;
+    }
+    void refreshDeemixJobSnapshot(downloadJobId);
+  }, [downloadJobId, refreshDeemixJobSnapshot]);
 
   async function applyHierarchyPreview(paths: Array<{ path: string }>) {
     const { folders, ignoredPaths, warnings } = aggregateServidorUpFolders(paths);
@@ -453,8 +514,29 @@ export function ServidorUpPanel() {
     return tracks;
   }
 
+  function persistWorkflowDraft() {
+    if (!preview || !matchResult) return;
+    writeServidorUpWorkflowDraft({
+      rootPath,
+      titulo: `Servidor UP · ${rootPath.split("/").pop() || "legado"}`,
+      hierarchyRows: preview.rows,
+      drafts: Object.fromEntries(
+        Object.entries(drafts).map(([key, d]) => [
+          key,
+          { uploadTag: d.uploadTag, donoUserId: d.donoUserId },
+        ]),
+      ),
+      tracks: buildUploadTracks(),
+      matchPicks,
+      skippedPaths: [...skippedTracks],
+      savedAt: Date.now(),
+    });
+  }
+
   function persistUploadSession(jobId: string) {
     if (!preview || !matchResult) return;
+    persistWorkflowDraft();
+    setActiveDeemixJobId(jobId);
     const payload = {
       downloadJobId: jobId,
       titulo: `Servidor UP · ${rootPath.split("/").pop() || "legado"}`,
@@ -472,6 +554,23 @@ export function ServidorUpPanel() {
     void persistServidorUpUploadSession(payload);
   }
 
+  async function salvarSnapshotMultiUpload() {
+    setSnapshotMsg("");
+    setErr("");
+    if (!downloadJobId) {
+      setErr("Informe o job Deemix (Passo 5) — copie o ID do Download link se precisar.");
+      return;
+    }
+    if (!preview || !matchResult) {
+      setErr("Hierarquia/match ausentes — refaça passos 0–3 nesta aba.");
+      return;
+    }
+    persistUploadSession(downloadJobId);
+    setSnapshotMsg(
+      `Snapshot salvo para job ${downloadJobId.slice(0, 8)}… — abra Upload → Multi-Upload ou clique Multi-Upload abaixo.`,
+    );
+  }
+
   function irParaMultiUpload() {
     if (!downloadJobId) {
       setErr("Faça o download Deemix (passo 4) antes da subida.");
@@ -485,10 +584,105 @@ export function ServidorUpPanel() {
     router.push("/criacao/multi-upload-legado");
   }
 
-  async function enfileirarDownloads() {
+  async function pollDeemixJob(jobId: string, lineCount: number, totalItens: number) {
+    const PROCESS_LIMIT = 5;
+    const maxRounds = Math.ceil(lineCount / PROCESS_LIMIT) * 4 + 4;
+    let processErrors = 0;
+    for (let round = 0; round < maxRounds; round++) {
+      const snap = await fetchDeemixJobSnapshot(jobId);
+      if (!snap) break;
+      setDeemixJobSnapshot(snap);
+      const pending = snap.pending + snap.processing;
+      if (pending === 0) break;
+
+      setBusy(
+        `Baixando Deemix… ${snap.ok}/${snap.totalItens || totalItens} (${pending} pendente(s))`,
+      );
+
+      const syncRes = await fetch("/api/criacao/download/sync-pending", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: PROCESS_LIMIT, timeoutMs: 45_000 }),
+      });
+      const syncData = await readApiJson<{
+        triggered?: boolean;
+        processed?: number;
+        error?: string;
+      }>(syncRes).catch(() => ({ error: "sync_parse" }));
+      if (!syncRes.ok || syncData.error) processErrors += 1;
+      await new Promise((r) => setTimeout(r, 800));
+    }
+
+    const finalSnap = (await fetchDeemixJobSnapshot(jobId)) ?? deemixJobSnapshot;
+    if (finalSnap) setDeemixJobSnapshot(finalSnap);
+
+    const okCount = finalSnap?.ok ?? 0;
+    const errCount = finalSnap?.err ?? 0;
+    const pendingCount = (finalSnap?.pending ?? 0) + (finalSnap?.processing ?? 0);
+    const total = finalSnap?.totalItens ?? totalItens;
+
+    const parts = [`Deemix: ${okCount}/${total} baixada(s)`, `Job ${jobId.slice(0, 8)}…`];
+    if (errCount > 0) parts.push(`${errCount} erro(s)`);
+    if (pendingCount > 0) {
+      parts.push(
+        `${pendingCount} ainda pendente(s) — use «Continuar download» ou deixe Download link aberto`,
+      );
+    }
+    if (processErrors > 0 && pendingCount > 0) {
+      parts.push("(timeout em algum lote — o worker segue se Download link estiver aberto)");
+    }
+    setMsg(parts.join(" · "));
+    setDownloadJobId(jobId);
+    persistUploadSession(jobId);
+    if (pendingCount === 0) setActiveStep(5);
+    return { okCount, pendingCount, processErrors };
+  }
+
+  async function continuarDownloadDeemix() {
+    if (!downloadJobId) {
+      setErr("Nenhum job Deemix — só «Continuar» se já enfileirou antes.");
+      return;
+    }
+    setErr("");
+    try {
+      const snap = await refreshDeemixJobSnapshot(downloadJobId);
+      if (!snap) throw new Error("Job não encontrado — confira o ID em Download link.");
+      const pending = snap.pending + snap.processing;
+      if (pending === 0) {
+        setMsg(`Deemix já concluído: ${snap.ok}/${snap.totalItens} · Job ${downloadJobId.slice(0, 8)}…`);
+        persistUploadSession(downloadJobId);
+        setActiveStep(5);
+        return;
+      }
+      await pollDeemixJob(downloadJobId, snap.pending + snap.ok, snap.totalItens);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Falha ao retomar download.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function criarJobDeemix(forceNew: boolean) {
     setErr("");
     try {
       if (!matchResult) throw new Error("Faça o match antes.");
+      if (downloadJobId && !forceNew) {
+        const snap = await refreshDeemixJobSnapshot(downloadJobId);
+        const pending = (snap?.pending ?? 0) + (snap?.processing ?? 0);
+        if (snap && pending > 0) {
+          setErr(
+            `Já existe job em andamento (${snap.ok}/${snap.totalItens} prontas, ${pending} pendente(s)). Use «Continuar download» — não crie outro job.`,
+          );
+          return;
+        }
+        if (snap && snap.ok > 0 && !forceNew) {
+          setErr(
+            `Job ${downloadJobId.slice(0, 8)}… já tem ${snap.ok} faixa(s). Use «Continuar download» ou Passo 5. Para outro job, use o botão avançado abaixo.`,
+          );
+          return;
+        }
+      }
+
       const lines: string[] = [];
       for (const row of matchResult.rows) {
         if (!matchApproved(row, matchPicks, skippedTracks)) continue;
@@ -498,8 +692,7 @@ export function ServidorUpPanel() {
       if (lines.length === 0) throw new Error("Nenhuma faixa aprovada para download.");
 
       const ENQUEUE_CHUNK = 8;
-      const PROCESS_LIMIT = 5;
-      let jobId: string | undefined;
+      let jobId: string | undefined = forceNew ? undefined : downloadJobId ?? undefined;
       let totalItens = 0;
       let itensErro = 0;
       let itensPick = 0;
@@ -519,14 +712,14 @@ export function ServidorUpPanel() {
             skipProcessing: true,
           }),
         });
-        const data = (await res.json()) as {
+        const data = await readApiJson<{
           ok?: boolean;
           jobId?: string;
           totalItens?: number;
           itensErro?: number;
           itensPick?: number;
           error?: string;
-        };
+        }>(res);
         if (!res.ok || !data.ok || !data.jobId) {
           throw new Error(data.error ?? `Falha ao enfileirar (faixas ${i + 1}–${end}).`);
         }
@@ -534,76 +727,37 @@ export function ServidorUpPanel() {
         totalItens = data.totalItens ?? totalItens;
         itensErro += data.itensErro ?? 0;
         itensPick += data.itensPick ?? 0;
+        setDownloadJobId(jobId);
+        setActiveDeemixJobId(jobId);
+        if (preview && matchResult) persistUploadSession(jobId);
+        else persistWorkflowDraft();
         if (end < lines.length) await new Promise((r) => setTimeout(r, 400));
       }
 
       if (!jobId) throw new Error("Job Deemix não criado.");
-
-      const maxRounds = Math.ceil(lines.length / PROCESS_LIMIT) * 4 + 4;
-      let processErrors = 0;
-      for (let round = 0; round < maxRounds; round++) {
-        const detailRes = await fetch(`/api/criacao/download/${jobId}`);
-        const detailData = (await detailRes.json()) as {
-          job?: { totalItens: number; itensFeitos: number; itens: { status: string }[] };
-        };
-        const job = detailData.job;
-        if (!job) break;
-
-        const pending = job.itens.filter(
-          (i) => i.status === "aguardando" || i.status === "processando",
-        ).length;
-        if (pending === 0) break;
-
-        setBusy(`Baixando Deemix… ${job.itensFeitos}/${job.totalItens} (${pending} pendente(s))`);
-
-        const syncRes = await fetch("/api/criacao/download/sync-pending", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: PROCESS_LIMIT, timeoutMs: 45_000 }),
-        });
-        const syncData = (await syncRes.json()) as {
-          triggered?: boolean;
-          processed?: number;
-          error?: string;
-        };
-        if (!syncRes.ok || syncData.error) processErrors += 1;
-        await new Promise((r) => setTimeout(r, 800));
+      if (itensPick > 0) {
+        setMsg(`Job ${jobId.slice(0, 8)}… · ${itensPick} faixa(s) aguardando escolha no Download link`);
+      }
+      if (itensErro > 0) {
+        setMsg((m) => `${m}${m ? " · " : ""}${itensErro} erro(s) ao enfileirar`);
       }
 
-      const finalRes = await fetch(`/api/criacao/download/${jobId}`);
-      const finalData = (await finalRes.json()) as {
-        job?: { totalItens: number; itensFeitos: number; itens: { status: string }[] };
-      };
-      const finalJob = finalData.job;
-      const okCount = finalJob?.itens.filter((i) => i.status === "concluido").length ?? 0;
-      const errCount = finalJob?.itens.filter((i) => i.status === "erro").length ?? 0;
-      const pendingCount =
-        finalJob?.itens.filter((i) => i.status === "aguardando" || i.status === "processando")
-          .length ?? 0;
-
-      const parts = [
-        `Deemix: ${okCount}/${totalItens} baixada(s)`,
-        `Job ${jobId.slice(0, 8)}…`,
-      ];
-      if (itensPick > 0) parts.push(`${itensPick} aguardando escolha`);
-      if (errCount > 0) parts.push(`${errCount} erro(s)`);
-      if (pendingCount > 0) {
-        parts.push(
-          `${pendingCount} ainda pendente(s) — abra Download link e aguarde, ou clique Passo 4 de novo`,
-        );
-      }
-      if (processErrors > 0 && pendingCount > 0) {
-        parts.push("(alguns lotes deram timeout no worker — o download continua em segundo plano)");
-      }
-      setMsg(parts.join(" · "));
-      setDownloadJobId(jobId);
-      persistUploadSession(jobId);
-      setActiveStep(5);
+      await pollDeemixJob(jobId, lines.length, totalItens);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao enfileirar.");
     } finally {
       setBusy("");
     }
+  }
+
+  function pedirNovoJobDeemix() {
+    const ok = window.confirm(
+      "Isso cria um NOVO job Deemix e pode baixar de novo as mesmas faixas (duplicata no servidor).\n\nSó use se o job anterior estiver errado ou vazio.\n\nContinuar?",
+    );
+    if (!ok) return;
+    setDownloadJobId(null);
+    setDeemixJobSnapshot(null);
+    void criarJobDeemix(true);
   }
 
   const pendingCount = preview?.rows.filter((r) => rowNeedsAction(r, drafts[r.key])).length ?? 0;
@@ -615,9 +769,20 @@ export function ServidorUpPanel() {
   const approvedCount =
     matchResult?.rows.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length ?? 0;
 
+  const deemixPending =
+    deemixJobSnapshot != null ?
+      deemixJobSnapshot.pending + deemixJobSnapshot.processing
+    : null;
+  const hasDeemixJob = Boolean(downloadJobId && deemixJobSnapshot && deemixJobSnapshot.totalItens > 0);
+  const deemixInProgress = hasDeemixJob && (deemixPending ?? 0) > 0;
+  const canStartFreshDeemix = !deemixInProgress && !busy;
+
   useEffect(() => {
     if (downloadJobId && preview && matchResult) {
       persistUploadSession(downloadJobId);
+    }
+    if (preview && matchResult) {
+      persistWorkflowDraft();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- persiste sessão quando dados mudam
   }, [downloadJobId, preview, matchResult, drafts, matchPicks, skippedTracks, rootPath]);
@@ -775,8 +940,10 @@ export function ServidorUpPanel() {
           approvedCount={approvedCount}
           okPastas={preview?.rows.filter((r) => r.status === "ok").length ?? 0}
           hasMatch={Boolean(matchResult)}
+          snapshotMsg={snapshotMsg}
           onGo={() => irParaMultiUpload()}
           onPersist={() => downloadJobId && persistUploadSession(downloadJobId)}
+          onSaveSnapshot={() => void salvarSnapshotMultiUpload()}
         />
       : null}
 
@@ -1015,21 +1182,75 @@ export function ServidorUpPanel() {
             </p>
           : null}
 
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              disabled={!!busy || approvedCount === 0}
-              onClick={() => void enfileirarDownloads()}
-              className="rounded-lg bg-violet-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              Passo 4 — Baixar via Deemix ({approvedCount} faixas)
-            </button>
-            <Link
-              href="/criacao/download"
-              className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-semibold dark:border-slate-700"
-            >
-              Abrir Download link →
-            </Link>
+          <div className="flex flex-col gap-3">
+            {hasDeemixJob ?
+              <div className="rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-xs text-violet-950 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+                Job Deemix{" "}
+                <code className="font-mono">{downloadJobId!.slice(0, 8)}…</code>
+                {" · "}
+                {deemixJobSnapshot!.ok}/{deemixJobSnapshot!.totalItens} baixada(s)
+                {deemixInProgress ?
+                  ` · ${deemixPending} pendente(s) — não crie outro job`
+                : " · pronto para Passo 5"}
+              </div>
+            : null}
+
+            <div className="flex flex-wrap gap-3">
+              {deemixInProgress ?
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => void continuarDownloadDeemix()}
+                  className="rounded-lg bg-violet-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Continuar download Deemix
+                </button>
+              : hasDeemixJob ?
+                <>
+                  <button
+                    type="button"
+                    disabled={!!busy}
+                    onClick={() => void continuarDownloadDeemix()}
+                    className="rounded-lg border border-violet-400 px-5 py-2 text-sm font-semibold text-violet-900 dark:border-violet-600 dark:text-violet-100 disabled:opacity-50"
+                  >
+                    Verificar / retomar job
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!busy}
+                    onClick={() => setActiveStep(5)}
+                    className="rounded-lg bg-emerald-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Passo 5 — Multi-Upload
+                  </button>
+                </>
+              : (
+                <button
+                  type="button"
+                  disabled={!!busy || approvedCount === 0 || !canStartFreshDeemix}
+                  onClick={() => void criarJobDeemix(false)}
+                  className="rounded-lg bg-violet-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Passo 4 — Baixar via Deemix ({approvedCount} faixas)
+                </button>
+              )}
+              <Link
+                href="/criacao/download"
+                className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-semibold dark:border-slate-700"
+              >
+                Abrir Download link →
+              </Link>
+              {hasDeemixJob ?
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={pedirNovoJobDeemix}
+                  className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900 dark:border-amber-800 dark:text-amber-200"
+                >
+                  Novo job (duplicar — evitar)
+                </button>
+              : null}
+            </div>
           </div>
         </div>
       : null}
@@ -1047,16 +1268,20 @@ function Step5MultiUploadPanel({
   approvedCount,
   okPastas,
   hasMatch,
+  snapshotMsg,
   onGo,
   onPersist,
+  onSaveSnapshot,
 }: {
   downloadJobId: string | null;
   setDownloadJobId: (id: string | null) => void;
   approvedCount: number;
   okPastas: number;
   hasMatch: boolean;
+  snapshotMsg: string;
   onGo: () => void;
   onPersist: () => void;
+  onSaveSnapshot: () => void;
 }) {
   return (
     <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50/80 p-4 dark:border-emerald-700 dark:bg-emerald-950/30">
@@ -1069,14 +1294,22 @@ function Step5MultiUploadPanel({
       : null}
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <label className="text-xs">
-          <span className="mb-1 block font-semibold text-slate-600">Job Deemix (só se veio do Download link)</span>
+          <span className="mb-1 block font-semibold text-slate-600">Job Deemix</span>
           <input
             value={downloadJobId ?? ""}
             onChange={(e) => setDownloadJobId(e.target.value.trim() || null)}
-            placeholder="ID completo do job — opcional se acabou de baixar aqui"
+            placeholder="ID do job (Download link → lote legadoteste)"
             className="w-72 rounded border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
           />
         </label>
+        <button
+          type="button"
+          disabled={!downloadJobId || !hasMatch}
+          onClick={onSaveSnapshot}
+          className="rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-500 dark:text-emerald-100 disabled:opacity-50"
+        >
+          Salvar snapshot no servidor
+        </button>
         <button
           type="button"
           disabled={!downloadJobId || !hasMatch}
@@ -1093,6 +1326,13 @@ function Step5MultiUploadPanel({
           Abrir Multi-Upload legado →
         </Link>
       </div>
+      {snapshotMsg ?
+        <p className="mt-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200">{snapshotMsg}</p>
+      : null}
+      <p className="mt-2 text-[11px] text-emerald-900/80 dark:text-emerald-200/80">
+        Se fechou o portal após o download: cole o job Deemix de «legadoteste» e clique{" "}
+        <strong>Salvar snapshot</strong> antes do Multi-Upload.
+      </p>
     </div>
   );
 }

@@ -5,9 +5,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import {
+  buildUploadSessionFromDraft,
   clearServidorUpUploadSession,
   fetchServidorUpUploadSession,
+  isUploadSessionStaleForJob,
+  persistServidorUpUploadSession,
+  readActiveDeemixJobId,
   readServidorUpUploadSession,
+  readServidorUpWorkflowDraft,
   writeServidorUpUploadSession,
   type ServidorUpUploadSession,
 } from "@/lib/criacao/servidorUpUploadSession";
@@ -149,29 +154,92 @@ export function ServidorUpMultiUploadPanel() {
     [activateSession],
   );
 
-  useEffect(() => {
-    void (async () => {
-      const local = readServidorUpUploadSession();
-      if (local) {
-        setSession(local);
-        await loadPlan(local);
+  const dismissSnapshot = useCallback(
+    async (downloadJobId: string) => {
+      if (
+        !window.confirm(
+          "Remover este snapshot salvo no servidor? O download Deemix continua no Download link — só some da lista de hierarquias.",
+        )
+      ) {
         return;
       }
+      setErr(null);
+      try {
+        const res = await fetch(
+          `/api/criacao/servidor-up/upload-session/${encodeURIComponent(downloadJobId)}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) throw new Error("Não foi possível remover o snapshot.");
+        const local = readServidorUpUploadSession();
+        if (local?.downloadJobId === downloadJobId) clearServidorUpUploadSession();
+        if (session?.downloadJobId === downloadJobId) {
+          setSession(null);
+          setPlan(null);
+        }
+        await loadAvailableSessions();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Falha ao remover snapshot.");
+      }
+    },
+    [loadAvailableSessions, session?.downloadJobId],
+  );
 
+  const linkDraftToDeemixJob = useCallback(
+    async (jobId: string) => {
+      setSelectingJob(true);
+      setErr(null);
+      try {
+        const draft = readServidorUpWorkflowDraft();
+        if (!draft || draft.tracks.length === 0) {
+          throw new Error(
+            "Não há rascunho de hierarquia neste navegador. Abra Servidor UP, refaça passos 0–3 (ou só confirme se ainda estiver lá) e volte.",
+          );
+        }
+        const uploadSession = buildUploadSessionFromDraft(jobId, draft);
+        await persistServidorUpUploadSession(uploadSession);
+        await activateSession(uploadSession);
+        setMsg(
+          `Job ${jobId.slice(0, 8)}… vinculado com ${uploadSession.tracks.length} faixa(s) do rascunho.`,
+        );
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Falha ao vincular job.");
+      } finally {
+        setSelectingJob(false);
+      }
+    },
+    [activateSession],
+  );
+
+  useEffect(() => {
+    void (async () => {
       setLoading(true);
       try {
         const res = await fetch("/api/criacao/servidor-up/upload-sessions");
         const data = (await res.json()) as SessionsResponse;
-        if (res.ok) {
-          setSnapshots(data.snapshots ?? []);
-          setDeemixJobs(data.servidorUpJobs ?? []);
-          const latest = data.snapshots?.[0];
-          if (latest) {
-            const s = await fetchServidorUpUploadSession(latest.downloadJobId);
-            if (s) {
-              await activateSession(s);
-              return;
-            }
+        const jobs = res.ok ? (data.servidorUpJobs ?? []) : [];
+        const snaps = res.ok ? (data.snapshots ?? []) : [];
+        setSnapshots(snaps);
+        setDeemixJobs(jobs);
+
+        const local = readServidorUpUploadSession();
+        const activeJobId = readActiveDeemixJobId();
+
+        if (local && activeJobId && local.downloadJobId !== activeJobId) {
+          clearServidorUpUploadSession();
+        } else if (local) {
+          const job = jobs.find((j) => j.id === local.downloadJobId);
+          if (!isUploadSessionStaleForJob(local, job)) {
+            await activateSession(local);
+            return;
+          }
+          clearServidorUpUploadSession();
+        }
+
+        if (activeJobId) {
+          const fromServer = await fetchServidorUpUploadSession(activeJobId);
+          if (fromServer) {
+            await activateSession(fromServer);
+            return;
           }
         }
       } catch {
@@ -180,7 +248,7 @@ export function ServidorUpMultiUploadPanel() {
         setLoading(false);
       }
     })();
-  }, [activateSession, loadPlan]);
+  }, [activateSession]);
 
   async function submitMultiUpload() {
     if (!session || !plan) return;
@@ -232,6 +300,11 @@ export function ServidorUpMultiUploadPanel() {
     const jobsWithoutSnapshot = deemixJobs.filter(
       (j) => !snapshotIds.has(j.id) && j.itensOk > 0,
     );
+    const workflowDraft = readServidorUpWorkflowDraft();
+    const activeJobId = readActiveDeemixJobId();
+    const preferredJob =
+      (activeJobId ? jobsWithoutSnapshot.find((j) => j.id === activeJobId) : null) ??
+      jobsWithoutSnapshot[0];
 
     return (
       <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50/90 p-4 dark:border-amber-900 dark:bg-amber-950/30">
@@ -246,6 +319,29 @@ export function ServidorUpMultiUploadPanel() {
 
         {err ?
           <p className="mt-2 text-xs font-semibold text-red-700 dark:text-red-300">{err}</p>
+        : null}
+        {msg ?
+          <p className="mt-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200">{msg}</p>
+        : null}
+
+        {preferredJob && workflowDraft ?
+          <div className="mt-3 rounded-lg border-2 border-emerald-400 bg-emerald-50/90 p-3 dark:border-emerald-700 dark:bg-emerald-950/40">
+            <p className="text-xs font-bold text-emerald-950 dark:text-emerald-100">
+              Seu download recente ({preferredJob.itensOk}/{preferredJob.totalItens} MP3)
+            </p>
+            <p className="mt-1 text-[11px] text-emerald-900/90 dark:text-emerald-200/90">
+              Há hierarquia salva neste navegador ({workflowDraft.tracks.length} faixa(s) mapeadas).
+              Vincule ao job Deemix — não use o snapshot antigo de teste.
+            </p>
+            <button
+              type="button"
+              disabled={selectingJob}
+              onClick={() => void linkDraftToDeemixJob(preferredJob.id)}
+              className="mt-2 rounded-lg bg-emerald-800 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              Vincular e abrir Multi-Upload →
+            </button>
+          </div>
         : null}
 
         {loading || loadingSessions ?
@@ -278,6 +374,14 @@ export function ServidorUpMultiUploadPanel() {
                   >
                     Usar este job
                   </button>
+                  <button
+                    type="button"
+                    disabled={selectingJob}
+                    onClick={() => void dismissSnapshot(snap.downloadJobId)}
+                    className="rounded-lg border border-red-300 px-2 py-1.5 text-[10px] font-semibold text-red-800 dark:border-red-800 dark:text-red-200"
+                  >
+                    Remover snapshot
+                  </button>
                 </li>
               ))}
             </ul>
@@ -299,10 +403,21 @@ export function ServidorUpMultiUploadPanel() {
                   <div className="text-[11px] text-slate-500">
                     {job.itensOk}/{job.totalItens} baixada(s) · job {job.id.slice(0, 8)}…
                   </div>
-                  <p className="mt-1 text-[10px] text-amber-800 dark:text-amber-300">
-                    Abra o Servidor UP na mesma aba onde fez o passo 0 e clique em &quot;Salvar snapshot&quot; no
-                    Passo 5, ou refaça os passos 0–4.
-                  </p>
+                  {workflowDraft ?
+                    <button
+                      type="button"
+                      disabled={selectingJob}
+                      onClick={() => void linkDraftToDeemixJob(job.id)}
+                      className="mt-2 rounded-lg bg-violet-900 px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                    >
+                      Vincular hierarquia desta sessão ({workflowDraft.tracks.length} faixas)
+                    </button>
+                  : (
+                    <p className="mt-1 text-[10px] text-amber-800 dark:text-amber-300">
+                      Abra o Servidor UP (passos 0–3) na mesma aba e volte aqui, ou use Passo 5 →
+                      Salvar snapshot.
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -350,10 +465,12 @@ export function ServidorUpMultiUploadPanel() {
             clearServidorUpUploadSession();
             setSession(null);
             setPlan(null);
+            setStats(null);
+            void loadAvailableSessions();
           }}
           className="rounded border border-violet-300 px-2 py-1 text-[10px] font-semibold dark:border-violet-700"
         >
-          Sair do modo Servidor UP
+          Sair / escolher outro job
         </button>
       </div>
 

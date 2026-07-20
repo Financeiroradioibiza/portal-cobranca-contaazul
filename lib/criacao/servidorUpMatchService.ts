@@ -1,5 +1,10 @@
 import {
+  artistSimilarity,
+  ARTIST_SIM_MATCH_MIN,
+  ARTIST_SIM_PICK_MIN,
+  coreTitleForMatch,
   isAlternateVersionTitle,
+  isLikelyTributeOrCoverArtist,
   normalizeLegacyFilenameForSearch,
   resolveDeezerLegacyCandidates,
   type DeezerTrackCandidate,
@@ -110,6 +115,11 @@ function buildSearchLine(track: ServidorUpInventoryTrack): string {
   return stem || t || a || track.fileName;
 }
 
+function parseArtistFromSearch(searchLine: string): string {
+  const m = searchLine.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+  return m?.[1]?.trim() ?? "";
+}
+
 function legacyWantsAlternateVersion(legacyTitle: string): boolean {
   return isAlternateVersionTitle(legacyTitle);
 }
@@ -119,26 +129,101 @@ function versionSortPenalty(legacyTitle: string, candidateTitle: string): number
   return isAlternateVersionTitle(candidateTitle) ? 1 : 0;
 }
 
+function foldForTitle(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+function filterServidorUpCandidates(
+  enriched: ServidorUpMatchCandidate[],
+  legacyArtist: string,
+  legacyTitle: string,
+): ServidorUpMatchCandidate[] {
+  const wantsAlt = legacyWantsAlternateVersion(legacyTitle);
+  const strict = enriched.filter((c) => {
+    if (!wantsAlt && isAlternateVersionTitle(c.title)) return false;
+    if (isLikelyTributeOrCoverArtist(c.artist)) return false;
+    if (artistSimilarity(legacyArtist, c.artist) < ARTIST_SIM_MATCH_MIN) return false;
+    return true;
+  });
+  if (strict.length > 0) return strict;
+  return enriched.filter((c) => {
+    if (!wantsAlt && isAlternateVersionTitle(c.title)) return false;
+    if (isLikelyTributeOrCoverArtist(c.artist)) return false;
+    return artistSimilarity(legacyArtist, c.artist) >= ARTIST_SIM_PICK_MIN;
+  });
+}
+
+function compareServidorUpCandidates(
+  a: ServidorUpMatchCandidate,
+  b: ServidorUpMatchCandidate,
+  legacyArtist: string,
+  legacyTitle: string,
+): number {
+  const scoreGap = b.score - a.score;
+  if (Math.abs(scoreGap) >= 8) return scoreGap;
+
+  const aArtistOk = artistSimilarity(legacyArtist, a.artist) >= ARTIST_SIM_MATCH_MIN;
+  const bArtistOk = artistSimilarity(legacyArtist, b.artist) >= ARTIST_SIM_MATCH_MIN;
+  if (aArtistOk !== bArtistOk) return aArtistOk ? -1 : 1;
+
+  const da = a.durationDiffSec ?? 9999;
+  const db = b.durationDiffSec ?? 9999;
+  if (Math.abs(da - db) > 2) return da - db;
+
+  const altA = versionSortPenalty(legacyTitle, a.title);
+  const altB = versionSortPenalty(legacyTitle, b.title);
+  if (altA !== altB) return altA - altB;
+
+  return b.score - a.score;
+}
+
 function pickByLegacyDuration(
   enriched: ServidorUpMatchCandidate[],
   legacyDurationSec: number | null,
   legacyTitle: string,
+  legacyArtist: string,
 ): { selected: ServidorUpMatchCandidate | null; verdict: ServidorUpMatchVerdict; reason: string } {
   if (enriched.length === 0) {
     return { selected: null, verdict: "not_found", reason: "Nenhum candidato Deezer." };
   }
 
-  const sorted = [...enriched].sort((a, b) => {
-    const da = a.durationDiffSec ?? 9999;
-    const db = b.durationDiffSec ?? 9999;
-    if (Math.abs(da - db) > 2) return da - db;
+  const pool = filterServidorUpCandidates(enriched, legacyArtist, legacyTitle);
+  if (pool.length === 0) {
+    return {
+      selected: null,
+      verdict: "not_found",
+      reason: "Nenhuma faixa com o artista pedido (live/cover/tribute filtrados). Escolha manual ou pule.",
+    };
+  }
 
-    const altA = versionSortPenalty(legacyTitle, a.title);
-    const altB = versionSortPenalty(legacyTitle, b.title);
-    if (altA !== altB) return altA - altB;
+  const wantCore = foldForTitle(coreTitleForMatch(legacyTitle));
+  const exactStudio = pool.find(
+    (c) =>
+      c.score >= 92 &&
+      artistSimilarity(legacyArtist, c.artist) >= ARTIST_SIM_MATCH_MIN &&
+      foldForTitle(coreTitleForMatch(c.title)) === wantCore &&
+      versionSortPenalty(legacyTitle, c.title) === 0,
+  );
+  if (exactStudio) {
+    const diff = exactStudio.durationDiffSec;
+    if (legacyDurationSec == null || diff == null || diff <= 12) {
+      return {
+        selected: exactStudio,
+        verdict: "auto",
+        reason:
+          diff != null ?
+            `Artista e título batem (score ${exactStudio.score}, Δ ${diff.toFixed(0)}s).`
+          : `Artista e título batem (score ${exactStudio.score}).`,
+      };
+    }
+  }
 
-    return b.score - a.score;
-  });
+  const sorted = [...pool].sort((a, b) =>
+    compareServidorUpCandidates(a, b, legacyArtist, legacyTitle),
+  );
 
   if (legacyDurationSec == null) {
     const top = sorted[0]!;
@@ -268,6 +353,7 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
     enriched,
     track.durationSec,
     track.titulo,
+    track.artista || parseArtistFromSearch(searchLine),
   );
 
   let finalVerdict = verdict;

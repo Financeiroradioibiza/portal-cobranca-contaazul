@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
+  deleteServidorUpUploadSnapshot,
   getServidorUpUploadSnapshot,
   saveServidorUpUploadSnapshot,
 } from "@/lib/criacao/servidorUpUploadSnapshotService";
@@ -42,6 +43,19 @@ export async function PUT(request: Request, ctx: Ctx) {
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/servidor-up/upload-session PUT]", e);
+    return NextResponse.json({ error: "server_error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(_request: Request, ctx: Ctx) {
+  try {
+    requirePortalSession(await getPortalSession());
+    const { jobId } = await ctx.params;
+    await deleteServidorUpUploadSnapshot(jobId);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    console.error("[criacao/servidor-up/upload-session DELETE]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }
