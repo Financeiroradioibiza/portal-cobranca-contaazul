@@ -13,6 +13,7 @@ import {
   readActiveDeemixJobId,
   readServidorUpUploadSession,
   readServidorUpWorkflowDraft,
+  setActiveDeemixJobId,
   writeServidorUpUploadSession,
   type ServidorUpUploadSession,
 } from "@/lib/criacao/servidorUpUploadSession";
@@ -80,7 +81,8 @@ export function ServidorUpMultiUploadPanel() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [selectingJob, setSelectingJob] = useState(false);
 
-  const loadPlan = useCallback(async (s: ServidorUpUploadSession) => {
+  const loadPlan = useCallback(
+    async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[] = deemixJobs) => {
     setLoading(true);
     setErr(null);
     try {
@@ -100,21 +102,51 @@ export function ServidorUpMultiUploadPanel() {
       }
       setPlan(data.plan);
       setStats(data.stats ?? null);
+
+      const matched = data.plan.lotes.reduce((n, l) => n + l.tracks.length, 0);
+      const jobRow = jobs.find((j) => j.id === s.downloadJobId);
+      const activeId = readActiveDeemixJobId();
+      if (matched === 0 && (data.stats?.unmatched ?? 0) > 5) {
+        const best = [...jobs]
+          .filter((j) => /servidor\s*up/i.test(j.titulo) && j.itensOk > 0)
+          .sort((a, b) => b.itensOk - a.itensOk)[0];
+        if (best && best.id !== s.downloadJobId) {
+          setErr(
+            `Nenhum MP3 bateu com o job ${s.downloadJobId.slice(0, 8)}… neste snapshot. ` +
+              `No Download link, o lote «${best.titulo}» tem ${best.itensOk} MP3 (job ${best.id.slice(0, 8)}…). ` +
+              `Saia e clique «Usar este job» na linha com esse ID — não use o snapshot do job antigo.`,
+          );
+        } else if (jobRow && jobRow.itensOk > 0) {
+          setErr(
+            `Há ${jobRow.itensOk} MP3 concluídos neste job, mas nenhum casou com as URLs do snapshot. ` +
+              `Servidor UP → Passo 5: cole ${s.downloadJobId} e «Salvar snapshot» de novo.`,
+          );
+        }
+      } else if (
+        activeId &&
+        activeId !== s.downloadJobId &&
+        matched < (data.stats?.tracksMatched ?? matched) * 0.5
+      ) {
+        setErr(
+          `Atenção: snapshot do job ${s.downloadJobId.slice(0, 8)}…, mas o download recente é ${activeId.slice(0, 8)}…`,
+        );
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao carregar plano.");
       setPlan(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [deemixJobs]);
 
   const activateSession = useCallback(
-    async (s: ServidorUpUploadSession) => {
+    async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[] = deemixJobs) => {
+      setActiveDeemixJobId(s.downloadJobId);
       writeServidorUpUploadSession(s);
       setSession(s);
-      await loadPlan(s);
+      await loadPlan(s, jobs);
     },
-    [loadPlan],
+    [loadPlan, deemixJobs],
   );
 
   const loadAvailableSessions = useCallback(async () => {
@@ -224,23 +256,23 @@ export function ServidorUpMultiUploadPanel() {
         const local = readServidorUpUploadSession();
         const activeJobId = readActiveDeemixJobId();
 
+        if (activeJobId) {
+          const fromServer = await fetchServidorUpUploadSession(activeJobId);
+          if (fromServer) {
+            await activateSession(fromServer, jobs);
+            return;
+          }
+        }
+
         if (local && activeJobId && local.downloadJobId !== activeJobId) {
           clearServidorUpUploadSession();
         } else if (local) {
           const job = jobs.find((j) => j.id === local.downloadJobId);
           if (!isUploadSessionStaleForJob(local, job)) {
-            await activateSession(local);
+            await activateSession(local, jobs);
             return;
           }
           clearServidorUpUploadSession();
-        }
-
-        if (activeJobId) {
-          const fromServer = await fetchServidorUpUploadSession(activeJobId);
-          if (fromServer) {
-            await activateSession(fromServer);
-            return;
-          }
         }
       } catch {
         /* ignore */
@@ -352,17 +384,31 @@ export function ServidorUpMultiUploadPanel() {
               Jobs com hierarquia salva
             </p>
             <ul className="space-y-2">
-              {snapshots.map((snap) => (
+              {snapshots.map((snap) => {
+                const deemixOk = deemixJobs.find((j) => j.id === snap.downloadJobId)?.itensOk;
+                const isActive = activeJobId === snap.downloadJobId;
+                return (
                 <li
                   key={snap.downloadJobId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200/80 bg-white/90 px-3 py-2 dark:border-amber-800 dark:bg-slate-900/70"
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 dark:bg-slate-900/70 ${
+                    isActive
+                      ? "border-emerald-500 bg-emerald-50/90 dark:border-emerald-700"
+                      : "border-amber-200/80 bg-white/90 dark:border-amber-800"
+                  }`}
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
                       {snap.titulo}
+                      {isActive ?
+                        <span className="ml-2 text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
+                          (job do Download link)
+                        </span>
+                      : null}
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      {snap.trackCount} faixa(s) · job {snap.downloadJobId.slice(0, 8)}… ·{" "}
+                      {snap.trackCount} faixa(s) no snapshot
+                      {deemixOk != null ? ` · ${deemixOk} MP3 no Deemix` : ""} · job{" "}
+                      <code className="text-[10px]">{snap.downloadJobId}</code> ·{" "}
                       {new Date(snap.savedAt).toLocaleString("pt-BR")}
                     </div>
                   </div>
@@ -383,7 +429,8 @@ export function ServidorUpMultiUploadPanel() {
                     Remover snapshot
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         : null}
@@ -446,6 +493,7 @@ export function ServidorUpMultiUploadPanel() {
   }
 
   const totalMatched = plan?.lotes.reduce((n, l) => n + l.tracks.length, 0) ?? 0;
+  const sessionDeemixJob = deemixJobs.find((j) => j.id === session.downloadJobId);
 
   return (
     <div className="mb-6 rounded-xl border-2 border-violet-400 bg-violet-50/90 p-4 dark:border-violet-600 dark:bg-violet-950/40">
@@ -456,7 +504,11 @@ export function ServidorUpMultiUploadPanel() {
           </h2>
           <p className="mt-1 max-w-2xl text-xs text-violet-900/90 dark:text-violet-200/90">
             Pastas e tags já definidas no passo 0 do Servidor UP — cada faixa vai para a programação/pasta
-            correta. Job Deemix <code className="text-[10px]">{session.downloadJobId.slice(0, 8)}…</code>
+            correta. Job Deemix{" "}
+            <code className="break-all text-[10px]">{session.downloadJobId}</code>
+            {sessionDeemixJob ?
+              ` · ${sessionDeemixJob.itensOk} MP3 concluídos no download`
+            : null}
           </p>
         </div>
         <button

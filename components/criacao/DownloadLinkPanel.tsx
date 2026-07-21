@@ -17,6 +17,7 @@ import {
   type StagingFileRow,
 } from "@/lib/criacao/downloadService";
 import type { DeezerTrackCandidate } from "@/lib/criacao/deezerTrackMatch";
+import { setActiveDeemixJobId } from "@/lib/criacao/servidorUpUploadSession";
 
 type JobDetail = {
   id: string;
@@ -289,6 +290,7 @@ export function DownloadLinkPanel() {
       return;
     }
     setOpenJobId(id);
+    setActiveDeemixJobId(id);
     const detail = await fetchJobDetail(id);
     setJobDetail(detail);
   }

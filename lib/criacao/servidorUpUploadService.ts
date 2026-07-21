@@ -49,6 +49,64 @@ export function deezerTrackIdFromUrl(url: string): string | null {
   return m?.[1] ?? null;
 }
 
+type DownloadItemRow = {
+  id: string;
+  linhaOriginal: string;
+  titulo: string;
+  artista: string;
+  arquivoNome: string;
+  sizeBytes: number | null;
+};
+
+function foldMatch(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Artista/título a partir do nome do MP3 legado (`Artista - Faixa~7.mp3`). */
+function legacyStemArtistTitle(relativePath: string): { artista: string; titulo: string } | null {
+  const base = relativePath.split("/").pop()?.replace(/\.mp3$/i, "") ?? "";
+  const stripped = base.replace(/~\d+$/i, "").trim();
+  const sep = stripped.match(/^(.+?)\s*-\s*(.+)$/);
+  if (!sep?.[1]?.trim() || !sep[2]?.trim()) return null;
+  return { artista: sep[1].trim(), titulo: sep[2].trim() };
+}
+
+function resolveDownloadItemForTrack(
+  track: ServidorUpUploadTrackInput,
+  itemByTrackId: Map<string, DownloadItemRow>,
+  items: DownloadItemRow[],
+  usedDownloadIds: Set<string>,
+): DownloadItemRow | undefined {
+  const deezerId = deezerTrackIdFromUrl(track.deezerUrl);
+  if (deezerId) {
+    const hit = itemByTrackId.get(deezerId);
+    if (hit && !usedDownloadIds.has(hit.id)) return hit;
+  }
+
+  for (const item of items) {
+    if (usedDownloadIds.has(item.id)) continue;
+    const fromLine = deezerTrackIdFromUrl(item.linhaOriginal);
+    if (deezerId && fromLine === deezerId) return item;
+  }
+
+  const legacy = legacyStemArtistTitle(track.relativePath);
+  if (!legacy) return undefined;
+  const wantA = foldMatch(legacy.artista);
+  const wantT = foldMatch(legacy.titulo);
+  for (const item of items) {
+    if (usedDownloadIds.has(item.id)) continue;
+    const ia = foldMatch(item.artista);
+    const it = foldMatch(item.titulo);
+    if (ia === wantA && (it === wantT || it.includes(wantT) || wantT.includes(it))) return item;
+  }
+  return undefined;
+}
+
 export function servidorUpHierarchyKey(input: {
   clienteNome: string;
   programacaoNome: string;
@@ -115,10 +173,11 @@ export async function buildServidorUpUploadPlan(input: {
       continue;
     }
 
-    const deezerId = deezerTrackIdFromUrl(track.deezerUrl);
-    const dl = deezerId ? itemByTrackId.get(deezerId) : undefined;
+    const dl = resolveDownloadItemForTrack(track, itemByTrackId, downloadItems, usedDownloadIds);
     if (!dl) {
-      unmatchedTracks.push(`${track.relativePath} (download Deemix não encontrado)`);
+      unmatchedTracks.push(
+        `${track.relativePath} (MP3 não encontrado no job ${input.downloadJobId.slice(0, 8)}… — confira se escolheu o snapshot deste job no Download link)`,
+      );
       continue;
     }
     usedDownloadIds.add(dl.id);
