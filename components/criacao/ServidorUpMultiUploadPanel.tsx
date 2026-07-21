@@ -72,6 +72,19 @@ type SessionsResponse = {
   error?: string;
 };
 
+async function readApiJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      res.ok ?
+        "Resposta inválida do portal (HTML em vez de JSON). Aguarde o deploy ou recarregue a página."
+      : `Portal HTTP ${res.status} — aguarde o deploy terminar ou recarregue.`,
+    );
+  }
+}
+
 export function ServidorUpMultiUploadPanel() {
   const router = useRouter();
   const [session, setSession] = useState<ServidorUpUploadSession | null>(null);
@@ -102,7 +115,7 @@ export function ServidorUpMultiUploadPanel() {
           tracks: s.tracks,
         }),
       });
-      const data = (await res.json()) as BuildResponse;
+      const data = await readApiJson<BuildResponse>(res);
       if (!res.ok || !data.plan) {
         throw new Error(data.error ?? "Falha ao montar lotes.");
       }
@@ -319,13 +332,13 @@ export function ServidorUpMultiUploadPanel() {
         `/api/criacao/download/${encodeURIComponent(session.downloadJobId)}/repair-staging`,
         { method: "POST" },
       );
-      const data = (await res.json()) as {
+      const data = await readApiJson<{
         ok?: boolean;
         requeued?: number;
         stillReady?: number;
         processingError?: string | null;
         error?: string;
-      };
+      }>(res);
       if (!res.ok || !data.ok) {
         throw new Error(data.error ?? "Falha ao reenfileirar.");
       }
@@ -567,7 +580,10 @@ export function ServidorUpMultiUploadPanel() {
   const stagingNeedsRepair =
     totalMatched === 0 &&
     (stats?.stagingReady ?? 0) === 0 &&
-    (stats?.concluidoTotal ?? sessionDeemixJob?.itensOk ?? 0) > 0;
+    (stats?.concluidoTotal ?? sessionDeemixJob?.itensOk ?? 0) > 0 &&
+    sessionDeemixJob?.status !== "processando";
+
+  const jobReDownloading = sessionDeemixJob?.status === "processando";
 
   return (
     <div className="mb-6 rounded-xl border-2 border-violet-400 bg-violet-50/90 p-4 dark:border-violet-600 dark:bg-violet-950/40">
@@ -606,6 +622,16 @@ export function ServidorUpMultiUploadPanel() {
       : null}
       {err ?
         <p className="text-xs font-semibold text-red-700 dark:text-red-300">{err}</p>
+      : null}
+      {jobReDownloading ?
+        <p className="mb-2 text-xs font-semibold text-sky-800 dark:text-sky-200">
+          Job baixando de novo no Deemix ({sessionDeemixJob?.itensOk ?? 0}/
+          {sessionDeemixJob?.totalItens ?? "?"} prontas). Deixe o{" "}
+          <Link href="/criacao/download" className="underline">
+            Download link
+          </Link>{" "}
+          aberto — <strong>não</strong> clique «Recuperar MP3» de novo. Quando estabilizar, use «Atualizar plano».
+        </p>
       : null}
       {stagingNeedsRepair && !planLoading ?
         <div className="mb-3 flex flex-wrap gap-2">
