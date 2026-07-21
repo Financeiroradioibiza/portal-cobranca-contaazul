@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import {
   buildUploadSessionFromDraft,
+  clearServidorUpMultiUploadManualPick,
   clearServidorUpUploadSession,
   fetchServidorUpUploadSession,
+  markServidorUpMultiUploadManualPick,
+  readServidorUpMultiUploadManualPick,
   isUploadSessionStaleForJob,
   persistServidorUpUploadSession,
   readActiveDeemixJobId,
@@ -74,7 +77,6 @@ export function ServidorUpMultiUploadPanel() {
   const [stats, setStats] = useState<BuildResponse["stats"] | null>(null);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
   const [planLoading, setPlanLoading] = useState(false);
-  const bootstrapStarted = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -170,6 +172,7 @@ export function ServidorUpMultiUploadPanel() {
     async (jobId: string) => {
       setSelectingJob(true);
       setErr(null);
+      clearServidorUpMultiUploadManualPick();
       try {
         const s = await fetchServidorUpUploadSession(jobId);
         if (!s) {
@@ -221,6 +224,7 @@ export function ServidorUpMultiUploadPanel() {
     async (jobId: string) => {
       setSelectingJob(true);
       setErr(null);
+      clearServidorUpMultiUploadManualPick();
       try {
         const draft = readServidorUpWorkflowDraft();
         if (!draft || draft.tracks.length === 0) {
@@ -244,9 +248,6 @@ export function ServidorUpMultiUploadPanel() {
   );
 
   useEffect(() => {
-    if (bootstrapStarted.current) return;
-    bootstrapStarted.current = true;
-
     let cancelled = false;
     void (async () => {
       setBootstrapLoading(true);
@@ -259,23 +260,24 @@ export function ServidorUpMultiUploadPanel() {
         setSnapshots(snaps);
         setDeemixJobs(jobs);
 
+        const manualPick = readServidorUpMultiUploadManualPick();
         const local = readServidorUpUploadSession();
         const activeJobId = readActiveDeemixJobId();
 
-        if (activeJobId) {
+        if (!manualPick && activeJobId) {
           const fromServer = await fetchServidorUpUploadSession(activeJobId);
           if (fromServer && !cancelled) {
-            await activateSession(fromServer, jobs);
+            void activateSession(fromServer, jobs);
             return;
           }
         }
 
         if (local && activeJobId && local.downloadJobId !== activeJobId) {
           clearServidorUpUploadSession();
-        } else if (local) {
+        } else if (local && !manualPick) {
           const job = jobs.find((j) => j.id === local.downloadJobId);
           if (!isUploadSessionStaleForJob(local, job)) {
-            if (!cancelled) await activateSession(local, jobs);
+            if (!cancelled) void activateSession(local, jobs);
             return;
           }
           clearServidorUpUploadSession();
@@ -289,6 +291,7 @@ export function ServidorUpMultiUploadPanel() {
 
     return () => {
       cancelled = true;
+      setBootstrapLoading(false);
     };
   }, [activateSession]);
 
@@ -344,6 +347,7 @@ export function ServidorUpMultiUploadPanel() {
     );
     const workflowDraft = readServidorUpWorkflowDraft();
     const activeJobId = readActiveDeemixJobId();
+    const manualPick = readServidorUpMultiUploadManualPick();
     const preferredJob =
       (activeJobId ? jobsWithoutSnapshot.find((j) => j.id === activeJobId) : null) ??
       jobsWithoutSnapshot[0];
@@ -386,9 +390,13 @@ export function ServidorUpMultiUploadPanel() {
           </div>
         : null}
 
-        {bootstrapLoading || loadingSessions ?
+        {bootstrapLoading && snapshots.length === 0 && deemixJobs.length === 0 ?
           <p className="mt-3 text-xs text-amber-800/80">Carregando jobs…</p>
-        : snapshots.length > 0 ?
+        : null}
+        {loadingSessions ?
+          <p className="mt-2 text-xs text-amber-800/60">Atualizando lista…</p>
+        : null}
+        {snapshots.length > 0 ?
           <div className="mt-3">
             <p className="mb-2 text-[11px] font-semibold text-amber-950 dark:text-amber-100">
               Jobs com hierarquia salva
@@ -443,6 +451,12 @@ export function ServidorUpMultiUploadPanel() {
               })}
             </ul>
           </div>
+        : manualPick && activeJobId && snapshots.length === 0 ?
+          <p className="mt-3 text-xs text-amber-900/90 dark:text-amber-200/90">
+            Nenhum snapshot salvo para o job{" "}
+            <code className="text-[10px]">{activeJobId}</code>. Servidor UP → Passo 5 → cole esse ID e «Salvar
+            snapshot», ou use «Vincular hierarquia» se ainda tiver o rascunho na mesma aba.
+          </p>
         : null}
 
         {jobsWithoutSnapshot.length > 0 ?
@@ -524,6 +538,7 @@ export function ServidorUpMultiUploadPanel() {
         <button
           type="button"
           onClick={() => {
+            markServidorUpMultiUploadManualPick();
             clearServidorUpUploadSession();
             setSession(null);
             setPlan(null);

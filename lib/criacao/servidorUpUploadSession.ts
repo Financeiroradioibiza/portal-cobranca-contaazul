@@ -3,6 +3,8 @@ import type { ServidorUpHierarchyRow } from "@/lib/criacao/servidorUpHierarchySe
 export const SERVIDOR_UP_UPLOAD_SESSION_KEY = "servidorUpUploadSession";
 /** Job Deemix mais recente desta sessão (evita reabrir snapshot antigo). */
 export const SERVIDOR_UP_ACTIVE_DEEMIX_JOB_KEY = "servidorUpActiveDeemixJobId";
+/** Usuário pediu a lista de jobs (Sair) — não reabrir automaticamente pelo job do Download link. */
+export const SERVIDOR_UP_MULTI_UPLOAD_MANUAL_PICK_KEY = "servidorUpMultiUploadManualPick";
 /** Hierarquia + match no browser — vincula a um job Deemix depois do download. */
 export const SERVIDOR_UP_WORKFLOW_DRAFT_KEY = "servidorUpWorkflowDraft";
 
@@ -91,6 +93,21 @@ export function readActiveDeemixJobId(): string | null {
   if (typeof window === "undefined") return null;
   const v = sessionStorage.getItem(SERVIDOR_UP_ACTIVE_DEEMIX_JOB_KEY)?.trim();
   return v || null;
+}
+
+export function markServidorUpMultiUploadManualPick(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(SERVIDOR_UP_MULTI_UPLOAD_MANUAL_PICK_KEY, "1");
+}
+
+export function readServidorUpMultiUploadManualPick(): boolean {
+  if (typeof window === "undefined") return false;
+  return sessionStorage.getItem(SERVIDOR_UP_MULTI_UPLOAD_MANUAL_PICK_KEY) === "1";
+}
+
+export function clearServidorUpMultiUploadManualPick(): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(SERVIDOR_UP_MULTI_UPLOAD_MANUAL_PICK_KEY);
 }
 
 /** Monta sessão de upload a partir do rascunho + job Deemix concluído. */
