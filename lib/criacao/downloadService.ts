@@ -480,3 +480,45 @@ export async function refreshDownloadJobCounters(jobId: string) {
     },
   });
 }
+
+/** Itens marcados concluídos sem arquivo no staging (ex.: cleanup antigo) — voltam para a fila Deemix. */
+export async function requeueDownloadItemsMissingStorage(jobId: string): Promise<{
+  requeued: number;
+  stillReady: number;
+}> {
+  const id = jobId.trim();
+  if (!id) return { requeued: 0, stillReady: 0 };
+
+  const requeued = await prisma.downloadItem.updateMany({
+    where: {
+      jobId: id,
+      status: "concluido",
+      OR: [{ storageKey: null }, { storageKey: "" }],
+    },
+    data: {
+      status: "aguardando",
+      erroMsg: "",
+      storageKey: null,
+      sizeBytes: null,
+    },
+  });
+
+  if (requeued.count > 0) {
+    await prisma.downloadJob.update({
+      where: { id },
+      data: { status: "processando", finishedAt: null },
+    });
+  }
+  await refreshDownloadJobCounters(id);
+
+  const stillReady = await prisma.downloadItem.count({
+    where: {
+      jobId: id,
+      status: "concluido",
+      storageKey: { not: null },
+      NOT: { storageKey: "" },
+    },
+  });
+
+  return { requeued: requeued.count, stillReady };
+}

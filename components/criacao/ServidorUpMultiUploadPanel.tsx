@@ -86,6 +86,7 @@ export function ServidorUpMultiUploadPanel() {
   const [deemixJobs, setDeemixJobs] = useState<DeemixJobSummary[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [selectingJob, setSelectingJob] = useState(false);
+  const [repairingStaging, setRepairingStaging] = useState(false);
 
   const loadPlan = useCallback(async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[]) => {
     setPlanLoading(true);
@@ -120,8 +121,8 @@ export function ServidorUpMultiUploadPanel() {
         );
       } else if (matched === 0 && stagingReady === 0 && concluidoTotal > 0) {
         setErr(
-          `O job tem ${concluidoTotal} faixa(s) «concluída(s)», mas nenhuma com MP3 no staging ainda (storage). ` +
-            `Abra o Download link, deixe sync rodar ou «Continuar download» no Servidor UP.`,
+          `O job marca ${concluidoTotal} faixa(s) concluída(s), mas o banco não tem MP3 no staging (storage_key). ` +
+            `Isso pode ter sido limpeza prematura no servidor — use «Recuperar MP3 deste job» abaixo ou tente o snapshot com 325 MP3 (job anterior).`,
         );
       } else if (matched === 0 && (data.stats?.unmatched ?? 0) > 5) {
         const best = [...jobs]
@@ -307,6 +308,38 @@ export function ServidorUpMultiUploadPanel() {
       setBootstrapLoading(false);
     };
   }, [activateSession]);
+
+  const repairStagingForJob = useCallback(async () => {
+    if (!session) return;
+    setRepairingStaging(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const res = await fetch(
+        `/api/criacao/download/${encodeURIComponent(session.downloadJobId)}/repair-staging`,
+        { method: "POST" },
+      );
+      const data = (await res.json()) as {
+        ok?: boolean;
+        requeued?: number;
+        stillReady?: number;
+        processingError?: string | null;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? "Falha ao reenfileirar.");
+      }
+      setMsg(
+        `${data.requeued ?? 0} faixa(s) voltaram para a fila Deemix · ${data.stillReady ?? 0} já tinham MP3. ` +
+          `Mantenha o Download link aberto alguns minutos e clique «Atualizar plano».` +
+          (data.processingError ? ` (worker: ${data.processingError})` : ""),
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Falha ao recuperar staging.");
+    } finally {
+      setRepairingStaging(false);
+    }
+  }, [session]);
 
   async function submitMultiUpload() {
     if (!session || !plan) return;
@@ -531,6 +564,10 @@ export function ServidorUpMultiUploadPanel() {
 
   const totalMatched = plan?.lotes.reduce((n, l) => n + l.tracks.length, 0) ?? 0;
   const sessionDeemixJob = deemixJobs.find((j) => j.id === session.downloadJobId);
+  const stagingNeedsRepair =
+    totalMatched === 0 &&
+    (stats?.stagingReady ?? 0) === 0 &&
+    (stats?.concluidoTotal ?? sessionDeemixJob?.itensOk ?? 0) > 0;
 
   return (
     <div className="mb-6 rounded-xl border-2 border-violet-400 bg-violet-50/90 p-4 dark:border-violet-600 dark:bg-violet-950/40">
@@ -566,9 +603,34 @@ export function ServidorUpMultiUploadPanel() {
 
       {planLoading ?
         <p className="text-xs text-violet-800/80">Montando lotes por pasta…</p>
-      : err ?
+      : null}
+      {err ?
         <p className="text-xs font-semibold text-red-700 dark:text-red-300">{err}</p>
-      : plan ?
+      : null}
+      {stagingNeedsRepair && !planLoading ?
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={repairingStaging || planLoading}
+            onClick={() => void repairStagingForJob()}
+            className="rounded-lg bg-amber-800 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            {repairingStaging ? "Reenfileirando…" : "Recuperar MP3 deste job"}
+          </button>
+          <button
+            type="button"
+            disabled={planLoading}
+            onClick={() => void loadPlan(session, deemixJobs)}
+            className="rounded-lg border border-violet-400 px-3 py-2 text-xs font-semibold dark:border-violet-600"
+          >
+            Atualizar plano
+          </button>
+        </div>
+      : null}
+      {msg ?
+        <p className="mb-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200">{msg}</p>
+      : null}
+      {!planLoading && !err && plan ?
         <>
           <div className="mb-3 flex flex-wrap gap-2 text-[11px] text-violet-900 dark:text-violet-200">
             <span className="rounded bg-white/80 px-2 py-0.5 dark:bg-slate-900/60">

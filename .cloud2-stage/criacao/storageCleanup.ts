@@ -73,7 +73,7 @@ export async function cleanupUnusedDownloadStaging(limit = 200): Promise<{
         AND status NOT IN ('aguardando', 'processando')
         AND (
           status = 'erro'
-          OR (status = 'concluido' AND (provider_ref = '' OR provider_ref NOT LIKE 'import:%'))
+          OR (status = 'concluido' AND provider_ref LIKE 'import:%')
         )
       ORDER BY updated_at ASC
       LIMIT ${Math.min(500, Math.max(1, limit))}`,
