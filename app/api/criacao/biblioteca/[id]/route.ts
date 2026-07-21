@@ -34,7 +34,7 @@ export async function DELETE(_request: Request, ctx: Ctx) {
   } catch (e) {
     if (e instanceof Response) return e;
     if (e instanceof Error && e.message === "not_found") {
-      return NextResponse.json({ error: "not_found" }, { status: 404 });
+      return NextResponse.json({ ok: true, alreadyDeleted: true });
     }
     console.error("[criacao/biblioteca/:id DELETE]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });

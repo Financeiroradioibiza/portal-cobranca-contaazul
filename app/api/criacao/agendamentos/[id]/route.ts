@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { abrirProgramacaoAposMusica } from "@/lib/criacao/abrirProgramacaoMusica";
 import { deleteAgendamento, updateAgendamento } from "@/lib/criacao/agendamentoService";
@@ -50,9 +51,23 @@ export async function DELETE(_request: Request, ctx: Ctx) {
       where: { id },
       select: { programacaoId: true },
     });
-    await deleteAgendamento(id);
-    if (row?.programacaoId) {
-      await abrirProgramacaoAposMusica(row.programacaoId, session.displayName ?? session.email);
+    if (!row) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    try {
+      await deleteAgendamento(id);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+        return NextResponse.json({ ok: true, alreadyDeleted: true });
+      }
+      throw e;
+    }
+    if (row.programacaoId) {
+      await abrirProgramacaoAposMusica(row.programacaoId, session.displayName ?? session.email).catch(
+        (e) => {
+          console.error("[criacao/agendamentos/:id DELETE] abrir programacao", e);
+        },
+      );
       await syncPastaFlagsProgramacao(row.programacaoId).catch((e) => {
         console.error("[criacao/agendamentos/:id DELETE] sync gateway", e);
       });

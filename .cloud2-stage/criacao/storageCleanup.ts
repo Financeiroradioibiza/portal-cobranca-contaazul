@@ -143,17 +143,20 @@ export async function restoreDownloadStagingKeysFromDisk(opts?: {
   );
 
   let restored = 0;
+  const ids: string[] = [];
   for (const row of rows.rows) {
     const file = downloadStagingPath(row.id);
-    if (!fs.existsSync(file)) continue;
-    const key = downloadStagingKey(row.id);
+    if (fs.existsSync(file)) ids.push(row.id);
+  }
+  if (ids.length > 0) {
     await portalQuery(
-      `UPDATE download_item
-          SET storage_key = $2, updated_at = now()
-        WHERE id = $1`,
-      [row.id, key],
+      `UPDATE download_item di
+          SET storage_key = 'download-staging:' || di.id || '.mp3',
+              updated_at = now()
+        WHERE di.id = ANY($1::text[])`,
+      [ids],
     );
-    restored += 1;
+    restored = ids.length;
   }
 
   if (restored > 0) {

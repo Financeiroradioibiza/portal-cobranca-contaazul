@@ -551,7 +551,7 @@ export async function triggerRestoreDownloadStaging(
       method: "POST",
       headers,
       body: JSON.stringify({ jobId: jobId.trim(), limit: 450 }),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(22_000),
     });
     const text = await res.text();
     let data: { ok?: boolean; restored?: number; scanned?: number; error?: string };

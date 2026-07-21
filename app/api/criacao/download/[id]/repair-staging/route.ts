@@ -9,7 +9,8 @@ import {
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export const maxDuration = 120;
+/** Netlify costuma cortar ~26s — manter reparo curto; sync Deemix roda em background. */
+export const maxDuration = 26;
 
 export async function POST(_request: Request, ctx: Ctx) {
   try {
@@ -23,14 +24,11 @@ export async function POST(_request: Request, ctx: Ctx) {
     if (stillReady === 0) {
       const rq = await requeueDownloadItemsMissingStorage(jobId);
       requeued = rq.requeued;
-      stillReady = rq.stillReady;
-    } else {
       stillReady = await countDownloadStagingReady(jobId);
     }
 
-    let processing: { triggered: boolean; error?: string } = { triggered: false };
     if (requeued > 0) {
-      processing = await triggerDownloadProcessing(Math.min(15, requeued), { timeoutMs: 45_000 });
+      void triggerDownloadProcessing(Math.min(8, requeued), { timeoutMs: 8_000 }).catch(() => {});
     }
 
     return NextResponse.json({
@@ -40,8 +38,8 @@ export async function POST(_request: Request, ctx: Ctx) {
       restoreError: restore.error ?? null,
       requeued,
       stillReady,
-      processingTriggered: processing.triggered,
-      processingError: processing.error ?? null,
+      processingTriggered: requeued > 0,
+      processingError: null,
       needsCloud2Deploy: Boolean(restore.error?.includes("404") || restore.error?.includes("deploy")),
     });
   } catch (e) {
