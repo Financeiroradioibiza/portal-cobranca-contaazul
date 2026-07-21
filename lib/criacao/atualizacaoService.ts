@@ -1,5 +1,9 @@
 import { Prisma, TipoSubidaAtualizacao } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  cronogramaLacunasErrorMessage,
+  validateProgramacaoMusicaCoverage,
+} from "@/lib/criacao/cronogramaCoverage";
 import { publicarProgramacao } from "@/lib/criacao/publicarService";
 import { getClientePdvProgramacoes, prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
@@ -66,6 +70,9 @@ export type FecharAtualizacaoInfo = {
   clienteNome: string;
   pdvsAmarrados: number;
   pdvsNomes: string[];
+  cronogramaOk: boolean;
+  cronogramaHasTocaSempre: boolean;
+  cronogramaMissingDays: string[];
 };
 
 async function pdvsLogForProgramacao(programacaoId: string, clienteRef: string): Promise<string> {
@@ -136,10 +143,11 @@ export async function getFecharAtualizacaoInfo(
 
   await ensureTipoSubidaOffEnum();
 
-  const [atlSugerido, offSugerido] =
-    isInstall ?
-      (["INSTALL", "INSTALL"] as const)
-    : await Promise.all([previewRotuloAtl(programacaoId, when), previewRotuloOff(programacaoId, when)]);
+  const [atlSugerido, offSugerido, cronograma] = await Promise.all([
+    isInstall ? Promise.resolve("INSTALL" as const) : previewRotuloAtl(programacaoId, when),
+    isInstall ? Promise.resolve("INSTALL" as const) : previewRotuloOff(programacaoId, when),
+    validateProgramacaoMusicaCoverage(programacaoId),
+  ]);
 
   return {
     revisionAtual: prog.revisionAtual,
@@ -150,6 +158,9 @@ export async function getFecharAtualizacaoInfo(
     clienteNome: prog.clienteNome,
     pdvsAmarrados: pdvsNomes.length,
     pdvsNomes,
+    cronogramaOk: cronograma.ok,
+    cronogramaHasTocaSempre: cronograma.hasTocaSemprePasta,
+    cronogramaMissingDays: cronograma.missingDayLabels,
   };
 }
 
@@ -572,6 +583,11 @@ export async function dispararAtualizacao(
     prog.revisionAtual > 0 ? snapshotAnterior : null,
     snapshotAtual,
   );
+
+  const cronograma = await validateProgramacaoMusicaCoverage(programacaoId);
+  if (!cronograma.ok) {
+    throw new Error(cronogramaLacunasErrorMessage(cronograma));
+  }
 
   const codigo = rotulo;
   const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds);

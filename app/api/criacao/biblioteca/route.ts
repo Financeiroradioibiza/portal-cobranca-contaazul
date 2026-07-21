@@ -22,6 +22,15 @@ export async function GET(request: Request) {
       listFilterRaw === "unused" || listFilterRaw === "leastUsed" || listFilterRaw === "legacy" ?
         listFilterRaw
       : "all";
+    const sortRaw = url.searchParams.get("sortBy");
+    const sortBy =
+      sortRaw === "artista" ||
+      sortRaw === "titulo" ||
+      sortRaw === "gravadora" ||
+      sortRaw === "programacoes" ||
+      sortRaw === "recent" ?
+        sortRaw
+      : "recent";
 
     const { rows, total } = await listMusicasBiblioteca({
       page: Number.isFinite(page) ? page : 1,
@@ -35,6 +44,7 @@ export async function GET(request: Request) {
       offArquivoId,
       gravadora,
       listFilter,
+      sortBy,
     });
 
     return NextResponse.json({ musicas: rows, total });

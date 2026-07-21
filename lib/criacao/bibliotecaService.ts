@@ -343,6 +343,13 @@ const musicaInclude = {
 
 export type BibliotecaListFilter = import("@/lib/criacao/bibliotecaSearchService").BibliotecaListFilter;
 
+export type BibliotecaSortBy =
+  | "recent"
+  | "artista"
+  | "titulo"
+  | "gravadora"
+  | "programacoes";
+
 export async function listMusicasBiblioteca(opts: {
   page: number;
   pageSize: number;
@@ -355,6 +362,7 @@ export async function listMusicasBiblioteca(opts: {
   offArquivoId?: string;
   gravadora?: string;
   listFilter?: BibliotecaListFilter;
+  sortBy?: BibliotecaSortBy;
   /** Só use true após upload — evita travar a listagem. */
   syncPending?: boolean;
 }): Promise<{ rows: MusicaBibliotecaRow[]; total: number }> {
@@ -368,6 +376,21 @@ export async function listMusicasBiblioteca(opts: {
   const pageSize = Math.min(200, Math.max(1, opts.pageSize));
   const skip = (page - 1) * pageSize;
   const listFilter = opts.listFilter ?? "all";
+  const sortBy = opts.sortBy ?? "recent";
+
+  function orderByForSort(): Prisma.MusicaBibliotecaOrderByWithRelationInput[] {
+    switch (sortBy) {
+      case "artista":
+        return [{ artista: "asc" }, { titulo: "asc" }];
+      case "titulo":
+        return [{ titulo: "asc" }, { artista: "asc" }];
+      case "gravadora":
+      case "programacoes":
+      case "recent":
+      default:
+        return [{ createdAt: "desc" }];
+    }
+  }
 
   const where: Prisma.MusicaBibliotecaWhereInput = {};
   if (opts.status && opts.status !== "all") {
@@ -464,7 +487,7 @@ export async function listMusicasBiblioteca(opts: {
     [items, total] = await Promise.all([
       prisma.musicaBiblioteca.findMany({
         where,
-        orderBy: [{ createdAt: "desc" }],
+        orderBy: orderByForSort(),
         skip,
         take: pageSize,
         include: musicaInclude,
@@ -483,7 +506,58 @@ export async function listMusicasBiblioteca(opts: {
 
   const rows = items.map((m) => mapMusicaToRow(m, criativoUserMap, rejMap, progMap, votoMap));
 
-  return { rows, total };
+  let finalRows = rows;
+  let finalTotal = total;
+
+  if (opts.offArquivoId) {
+    const { offFaixasFromArquivo } = await import("@/lib/criacao/atualizacaoArquivoService");
+    const offFaixas = await offFaixasFromArquivo(opts.offArquivoId);
+    const have = new Set(finalRows.map((r) => r.id));
+    for (const f of offFaixas) {
+      if (have.has(f.musicaId)) continue;
+      finalRows.push({
+        id: f.musicaId,
+        titulo: f.titulo,
+        artista: f.artista,
+        ano: null,
+        durationMs: null,
+        isrc: null,
+        bpm: null,
+        tom: null,
+        energia: null,
+        gravadora: "",
+        status: "pronta",
+        mixSegundosFinais: null,
+        tagsManuais: [],
+        tagsAuto: [],
+        explicit: false,
+        explicitDeezer: "desconhecida",
+        explicitMusicbrainz: "desconhecida",
+        explicitGemini: "desconhecida",
+        previewUrl: null,
+        rejeicoesCount: 0,
+        likesCount: 0,
+        dislikesCount: 0,
+        programacoesCount: 0,
+        legacyMotivos: [],
+      });
+      have.add(f.musicaId);
+    }
+    finalTotal = have.size;
+  }
+
+  if (sortBy === "programacoes") {
+    finalRows = [...finalRows].sort(
+      (a, b) => b.programacoesCount - a.programacoesCount || a.artista.localeCompare(b.artista),
+    );
+  } else if (sortBy === "gravadora") {
+    finalRows = [...finalRows].sort(
+      (a, b) =>
+        a.gravadora.localeCompare(b.gravadora, "pt-BR") || a.artista.localeCompare(b.artista),
+    );
+  }
+
+  return { rows: finalRows, total: finalTotal };
 }
 
 export async function getMusicaBibliotecaRow(musicaId: string): Promise<MusicaBibliotecaRow> {

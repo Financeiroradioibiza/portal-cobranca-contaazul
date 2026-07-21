@@ -447,7 +447,10 @@ export async function updatePasta(
 }
 
 export async function deletePasta(id: string): Promise<void> {
-  await prisma.pasta.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.agendamento.deleteMany({ where: { alvoTipo: "pasta", alvoId: id } }),
+    prisma.pasta.delete({ where: { id } }),
+  ]);
 }
 
 /** Adiciona músicas ao final da pasta, ignorando as que já estão na programação e ids inexistentes. */

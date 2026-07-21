@@ -19,18 +19,22 @@ function readableText(hex: string): string {
 export function EscolherBibliotecaPastaModal({
   title = "+ Custom",
   subtitle = "Escolha uma pasta custom da biblioteca.",
+  promptPastaNome = false,
   onClose,
   onSelect,
 }: {
   title?: string;
   subtitle?: string;
+  /** Pede nome da pasta na programação (não usa só o nome da pasta custom). */
+  promptPastaNome?: boolean;
   onClose: () => void;
-  onSelect: (bibliotecaPastaId: string) => void | Promise<void>;
+  onSelect: (bibliotecaPastaId: string, pastaNome?: string) => void | Promise<void>;
 }) {
   const [pastas, setPastas] = useState<BibliotecaPastaView[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<string | null>(null);
+  const [nomePasta, setNomePasta] = useState("");
 
   useEffect(() => {
     void (async () => {
@@ -50,7 +54,11 @@ export function EscolherBibliotecaPastaModal({
   async function pick(id: string) {
     setSubmitting(id);
     try {
-      await onSelect(id);
+      const chosen = pastas.find((p) => p.id === id);
+      const nome = promptPastaNome ?
+        (nomePasta.trim() || chosen?.nome || "").trim()
+      : undefined;
+      await onSelect(id, nome);
     } finally {
       setSubmitting(null);
     }
@@ -71,6 +79,19 @@ export function EscolherBibliotecaPastaModal({
             ✕
           </button>
         </div>
+        {promptPastaNome ?
+          <div className="border-b border-slate-100 px-4 py-2 dark:border-slate-800">
+            <label className="block text-xs font-semibold text-slate-500">
+              Nome da pasta na programação
+              <input
+                value={nomePasta}
+                onChange={(e) => setNomePasta(e.target.value)}
+                placeholder="Ex.: Lounge tarde"
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              />
+            </label>
+          </div>
+        : null}
         <div className="min-h-0 flex-1 overflow-auto p-2">
           {loading ?
             <p className="py-8 text-center text-sm text-slate-500">Carregando…</p>

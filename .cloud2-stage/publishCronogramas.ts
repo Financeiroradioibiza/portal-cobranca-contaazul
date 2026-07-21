@@ -20,7 +20,6 @@ type NeonVinheta = {
   id: string;
   nome: string;
   storage_key: string | null;
-  titulo: string;
 };
 
 function horaLegacy(h: string): string {
@@ -71,7 +70,7 @@ async function upsertVinhetaMusica(
      ON CONFLICT (origem_musica_id) DO UPDATE SET
        titulo = EXCLUDED.titulo, storage_key = EXCLUDED.storage_key
      RETURNING id`,
-    [v.titulo || v.nome, `${v.nome || 'vinheta'}.mp3`, v.storage_key, `vinheta:${v.id}`],
+    [v.nome || 'Vinheta', `${v.nome || 'vinheta'}.mp3`, v.storage_key, `vinheta:${v.id}`],
   );
   return mg.rows[0]?.id ?? null;
 }
@@ -96,7 +95,7 @@ export async function publishCronogramasAndVinhetas(
   );
 
   const vinRes = await portalQuery<NeonVinheta>(
-    `SELECT id, nome, storage_key, COALESCE(NULLIF(trim(texto), ''), nome) AS titulo
+    `SELECT id, nome, storage_key
        FROM vinheta WHERE programacao_id = $1`,
     [programacaoId],
   );
@@ -155,8 +154,8 @@ export async function publishCronogramasAndVinhetas(
     const tipoTocar = ag.frequencia_musicas ? 'musica' : 'minuto';
 
     const pl = await gw.query<{ id: number }>(
-      `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar, origem_vinheta_id, publicado, tipo_agendamento)
-         VALUES ($1, NULL, $2, $3, 'N', make_interval(secs => 30), $4, $5, $6, 'S', $7)
+      `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar, origem_vinheta_id, publicado, tipo_agendamento, selecionavel)
+         VALUES ($1, NULL, $2, $3, 'N', make_interval(secs => 30), $4, $5, $6, 'S', $7, 'S')
        RETURNING id`,
       [programaId, vin.nome, tipo, tocarCada, tipoTocar, vin.id, isVa ? 'agendada' : 'programada'],
     );
@@ -198,6 +197,16 @@ export async function publishCronogramasAndVinhetas(
   }
 
   await syncPastasSelecionavelFlags(gw, programacaoId, pastaPlaylistMap);
+
+  const vinhetasComCronograma = new Set(
+    agRes.rows.filter((ag) => ag.alvo_tipo === 'vinheta').map((ag) => ag.alvo_id),
+  );
+  vinhetas += await ensureVinhetasSelecionaveisSemCronograma(
+    gw,
+    programaId,
+    vinRes.rows,
+    vinhetasComCronograma,
+  );
 
   const pastasComCronograma = new Set(
     agRes.rows.filter((ag) => ag.alvo_tipo === 'pasta').map((ag) => ag.alvo_id),
@@ -242,6 +251,36 @@ async function ensureDefaultAgendasForUnscheduledPastas(
       );
       created++;
     }
+  }
+  return created;
+}
+
+/** Vinheta sem cronograma: selecionável no player, sem horário automático. */
+async function ensureVinhetasSelecionaveisSemCronograma(
+  gw: GwClient,
+  programaId: number,
+  vinhetas: NeonVinheta[],
+  comCronograma: Set<string>,
+): Promise<number> {
+  let created = 0;
+  for (const vin of vinhetas) {
+    if (comCronograma.has(vin.id)) continue;
+    const musicaId = await upsertVinhetaMusica(gw, vin);
+    if (!musicaId) continue;
+    const pl = await gw.query<{ id: number }>(
+      `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar, origem_vinheta_id, publicado, tipo_agendamento, selecionavel)
+         VALUES ($1, NULL, $2, 'VP', 'N', make_interval(secs => 30), 15, 'minuto', $3, 'S', 'programada', 'S')
+       RETURNING id`,
+      [programaId, vin.nome, vin.id],
+    );
+    const playlistId = pl.rows[0]?.id;
+    if (!playlistId) continue;
+    await gw.query(
+      `INSERT INTO playlist_musicas (playlist_id, musica_id, ordem) VALUES ($1, $2, 0)
+       ON CONFLICT (playlist_id, musica_id) DO NOTHING`,
+      [playlistId, musicaId],
+    );
+    created++;
   }
   return created;
 }

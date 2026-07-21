@@ -56,7 +56,7 @@ export function CronogramaAlvoBadges({
       return (
         <span
           className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-200"
-          title="Vinhetas só vão ao player com ao menos uma regra de cronograma"
+          title="Sem horário automático; após publicar, o cliente ainda pode selecionar esta vinheta no player"
         >
           Sem cronograma
         </span>

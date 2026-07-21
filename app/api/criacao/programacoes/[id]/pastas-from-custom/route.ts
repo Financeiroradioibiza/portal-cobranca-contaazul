@@ -11,13 +11,18 @@ export async function POST(request: Request, ctx: Ctx) {
   try {
     const session = requirePortalSession(await getPortalSession());
     const { id: programacaoId } = await ctx.params;
-    const body = (await request.json().catch(() => ({}))) as { bibliotecaPastaId?: string };
+    const body = (await request.json().catch(() => ({}))) as {
+      bibliotecaPastaId?: string;
+      nome?: string;
+    };
     const bibliotecaPastaId = (body.bibliotecaPastaId ?? "").trim();
     if (!bibliotecaPastaId) {
       return NextResponse.json({ error: "biblioteca_pasta_id_obrigatorio" }, { status: 400 });
     }
 
-    const result = await createPastaFromBibliotecaCustom(programacaoId, bibliotecaPastaId);
+    const result = await createPastaFromBibliotecaCustom(programacaoId, bibliotecaPastaId, {
+      nome: body.nome,
+    });
     await abrirProgramacaoAposMusica(programacaoId, session.displayName ?? session.email);
     return NextResponse.json({ ok: true, ...result }, { status: 201 });
   } catch (e) {

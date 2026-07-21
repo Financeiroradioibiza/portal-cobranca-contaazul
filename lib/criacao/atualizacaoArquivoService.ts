@@ -226,3 +226,12 @@ export async function musicaIdsForOffArquivo(archiveId: string): Promise<string[
   if (!row || row.tipoSubida !== "off") return [];
   return offMusicaIdsFromDiff(parseDiff(row.diffJson));
 }
+
+export async function offFaixasFromArquivo(archiveId: string): Promise<FaixaLogItem[]> {
+  const row = await prisma.clienteProgramacaoAtualizacaoArquivo.findUnique({
+    where: { id: archiveId },
+    select: { tipoSubida: true, diffJson: true },
+  });
+  if (!row || row.tipoSubida !== "off") return [];
+  return parseDiff(row.diffJson).sairam;
+}

@@ -1251,6 +1251,8 @@ export const DISPARO_ERROR: Record<string, string> = {
   pdv_programa_nao_amarrado:
     "A programação foi publicada, mas o PDV não foi amarrado no gateway — tente de novo ou contate suporte.",
   especial_nome_obrigatorio: "Informe o nome do especial (ex.: PASCOA, NATAL).",
+  cronograma_lacunas_semana:
+    "Há dias da semana sem música programada. Use uma pasta «Tocar sempre» ou complete o cronograma antes de fechar.",
   server_error: "Erro interno ao disparar. Veja o log do portal ou tente de novo.",
   disparo_falhou: "Falha ao disparar a atualização.",
 };
@@ -1276,6 +1278,9 @@ export function FecharAtualizacaoModal({
     offSugerido: string;
     pdvsAmarrados: number;
     pdvsNomes: string[];
+    cronogramaOk: boolean;
+    cronogramaHasTocaSempre: boolean;
+    cronogramaMissingDays: string[];
   } | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(true);
   const [infoError, setInfoError] = useState<string | null>(null);
@@ -1308,6 +1313,11 @@ export function FecharAtualizacaoModal({
           offSugerido: String(d.offSugerido ?? "OFF"),
           pdvsAmarrados: Number(d.pdvsAmarrados ?? 0),
           pdvsNomes: Array.isArray(d.pdvsNomes) ? (d.pdvsNomes as string[]) : [],
+          cronogramaOk: d.cronogramaOk !== false,
+          cronogramaHasTocaSempre: Boolean(d.cronogramaHasTocaSempre),
+          cronogramaMissingDays: Array.isArray(d.cronogramaMissingDays) ?
+            (d.cronogramaMissingDays as string[])
+          : [],
         });
       })
       .catch(() => {
@@ -1376,7 +1386,9 @@ export function FecharAtualizacaoModal({
       const code = e instanceof Error ? e.message : "disparo_falhou";
       setError(
         DISPARO_ERROR[code] ??
-          (code.startsWith("sync_registry") ? DISPARO_ERROR.sync_registry_falhou
+          (code.startsWith("cronograma_lacunas_semana") ?
+            `${DISPARO_ERROR.cronograma_lacunas_semana} Dias: ${code.replace(/^cronograma_lacunas_semana:?/, "")}`
+          : code.startsWith("sync_registry") ? DISPARO_ERROR.sync_registry_falhou
           : code.startsWith("falha_publicacao") || code.startsWith("publicar_falhou") ?
             (code.includes(":") ? code.replace(/^[^:]+:\s*/, "Erro ao publicar: ") : DISPARO_ERROR.falha_publicacao)
           : code),
@@ -1423,6 +1435,17 @@ export function FecharAtualizacaoModal({
               <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
                 {info.pdvsAmarrados} PDV(s): {info.pdvsNomes.join(", ") || "—"}
               </div>
+              {!info.cronogramaOk ?
+                <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+                  <strong>Cronograma incompleto.</strong> Sem pasta «Tocar sempre», estes dias ficam sem música:{" "}
+                  <strong>{info.cronogramaMissingDays.join(", ") || "—"}</strong>. O player pode parar no cliente.
+                  Ajuste o cronograma antes de fechar.
+                </div>
+              : info.cronogramaHasTocaSempre ?
+                <p className="mb-3 text-[11px] text-emerald-700 dark:text-emerald-400">
+                  Há pasta «Tocar sempre» — cobertura musical ok para a semana.
+                </p>
+              : null}
               <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Tipo de subida</p>
                 {info.isInstall ?
@@ -1489,7 +1512,15 @@ export function FecharAtualizacaoModal({
           <button
             type="button"
             onClick={() => void disparar()}
-            disabled={busy || loadingInfo || !!infoError || !info || info.pdvsAmarrados === 0 || !!resultado}
+            disabled={
+              busy ||
+              loadingInfo ||
+              !!infoError ||
+              !info ||
+              info.pdvsAmarrados === 0 ||
+              !info.cronogramaOk ||
+              !!resultado
+            }
             className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
           >
             {busy ? "Fechando…" : info?.isInstall ? "Fechar INSTALL" : "Fechar atualização"}
@@ -1594,6 +1625,16 @@ function AtualizacaoLogPanel({ programacaoId }: { programacaoId: string }) {
               {r.programacaoNomeLog ?? ""} · {r.disparadaPor} · +{ent.length} / −{sai.length}
               {cronResumo}
             </p>
+            {!aberto && sai.length > 0 ?
+              <p className="ml-4 mt-0.5 text-[10px] leading-snug text-red-700 dark:text-red-300">
+                Saíram:{" "}
+                {sai
+                  .slice(0, 8)
+                  .map((f) => `${f.artista || "?"} — ${f.titulo}`)
+                  .join(" · ")}
+                {sai.length > 8 ? ` · +${sai.length - 8}…` : ""}
+              </p>
+            : null}
             {aberto ?
               <div className="ml-4 mt-1 space-y-2">
                 <div className="flex flex-wrap gap-2">

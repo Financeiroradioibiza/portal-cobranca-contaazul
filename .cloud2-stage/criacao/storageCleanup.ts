@@ -3,12 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { criacaoConfig } from './config.js';
 import { portalQuery } from './portalDb.js';
-import {
-  downloadStagingKey,
-  downloadStagingPath,
-  uploadPath,
-  workDir,
-} from './storage.js';
+import { downloadStagingPath, uploadPath, workDir } from './storage.js';
 
 export type CleanupResult = {
   removed: string[];

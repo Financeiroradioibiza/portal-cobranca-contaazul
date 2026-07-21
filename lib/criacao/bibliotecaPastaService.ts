@@ -297,6 +297,7 @@ export async function addMusicasFromBibliotecaPastaToProgramacaoPasta(
 export async function createPastaFromBibliotecaCustom(
   programacaoId: string,
   bibliotecaPastaId: string,
+  opts?: { nome?: string },
 ): Promise<{ pastaId: string; added: number; skipped: number; addedMusicaIds: string[] }> {
   const bib = await prisma.bibliotecaPasta.findUnique({
     where: { id: bibliotecaPastaId },
@@ -304,7 +305,10 @@ export async function createPastaFromBibliotecaCustom(
   });
   if (!bib) throw new Error("pasta_nao_encontrada");
 
-  const pasta = await createPasta(programacaoId, { nome: bib.nome });
+  const nome = (opts?.nome?.trim() || bib.nome).trim();
+  if (!nome) throw new Error("nome_obrigatorio");
+
+  const pasta = await createPasta(programacaoId, { nome });
   const musicaIds = bib.musicas.map((m) => m.musicaId);
   if (musicaIds.length === 0) {
     return { pastaId: pasta.id, added: 0, skipped: 0, addedMusicaIds: [] };

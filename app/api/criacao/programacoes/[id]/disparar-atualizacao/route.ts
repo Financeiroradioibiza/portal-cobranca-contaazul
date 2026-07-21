@@ -15,7 +15,8 @@ function disparoErrorResponse(msg: string): NextResponse {
   if (
     msg === "nenhum_pdv_amarrado" ||
     msg === "cliente_gateway_nao_configurado" ||
-    msg === "cloud2_desabilitado"
+    msg === "cloud2_desabilitado" ||
+    msg.startsWith("cronograma_lacunas_semana")
   ) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }

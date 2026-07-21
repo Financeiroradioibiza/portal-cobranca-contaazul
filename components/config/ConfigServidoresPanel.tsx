@@ -312,6 +312,13 @@ export function ConfigServidoresPanel() {
               </dl>
               {r2.error ?
                 <p className="mt-2 text-xs text-red-600">{r2.error}</p>
+              : !r2.enabled ?
+                <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                  Offline no painel: configure <code className="text-[11px]">R2_*</code> no cloud2 e{" "}
+                  <code className="text-[11px]">CRIACAO_INGEST_SECRET</code> no portal (Netlify) para
+                  ler métricas via API. Acesso aos arquivos: console Cloudflare R2 ou credenciais no
+                  servidor cloud2 — o portal não abre o bucket diretamente.
+                </p>
               : null}
             </>
           : <p className="text-sm text-slate-500">
@@ -359,6 +366,11 @@ export function ConfigServidoresPanel() {
             </dl>
             {status.cloud2.ops.b2.error ?
               <p className="mt-2 text-xs text-red-600">{status.cloud2.ops.b2.error}</p>
+            : !status.cloud2.ops.b2.enabled ?
+              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                Offline no painel: configure <code className="text-[11px]">B2_*</code> no cloud2 e o
+                secret de ingest no portal. Arquivos frios: painel Backblaze B2 ou chaves no servidor.
+              </p>
             : null}
           </ServerCard>
         : null}

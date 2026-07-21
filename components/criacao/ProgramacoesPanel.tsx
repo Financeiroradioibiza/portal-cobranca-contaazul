@@ -318,12 +318,12 @@ function ProgramacaoEditor({
     });
   }
 
-  async function addPastaFromCustom(bibliotecaPastaId: string) {
+  async function addPastaFromCustom(bibliotecaPastaId: string, pastaNome?: string) {
     await registrarEdicao();
     const res = await fetch(`/api/criacao/programacoes/${id}/pastas-from-custom`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bibliotecaPastaId }),
+      body: JSON.stringify({ bibliotecaPastaId, nome: pastaNome }),
     });
     if (!res.ok) {
       alert("Não foi possível copiar a pasta custom.");
@@ -395,6 +395,18 @@ function ProgramacaoEditor({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ selecionavel }),
+    });
+    await load();
+  }
+
+  async function renamePasta(pastaId: string, nome: string) {
+    const v = nome.trim();
+    if (!v) return;
+    await registrarEdicao();
+    await fetch(`/api/criacao/pastas/${pastaId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nome: v }),
     });
     await load();
   }
@@ -637,13 +649,15 @@ function ProgramacaoEditor({
                       aria-label={`Selecionar todas as faixas de ${pasta.nome}`}
                     />
                   : null}
-                  <button
-                    type="button"
-                    onClick={() => togglePastaExpand(pasta.id)}
-                    className="text-sm font-bold text-slate-800 hover:text-slate-600 dark:text-slate-100"
-                  >
-                    {pasta.nome}
-                  </button>
+                  <input
+                    defaultValue={pasta.nome}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v && v !== pasta.nome) void renamePasta(pasta.id, v);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="min-w-[8rem] max-w-[14rem] rounded border border-transparent bg-transparent px-1 text-sm font-bold text-slate-800 outline-none focus:border-slate-300 focus:bg-white dark:text-slate-100 dark:focus:border-slate-600 dark:focus:bg-slate-950"
+                  />
                   {pasta.selecionavel ?
                     <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-950/60 dark:text-violet-200">
                       Selecionável
@@ -864,13 +878,14 @@ function ProgramacaoEditor({
           }
           subtitle={
             customModal.kind === "new-pasta" ?
-              "Cria uma pasta na programação com o nome e as faixas da pasta custom escolhida."
+              "Cria uma pasta na programação com o nome que você definir e as faixas da pasta custom escolhida."
             : "Adiciona todas as faixas da pasta custom escolhida nesta pasta da programação."
           }
+          promptPastaNome={customModal.kind === "new-pasta"}
           onClose={() => setCustomModal(null)}
-          onSelect={(bibliotecaPastaId) =>
+          onSelect={(bibliotecaPastaId, pastaNome) =>
             customModal.kind === "new-pasta" ?
-              addPastaFromCustom(bibliotecaPastaId)
+              addPastaFromCustom(bibliotecaPastaId, pastaNome)
             : addCustomToPasta(customModal.pasta, bibliotecaPastaId)
           }
         />

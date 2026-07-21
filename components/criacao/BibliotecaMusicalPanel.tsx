@@ -167,6 +167,9 @@ export function BibliotecaMusicalPanel({
   const [searchDraft, setSearchDraft] = useState("");
   const [status, setStatus] = useState("all");
   const [listFilter, setListFilter] = useState<ListFilter>("all");
+  const [sortBy, setSortBy] = useState<
+    "recent" | "artista" | "titulo" | "gravadora" | "programacoes"
+  >("recent");
   const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
   const [gravadoraFilter, setGravadoraFilter] = useState("");
   const [topTags, setTopTags] = useState<FacetTag[]>([]);
@@ -225,9 +228,11 @@ export function BibliotecaMusicalPanel({
     if (folderFilter?.bibliotecaPastaId) params.set("bibliotecaPastaId", folderFilter.bibliotecaPastaId);
     if (folderFilter?.pastaEspecialId) params.set("pastaEspecialId", folderFilter.pastaEspecialId);
     if (folderFilter?.pastaProgramacaoId) params.set("pastaProgramacaoId", folderFilter.pastaProgramacaoId);
+    if (folderFilter?.offArquivoId) params.set("offArquivoId", folderFilter.offArquivoId);
+    if (listFilter === "all" && sortBy !== "recent") params.set("sortBy", sortBy);
     if (gravadoraFilter.trim()) params.set("gravadora", gravadoraFilter.trim());
     return params.toString();
-  }, [search, status, listFilter, tagIdFilter, gravadoraFilter, folderFilter]);
+  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, folderFilter]);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -656,6 +661,25 @@ export function BibliotecaMusicalPanel({
             placeholder="Filtrar gravadora…"
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
           />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block text-xs font-semibold text-slate-500">Ordenar</span>
+          <select
+            value={sortBy}
+            onChange={(e) =>
+              setSortBy(
+                e.target.value as "recent" | "artista" | "titulo" | "gravadora" | "programacoes",
+              )
+            }
+            disabled={listFilter !== "all"}
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950 disabled:opacity-50"
+          >
+            <option value="recent">Mais recentes</option>
+            <option value="artista">{viewMode === "slim" ? "Banda" : "Artista"}</option>
+            <option value="titulo">{viewMode === "slim" ? "Música" : "Música"}</option>
+            <option value="gravadora">Gravadora</option>
+            <option value="programacoes">Uso em programações</option>
+          </select>
         </label>
       </form>
 
