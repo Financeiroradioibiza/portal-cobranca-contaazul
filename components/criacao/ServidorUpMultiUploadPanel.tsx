@@ -31,6 +31,8 @@ type BuildResponse = {
     unmatched: number;
     orphanDownloads: number;
     hierarchyErrors: number;
+    stagingReady?: number;
+    concluidoTotal?: number;
   };
   error?: string;
 };
@@ -109,20 +111,31 @@ export function ServidorUpMultiUploadPanel() {
       const matched = data.plan.lotes.reduce((n, l) => n + l.tracks.length, 0);
       const jobRow = jobs.find((j) => j.id === s.downloadJobId);
       const activeId = readActiveDeemixJobId();
-      if (matched === 0 && (data.stats?.unmatched ?? 0) > 5) {
+      const stagingReady = data.stats?.stagingReady ?? 0;
+      const concluidoTotal = data.stats?.concluidoTotal ?? jobRow?.itensOk ?? 0;
+
+      if ((data.stats?.hierarchyErrors ?? 0) > 0 && matched === 0) {
+        setErr(
+          `${data.stats!.hierarchyErrors} pasta(s) do passo 0 incompleta(s) neste snapshot — abra Servidor UP, confira hierarquia (passo 0) e «Salvar snapshot» de novo.`,
+        );
+      } else if (matched === 0 && stagingReady === 0 && concluidoTotal > 0) {
+        setErr(
+          `O job tem ${concluidoTotal} faixa(s) «concluída(s)», mas nenhuma com MP3 no staging ainda (storage). ` +
+            `Abra o Download link, deixe sync rodar ou «Continuar download» no Servidor UP.`,
+        );
+      } else if (matched === 0 && (data.stats?.unmatched ?? 0) > 5) {
         const best = [...jobs]
           .filter((j) => /servidor\s*up/i.test(j.titulo) && j.itensOk > 0)
           .sort((a, b) => b.itensOk - a.itensOk)[0];
         if (best && best.id !== s.downloadJobId) {
           setErr(
-            `Nenhum MP3 bateu com o job ${s.downloadJobId.slice(0, 8)}… neste snapshot. ` +
-              `No Download link, o lote «${best.titulo}» tem ${best.itensOk} MP3 (job ${best.id.slice(0, 8)}…). ` +
-              `Saia e clique «Usar este job» na linha com esse ID — não use o snapshot do job antigo.`,
+            `Nenhum MP3 casou neste snapshot (job ${s.downloadJobId.slice(0, 8)}…). ` +
+              `Tente a outra linha «Usar este job» com ${best.itensOk} MP3 (job ${best.id.slice(0, 8)}…), ` +
+              `ou Servidor UP → Passo 5 → Salvar snapshot de novo para o job do Download link.`,
           );
-        } else if (jobRow && jobRow.itensOk > 0) {
+        } else if (jobRow && stagingReady > 0) {
           setErr(
-            `Há ${jobRow.itensOk} MP3 concluídos neste job, mas nenhum casou com as URLs do snapshot. ` +
-              `Servidor UP → Passo 5: cole ${s.downloadJobId} e «Salvar snapshot» de novo.`,
+            `Há ${stagingReady} MP3 prontos neste job, mas o plano não montou pastas — confira hierarquia no passo 0 ou salve snapshot de novo.`,
           );
         }
       } else if (

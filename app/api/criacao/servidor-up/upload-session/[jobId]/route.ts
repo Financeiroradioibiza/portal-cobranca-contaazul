@@ -5,7 +5,39 @@ import {
   getServidorUpUploadSnapshot,
   saveServidorUpUploadSnapshot,
 } from "@/lib/criacao/servidorUpUploadSnapshotService";
+import { syncTrackDeezerUrlsFromItems, type DownloadItemForMatch } from "@/lib/criacao/servidorUpUploadReconcile";
+import { prisma } from "@/lib/prisma";
 import type { ServidorUpUploadSession } from "@/lib/criacao/servidorUpUploadSession";
+
+async function loadStagingItemsForJob(jobId: string): Promise<DownloadItemForMatch[]> {
+  return prisma.downloadItem.findMany({
+    where: {
+      jobId,
+      status: "concluido",
+      storageKey: { not: null },
+      NOT: { providerRef: { startsWith: "import:" } },
+    },
+    select: {
+      id: true,
+      linhaOriginal: true,
+      titulo: true,
+      artista: true,
+      arquivoNome: true,
+      sizeBytes: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+async function reconcileSession(session: ServidorUpUploadSession): Promise<ServidorUpUploadSession> {
+  const items = await loadStagingItemsForJob(session.downloadJobId);
+  if (items.length === 0) return session;
+  return {
+    ...session,
+    tracks: syncTrackDeezerUrlsFromItems(session.tracks, items),
+  };
+}
 
 type Ctx = { params: Promise<{ jobId: string }> };
 
@@ -17,7 +49,8 @@ export async function GET(_request: Request, ctx: Ctx) {
     if (!snapshot) {
       return NextResponse.json({ error: "snapshot_nao_encontrado" }, { status: 404 });
     }
-    return NextResponse.json({ ok: true, session: snapshot });
+    const session = await reconcileSession(snapshot);
+    return NextResponse.json({ ok: true, session });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/servidor-up/upload-session GET]", e);
@@ -34,7 +67,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       return NextResponse.json({ error: "payload_invalido" }, { status: 400 });
     }
     const session: ServidorUpUploadSession = {
-      ...body,
+      ...(await reconcileSession({ ...body, downloadJobId: jobId, savedAt: Date.now() })),
       downloadJobId: jobId,
       savedAt: Date.now(),
     };

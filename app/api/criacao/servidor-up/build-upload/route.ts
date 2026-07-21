@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
   buildServidorUpUploadPlan,
+  countStagingReadyForJob,
   type ServidorUpUploadDraftInput,
   type ServidorUpUploadTrackInput,
 } from "@/lib/criacao/servidorUpUploadService";
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
     });
 
     const totalTracks = plan.lotes.reduce((n, l) => n + l.tracks.length, 0);
+    const staging = await countStagingReadyForJob(downloadJobId);
 
     return NextResponse.json({
       ok: true,
@@ -47,6 +49,8 @@ export async function POST(request: Request) {
         unmatched: plan.unmatchedTracks.length,
         orphanDownloads: plan.orphanDownloadItems,
         hierarchyErrors: plan.hierarchyErrors.length,
+        stagingReady: staging.stagingReady,
+        concluidoTotal: staging.concluidoTotal,
       },
     });
   } catch (e) {

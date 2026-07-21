@@ -3,6 +3,16 @@ import { pathSegmentLooseKey } from "@/lib/criacao/pathSanitize";
 import type { ServidorUpHierarchyRow } from "@/lib/criacao/servidorUpHierarchyService";
 import type { UploadLoteInput } from "@/lib/criacao/filaService";
 import { mixSegundosFromRelativePath } from "@/lib/criacao/legacyMixFilename";
+import {
+  buildDownloadItemMatchIndexes,
+  deezerTrackIdFromUrl,
+  legacyStemArtistTitle,
+  resolveByEnqueueOrderFallback,
+  resolveDownloadItemForTrack,
+  type DownloadItemForMatch,
+} from "@/lib/criacao/servidorUpUploadReconcile";
+
+export { deezerTrackIdFromUrl };
 
 export type ServidorUpUploadDraftInput = {
   uploadTag?: string;
@@ -44,69 +54,6 @@ export type ServidorUpUploadPlan = {
   hierarchyErrors: string[];
 };
 
-export function deezerTrackIdFromUrl(url: string): string | null {
-  const m = url.trim().match(/deezer\.com\/(?:\w+\/)?track\/(\d+)/i);
-  return m?.[1] ?? null;
-}
-
-type DownloadItemRow = {
-  id: string;
-  linhaOriginal: string;
-  titulo: string;
-  artista: string;
-  arquivoNome: string;
-  sizeBytes: number | null;
-};
-
-function foldMatch(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Artista/título a partir do nome do MP3 legado (`Artista - Faixa~7.mp3`). */
-function legacyStemArtistTitle(relativePath: string): { artista: string; titulo: string } | null {
-  const base = relativePath.split("/").pop()?.replace(/\.mp3$/i, "") ?? "";
-  const stripped = base.replace(/~\d+$/i, "").trim();
-  const sep = stripped.match(/^(.+?)\s*-\s*(.+)$/);
-  if (!sep?.[1]?.trim() || !sep[2]?.trim()) return null;
-  return { artista: sep[1].trim(), titulo: sep[2].trim() };
-}
-
-function resolveDownloadItemForTrack(
-  track: ServidorUpUploadTrackInput,
-  itemByTrackId: Map<string, DownloadItemRow>,
-  items: DownloadItemRow[],
-  usedDownloadIds: Set<string>,
-): DownloadItemRow | undefined {
-  const deezerId = deezerTrackIdFromUrl(track.deezerUrl);
-  if (deezerId) {
-    const hit = itemByTrackId.get(deezerId);
-    if (hit && !usedDownloadIds.has(hit.id)) return hit;
-  }
-
-  for (const item of items) {
-    if (usedDownloadIds.has(item.id)) continue;
-    const fromLine = deezerTrackIdFromUrl(item.linhaOriginal);
-    if (deezerId && fromLine === deezerId) return item;
-  }
-
-  const legacy = legacyStemArtistTitle(track.relativePath);
-  if (!legacy) return undefined;
-  const wantA = foldMatch(legacy.artista);
-  const wantT = foldMatch(legacy.titulo);
-  for (const item of items) {
-    if (usedDownloadIds.has(item.id)) continue;
-    const ia = foldMatch(item.artista);
-    const it = foldMatch(item.titulo);
-    if (ia === wantA && (it === wantT || it.includes(wantT) || wantT.includes(it))) return item;
-  }
-  return undefined;
-}
-
 export function servidorUpHierarchyKey(input: {
   clienteNome: string;
   programacaoNome: string;
@@ -115,11 +62,64 @@ export function servidorUpHierarchyKey(input: {
   return `${pathSegmentLooseKey(input.clienteNome)}/${pathSegmentLooseKey(input.programacaoNome)}/${pathSegmentLooseKey(input.pastaNome)}`;
 }
 
+function findHierarchyRow(
+  track: ServidorUpUploadTrackInput,
+  hierarchyByKey: Map<string, ServidorUpHierarchyRow>,
+  hierarchyRows: ServidorUpHierarchyRow[],
+): ServidorUpHierarchyRow | undefined {
+  const key = servidorUpHierarchyKey(track);
+  const direct = hierarchyByKey.get(key);
+  if (direct) return direct;
+  const looseCliente = pathSegmentLooseKey(track.clienteNome);
+  const looseProg = pathSegmentLooseKey(track.programacaoNome);
+  const loosePasta = pathSegmentLooseKey(track.pastaNome);
+  return hierarchyRows.find(
+    (r) =>
+      pathSegmentLooseKey(r.clienteNome) === looseCliente &&
+      pathSegmentLooseKey(r.programacaoNome) === looseProg &&
+      pathSegmentLooseKey(r.pastaNome) === loosePasta,
+  );
+}
+
 function uploadTagForRow(
   row: ServidorUpHierarchyRow,
   draft: ServidorUpUploadDraftInput | undefined,
 ): string {
   return (draft?.uploadTag ?? "").trim() || row.suggestedUploadTag.trim() || row.pastaNome.trim();
+}
+
+function pushTrackToLote(
+  loteMap: Map<string, ServidorUpUploadLotePreview>,
+  hierarchy: ServidorUpHierarchyRow,
+  key: string,
+  track: ServidorUpUploadTrackInput,
+  dl: DownloadItemForMatch,
+  drafts: Record<string, ServidorUpUploadDraftInput>,
+) {
+  let lote = loteMap.get(key);
+  if (!lote) {
+    lote = {
+      hierarchyKey: key,
+      clienteRef: hierarchy.clienteRef!,
+      clienteNome: hierarchy.clienteNome,
+      programacaoId: hierarchy.programacaoId!,
+      programacaoNome: hierarchy.programacaoNome,
+      pastaId: hierarchy.pastaId!,
+      pastaNome: hierarchy.pastaNome,
+      uploadTagNome: uploadTagForRow(hierarchy, drafts[key]),
+      tagCriativoUserId: drafts[key]?.donoUserId?.trim() || hierarchy.criativoUserId,
+      tracks: [],
+    };
+    loteMap.set(key, lote);
+  }
+  lote.tracks.push({
+    relativePath: track.relativePath,
+    downloadItemId: dl.id,
+    titulo: dl.titulo,
+    artista: dl.artista,
+    arquivoNome: dl.arquivoNome,
+    sizeBytes: dl.sizeBytes,
+  });
 }
 
 export async function buildServidorUpUploadPlan(input: {
@@ -145,23 +145,20 @@ export async function buildServidorUpUploadPlan(input: {
       artista: true,
       arquivoNome: true,
       sizeBytes: true,
+      createdAt: true,
     },
+    orderBy: { createdAt: "asc" },
   });
 
-  const itemByTrackId = new Map<string, (typeof downloadItems)[0]>();
-  for (const item of downloadItems) {
-    const trackId = deezerTrackIdFromUrl(item.linhaOriginal);
-    if (trackId && !itemByTrackId.has(trackId)) itemByTrackId.set(trackId, item);
-  }
-
+  const indexes = buildDownloadItemMatchIndexes(downloadItems);
   const loteMap = new Map<string, ServidorUpUploadLotePreview>();
   const unmatchedTracks: string[] = [];
   const hierarchyErrors: string[] = [];
   const usedDownloadIds = new Set<string>();
+  const pendingForOrder: ServidorUpUploadTrackInput[] = [];
 
   for (const track of input.tracks) {
-    const key = servidorUpHierarchyKey(track);
-    const hierarchy = hierarchyByKey.get(key);
+    const hierarchy = findHierarchyRow(track, hierarchyByKey, input.hierarchyRows);
     if (!hierarchy) {
       unmatchedTracks.push(`${track.relativePath} (pasta não encontrada no passo 0)`);
       continue;
@@ -173,40 +170,46 @@ export async function buildServidorUpUploadPlan(input: {
       continue;
     }
 
-    const dl = resolveDownloadItemForTrack(track, itemByTrackId, downloadItems, usedDownloadIds);
+    const key = hierarchy.key || servidorUpHierarchyKey(track);
+    const dl = resolveDownloadItemForTrack(track, indexes, downloadItems, usedDownloadIds);
     if (!dl) {
-      unmatchedTracks.push(
-        `${track.relativePath} (MP3 não encontrado no job ${input.downloadJobId.slice(0, 8)}… — confira se escolheu o snapshot deste job no Download link)`,
-      );
+      pendingForOrder.push(track);
       continue;
     }
     usedDownloadIds.add(dl.id);
+    pushTrackToLote(loteMap, hierarchy, key, track, dl, drafts);
+  }
 
-    let lote = loteMap.get(key);
-    if (!lote) {
-      lote = {
-        hierarchyKey: key,
-        clienteRef: hierarchy.clienteRef,
-        clienteNome: hierarchy.clienteNome,
-        programacaoId: hierarchy.programacaoId,
-        programacaoNome: hierarchy.programacaoNome,
-        pastaId: hierarchy.pastaId,
-        pastaNome: hierarchy.pastaNome,
-        uploadTagNome: uploadTagForRow(hierarchy, drafts[key]),
-        tagCriativoUserId: drafts[key]?.donoUserId?.trim() || hierarchy.criativoUserId,
-        tracks: [],
-      };
-      loteMap.set(key, lote);
+  if (pendingForOrder.length > 0) {
+    const orderMap = resolveByEnqueueOrderFallback(pendingForOrder, downloadItems, usedDownloadIds);
+    const stillPending: ServidorUpUploadTrackInput[] = [];
+
+    for (const track of pendingForOrder) {
+      const hierarchy = findHierarchyRow(track, hierarchyByKey, input.hierarchyRows);
+      if (!hierarchy?.clienteRef || !hierarchy.programacaoId || !hierarchy.pastaId) {
+        stillPending.push(track);
+        continue;
+      }
+      const key = hierarchy.key || servidorUpHierarchyKey(track);
+      const dl = orderMap.get(track.relativePath);
+      if (!dl || usedDownloadIds.has(dl.id)) {
+        stillPending.push(track);
+        continue;
+      }
+      usedDownloadIds.add(dl.id);
+      pushTrackToLote(loteMap, hierarchy, key, track, dl, drafts);
     }
 
-    lote.tracks.push({
-      relativePath: track.relativePath,
-      downloadItemId: dl.id,
-      titulo: dl.titulo,
-      artista: dl.artista,
-      arquivoNome: dl.arquivoNome,
-      sizeBytes: dl.sizeBytes,
-    });
+    for (const track of stillPending) {
+      const legacy = legacyStemArtistTitle(track.relativePath);
+      const hint =
+        legacy ?
+          `${legacy.artista} — ${legacy.titulo}`
+        : track.deezerUrl.slice(0, 60);
+      unmatchedTracks.push(
+        `${track.relativePath} (${hint} — sem MP3 pareado neste job; confira se o snapshot é deste download)`,
+      );
+    }
   }
 
   const orphanDownloadItems = downloadItems.filter((i) => !usedDownloadIds.has(i.id)).length;
@@ -245,4 +248,24 @@ export function servidorUpPlanToUploadLotes(
         };
       }),
     }));
+}
+
+export async function countStagingReadyForJob(downloadJobId: string): Promise<{
+  stagingReady: number;
+  concluidoTotal: number;
+}> {
+  const [stagingReady, concluidoTotal] = await Promise.all([
+    prisma.downloadItem.count({
+      where: {
+        jobId: downloadJobId,
+        status: "concluido",
+        storageKey: { not: null },
+        NOT: { providerRef: { startsWith: "import:" } },
+      },
+    }),
+    prisma.downloadItem.count({
+      where: { jobId: downloadJobId, status: "concluido" },
+    }),
+  ]);
+  return { stagingReady, concluidoTotal };
 }
