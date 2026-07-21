@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { CopyTextButton } from "@/components/CopyTextButton";
 import {
   DOWNLOAD_PROVIDER_HINT,
   DOWNLOAD_PROVIDER_LABEL,
@@ -44,6 +45,20 @@ const STATUS_TONE: Record<string, string> = {
   erro: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
   cancelado: "bg-slate-100 text-slate-500 line-through dark:bg-slate-800",
 };
+
+function jobBadgeLabel(j: DownloadJobRow): string {
+  if (j.status === "concluido" && j.itensErro > 0) {
+    return `Concluído · ${j.itensOk} ok · ${j.itensErro} falha(s)`;
+  }
+  return STATUS_LABEL[j.status] ?? j.status;
+}
+
+function jobBadgeTone(j: DownloadJobRow): string {
+  if (j.status === "concluido" && j.itensErro > 0) {
+    return "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200";
+  }
+  return STATUS_TONE[j.status] ?? "";
+}
 
 function formatWhen(iso: string): string {
   const d = new Date(iso);
@@ -465,15 +480,23 @@ export function DownloadLinkPanel() {
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">{j.titulo}</span>
-                        <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${STATUS_TONE[j.status] ?? ""}`}>
-                          {STATUS_LABEL[j.status] ?? j.status}
+                        <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${jobBadgeTone(j)}`}>
+                          {jobBadgeLabel(j)}
                         </span>
                       </div>
-                      <div className="mt-0.5 text-[11px] text-slate-500">
-                        {j.itensOk}/{j.totalItens} ok
-                        {j.itensErro > 0 ? ` · ${j.itensErro} erro(s)` : ""}
-                        {" · "}
-                        {formatWhen(j.createdAt)}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                        <span>
+                          {j.itensOk}/{j.totalItens} ok
+                          {j.itensErro > 0 ? ` · ${j.itensErro} erro(s)` : ""}
+                          {" · "}
+                          {formatWhen(j.createdAt)}
+                        </span>
+                        <span className="inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-slate-400">
+                          <span className="truncate" title={j.id}>
+                            Job {j.id}
+                          </span>
+                          <CopyTextButton text={j.id} label="Copiar ID do job Deemix" size="compact" />
+                        </span>
                       </div>
                       {j.status === "erro" || j.itensErro > 0 ?
                         erroResumoJob(j) ?
@@ -486,7 +509,13 @@ export function DownloadLinkPanel() {
                       : null}
                     </button>
                     {openJobId === j.id && jobDetail ?
-                      <ul className="mt-2 max-h-64 space-y-2 overflow-auto rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-950">
+                      <>
+                        <p className="mt-2 text-[10px] text-slate-500">
+                          ID para Servidor UP Passo 5:{" "}
+                          <code className="break-all font-mono text-slate-600 dark:text-slate-300">{j.id}</code>{" "}
+                          <CopyTextButton text={j.id} label="Copiar ID do job" size="compact" />
+                        </p>
+                        <ul className="mt-2 max-h-64 space-y-2 overflow-auto rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-950">
                         {jobDetail.itens.map((it) => (
                           <li key={it.id} className="flex flex-col gap-1 border-b border-slate-200/80 pb-2 last:border-0 dark:border-slate-800">
                             <div className="flex flex-wrap gap-2">
@@ -512,6 +541,7 @@ export function DownloadLinkPanel() {
                           </li>
                         ))}
                       </ul>
+                      </>
                     : null}
                   </li>
                 ))}

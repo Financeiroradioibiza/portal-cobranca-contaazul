@@ -489,10 +489,17 @@ export function ServidorUpMultiUploadPanel() {
             </span>
             {(stats?.unmatched ?? 0) > 0 ?
               <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                {stats!.unmatched} sem match Deemix
+                {stats!.unmatched} sem MP3 (pode subir o resto)
               </span>
             : null}
           </div>
+
+          {(stats?.unmatched ?? 0) > 0 && totalMatched > 0 ?
+            <p className="mb-2 text-[11px] text-emerald-900 dark:text-emerald-200">
+              Lote Deemix com falhas parciais: <strong>{totalMatched}</strong> faixa(s) prontas para subir; as
+              que falharam ficam listadas abaixo (Deezer indisponível etc.).
+            </p>
+          : null}
 
           <ul className="mb-3 max-h-64 space-y-2 overflow-y-auto">
             {plan.lotes.map((lote) => (
@@ -529,7 +536,8 @@ export function ServidorUpMultiUploadPanel() {
           {plan.unmatchedTracks.length > 0 ?
             <details className="mb-3 text-[11px] text-amber-900 dark:text-amber-200">
               <summary className="cursor-pointer font-semibold">
-                {plan.unmatchedTracks.length} faixa(s) não mapeada(s)
+                {plan.unmatchedTracks.length} faixa(s) sem MP3 neste job Deemix (erro de download ou link
+                diferente)
               </summary>
               <ul className="mt-1 list-inside list-disc">
                 {plan.unmatchedTracks.slice(0, 15).map((u) => (
