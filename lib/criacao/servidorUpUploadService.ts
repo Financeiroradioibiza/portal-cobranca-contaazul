@@ -11,6 +11,8 @@ import {
   resolveDownloadItemForTrack,
   type DownloadItemForMatch,
 } from "@/lib/criacao/servidorUpUploadReconcile";
+import { buildServidorUpPastaUploadTag } from "@/lib/criacao/servidorUpUploadTag";
+import { resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 
 export { deezerTrackIdFromUrl };
 
@@ -37,6 +39,7 @@ export type ServidorUpUploadLotePreview = {
   pastaNome: string;
   uploadTagNome: string;
   tagCriativoUserId: string | null;
+  tagCriativoIniciais: string;
   tracks: Array<{
     relativePath: string;
     downloadItemId: string;
@@ -84,8 +87,88 @@ function findHierarchyRow(
 function uploadTagForRow(
   row: ServidorUpHierarchyRow,
   draft: ServidorUpUploadDraftInput | undefined,
+  pastaNomeProgramacao: string,
 ): string {
-  return (draft?.uploadTag ?? "").trim() || row.suggestedUploadTag.trim() || row.pastaNome.trim();
+  const manual = (draft?.uploadTag ?? "").trim();
+  const base = manual || pastaNomeProgramacao.trim() || row.pastaNome.trim();
+  return buildServidorUpPastaUploadTag(base);
+}
+
+async function enrichLotesUploadTags(
+  lotes: ServidorUpUploadLotePreview[],
+  drafts: Record<string, ServidorUpUploadDraftInput>,
+): Promise<void> {
+  if (lotes.length === 0) return;
+
+  const progIds = [...new Set(lotes.map((l) => l.programacaoId))];
+  const pastaIds = [...new Set(lotes.map((l) => l.pastaId))];
+
+  const [progs, pastas] = await Promise.all([
+    prisma.programacao.findMany({
+      where: { id: { in: progIds } },
+      select: { id: true, criativoUserId: true, criativoNome: true },
+    }),
+    prisma.pasta.findMany({
+      where: { id: { in: pastaIds } },
+      select: { id: true, nome: true },
+    }),
+  ]);
+
+  const progById = new Map(progs.map((p) => [p.id, p]));
+  const pastaById = new Map(pastas.map((p) => [p.id, p]));
+
+  const donoEmails = new Set<string>();
+  for (const lote of lotes) {
+    const draft = drafts[lote.hierarchyKey];
+    const prog = progById.get(lote.programacaoId);
+    const email = (draft?.donoUserId?.trim() || prog?.criativoUserId?.trim() || "").toLowerCase();
+    if (email) donoEmails.add(email);
+  }
+
+  const users =
+    donoEmails.size > 0 ?
+      await prisma.portalUser.findMany({
+        where: { email: { in: [...donoEmails] } },
+        select: { email: true, displayName: true, tagIniciais: true },
+      })
+    : [];
+  const userByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u]));
+
+  for (const lote of lotes) {
+    const draft = drafts[lote.hierarchyKey];
+    const prog = progById.get(lote.programacaoId);
+    const pasta = pastaById.get(lote.pastaId);
+    const pastaNomeProg = (pasta?.nome ?? lote.pastaNome).trim();
+
+    const donoEmail = (draft?.donoUserId?.trim() || prog?.criativoUserId?.trim() || "").toLowerCase();
+    lote.tagCriativoUserId = donoEmail || null;
+    lote.uploadTagNome = uploadTagForRow(
+      {
+        key: lote.hierarchyKey,
+        clienteNome: lote.clienteNome,
+        clienteRef: lote.clienteRef,
+        programacaoNome: lote.programacaoNome,
+        programacaoId: lote.programacaoId,
+        pastaNome: lote.pastaNome,
+        pastaId: lote.pastaId,
+        mp3Count: lote.tracks.length,
+        status: "ok",
+        criativoUserId: prog?.criativoUserId ?? null,
+        criativoNome: prog?.criativoNome ?? "",
+        suggestedUploadTag: buildServidorUpPastaUploadTag(pastaNomeProg),
+      },
+      draft,
+      pastaNomeProg,
+    );
+
+    const user = donoEmail ? userByEmail.get(donoEmail) : undefined;
+    const criativoNome = user?.displayName || prog?.criativoNome || donoEmail;
+    lote.tagCriativoIniciais = resolveCriativoIniciais(
+      user?.tagIniciais,
+      criativoNome,
+      donoEmail,
+    );
+  }
 }
 
 function pushTrackToLote(
@@ -106,8 +189,9 @@ function pushTrackToLote(
       programacaoNome: hierarchy.programacaoNome,
       pastaId: hierarchy.pastaId!,
       pastaNome: hierarchy.pastaNome,
-      uploadTagNome: uploadTagForRow(hierarchy, drafts[key]),
-      tagCriativoUserId: drafts[key]?.donoUserId?.trim() || hierarchy.criativoUserId,
+      uploadTagNome: "",
+      tagCriativoUserId: null,
+      tagCriativoIniciais: "",
       tracks: [],
     };
     loteMap.set(key, lote);
@@ -219,6 +303,8 @@ export async function buildServidorUpUploadPlan(input: {
     const pb = `${b.clienteNome}/${b.programacaoNome}/${b.pastaNome}`;
     return pa.localeCompare(pb, "pt-BR");
   });
+
+  await enrichLotesUploadTags(lotes, drafts);
 
   return { lotes, unmatchedTracks, orphanDownloadItems, hierarchyErrors: [...new Set(hierarchyErrors)] };
 }

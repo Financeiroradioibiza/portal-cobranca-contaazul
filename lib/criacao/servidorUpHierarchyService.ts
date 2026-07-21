@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getClienteProgramacaoMatchArvore } from "@/lib/criacao/programacaoService";
+import { buildServidorUpPastaUploadTag } from "@/lib/criacao/servidorUpUploadTag";
 import {
   pathSegmentCompareKey,
   pathSegmentLooseKey,
@@ -194,7 +195,7 @@ async function buildRowsFromFolders(
         status: "missing_cliente",
         criativoUserId: null,
         criativoNome: "",
-        suggestedUploadTag: item.pastaNome.trim(),
+        suggestedUploadTag: buildServidorUpPastaUploadTag(item.pastaNome),
       });
       continue;
     }
@@ -215,12 +216,13 @@ async function buildRowsFromFolders(
         status: "missing_programacao",
         criativoUserId: null,
         criativoNome: "",
-        suggestedUploadTag: item.pastaNome.trim(),
+        suggestedUploadTag: buildServidorUpPastaUploadTag(item.pastaNome),
       });
       continue;
     }
 
     const pasta = findPasta(prog.pastas, item.pastaNome);
+    const pastaLabel = pasta?.nome ?? item.pastaNome;
 
     rows.push({
       key,
@@ -234,7 +236,7 @@ async function buildRowsFromFolders(
       status: pasta ? "ok" : "missing_pasta",
       criativoUserId: prog.criativoUserId,
       criativoNome: prog.criativoNome,
-      suggestedUploadTag: item.pastaNome.trim(),
+      suggestedUploadTag: buildServidorUpPastaUploadTag(pastaLabel),
     });
   }
 

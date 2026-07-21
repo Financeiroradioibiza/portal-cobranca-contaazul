@@ -401,6 +401,12 @@ export function ServidorUpMultiUploadPanel() {
         if (data.error === "hierarquia_incompleta") {
           throw new Error(data.messages?.join(" · ") ?? "Hierarquia incompleta no passo 0.");
         }
+        if (data.error === "programacao_sem_dono") {
+          throw new Error(
+            data.message ??
+              "Programação sem dono criativo — defina na Central ou no Passo 0 do Servidor UP.",
+          );
+        }
         if (data.error === "nenhuma_faixa_mapeada") {
           throw new Error(
             `Nenhuma faixa mapeada. ${(data.unmatched ?? []).slice(0, 3).join(" · ")}`,
@@ -717,7 +723,9 @@ export function ServidorUpMultiUploadPanel() {
                     </div>
                     <div className="text-[11px] text-slate-500">
                       {lote.tracks.length} faixa(s) · tag{" "}
-                      <span className="font-semibold">{formatTagChipPreview("", lote.uploadTagNome)}</span>
+                      <span className="font-semibold">
+                        {formatTagChipPreview(lote.tagCriativoIniciais ?? "", lote.uploadTagNome)}
+                      </span>
                     </div>
                   </div>
                 </div>

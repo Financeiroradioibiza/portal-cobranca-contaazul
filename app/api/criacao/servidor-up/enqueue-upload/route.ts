@@ -5,6 +5,7 @@ import { markCriativoEntregueAuto, markSubidaFilaPainel } from "@/lib/criacao/at
 import { abrirAtualizacao } from "@/lib/criacao/atualizacaoService";
 import { createUploadJobsBatch, type UploadLoteInput } from "@/lib/criacao/filaService";
 import { ingestFromStagingOnCloud2 } from "@/lib/criacao/ingestFromStaging";
+import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 import { CRIACAO_INGEST_URL, ingestEnabled } from "@/lib/criacao/ingestTicket";
 import {
   buildServidorUpUploadPlan,
@@ -115,6 +116,18 @@ export async function POST(request: Request) {
       );
     }
 
+    const semDono = plan.lotes.filter((l) => l.tracks.length > 0 && !l.tagCriativoUserId);
+    if (semDono.length > 0) {
+      const sample = semDono[0]!;
+      return NextResponse.json(
+        {
+          error: "programacao_sem_dono",
+          message: `Defina o dono criativo na programação «${sample.programacaoNome}» (Central) ou no Passo 0 do Servidor UP. Pasta: ${sample.pastaNome}.`,
+        },
+        { status: 409 },
+      );
+    }
+
     const rawLotes = servidorUpPlanToUploadLotes(plan, titulo);
     if (rawLotes.length === 0) {
       return NextResponse.json(
@@ -135,9 +148,12 @@ export async function POST(request: Request) {
       arquivos = await normalizeUploadArquivos(arquivos);
       if (arquivos.length === 0) continue;
       const tagCriativo = await resolveTagCriativoUser(l.criativoUserId, session.email);
+      const uploadTagNome = (l.uploadTagNome ?? "").trim();
+      if (!uploadTagNome) continue;
       lotes.push({
         ...l,
         arquivos,
+        uploadTagNome,
         criativoUserId: tagCriativo.email,
         criativoNome: tagCriativo.displayName,
       });
@@ -179,6 +195,8 @@ export async function POST(request: Request) {
       }
     }
 
+    await applyPendingUploadTags(200).catch(() => {});
+
     return NextResponse.json({
       ok: true,
       ingestUrl: CRIACAO_INGEST_URL,
@@ -197,6 +215,9 @@ export async function POST(request: Request) {
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "staging_item_invalido") {
       return NextResponse.json({ error: "staging_item_invalido" }, { status: 400 });
+    }
+    if (msg === "programacao_sem_dono") {
+      return NextResponse.json({ error: msg }, { status: 409 });
     }
     console.error("[criacao/servidor-up/enqueue-upload POST]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
