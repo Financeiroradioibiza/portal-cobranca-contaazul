@@ -4,6 +4,7 @@ import path from 'node:path';
 import { criacaoConfig } from './config.js';
 import { portalQuery } from './portalDb.js';
 import {
+  downloadStagingKey,
   downloadStagingPath,
   uploadPath,
   workDir,
@@ -115,6 +116,50 @@ export async function cleanupUnusedDownloadStaging(limit = 200): Promise<{
     logCleanup('download_staging_unused', { filesRemoved, dbUpdated });
   }
   return { filesRemoved, dbUpdated };
+}
+
+/** Itens concluídos sem storage_key mas MP3 ainda no disco — repõe a chave. */
+export async function restoreDownloadStagingKeysFromDisk(opts?: {
+  jobId?: string;
+  limit?: number;
+}): Promise<{ restored: number; scanned: number }> {
+  const limit = Math.min(500, Math.max(1, opts?.limit ?? 400));
+  const jobId = opts?.jobId?.trim();
+  const params: string[] = [];
+  let jobFilter = '';
+  if (jobId) {
+    jobFilter = 'AND job_id = $1';
+    params.push(jobId);
+  }
+
+  const rows = await portalQuery<{ id: string }>(
+    `SELECT id FROM download_item
+      WHERE status = 'concluido'
+        AND (storage_key IS NULL OR storage_key = '')
+        ${jobFilter}
+      ORDER BY updated_at DESC
+      LIMIT ${limit}`,
+    params,
+  );
+
+  let restored = 0;
+  for (const row of rows.rows) {
+    const file = downloadStagingPath(row.id);
+    if (!fs.existsSync(file)) continue;
+    const key = downloadStagingKey(row.id);
+    await portalQuery(
+      `UPDATE download_item
+          SET storage_key = $2, updated_at = now()
+        WHERE id = $1`,
+      [row.id, key],
+    );
+    restored += 1;
+  }
+
+  if (restored > 0) {
+    logCleanup('restore_download_staging', { jobId: jobId ?? null, restored, scanned: rows.rows.length });
+  }
+  return { restored, scanned: rows.rows.length };
 }
 
 /** Upload scratch sem linha na fila (fantasma). */
@@ -292,8 +337,8 @@ export async function runStorageGarbageCollect(): Promise<{
     if (await cleanupDownloadStagingFile(row.id)) stagingRemoved += 1;
   }
 
-  const unusedStaging = await cleanupUnusedDownloadStaging(200);
-  const stagingUnusedRemoved = unusedStaging.filesRemoved;
+  /** Não chamar cleanupUnusedDownloadStaging — removia MP3 Deemix ainda necessários para Multi-Upload. */
+  const stagingUnusedRemoved = 0;
 
   const usoDirsRemoved = await gcOrphanUsoDirs(30);
 

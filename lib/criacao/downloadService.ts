@@ -522,3 +522,53 @@ export async function requeueDownloadItemsMissingStorage(jobId: string): Promise
 
   return { requeued: requeued.count, stillReady };
 }
+
+export async function countDownloadStagingReady(jobId: string): Promise<number> {
+  return prisma.downloadItem.count({
+    where: {
+      jobId: jobId.trim(),
+      status: "concluido",
+      storageKey: { not: null },
+      NOT: { storageKey: "" },
+    },
+  });
+}
+
+export async function triggerRestoreDownloadStaging(
+  jobId: string,
+): Promise<{ restored: number; scanned: number; error?: string }> {
+  const { getDownloadServiceConfig } = await import("@/lib/criacao/downloadConfig");
+  const cfg = getDownloadServiceConfig();
+  const processUrl = cfg.cloud2ProcessUrl;
+  if (!processUrl) {
+    return { restored: 0, scanned: 0, error: "Configure CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL no Netlify." };
+  }
+  const restoreUrl = processUrl.replace(/\/download\/process\/?$/i, "/download/restore-staging");
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (cfg.cloud2ProcessSecret) headers.Authorization = `Bearer ${cfg.cloud2ProcessSecret}`;
+    const res = await fetch(restoreUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jobId: jobId.trim(), limit: 450 }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    const text = await res.text();
+    let data: { ok?: boolean; restored?: number; scanned?: number; error?: string };
+    try {
+      data = JSON.parse(text) as typeof data;
+    } catch {
+      return {
+        restored: 0,
+        scanned: 0,
+        error: res.ok ? "Resposta inválida do cloud2." : `cloud2 HTTP ${res.status} — faça deploy do patch no servidor.`,
+      };
+    }
+    if (!res.ok || !data.ok) {
+      return { restored: 0, scanned: data.scanned ?? 0, error: data.error ?? `cloud2 HTTP ${res.status}` };
+    }
+    return { restored: data.restored ?? 0, scanned: data.scanned ?? 0 };
+  } catch (e) {
+    return { restored: 0, scanned: 0, error: e instanceof Error ? e.message : "erro_rede" };
+  }
+}

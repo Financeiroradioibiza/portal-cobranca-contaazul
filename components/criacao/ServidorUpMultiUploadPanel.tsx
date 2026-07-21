@@ -134,8 +134,10 @@ export function ServidorUpMultiUploadPanel() {
         );
       } else if (matched === 0 && stagingReady === 0 && concluidoTotal > 0) {
         setErr(
-          `O job marca ${concluidoTotal} faixa(s) concluída(s), mas o banco não tem MP3 no staging (storage_key). ` +
-            `Isso pode ter sido limpeza prematura no servidor — use «Recuperar MP3 deste job» abaixo ou tente o snapshot com 325 MP3 (job anterior).`,
+          `O job marca ${concluidoTotal} faixa(s) concluída(s), mas o staging no banco está vazio. ` +
+            `Causa provável: limpeza automática no cloud2 (já corrigida — precisa deploy no servidor). ` +
+            `Use «Recuperar MP3» uma vez após o deploy cloud2; evite baixar tudo de novo antes disso. ` +
+            `Job alternativo: snapshot cmrtpz5… (325 MP3).`,
         );
       } else if (matched === 0 && (data.stats?.unmatched ?? 0) > 5) {
         const best = [...jobs]
@@ -334,19 +336,42 @@ export function ServidorUpMultiUploadPanel() {
       );
       const data = await readApiJson<{
         ok?: boolean;
+        restored?: number;
+        restoreScanned?: number;
+        restoreError?: string | null;
         requeued?: number;
         stillReady?: number;
         processingError?: string | null;
+        needsCloud2Deploy?: boolean;
         error?: string;
       }>(res);
       if (!res.ok || !data.ok) {
         throw new Error(data.error ?? "Falha ao reenfileirar.");
       }
+      const parts: string[] = [];
+      if ((data.restored ?? 0) > 0) {
+        parts.push(`${data.restored} MP3 repostos no staging (disco)`);
+      }
+      if ((data.requeued ?? 0) > 0) {
+        parts.push(`${data.requeued} voltaram para fila Deemix`);
+      }
+      if ((data.stillReady ?? 0) > 0) {
+        parts.push(`${data.stillReady} prontos — clique «Atualizar plano»`);
+      }
+      if (data.restoreError && (data.restored ?? 0) === 0) {
+        parts.push(`cloud2: ${data.restoreError}`);
+      }
+      if (data.needsCloud2Deploy || data.restoreError?.includes("404")) {
+        parts.push("IMPORTANTE: rode deploy cloud2 (patch) antes de baixar de novo.");
+      }
       setMsg(
-        `${data.requeued ?? 0} faixa(s) voltaram para a fila Deemix · ${data.stillReady ?? 0} já tinham MP3. ` +
-          `Mantenha o Download link aberto alguns minutos e clique «Atualizar plano».` +
-          (data.processingError ? ` (worker: ${data.processingError})` : ""),
+        parts.length > 0 ?
+          parts.join(" · ")
+        : "Nada a recuperar — tente «Atualizar plano» ou o job cmrtpz5… (325 MP3).",
       );
+      if ((data.stillReady ?? 0) > 0 && session) {
+        await loadPlan(session, deemixJobs);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao recuperar staging.");
     } finally {

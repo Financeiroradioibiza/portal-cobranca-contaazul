@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { criacaoConfig } from '../../criacao/config.js';
 import { processPendingDownloads } from '../../criacao/downloadProcessor.js';
+import { restoreDownloadStagingKeysFromDisk } from '../../criacao/storageCleanup.js';
 
 type Body = { limit?: number };
+type RestoreBody = { jobId?: string; limit?: number };
 
 function verifySecret(authHeader: string | undefined): boolean {
   const secret = process.env.CRIACAO_CLOUD2_DOWNLOAD_SECRET ?? '';
@@ -39,5 +41,23 @@ export async function registerDownloadProcessRoutes(app: FastifyInstance, prefix
       deemix: Boolean(process.env.CRIACAO_DEEMIX_ARL),
       youtube: Boolean(process.env.CRIACAO_YOUTUBE_DL_URL),
     });
+  });
+
+  app.post<{ Body: RestoreBody }>(`${prefix}/download/restore-staging`, async (req, reply) => {
+    if (!verifySecret(req.headers.authorization)) {
+      return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+    }
+    const jobId = (req.body?.jobId ?? '').trim() || undefined;
+    const limit = Math.min(500, Math.max(1, Number(req.body?.limit) || 400));
+    try {
+      const result = await restoreDownloadStagingKeysFromDisk({ jobId, limit });
+      return reply.send({ ok: true, ...result });
+    } catch (e) {
+      app.log.error(e, '[download/restore-staging]');
+      return reply.code(500).send({
+        ok: false,
+        error: e instanceof Error ? e.message : 'erro',
+      });
+    }
   });
 }
