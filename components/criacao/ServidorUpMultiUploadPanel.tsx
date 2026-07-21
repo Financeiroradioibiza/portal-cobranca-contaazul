@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import {
@@ -72,7 +72,9 @@ export function ServidorUpMultiUploadPanel() {
   const [session, setSession] = useState<ServidorUpUploadSession | null>(null);
   const [plan, setPlan] = useState<ServidorUpUploadPlan | null>(null);
   const [stats, setStats] = useState<BuildResponse["stats"] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [bootstrapLoading, setBootstrapLoading] = useState(true);
+  const [planLoading, setPlanLoading] = useState(false);
+  const bootstrapStarted = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -81,9 +83,8 @@ export function ServidorUpMultiUploadPanel() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [selectingJob, setSelectingJob] = useState(false);
 
-  const loadPlan = useCallback(
-    async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[] = deemixJobs) => {
-    setLoading(true);
+  const loadPlan = useCallback(async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[]) => {
+    setPlanLoading(true);
     setErr(null);
     try {
       const res = await fetch("/api/criacao/servidor-up/build-upload", {
@@ -135,18 +136,18 @@ export function ServidorUpMultiUploadPanel() {
       setErr(e instanceof Error ? e.message : "Falha ao carregar plano.");
       setPlan(null);
     } finally {
-      setLoading(false);
+      setPlanLoading(false);
     }
-  }, [deemixJobs]);
+  }, []);
 
   const activateSession = useCallback(
-    async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[] = deemixJobs) => {
+    async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[]) => {
       setActiveDeemixJobId(s.downloadJobId);
       writeServidorUpUploadSession(s);
       setSession(s);
       await loadPlan(s, jobs);
     },
-    [loadPlan, deemixJobs],
+    [loadPlan],
   );
 
   const loadAvailableSessions = useCallback(async () => {
@@ -176,14 +177,14 @@ export function ServidorUpMultiUploadPanel() {
             "Este job Deemix não tem hierarquia salva. Volte ao Servidor UP (passos 0–4) na mesma sessão ou refaça o fluxo para gerar o snapshot.",
           );
         }
-        await activateSession(s);
+        await activateSession(s, deemixJobs);
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Falha ao carregar sessão.");
       } finally {
         setSelectingJob(false);
       }
     },
-    [activateSession],
+    [activateSession, deemixJobs],
   );
 
   const dismissSnapshot = useCallback(
@@ -229,7 +230,7 @@ export function ServidorUpMultiUploadPanel() {
         }
         const uploadSession = buildUploadSessionFromDraft(jobId, draft);
         await persistServidorUpUploadSession(uploadSession);
-        await activateSession(uploadSession);
+        await activateSession(uploadSession, deemixJobs);
         setMsg(
           `Job ${jobId.slice(0, 8)}… vinculado com ${uploadSession.tracks.length} faixa(s) do rascunho.`,
         );
@@ -239,17 +240,22 @@ export function ServidorUpMultiUploadPanel() {
         setSelectingJob(false);
       }
     },
-    [activateSession],
+    [activateSession, deemixJobs],
   );
 
   useEffect(() => {
+    if (bootstrapStarted.current) return;
+    bootstrapStarted.current = true;
+
+    let cancelled = false;
     void (async () => {
-      setLoading(true);
+      setBootstrapLoading(true);
       try {
         const res = await fetch("/api/criacao/servidor-up/upload-sessions");
         const data = (await res.json()) as SessionsResponse;
         const jobs = res.ok ? (data.servidorUpJobs ?? []) : [];
         const snaps = res.ok ? (data.snapshots ?? []) : [];
+        if (cancelled) return;
         setSnapshots(snaps);
         setDeemixJobs(jobs);
 
@@ -258,7 +264,7 @@ export function ServidorUpMultiUploadPanel() {
 
         if (activeJobId) {
           const fromServer = await fetchServidorUpUploadSession(activeJobId);
-          if (fromServer) {
+          if (fromServer && !cancelled) {
             await activateSession(fromServer, jobs);
             return;
           }
@@ -269,7 +275,7 @@ export function ServidorUpMultiUploadPanel() {
         } else if (local) {
           const job = jobs.find((j) => j.id === local.downloadJobId);
           if (!isUploadSessionStaleForJob(local, job)) {
-            await activateSession(local, jobs);
+            if (!cancelled) await activateSession(local, jobs);
             return;
           }
           clearServidorUpUploadSession();
@@ -277,9 +283,13 @@ export function ServidorUpMultiUploadPanel() {
       } catch {
         /* ignore */
       } finally {
-        setLoading(false);
+        if (!cancelled) setBootstrapLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [activateSession]);
 
   async function submitMultiUpload() {
@@ -376,7 +386,7 @@ export function ServidorUpMultiUploadPanel() {
           </div>
         : null}
 
-        {loading || loadingSessions ?
+        {bootstrapLoading || loadingSessions ?
           <p className="mt-3 text-xs text-amber-800/80">Carregando jobs…</p>
         : snapshots.length > 0 ?
           <div className="mt-3">
@@ -471,7 +481,7 @@ export function ServidorUpMultiUploadPanel() {
           </div>
         : null}
 
-        {!loading && !loadingSessions && snapshots.length === 0 && jobsWithoutSnapshot.length === 0 ?
+        {!bootstrapLoading && !loadingSessions && snapshots.length === 0 && jobsWithoutSnapshot.length === 0 ?
           <p className="mt-3 text-xs text-amber-800/80">
             Nenhum job Servidor UP encontrado. Use o{" "}
             <Link href="/criacao/upload" className="font-semibold underline">
@@ -526,7 +536,7 @@ export function ServidorUpMultiUploadPanel() {
         </button>
       </div>
 
-      {loading ?
+      {planLoading ?
         <p className="text-xs text-violet-800/80">Montando lotes por pasta…</p>
       : err ?
         <p className="text-xs font-semibold text-red-700 dark:text-red-300">{err}</p>
