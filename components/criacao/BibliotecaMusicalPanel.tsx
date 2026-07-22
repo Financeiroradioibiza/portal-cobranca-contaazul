@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
 import { LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
@@ -145,6 +145,54 @@ function slimRowGridClass(hasSelect: boolean, hasDrag: boolean): string {
   return "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
 }
 
+function BibliotecaListPagination({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) return null;
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const from = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const to = Math.min(total, safePage * pageSize);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/40">
+      <span className="text-xs text-slate-500">
+        Mostrando <strong className="text-slate-700 dark:text-slate-200">{from}–{to}</strong> de{" "}
+        <strong className="text-slate-700 dark:text-slate-200">{total}</strong>
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={safePage <= 1}
+          onClick={() => onPageChange(safePage - 1)}
+          className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200"
+        >
+          Anterior
+        </button>
+        <span className="text-xs tabular-nums text-slate-500">
+          Página {safePage} / {totalPages}
+        </span>
+        <button
+          type="button"
+          disabled={safePage >= totalPages}
+          onClick={() => onPageChange(safePage + 1)}
+          className="rounded-lg border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40 dark:border-slate-600 dark:text-slate-200"
+        >
+          Próxima
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function BibliotecaMusicalPanel({
   sidebarMode = false,
   folderFilter,
@@ -163,6 +211,8 @@ export function BibliotecaMusicalPanel({
   const [error, setError] = useState<string | null>(null);
   const [musicas, setMusicas] = useState<Musica[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const listAnchorRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [status, setStatus] = useState("all");
@@ -216,9 +266,16 @@ export function BibliotecaMusicalPanel({
     })();
   }, [loadTags]);
 
+  const pageSize = listFilter === "leastUsed" ? 10 : 200;
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, folderFilter]);
+
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
-      pageSize: listFilter === "leastUsed" ? "10" : "200",
+      page: String(page),
+      pageSize: String(pageSize),
     });
     if (search.trim()) params.set("search", search.trim());
     if (status !== "all") params.set("status", status);
@@ -232,7 +289,12 @@ export function BibliotecaMusicalPanel({
     if (listFilter === "all" && sortBy !== "recent") params.set("sortBy", sortBy);
     if (gravadoraFilter.trim()) params.set("gravadora", gravadoraFilter.trim());
     return params.toString();
-  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, folderFilter]);
+  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, folderFilter, page, pageSize]);
+
+  const goToPage = useCallback((next: number) => {
+    setPage(next);
+    listAnchorRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, []);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -591,6 +653,11 @@ export function BibliotecaMusicalPanel({
           </button>
           <div className="text-right text-xs text-slate-500">
             <strong className="text-slate-700 dark:text-slate-200">{total}</strong> música{total === 1 ? "" : "s"}
+            {total > pageSize ?
+              <span className="block text-[10px] font-normal text-slate-400">
+                {pageSize} por página · use Anterior/Próxima abaixo da lista
+              </span>
+            : null}
           </div>
         </div>
       </div>
@@ -790,7 +857,10 @@ export function BibliotecaMusicalPanel({
         </div>
           );
         })()
-      : <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      : <div
+          ref={listAnchorRef}
+          className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
+        >
           {viewMode === "slim" ?
             <>
               <div className={`grid gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 ${slimRowGridClass(!!onToggleSelect, dragMusicaEnabled)}`}>
@@ -1071,6 +1141,12 @@ export function BibliotecaMusicalPanel({
           </ul>
           </>
           }
+          <BibliotecaListPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={goToPage}
+          />
         </div>
       }
 
