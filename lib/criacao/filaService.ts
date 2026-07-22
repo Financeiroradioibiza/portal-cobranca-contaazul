@@ -361,7 +361,7 @@ export async function resetStaleProcessingItems(maxAgeMinutes = 12): Promise<num
 }
 
 /** Multi-upload: itens sem MP3 no cloud2 — reenvia ingest-from-staging. */
-export async function recoverStagingForPendingItems(limit = 50): Promise<{
+export async function recoverStagingForPendingItems(limit = 120): Promise<{
   imported: number;
   errors: string[];
 }> {

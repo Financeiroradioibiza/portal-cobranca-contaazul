@@ -11,19 +11,14 @@ export function ingestFromStagingUrl(): string | null {
   return processUrl.replace(/\/download\/process\/?$/, "/ingest-from-staging");
 }
 
-export async function ingestFromStagingOnCloud2(
+/** Deve coincidir com o teto por request no cloud2 (até deploy remover o cap). */
+const INGEST_STAGING_BATCH_SIZE = 100;
+
+async function ingestFromStagingBatchOnCloud2(
+  url: string,
+  headers: Record<string, string>,
   pairs: StagingIngestPair[],
 ): Promise<{ ok: boolean; imported: number; errors: string[] }> {
-  const url = ingestFromStagingUrl();
-  if (!url) {
-    return { ok: false, imported: 0, errors: ["CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL não configurado."] };
-  }
-  if (pairs.length === 0) return { ok: true, imported: 0, errors: [] };
-
-  const cfg = getDownloadServiceConfig();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cfg.cloud2ProcessSecret) headers.Authorization = `Bearer ${cfg.cloud2ProcessSecret}`;
-
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -63,4 +58,31 @@ export async function ingestFromStagingOnCloud2(
     const msg = e instanceof Error ? e.message : "erro_rede";
     return { ok: false, imported: 0, errors: [msg] };
   }
+}
+
+export async function ingestFromStagingOnCloud2(
+  pairs: StagingIngestPair[],
+): Promise<{ ok: boolean; imported: number; errors: string[] }> {
+  const url = ingestFromStagingUrl();
+  if (!url) {
+    return { ok: false, imported: 0, errors: ["CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL não configurado."] };
+  }
+  if (pairs.length === 0) return { ok: true, imported: 0, errors: [] };
+
+  const cfg = getDownloadServiceConfig();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (cfg.cloud2ProcessSecret) headers.Authorization = `Bearer ${cfg.cloud2ProcessSecret}`;
+
+  let imported = 0;
+  const errors: string[] = [];
+  for (let i = 0; i < pairs.length; i += INGEST_STAGING_BATCH_SIZE) {
+    const chunk = pairs.slice(i, i + INGEST_STAGING_BATCH_SIZE);
+    const r = await ingestFromStagingBatchOnCloud2(url, headers, chunk);
+    imported += r.imported;
+    errors.push(...r.errors);
+    if (!r.ok && r.imported === 0) {
+      return { ok: false, imported, errors };
+    }
+  }
+  return { ok: imported > 0 || errors.length === 0, imported, errors };
 }

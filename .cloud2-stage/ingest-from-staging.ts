@@ -39,7 +39,12 @@ export async function registerIngestFromStagingRoutes(
     const errors: string[] = [];
     let imported = 0;
 
-    for (const pair of pairs.slice(0, 100)) {
+    const maxPairs = 2000;
+    if (pairs.length > maxPairs) {
+      return reply.code(400).send({ ok: false, error: 'limite_pares', max: maxPairs });
+    }
+
+    for (const pair of pairs) {
       const processamentoItemId = String(pair.processamentoItemId ?? '').trim();
       const downloadItemId = String(pair.downloadItemId ?? '').trim();
       if (!processamentoItemId || !downloadItemId) {
