@@ -90,9 +90,9 @@ export function FilaPanel() {
   const lastSyncPendingAt = useRef(0);
   const autoFinishedRef = useRef<Set<string>>(new Set());
 
-  const syncPending = useCallback(async () => {
+  const syncPending = useCallback(async (force = false) => {
     const now = Date.now();
-    if (now - lastSyncPendingAt.current < 25_000) return;
+    if (!force && now - lastSyncPendingAt.current < 12_000) return;
     lastSyncPendingAt.current = now;
     try {
       await fetch("/api/criacao/fila/sync-pending", {
@@ -267,7 +267,11 @@ export function FilaPanel() {
           </select>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => {
+              void load();
+              lastSyncPendingAt.current = 0;
+              void syncPending(true);
+            }}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
           >
             Atualizar
@@ -348,7 +352,8 @@ export function FilaPanel() {
                           Concluir
                         </button>
                       : null}
-                      {j.status === "aguardando" && j.itensFeitos === 0 ?
+                      {(j.status === "aguardando" || j.status === "processando") &&
+                      j.itensFeitos < j.totalItens ?
                         <button
                           type="button"
                           onClick={async () => {
@@ -358,12 +363,12 @@ export function FilaPanel() {
                               body: JSON.stringify({ action: "recover_staging" }),
                             });
                             lastSyncPendingAt.current = 0;
-                            await syncPending();
+                            await syncPending(true);
                             await load();
                           }}
                           className="shrink-0 rounded border border-sky-400 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
                         >
-                          Importar MP3
+                          {j.itensFeitos === 0 ? "Importar MP3" : "Recuperar MP3"}
                         </button>
                       : null}
                       <button

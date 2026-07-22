@@ -6,13 +6,11 @@ import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUpl
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 import { cloud2Enabled, cloud2FetchWithTimeout } from "@/lib/criacao/cloud2Client";
 import {
-  ingestFromStagingOnCloud2,
-  type StagingIngestPair,
-} from "@/lib/criacao/ingestFromStaging";
-import {
   ensureProcessamentoPastaEspecialColumn,
   hasProcessamentoPastaEspecialColumn,
 } from "@/lib/criacao/processamentoJobSchemaCompat";
+
+export { recoverStagingForJob, recoverStagingForPendingItems, recoverStagingForActiveUploadJobs } from "@/lib/criacao/stagingRecoverService";
 
 export type UploadArquivo = {
   nome: string;
@@ -358,59 +356,6 @@ export async function resetStaleProcessingItems(maxAgeMinutes = 12): Promise<num
     data: { status: "aguardando", etapaAtual: "deduplicacao", erroMsg: "" },
   });
   return r.count;
-}
-
-/** Multi-upload: itens sem MP3 no cloud2 — reenvia ingest-from-staging. */
-export async function recoverStagingForPendingItems(limit = 120): Promise<{
-  imported: number;
-  errors: string[];
-}> {
-  const items = await prisma.processamentoItem.findMany({
-    where: {
-      status: "aguardando",
-      rawStorageKey: null,
-      job: { status: { in: ["aguardando", "processando"] } },
-    },
-    select: { id: true, arquivoNome: true },
-    take: limit,
-    orderBy: { createdAt: "asc" },
-  });
-  if (items.length === 0) return { imported: 0, errors: [] };
-
-  const pairs: StagingIngestPair[] = [];
-  for (const item of items) {
-    const byRef = await prisma.downloadItem.findFirst({
-      where: {
-        providerRef: `import:${item.id}`,
-        status: "concluido",
-        storageKey: { not: null },
-      },
-      select: { id: true },
-    });
-    if (byRef) {
-      pairs.push({ processamentoItemId: item.id, downloadItemId: byRef.id });
-      continue;
-    }
-    const nome = item.arquivoNome.trim();
-    if (!nome) continue;
-    const byName = await prisma.downloadItem.findFirst({
-      where: {
-        status: "concluido",
-        storageKey: { not: null },
-        arquivoNome: nome,
-        NOT: { providerRef: { startsWith: "import:" } },
-      },
-      select: { id: true },
-      orderBy: { updatedAt: "desc" },
-    });
-    if (byName) pairs.push({ processamentoItemId: item.id, downloadItemId: byName.id });
-  }
-
-  if (pairs.length === 0) {
-    return { imported: 0, errors: ["nenhum_par_staging_encontrado"] };
-  }
-  const r = await ingestFromStagingOnCloud2(pairs);
-  return { imported: r.imported, errors: r.errors };
 }
 
 /** Aprova lote após revisão humana — libera tag na biblioteca e faixas na pasta. */

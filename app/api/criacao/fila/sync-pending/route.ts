@@ -3,7 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import {
   autoFinishJobsReady,
   reconcileStuckProcessingJobs,
-  recoverStagingForPendingItems,
+  recoverStagingForActiveUploadJobs,
   resetStaleProcessingItems,
 } from "@/lib/criacao/filaService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
@@ -11,6 +11,7 @@ import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUpl
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 /** Aplica tags de upload e faixas em pastas pendentes (pós-processamento). Não usar no poll da fila. */
 export async function POST() {
@@ -42,7 +43,7 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] reconcile", e);
         return 0;
       }),
-      recoverStagingForPendingItems(60).catch((e) => {
+      recoverStagingForActiveUploadJobs(10).catch((e) => {
         console.error("[criacao/fila/sync-pending] staging", e);
         return { imported: 0, errors: [String(e)] };
       }),

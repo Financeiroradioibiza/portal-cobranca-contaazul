@@ -14,7 +14,8 @@
     "portal:bootstrap-admin": "node scripts/portal-bootstrap-admin.mjs",
     "rio:apply-marca-layout": "esbuild scripts/rio-apply-marca-pdv-layout.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-marca-layout.run.cjs && node .rio-marca-layout.run.cjs",
     "rio:revert-sync": "esbuild scripts/rio-revert-sync.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-revert-sync.run.cjs && node .rio-revert-sync.run.cjs",
-    "producao:group-hering": "esbuild scripts/producao-layout-group-hering.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.producao-group-hering.run.cjs && node .producao-group-hering.run.cjs"
+    "producao:group-hering": "esbuild scripts/producao-layout-group-hering.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.producao-group-hering.run.cjs && node .producao-group-hering.run.cjs",
+    "criacao:recover-staging": "esbuild scripts/criacao-recover-staging.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-recover-staging.run.cjs && node .criacao-recover-staging.run.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

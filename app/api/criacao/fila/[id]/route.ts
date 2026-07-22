@@ -45,8 +45,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
       return NextResponse.json({ ok: result.ok, status: result.status });
     }
     if (body.action === "recover_staging") {
-      const { recoverStagingForPendingItems } = await import("@/lib/criacao/filaService");
-      const r = await recoverStagingForPendingItems(80);
+      const { recoverStagingForJob } = await import("@/lib/criacao/stagingRecoverService");
+      const r = await recoverStagingForJob(id);
       await tryFinishJob(id);
       return NextResponse.json({ ok: true, ...r });
     }

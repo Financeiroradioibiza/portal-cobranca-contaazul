@@ -7,8 +7,13 @@ export type StagingIngestPair = {
 
 export function ingestFromStagingUrl(): string | null {
   const processUrl = getDownloadServiceConfig().cloud2ProcessUrl;
-  if (!processUrl) return null;
-  return processUrl.replace(/\/download\/process\/?$/, "/ingest-from-staging");
+  if (processUrl) {
+    return processUrl.replace(/\/download\/process\/?$/, "/ingest-from-staging");
+  }
+  const ingest =
+    (process.env.CRIACAO_CLOUD2_INGEST_URL ?? "").trim() ||
+    "https://cloud2.radioibiza.app.br/criacao/ingest";
+  return ingest.replace(/\/ingest\/?$/, "/ingest-from-staging");
 }
 
 /** Deve coincidir com o teto por request no cloud2 (até deploy remover o cap). */
@@ -65,7 +70,7 @@ export async function ingestFromStagingOnCloud2(
 ): Promise<{ ok: boolean; imported: number; errors: string[] }> {
   const url = ingestFromStagingUrl();
   if (!url) {
-    return { ok: false, imported: 0, errors: ["CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL não configurado."] };
+    return { ok: false, imported: 0, errors: ["URL ingest-from-staging não configurada."] };
   }
   if (pairs.length === 0) return { ok: true, imported: 0, errors: [] };
 
