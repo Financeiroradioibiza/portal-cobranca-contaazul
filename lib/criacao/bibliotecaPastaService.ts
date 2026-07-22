@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { assignTag, createTag } from "@/lib/criacao/tagService";
+import { createTag } from "@/lib/criacao/tagService";
 import { addMusicasToPasta, createPasta } from "@/lib/criacao/programacaoService";
 import { resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { pickDefaultTagCor } from "@/lib/config/portalUserService";
@@ -168,6 +168,9 @@ async function ensureFolderTag(pasta: {
   return created.id;
 }
 
+/** Processa em lotes para não estourar timeout (Netlify) em arrastes grandes. */
+const BIBLIOTECA_PASTA_MOVE_CHUNK = 80;
+
 /** Adiciona faixas à pasta custom + tag adicional com o nome da pasta. */
 export async function addMusicasToBibliotecaPasta(
   pastaId: string,
@@ -181,12 +184,20 @@ export async function addMusicasToBibliotecaPasta(
 
   const tagId = await ensureFolderTag(pasta);
 
+  const validRows = await prisma.musicaBiblioteca.findMany({
+    where: { id: { in: ids } },
+    select: { id: true },
+  });
+  const validSet = new Set(validRows.map((r) => r.id));
+  const validIds = ids.filter((id) => validSet.has(id));
+  if (validIds.length === 0) return { added: 0, skipped: ids.length };
+
   const existing = await prisma.bibliotecaPastaMusica.findMany({
-    where: { pastaId, musicaId: { in: ids } },
+    where: { pastaId, musicaId: { in: validIds } },
     select: { musicaId: true },
   });
   const jaTem = new Set(existing.map((e) => e.musicaId));
-  const novos = ids.filter((id) => !jaTem.has(id));
+  const novos = validIds.filter((id) => !jaTem.has(id));
 
   if (novos.length === 0) return { added: 0, skipped: ids.length };
 
@@ -194,19 +205,21 @@ export async function addMusicasToBibliotecaPasta(
     where: { pastaId },
     _max: { sortOrder: true },
   });
-  let order = (maxSort._max.sortOrder ?? -1) + 1;
+  const order = (maxSort._max.sortOrder ?? -1) + 1;
 
-  await prisma.$transaction(async (tx) => {
-    for (const musicaId of novos) {
-      await tx.bibliotecaPastaMusica.create({
-        data: { pastaId, musicaId, sortOrder: order++ },
-      });
-    }
+  await prisma.bibliotecaPastaMusica.createMany({
+    data: novos.map((musicaId, i) => ({
+      pastaId,
+      musicaId,
+      sortOrder: order + i,
+    })),
+    skipDuplicates: true,
   });
 
-  for (const musicaId of ids) {
-    await assignTag(musicaId, tagId).catch(() => null);
-  }
+  await prisma.musicaTagManual.createMany({
+    data: validIds.map((musicaId) => ({ musicaId, tagId })),
+    skipDuplicates: true,
+  });
 
   return { added: novos.length, skipped: ids.length - novos.length };
 }
@@ -232,11 +245,15 @@ export async function moveMusicasEntreBibliotecaPastas(input: {
   const ids = [...new Set(input.musicaIds.map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0) return { added: 0 };
 
-  if (input.dePastaId && input.dePastaId !== input.paraPastaId) {
-    await removeMusicasFromBibliotecaPasta(input.dePastaId, ids);
+  let added = 0;
+  for (let i = 0; i < ids.length; i += BIBLIOTECA_PASTA_MOVE_CHUNK) {
+    const chunk = ids.slice(i, i + BIBLIOTECA_PASTA_MOVE_CHUNK);
+    if (input.dePastaId && input.dePastaId !== input.paraPastaId) {
+      await removeMusicasFromBibliotecaPasta(input.dePastaId, chunk);
+    }
+    const r = await addMusicasToBibliotecaPasta(input.paraPastaId, chunk);
+    added += r.added;
   }
-
-  const { added } = await addMusicasToBibliotecaPasta(input.paraPastaId, ids);
   return { added };
 }
 

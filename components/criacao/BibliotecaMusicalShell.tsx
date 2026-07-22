@@ -129,33 +129,39 @@ export function BibliotecaMusicalShell() {
       const dePastaId = folder.kind === "custom" ? folder.id : null;
       panelScrollTopRef.current = panelScrollRef.current?.scrollTop ?? 0;
 
-      setSelectedIds(new Set());
-      setSidebarRefresh((k) => k + 1);
-      if (dePastaId && dePastaId !== paraId) {
-        setRemovePatch({ token: Date.now(), ids });
-      }
-      setMoveToast(
-        ids.length === 1 ?
-          "Faixa adicionada à pasta"
-        : `${ids.length} faixas adicionadas à pasta`,
-      );
-
+      const MOVE_CLIENT_CHUNK = 80;
       try {
-        const res = await fetch("/api/criacao/biblioteca/pastas/move", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            dePastaId,
-            paraPastaId: paraId,
-            musicaIds: ids,
-          }),
-        });
-        if (!res.ok) throw new Error();
-      } catch {
-        setMoveToast(null);
+        for (let i = 0; i < ids.length; i += MOVE_CLIENT_CHUNK) {
+          const chunk = ids.slice(i, i + MOVE_CLIENT_CHUNK);
+          const res = await fetch("/api/criacao/biblioteca/pastas/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              dePastaId,
+              paraPastaId: paraId,
+              musicaIds: chunk,
+            }),
+          });
+          if (!res.ok) {
+            const body = (await res.json().catch(() => ({}))) as { error?: string };
+            throw new Error(body.error ?? `HTTP ${res.status}`);
+          }
+        }
+        setSelectedIds(new Set());
+        setSidebarRefresh((k) => k + 1);
+        if (dePastaId && dePastaId !== paraId) {
+          setRemovePatch({ token: Date.now(), ids });
+        }
+        setMoveToast(
+          ids.length === 1 ?
+            "Faixa adicionada à pasta"
+          : `${ids.length} faixas adicionadas à pasta`,
+        );
+      } catch (e) {
         setPanelRefresh((k) => k + 1);
         setSidebarRefresh((k) => k + 1);
-        window.alert("Não foi possível adicionar as faixas na pasta.");
+        const detail = e instanceof Error && e.message ? `\n\n(${e.message})` : "";
+        window.alert(`Não foi possível adicionar as faixas na pasta.${detail}`);
       }
     },
     [folder, selectedIds],

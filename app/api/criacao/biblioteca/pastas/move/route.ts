@@ -3,6 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { moveMusicasEntreBibliotecaPastas } from "@/lib/criacao/bibliotecaPastaService";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -26,6 +27,6 @@ export async function POST(request: Request) {
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "pasta_nao_encontrada") return NextResponse.json({ error: msg }, { status: 404 });
     console.error("[criacao/biblioteca/pastas/move POST]", e);
-    return NextResponse.json({ error: "server_error" }, { status: 500 });
+    return NextResponse.json({ error: msg === "server_error" ? "server_error" : msg }, { status: 500 });
   }
 }
