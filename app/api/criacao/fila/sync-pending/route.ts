@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { autoFinishJobsReady } from "@/lib/criacao/filaService";
+import {
+  autoFinishJobsReady,
+  reconcileStuckProcessingJobs,
+  recoverStagingForPendingItems,
+  resetStaleProcessingItems,
+} from "@/lib/criacao/filaService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
 import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
@@ -11,7 +16,8 @@ export const runtime = "nodejs";
 export async function POST() {
   try {
     requirePortalSession(await getPortalSession());
-    const [tags, pastas, pastasEspeciais, jobsFinished] = await Promise.all([
+    const [tags, pastas, pastasEspeciais, jobsFinished, staleReset, jobsReconciled, staging] =
+      await Promise.all([
       applyPendingUploadTags(20).catch((e) => {
         console.error("[criacao/fila/sync-pending] tags", e);
         return 0;
@@ -28,8 +34,30 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] autoFinish", e);
         return 0;
       }),
+      resetStaleProcessingItems().catch((e) => {
+        console.error("[criacao/fila/sync-pending] staleReset", e);
+        return 0;
+      }),
+      reconcileStuckProcessingJobs().catch((e) => {
+        console.error("[criacao/fila/sync-pending] reconcile", e);
+        return 0;
+      }),
+      recoverStagingForPendingItems(60).catch((e) => {
+        console.error("[criacao/fila/sync-pending] staging", e);
+        return { imported: 0, errors: [String(e)] };
+      }),
     ]);
-    return NextResponse.json({ ok: true, tags, pastas, pastasEspeciais, jobsFinished });
+    return NextResponse.json({
+      ok: true,
+      tags,
+      pastas,
+      pastasEspeciais,
+      jobsFinished,
+      staleReset,
+      jobsReconciled,
+      stagingImported: staging.imported,
+      stagingErrors: staging.errors?.slice(0, 5),
+    });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/fila/sync-pending POST]", e);

@@ -44,6 +44,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
       const result = await tryFinishJob(id);
       return NextResponse.json({ ok: result.ok, status: result.status });
     }
+    if (body.action === "recover_staging") {
+      const { recoverStagingForPendingItems } = await import("@/lib/criacao/filaService");
+      const r = await recoverStagingForPendingItems(80);
+      await tryFinishJob(id);
+      return NextResponse.json({ ok: true, ...r });
+    }
     if (body.action === "approve") {
       const result = await approveJob(id);
       if (!result.ok) {

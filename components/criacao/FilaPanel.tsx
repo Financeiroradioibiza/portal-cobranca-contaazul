@@ -189,6 +189,13 @@ export function FilaPanel() {
       if (j.status === "revisao" && j.duplicatas === 0 && j.erros === 0) {
         void finishJobIfReady(j.id);
       }
+      if (
+        j.totalItens > 0 &&
+        j.itensFeitos >= j.totalItens &&
+        (j.status === "processando" || j.status === "aguardando")
+      ) {
+        void finishJobIfReady(j.id);
+      }
     }
   }, [jobs, finishJobIfReady]);
 
@@ -329,13 +336,44 @@ export function FilaPanel() {
                   </div>
 
                   {ativo ?
-                    <button
-                      type="button"
-                      onClick={() => void cancel(j.id)}
-                      className="shrink-0 rounded border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:text-red-600 dark:border-slate-700"
-                    >
-                      Cancelar
-                    </button>
+                    <>
+                      {j.totalItens > 0 &&
+                      j.itensFeitos >= j.totalItens &&
+                      (j.status === "processando" || j.status === "aguardando") ?
+                        <button
+                          type="button"
+                          onClick={() => void finishJobIfReady(j.id).then(() => load())}
+                          className="shrink-0 rounded border border-emerald-400 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+                        >
+                          Concluir
+                        </button>
+                      : null}
+                      {j.status === "aguardando" && j.itensFeitos === 0 ?
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await fetch(`/api/criacao/fila/${j.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "recover_staging" }),
+                            });
+                            lastSyncPendingAt.current = 0;
+                            await syncPending();
+                            await load();
+                          }}
+                          className="shrink-0 rounded border border-sky-400 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+                        >
+                          Importar MP3
+                        </button>
+                      : null}
+                      <button
+                        type="button"
+                        onClick={() => void cancel(j.id)}
+                        className="shrink-0 rounded border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:text-red-600 dark:border-slate-700"
+                      >
+                        Cancelar
+                      </button>
+                    </>
                   : null}
                 </div>
 
