@@ -34,6 +34,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.cloud2-secrets/b2.env
 
 # vercel
 .vercel
@@ -51,4 +52,7 @@ next-env.d.ts
 /.rio-marca-layout.run.cjs
 /.rio-revert-sync.run.cjs
 /.e2e-setup-teste-portal.run.cjs
+/.criacao-audit-b2.run.cjs
+/.criacao-list-musicas.run.cjs
+/.criacao-recover-staging.run.cjs
 /scripts/e2e-setup-teste-portal.ts

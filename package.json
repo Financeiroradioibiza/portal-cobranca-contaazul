@@ -15,7 +15,9 @@
     "rio:apply-marca-layout": "esbuild scripts/rio-apply-marca-pdv-layout.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-marca-layout.run.cjs && node .rio-marca-layout.run.cjs",
     "rio:revert-sync": "esbuild scripts/rio-revert-sync.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-revert-sync.run.cjs && node .rio-revert-sync.run.cjs",
     "producao:group-hering": "esbuild scripts/producao-layout-group-hering.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.producao-group-hering.run.cjs && node .producao-group-hering.run.cjs",
-    "criacao:recover-staging": "esbuild scripts/criacao-recover-staging.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-recover-staging.run.cjs && node .criacao-recover-staging.run.cjs"
+    "criacao:recover-staging": "esbuild scripts/criacao-recover-staging.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-recover-staging.run.cjs && node .criacao-recover-staging.run.cjs",
+    "criacao:audit-b2": "esbuild scripts/criacao-audit-b2.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-audit-b2.run.cjs && node .criacao-audit-b2.run.cjs",
+    "criacao:list-musicas": "esbuild scripts/list-recent-biblioteca-musicas.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-list-musicas.run.cjs && node .criacao-list-musicas.run.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

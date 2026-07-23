@@ -13,6 +13,11 @@ Em produção, estes comportamentos são **intocáveis** salvo plano explícito 
 - Cronogramas e campanhas já publicados (`data_fim`, horários, agendas)
 - Sync portal ↔ cloud2 ↔ player (publicação, ping, login, tokens)
 - Logins, PDVs, bloqueio financeiro Rio, programação em cache local
+- **Fila Criação:** dedupe → LUFS → **128 mono no cloud2** → **master 192k no B2** (ver `.cursor/rules/infra-contratos-producao.mdc`)
+
+## Regra de consentimento (infra)
+
+**Não desligar nem trocar por fallback silencioso** servidores, B2, fila, funções de portal/player/cloud2 já acordadas — **sem OK explícito do Rafael**. Mudança de `.env` Envyron ou deploy cloud2 exige documentação e validação.
 
 ## Regra de ouro
 

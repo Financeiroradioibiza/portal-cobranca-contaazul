@@ -137,6 +137,8 @@ Upload de logo no portal: **Cadastros → IDs Player** (JPEG + sync). Coluna `pl
 3. **Publicar no Player 5** ou **Disparar atualização** → `publicar.ts` + `atualizacao_pendente`
 4. Player baixa playlist no próximo ciclo (ping ou reload)
 
+**Armazenamento (baseline jul/2026):** o Player 5 consome MP3 via **`GET /api/get_musica/`** → arquivo no **NVMe cloud2** (`storage_key` tipo `uso:musicas/…` copiado na publicação). Não usa B2 direto. Detalhes, chaves e fallback: **`docs/BASELINE-PORTAL-PLAYER-ARMAZENAMENTO.md`** e **`docs/FALLBACK-ARMAZENAMENTO-B2.md`**.
+
 Cronogramas de pastas/vinhetas: publicados via `publishCronogramas.ts`. Avisos operador: Neon + `/api/player-avisos` no cloud2.
 
 ---

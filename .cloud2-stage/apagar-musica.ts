@@ -3,8 +3,9 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { criacaoConfig } from '../../criacao/config.js';
+import { deleteB2ObjectKey } from '../../criacao/b2.js';
 import { portalQuery } from '../../criacao/portalDb.js';
-import { masterLocalPath, usoPath } from '../../criacao/storage.js';
+import { masterLocalPath, s3KeyFromVersaoStorageKey, usoPath } from '../../criacao/storage.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;
@@ -23,30 +24,7 @@ function relFromUsoKey(key: string): string {
 }
 
 async function deleteB2Object(objectKey: string): Promise<boolean> {
-  const b = criacaoConfig.b2;
-  if (!b?.endpoint || !b.bucket || !b.accessKeyId || !b.secretAccessKey) return false;
-  try {
-    const { DeleteObjectCommand, S3Client } = await import('@aws-sdk/client-s3');
-    const s3 = new S3Client({
-      endpoint: criacaoConfig.b2.endpoint,
-      region: criacaoConfig.b2.region,
-      forcePathStyle: true,
-      credentials: {
-        accessKeyId: criacaoConfig.b2.accessKeyId,
-        secretAccessKey: criacaoConfig.b2.secretAccessKey,
-      },
-    });
-    await s3.send(
-      new DeleteObjectCommand({
-        Bucket: criacaoConfig.b2.bucket,
-        Key: objectKey,
-      }),
-    );
-    return true;
-  } catch (e) {
-    console.warn('[apagar-musica] B2 delete falhou:', (e as Error).message);
-    return false;
-  }
+  return deleteB2ObjectKey(objectKey);
 }
 
 async function deleteMasterStorageKey(masterKey: string | null): Promise<string[]> {
@@ -76,6 +54,10 @@ async function deleteMasterStorageKey(masterKey: string | null): Promise<string[
 }
 
 async function deleteUsoStorageKey(storageKey: string): Promise<boolean> {
+  const b2Key = s3KeyFromVersaoStorageKey(storageKey);
+  if (b2Key) {
+    return deleteB2Object(b2Key);
+  }
   const rel = relFromUsoKey(storageKey);
   const full = usoPath(rel);
   try {

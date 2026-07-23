@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
-import path from 'node:path';
 import { uploadMasterToB2 } from './b2.js';
 import { criacaoConfig } from './config.js';
 import { findDuplicate } from './dedupe.js';
@@ -10,8 +9,8 @@ import { persistMixTrimForMusica, persistLegacyMixPreset, resolveMixTrim } from 
 import { parseMixSegundosFromLegacyFilename, parseMp3Filename } from './parseFilename.js';
 import { portalQuery } from './portalDb.js';
 import { pipelineLog, pipelineTimed } from './pipelineLogger.js';
-import { packUsoAudio } from './rib.js';
 import { uploadUsoToR2 } from './r2.js';
+import { writeUso128Delivery, usoFilenameForCleanup } from './usoStorageWrite.js';
 import {
   ensureStorageDirs,
   uploadKey,
@@ -373,14 +372,13 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
     const masterKey = await uploadMasterToB2(musicaId, produced.masterPath);
 
     const mp3Buf = await fsp.readFile(produced.uso128Path);
-    const packed = packUsoAudio(mp3Buf);
-    const usoKey = usoStorageKey(musicaId, 'mp3_128_mono', packed.ext);
-    const usoRel = usoRelFromStorageKey(usoKey);
-    const usoDest = usoPath(usoRel);
-    await fsp.mkdir(path.dirname(usoDest), { recursive: true });
-    await fsp.writeFile(usoDest, packed.data);
+    const delivery = await writeUso128Delivery(musicaId, mp3Buf);
 
-    await uploadUsoToR2(musicaId, usoDest, `mp3_128_mono${packed.ext}`).catch(() => null);
+    if (delivery.diskMirrored) {
+      const localKey = usoStorageKey(musicaId, 'mp3_128_mono', delivery.ext);
+      const usoDest = usoPath(usoRelFromStorageKey(localKey));
+      await uploadUsoToR2(musicaId, usoDest, usoFilenameForCleanup(delivery.ext)).catch(() => null);
+    }
 
     const [tagBpm, analyzed, tagIsrc] = await Promise.all([
       probeBpmFromFile(produced.uso128Path),
@@ -396,7 +394,7 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
        ON CONFLICT (musica_id, formato) DO UPDATE
          SET storage_key = EXCLUDED.storage_key,
              size_bytes = EXCLUDED.size_bytes`,
-      [musicaId, usoKey, mp3Buf.length, crypto.randomUUID()],
+      [musicaId, delivery.neonStorageKey, delivery.bytes, crypto.randomUUID()],
     );
 
     await portalQuery(
@@ -424,12 +422,15 @@ async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: strin
       ],
     );
 
-    await cleanupStaleUsoFiles(musicaId, `mp3_128_mono${packed.ext}`);
+    await cleanupStaleUsoFiles(musicaId, usoFilenameForCleanup(delivery.ext));
 
     pipelineLog({ ...ctx, etapa: 'armazenamento' }, 'uso_gravado', {
-      storageKey: usoKey,
-      bytes: packed.data.length,
-      encrypted: packed.encrypted,
+      storageKey: delivery.neonStorageKey,
+      b2ObjectKey: delivery.b2ObjectKey,
+      b2Verified: delivery.b2Verified,
+      diskMirrored: delivery.diskMirrored,
+      bytes: delivery.bytes,
+      encrypted: delivery.encrypted,
       bpm,
       energia,
       isrc: tagIsrc,

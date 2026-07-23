@@ -1,0 +1,49 @@
+---
+description: Contratos de infra (cloud2, B2, fila, R2) — sem desligar comportamento acordado sem OK do Rafael
+alwaysApply: true
+---
+
+# Infra e pipeline acordados (Portal + Cloud2)
+
+## Regra de consentimento
+
+**Não remover, desativar ou substituir por fallback silencioso** nada que já foi combinado e documentado para produção — servidores, fila de processamento, armazenamento (B2/R2/disco), player, cronogramas, sync, logins — **sem OK explícito do Rafael**.
+
+Se uma variável de ambiente sumir ou um deploy regredir comportamento, tratar como **incidente**, não como “modo dev”.
+
+## Contrato da fila (Criação musical)
+
+Toda faixa que entra na **fila de processamento** (upload direto, Download link, Servidor UP, etc.) segue **sempre** esta ordem:
+
+1. Upload / ingest no cloud2  
+2. Deduplicação  
+3. Ponto de mix  
+4. Normalização LUFS  
+5. Tags (local + APIs)  
+6. **Armazenamento:** versão **128 mono** no disco cloud2 (`uso/`, o que o player consome hoje) — **opt-in futuro:** cópia no B2 (`CRIACAO_USO_B2=1`, ver `docs/BASELINE-PORTAL-PLAYER-ARMAZENAMENTO.md`)  
+7. **Master 192 kbps no Backblaze B2** (frio, reprocessamento) — **obrigatório em produção**
+
+Origem do MP3 (browser, deemix, staging) **não altera** esse fluxo; todos passam pela mesma fila.
+
+## Armazenamento
+
+| Destino | Papel | Obrigatório prod |
+|---------|--------|------------------|
+| **Disco cloud2 `uso/`** | 128 mono (e .rib se configurado) — **Player 5 + preview portal hoje** | Sim |
+| **Backblaze B2 `B2_USO_PREFIX`** | 128 mono (cliente) — **só com `CRIACAO_USO_B2=1` após homolog** | Não (transição) |
+| **Backblaze B2** | Master 192k | Sim |
+| **Cloudflare R2** | Cópia **opcional** quente das versões de uso | Não |
+
+**Proibido** em produção: gravar master só em `master-local/` sem falha explícita quando B2 deveria estar ativo (`CRIACAO_ALLOW_LOCAL_MASTER=1` só homologação local).
+
+## Antes de mudar cloud2 / `.env` Envyron
+
+1. Documentar em `docs/` o que muda e o rollback.  
+2. Atualizar `.env.example` ou `docs/CLOUD2-ENV-OBRIGATORIO.md`.  
+3. Confirmar com Rafael se afeta player, cronogramas ou dados já publicados.  
+4. Deploy cloud2 → validar 1 faixa teste (master no B2 + uso no disco) → só então volume.  
+5. Migração 128→B2: seguir `docs/PLANO-B2-128-PASSOS.md` + baseline/fallback em `docs/BASELINE-PORTAL-PLAYER-ARMAZENAMENTO.md`.
+
+## Painel Config → Servidores
+
+Métricas vêm do cloud2 (`/criacao/ops/storage`). Variáveis **B2_*** e **R2_*** devem estar no **mesmo `.env`** dos serviços **api** e **worker-audio**.

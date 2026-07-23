@@ -1446,6 +1446,21 @@ model ServidorUpUploadSnapshot {
   @@map("servidor_up_upload_snapshot")
 }
 
+/// Amostras ao abrir Config → Servidores (disco + carga + fila) — histórico de gráficos.
+model ServidorCloud2Snapshot {
+  id               String   @id @default(cuid())
+  collectedAt      DateTime @default(now()) @map("collected_at")
+  diskUsedPercent  Float    @map("disk_used_percent")
+  diskFreeBytes    BigInt?  @map("disk_free_bytes")
+  load1            Float?   @map("load_1")
+  cpuCount         Int?     @map("cpu_count")
+  filaAguardando   Int      @default(0) @map("fila_aguardando")
+  filaProcessando  Int      @default(0) @map("fila_processando")
+
+  @@index([collectedAt])
+  @@map("servidor_cloud2_snapshot")
+}
+
 model DownloadItem {
   id             String             @id @default(cuid())
   jobId          String             @map("job_id")

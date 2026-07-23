@@ -1,19 +1,20 @@
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { downloadMasterToFile } from './b2.js';
+import { downloadMasterToFile, getB2ObjectBuffer } from './b2.js';
 import { encodeTrimmedUso128Mono } from './ffmpeg.js';
 import { portalQuery } from './portalDb.js';
-import { decryptRib, isRibFile, packUsoAudio } from './rib.js';
+import { decryptRib, isRibFile } from './rib.js';
 import { cleanupStaleUsoFiles } from './storageCleanup.js';
 import {
   ensureStorageDirs,
   masterLocalPath,
+  s3KeyFromVersaoStorageKey,
   usoPath,
   usoRelFromStorageKey,
-  usoStorageKey,
   workDir,
 } from './storage.js';
+import { usoFilenameForCleanup, writeUso128Delivery } from './usoStorageWrite.js';
 
 type MusicaRow = {
   trim_inicio_ms: number | null;
@@ -23,6 +24,37 @@ type MusicaRow = {
 };
 
 const FORMATO_USO = 'mp3_128_mono';
+
+async function mp3FromVersaoStorageKey(key: string, work: string): Promise<string | null> {
+  const s3Key = s3KeyFromVersaoStorageKey(key);
+  if (s3Key) {
+    const buf = await getB2ObjectBuffer(s3Key);
+    if (!buf) return null;
+    const flatDest = path.join(work, 'source.mp3');
+    if (isRibFile(s3Key)) {
+      await fsp.writeFile(flatDest, decryptRib(buf));
+    } else {
+      await fsp.writeFile(flatDest, buf);
+    }
+    return flatDest;
+  }
+
+  const rel = usoRelFromStorageKey(key);
+  const filePath = usoPath(rel);
+  const stat = await fsp.stat(filePath).catch(() => null);
+  if (!stat) return null;
+
+  const flatDest = path.join(work, 'source.mp3');
+  if (isRibFile(rel)) {
+    const rib = await fsp.readFile(filePath);
+    const mp3 = decryptRib(rib);
+    await fsp.writeFile(flatDest, mp3);
+    return flatDest;
+  }
+
+  await fsp.copyFile(filePath, flatDest);
+  return flatDest;
+}
 
 /** MP3 de análise: master B2/local ou versão de uso (quando upload bruto já foi apagado). */
 export async function findMusicaSourceMp3(musicaId: string, work: string): Promise<string | null> {
@@ -46,21 +78,7 @@ export async function findMusicaSourceMp3(musicaId: string, work: string): Promi
   const key = ver.rows[0]?.storage_key;
   if (!key) return null;
 
-  const rel = usoRelFromStorageKey(key);
-  const filePath = usoPath(rel);
-  const stat = await fsp.stat(filePath).catch(() => null);
-  if (!stat) return null;
-
-  const flatDest = path.join(work, 'source.mp3');
-  if (isRibFile(rel)) {
-    const rib = await fsp.readFile(filePath);
-    const mp3 = decryptRib(rib);
-    await fsp.writeFile(flatDest, mp3);
-    return flatDest;
-  }
-
-  await fsp.copyFile(filePath, flatDest);
-  return flatDest;
+  return mp3FromVersaoStorageKey(key, work);
 }
 
 /** Re-renderiza a versão de uso após trim na edição de música. */
@@ -86,11 +104,7 @@ export async function reprocessMusicaEdicao(musicaId: string): Promise<{ duratio
   const { durationMs } = await encodeTrimmedUso128Mono(source, outMp3, trimIni, trimFim);
 
   const mp3Buf = await fsp.readFile(outMp3);
-  const packed = packUsoAudio(mp3Buf);
-  const usoKey = usoStorageKey(musicaId, FORMATO_USO, packed.ext);
-  const usoDest = usoPath(usoRelFromStorageKey(usoKey));
-  await fsp.mkdir(path.dirname(usoDest), { recursive: true });
-  await fsp.writeFile(usoDest, packed.data);
+  const delivery = await writeUso128Delivery(musicaId, mp3Buf);
 
   await portalQuery(
     `INSERT INTO musica_versao (id, musica_id, formato, storage_key, size_bytes, created_at)
@@ -98,7 +112,7 @@ export async function reprocessMusicaEdicao(musicaId: string): Promise<{ duratio
      ON CONFLICT (musica_id, formato) DO UPDATE
        SET storage_key = EXCLUDED.storage_key,
            size_bytes = EXCLUDED.size_bytes`,
-    [musicaId, FORMATO_USO, usoKey, crypto.randomUUID(), packed.data.length],
+    [musicaId, FORMATO_USO, delivery.neonStorageKey, crypto.randomUUID(), delivery.bytes],
   );
 
   await portalQuery(
@@ -106,9 +120,9 @@ export async function reprocessMusicaEdicao(musicaId: string): Promise<{ duratio
     [musicaId, durationMs],
   );
 
-  await cleanupStaleUsoFiles(musicaId, `mp3_128_mono${packed.ext}`);
+  await cleanupStaleUsoFiles(musicaId, usoFilenameForCleanup(delivery.ext));
 
   await fsp.rm(work, { recursive: true, force: true }).catch(() => null);
 
-  return { durationMs, bytes: packed.data.length };
+  return { durationMs, bytes: delivery.bytes };
 }

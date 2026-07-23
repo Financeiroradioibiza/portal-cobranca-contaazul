@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import type { FastifyReply } from 'fastify';
+import { getB2ObjectBuffer } from './b2.js';
 import { decryptRib, isRibFile, ribEnabled } from './rib.js';
 import {
+  s3KeyFromVersaoStorageKey,
   usoPath,
   usoRelFromStorageKey,
   usoStorageKey,
@@ -44,6 +46,17 @@ export async function resolveMusicaUsoAudioById(
 
 export async function resolveUsoAudio(storageKey: string): Promise<ResolvedAudio | null> {
   try {
+    const b2Key = s3KeyFromVersaoStorageKey(storageKey);
+    if (b2Key) {
+      const buf = await getB2ObjectBuffer(b2Key);
+      if (!buf) return null;
+      if (isRibFile(b2Key)) {
+        const mp3Buffer = decryptRib(buf);
+        return { filePath: '', mp3Buffer, contentLength: mp3Buffer.length };
+      }
+      return { filePath: '', mp3Buffer: buf, contentLength: buf.length };
+    }
+
     const vinhetaId = vinhetaIdFromStorageKey(storageKey);
     if (vinhetaId) {
       const filePath = vinhetaPath(vinhetaId);

@@ -6,6 +6,13 @@ import {
   parseCloud2Json,
 } from "@/lib/criacao/cloud2Client";
 import { getDownloadDiagnostics } from "@/lib/criacao/downloadService";
+import {
+  buildCapacityHint,
+  fetchCriacaoFilaCounts,
+  fetchDiskHistoryByDay,
+  fetchFaixasConcluidasPorDia,
+  maybeRecordServidorSnapshot,
+} from "@/lib/infra/servidorMetricsService";
 
 export type HealthProbe = {
   ok: boolean;
@@ -31,6 +38,7 @@ export type BucketStatsView = {
   totalBytes: number;
   truncated: boolean;
   error: string | null;
+  missingEnv?: string[];
 };
 
 export type TempLimboEntryView = {
@@ -50,12 +58,39 @@ export type TempLimboView = {
   warnings: string[];
 };
 
+export type SystemStatsView = {
+  cpuCount: number;
+  load1: number;
+  load5: number;
+  load15: number;
+  loadPercent: number;
+};
+
+export type DayCountView = { day: string; count: number };
+
+export type CapacityView = {
+  level: "ok" | "warn" | "critical";
+  message: string;
+  loadPercent: number | null;
+  filaAguardando: number;
+  filaProcessando: number;
+  faixasConcluidasTotal: number;
+};
+
+export type ServidoresCharts = {
+  faixasConcluidasPorDia: DayCountView[];
+  discoUsadoPorDia: { day: string; usedPercent: number }[];
+};
+
 export type ServidoresStatus = {
   collectedAt: string;
+  capacity: CapacityView;
+  charts: ServidoresCharts;
   cloud2: {
     baseUrl: string;
     api: HealthProbe;
     downloadWorker: HealthProbe;
+    system: SystemStatsView | null;
     ops: {
       available: boolean;
       error: string | null;
@@ -63,6 +98,7 @@ export type ServidoresStatus = {
       dirs: { name: string; path: string; bytes: number | null }[];
       r2: BucketStatsView | null;
       b2: BucketStatsView | null;
+      b2Uso: BucketStatsView | null;
       providers: Record<string, boolean>;
       tempLimbo: TempLimboView | null;
     };
@@ -72,6 +108,9 @@ export type ServidoresStatus = {
     versoesCount: number;
     downloadStagingBytes: number;
     downloadItemsR2: number;
+    b2MastersCount: number;
+    localMastersCount: number;
+    b2UsoVersoesCount: number;
   };
   cloudflare: {
     configured: boolean;
@@ -114,58 +153,77 @@ async function probeUrl(url: string, init?: RequestInit): Promise<HealthProbe> {
   }
 }
 
-async function fetchCloud2Ops(): Promise<ServidoresStatus["cloud2"]["ops"]> {
-  const empty: ServidoresStatus["cloud2"]["ops"] = {
+async function fetchCloud2Ops(): Promise<{
+  ops: ServidoresStatus["cloud2"]["ops"];
+  system: SystemStatsView | null;
+}> {
+  const emptyOps: ServidoresStatus["cloud2"]["ops"] = {
     available: false,
     error: cloud2Enabled() ? null : "CRIACAO_INGEST_SECRET não configurado",
     disk: null,
     dirs: [],
     r2: null,
     b2: null,
+    b2Uso: null,
     providers: {},
     tempLimbo: null,
   };
-  if (!cloud2Enabled()) return empty;
+  if (!cloud2Enabled()) return { ops: emptyOps, system: null };
 
   const res = await cloud2FetchWithTimeout("/ops/storage", {}, 20000);
   if (!res) {
     return {
-      ...empty,
-      error: "Timeout ao consultar cloud2 /ops/storage — publique a rota no servidor.",
+      ops: {
+        ...emptyOps,
+        error: "Timeout ao consultar cloud2 /ops/storage — publique a rota no servidor.",
+      },
+      system: null,
     };
   }
   if (res.status === 404) {
     return {
-      ...empty,
-      error: "Rota /criacao/ops/storage ainda não deployada no cloud2 (sync-cloud2-to-portal-ibiza).",
+      ops: {
+        ...emptyOps,
+        error: "Rota /criacao/ops/storage ainda não deployada no cloud2 (sync-cloud2-to-portal-ibiza).",
+      },
+      system: null,
     };
   }
   if (!res.ok) {
-    return { ...empty, error: `cloud2 ops HTTP ${res.status}` };
+    return { ops: { ...emptyOps, error: `cloud2 ops HTTP ${res.status}` }, system: null };
   }
 
   try {
     const data = await parseCloud2Json<{
       disk?: DiskStatsView | null;
+      system?: SystemStatsView | null;
       dirs?: { name: string; path: string; bytes: number | null }[];
       r2?: BucketStatsView;
       b2?: BucketStatsView;
+      b2Uso?: BucketStatsView;
       providers?: Record<string, boolean>;
     }>(res, "ops_storage");
     return {
-      available: true,
-      error: null,
-      disk: data.disk ?? null,
-      dirs: data.dirs ?? [],
-      r2: data.r2 ?? null,
-      b2: data.b2 ?? null,
-      providers: data.providers ?? {},
-      tempLimbo: null,
+      ops: {
+        available: true,
+        error: null,
+        disk: data.disk ?? null,
+        dirs: data.dirs ?? [],
+        r2: data.r2 ?? null,
+        b2: data.b2 ?? null,
+        b2Uso: data.b2Uso ?? null,
+        providers: data.providers ?? {},
+        tempLimbo: null,
+      },
+      system: data.system ?? null,
     };
   } catch (e) {
     return {
-      ...empty,
-      error: e instanceof Error ? e.message : "ops_parse_error",
+      ops: {
+        ...emptyOps,
+        error: e instanceof Error ? e.message : "ops_parse_error",
+      },
+      system: null,
     };
   }
 }
@@ -228,19 +286,32 @@ async function fetchCloud2TempLimbo(): Promise<TempLimboView> {
 }
 
 async function fetchNeonStorageTotals() {
-  const [versoes, dlR2, dlBytes] = await Promise.all([
+  const [versoes, dlR2, dlBytes, b2Masters, localMasters, b2UsoVersoes] = await Promise.all([
     prisma.musicaVersao.aggregate({ _sum: { sizeBytes: true }, _count: true }),
     prisma.downloadItem.count({ where: { storageKey: { startsWith: "r2:" } } }),
     prisma.downloadItem.aggregate({
       where: { storageKey: { not: "" } },
       _sum: { sizeBytes: true },
     }),
+    prisma.musicaBiblioteca.count({
+      where: {
+        masterStorageKey: { not: null },
+        NOT: [{ masterStorageKey: "" }, { masterStorageKey: { startsWith: "local:" } }],
+      },
+    }),
+    prisma.musicaBiblioteca.count({
+      where: { masterStorageKey: { startsWith: "local:" } },
+    }),
+    prisma.musicaVersao.count({ where: { storageKey: { startsWith: "b2:" } } }),
   ]);
   return {
     versoesUsoBytes: versoes._sum.sizeBytes ?? 0,
     versoesCount: versoes._count,
     downloadStagingBytes: dlBytes._sum.sizeBytes ?? 0,
     downloadItemsR2: dlR2,
+    b2MastersCount: b2Masters,
+    localMastersCount: localMasters,
+    b2UsoVersoesCount: b2UsoVersoes,
   };
 }
 
@@ -314,31 +385,59 @@ async function fetchCloudflareR2Analytics(): Promise<{
 
 export async function loadServidoresStatus(): Promise<ServidoresStatus> {
   const publicBase = cloud2PublicBase();
-  const [api, downloadDiag, ops, tempLimbo, neon, cloudflare] = await Promise.all([
-    probeUrl(`${publicBase}/health`),
-    (async (): Promise<HealthProbe> => {
-      const d = await getDownloadDiagnostics();
-      return {
-        ok: d.cloud2Configured && !d.cloud2Error,
-        latencyMs: null,
-        error: d.cloud2Error,
-        data: d.cloud2Health,
-      };
-    })(),
-    fetchCloud2Ops(),
-    fetchCloud2TempLimbo(),
-    fetchNeonStorageTotals(),
-    fetchCloudflareR2Analytics(),
-  ]);
+  const [api, downloadDiag, cloud2Ops, tempLimbo, neon, cloudflare, fila, faixasPorDia, discoHistorico] =
+    await Promise.all([
+      probeUrl(`${publicBase}/health`),
+      (async (): Promise<HealthProbe> => {
+        const d = await getDownloadDiagnostics();
+        return {
+          ok: d.cloud2Configured && !d.cloud2Error,
+          latencyMs: null,
+          error: d.cloud2Error,
+          data: d.cloud2Health,
+        };
+      })(),
+      fetchCloud2Ops(),
+      fetchCloud2TempLimbo(),
+      fetchNeonStorageTotals(),
+      fetchCloudflareR2Analytics(),
+      fetchCriacaoFilaCounts(),
+      fetchFaixasConcluidasPorDia(),
+      fetchDiskHistoryByDay(),
+    ]);
 
+  const ops = cloud2Ops.ops;
   ops.tempLimbo = tempLimbo;
+  const system = cloud2Ops.system;
+
+  const hint = buildCapacityHint({
+    diskUsedPercent: ops.disk?.usedPercent ?? null,
+    loadPercent: system?.loadPercent ?? null,
+    filaProcessando: fila.processando,
+    filaAguardando: fila.aguardando,
+  });
+
+  void maybeRecordServidorSnapshot({ disk: ops.disk, system, fila });
 
   return {
     collectedAt: new Date().toISOString(),
+    capacity: {
+      level: hint.level,
+      message: hint.message,
+      loadPercent: system?.loadPercent ?? null,
+      filaAguardando: fila.aguardando,
+      filaProcessando: fila.processando,
+      faixasConcluidasTotal: fila.concluidoTotal,
+    },
+    charts: {
+      faixasConcluidasPorDia: faixasPorDia,
+      discoUsadoPorDia: discoHistorico,
+    },
     cloud2: {
       baseUrl: publicBase,
       api,
       downloadWorker: downloadDiag,
+      system,
       ops,
     },
     neon,

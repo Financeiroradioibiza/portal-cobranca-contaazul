@@ -1,9 +1,26 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { statfs } from 'node:fs/promises';
-import { b2Enabled, criacaoConfig, r2Enabled } from './config.js';
+import { b2ConfigDiagnostics, b2Enabled, criacaoConfig, r2Enabled } from './config.js';
+
+export type SystemStats = {
+  cpuCount: number;
+  load1: number;
+  load5: number;
+  load15: number;
+  /** load1 / cpuCount × 100 — proxy de CPU ocupada (Linux load average). */
+  loadPercent: number;
+};
+
+export function collectSystemStats(): SystemStats {
+  const [load1, load5, load15] = os.loadavg();
+  const cpuCount = Math.max(1, os.cpus().length);
+  const loadPercent = Math.round((load1 / cpuCount) * 1000) / 10;
+  return { cpuCount, load1, load5, load15, loadPercent };
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -26,6 +43,7 @@ export type BucketStats = {
   totalBytes: number;
   truncated: boolean;
   error: string | null;
+  missingEnv?: string[];
 };
 
 async function volumeStats(root: string): Promise<DiskStats | null> {
@@ -142,18 +160,41 @@ export async function collectOpsStorageSnapshot() {
   };
 
   const b2 = criacaoConfig.b2;
+  const b2Diag = b2ConfigDiagnostics();
+  const b2Listed = await s3BucketStats({
+    endpoint: b2.endpoint,
+    region: b2.region,
+    bucket: b2.bucket,
+    prefix: b2.prefix,
+    accessKeyId: b2.accessKeyId,
+    secretAccessKey: b2.secretAccessKey,
+    maxPages: 20,
+  });
   const b2Stats: BucketStats = {
-    configured: Boolean(b2.endpoint && b2.bucket),
+    configured: b2Diag.ok,
     enabled: b2Enabled(),
-    ...(await s3BucketStats({
-      endpoint: b2.endpoint,
-      region: b2.region,
-      bucket: b2.bucket,
-      prefix: b2.prefix,
-      accessKeyId: b2.accessKeyId,
-      secretAccessKey: b2.secretAccessKey,
-      maxPages: 20,
-    })),
+    missingEnv: b2Diag.missingEnv,
+    ...b2Listed,
+    bucket: b2.bucket,
+    prefix: b2.prefix,
+  };
+
+  const b2UsoListed = await s3BucketStats({
+    endpoint: b2.endpoint,
+    region: b2.region,
+    bucket: b2.bucket,
+    prefix: b2.usoPrefix,
+    accessKeyId: b2.accessKeyId,
+    secretAccessKey: b2.secretAccessKey,
+    maxPages: 20,
+  });
+  const b2UsoStats: BucketStats = {
+    configured: b2Diag.ok,
+    enabled: b2Enabled(),
+    missingEnv: b2Diag.missingEnv,
+    ...b2UsoListed,
+    bucket: b2.bucket,
+    prefix: b2.usoPrefix,
   };
 
   return {
@@ -161,9 +202,11 @@ export async function collectOpsStorageSnapshot() {
     collectedAt: new Date().toISOString(),
     storageRoot: root,
     disk,
+    system: collectSystemStats(),
     dirs,
     r2: r2Stats,
     b2: b2Stats,
+    b2Uso: b2UsoStats,
     providers: {
       deemix: Boolean(process.env.CRIACAO_DEEMIX_ARL),
       spotizerr: Boolean(process.env.CRIACAO_SPOTIZERR_URL),

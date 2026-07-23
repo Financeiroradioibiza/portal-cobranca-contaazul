@@ -50,6 +50,24 @@ curl -s -H "x-criacao-secret: …" https://cloud2.radioibiza.app.br/criacao/ops/
 
 Portal: **Config → Servidores** (quando `/ops/storage` estiver exposto na UI).
 
+### Backblaze B2 no painel «Servidores»
+
+O espaço do bucket vem de `GET /criacao/ops/storage` no **container api** do cloud2 (não só no worker-audio).
+
+Variáveis no `.env` do compose (**api** e **worker-audio**):
+
+| Variável | Exemplo |
+|----------|---------|
+| `B2_S3_ENDPOINT` ou `B2_ENDPOINT` | `https://s3.us-west-002.backblazeb2.com` |
+| `B2_REGION` | `us-west-002` |
+| `B2_BUCKET` | nome do bucket |
+| `B2_KEY_ID` | Application Key ID |
+| `B2_APPLICATION_KEY` | secret da key (list + read + write) |
+
+Depois: `docker compose up -d api worker-audio`. No Netlify: `CRIACAO_INGEST_SECRET` igual ao cloud2.
+
+Se o worker sobe master no B2 mas o card fica offline, quase sempre falta repassar as mesmas `B2_*` para o serviço **api**.
+
 Limpeza manual (cuidado):
 
 - `POST /criacao/cleanup/gc`

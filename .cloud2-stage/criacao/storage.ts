@@ -65,6 +65,22 @@ export function usoRelFromStorageKey(key: string): string {
   return key.startsWith('uso:') ? key.slice(4) : key;
 }
 
+/** Key S3 no bucket B2 para versão de uso (128). */
+export function usoB2ObjectKey(musicaId: string, formato: string, ext: '.mp3' | '.rib' = '.mp3'): string {
+  const prefix = criacaoConfig.b2.usoPrefix.replace(/\/?$/, '/');
+  return `${prefix}musicas/${musicaId}/${formato}${ext}`;
+}
+
+/** Valor gravado em musica_versao.storage_key quando o arquivo está no B2. */
+export function b2VersaoStorageKey(objectKey: string): string {
+  return `b2:${objectKey}`;
+}
+
+export function s3KeyFromVersaoStorageKey(storageKey: string): string | null {
+  if (storageKey.startsWith('b2:')) return storageKey.slice(3);
+  return null;
+}
+
 /** Fallback local quando B2 não está configurado. */
 export function masterLocalPath(musicaId: string): string {
   return path.join(root(), 'master-local', `${musicaId}.mp3`);

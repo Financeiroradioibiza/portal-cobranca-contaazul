@@ -28,6 +28,8 @@ export const criacaoConfig = {
     accessKeyId: process.env.B2_KEY_ID ?? process.env.B2_ACCESS_KEY_ID ?? '',
     secretAccessKey: process.env.B2_APPLICATION_KEY ?? process.env.B2_SECRET_ACCESS_KEY ?? '',
     prefix: process.env.B2_MASTER_PREFIX ?? 'masters/',
+    /** 128 mono / .rib — prefixo no mesmo bucket B2 (ex. uso/). */
+    usoPrefix: process.env.B2_USO_PREFIX ?? 'uso/',
   },
   /** R2 quente — backup opcional das versões .rib (Cloudflare). */
   r2: {
@@ -45,7 +47,31 @@ export function b2Enabled(): boolean {
   return Boolean(b.endpoint && b.bucket && b.accessKeyId && b.secretAccessKey);
 }
 
+/** Variáveis ausentes no processo atual (api vs worker). */
+export function b2ConfigDiagnostics(): { ok: boolean; missingEnv: string[] } {
+  const b = criacaoConfig.b2;
+  const missingEnv: string[] = [];
+  if (!b.endpoint) missingEnv.push('B2_ENDPOINT ou B2_S3_ENDPOINT');
+  if (!b.bucket) missingEnv.push('B2_BUCKET');
+  if (!b.accessKeyId) missingEnv.push('B2_KEY_ID ou B2_ACCESS_KEY_ID');
+  if (!b.secretAccessKey) missingEnv.push('B2_APPLICATION_KEY ou B2_SECRET_ACCESS_KEY');
+  return { ok: missingEnv.length === 0, missingEnv };
+}
+
 export function r2Enabled(): boolean {
   const r = criacaoConfig.r2;
   return Boolean(r.endpoint && r.bucket && r.accessKeyId && r.secretAccessKey);
+}
+
+/** Grava versão 128 no B2 após pipeline (requer B2_*). Produção baseline: desligado até homolog — CRIACAO_USO_B2=1 */
+export function usoB2Enabled(): boolean {
+  if (!b2Enabled()) return false;
+  const v = (process.env.CRIACAO_USO_B2 ?? '0').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
+/** Espelha 128 no disco cloud2 (preview legado /criacao/audio). Desligar: CRIACAO_USO_DISK_MIRROR=0 */
+export function usoDiskMirrorEnabled(): boolean {
+  const v = (process.env.CRIACAO_USO_DISK_MIRROR ?? '1').trim().toLowerCase();
+  return v !== '0' && v !== 'false' && v !== 'off';
 }

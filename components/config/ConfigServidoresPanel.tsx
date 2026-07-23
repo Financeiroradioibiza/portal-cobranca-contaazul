@@ -3,6 +3,16 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ServidoresStatus } from "@/lib/infra/servidorStatusService";
 
+function b2ErrorHint(raw: string): string {
+  if (/not valid|InvalidAccessKeyId/i.test(raw)) {
+    return "A Backblaze não reconhece o keyID no servidor — a Application Key foi apagada, copiada errada ou não é a key do bucket. Crie uma Application Key nova no painel B2 e envie keyID + applicationKey para atualizarmos o cloud2.";
+  }
+  if (/InvalidSecret|SignatureDoesNotMatch/i.test(raw)) {
+    return "O applicationKey (secret) não bate com o keyID — copie de novo os dois campos na mesma hora em que a Backblaze mostra.";
+  }
+  return raw;
+}
+
 function fmtBytes(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   if (n < 1024) return `${n} B`;
@@ -28,6 +38,72 @@ function UsageBar({ usedPercent }: { usedPercent: number }) {
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
       <div className={`h-full ${tone}`} style={{ width: `${Math.min(100, usedPercent)}%` }} />
+    </div>
+  );
+}
+
+function formatDayLabel(isoDay: string): string {
+  const [, m, d] = isoDay.split("-");
+  return `${d}/${m}`;
+}
+
+function DailyBarChart({
+  title,
+  subtitle,
+  points,
+  valueKey,
+  maxValue,
+  formatValue,
+  emptyHint,
+}: {
+  title: string;
+  subtitle?: string;
+  points: { day: string; [k: string]: string | number }[];
+  valueKey: string;
+  maxValue?: number;
+  formatValue?: (v: number) => string;
+  emptyHint?: string;
+}) {
+  const values = points.map((p) => Number(p[valueKey]) || 0);
+  const max = maxValue ?? Math.max(1, ...values);
+  const showEvery = points.length > 20 ? 5 : points.length > 14 ? 3 : 1;
+
+  return (
+    <div>
+      <p className="text-sm font-bold">{title}</p>
+      {subtitle ?
+        <p className="mb-2 text-[11px] text-slate-500">{subtitle}</p>
+      : null}
+      {points.length === 0 || values.every((v) => v === 0) ?
+        <p className="text-xs text-slate-500">{emptyHint ?? "Sem dados no período."}</p>
+      : <>
+          <div className="flex h-28 items-end gap-px sm:gap-0.5" role="img" aria-label={title}>
+            {points.map((p) => {
+              const v = Number(p[valueKey]) || 0;
+              const h = max > 0 ? Math.max(v > 0 ? 4 : 0, (v / max) * 100) : 0;
+              return (
+                <div
+                  key={p.day}
+                  className="group relative flex h-28 min-w-0 flex-1 flex-col justify-end"
+                  title={`${formatDayLabel(p.day)}: ${formatValue ? formatValue(v) : v}`}
+                >
+                  <div
+                    className="mx-auto w-full max-w-[10px] rounded-t bg-sky-500/80 transition group-hover:bg-sky-600 dark:bg-sky-600"
+                    style={{ height: `${h}%` }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-1 flex justify-between text-[9px] text-slate-400">
+            {points.map((p, i) =>
+              i % showEvery === 0 || i === points.length - 1 ?
+                <span key={p.day}>{formatDayLabel(p.day)}</span>
+              : null,
+            )}
+          </div>
+        </>
+      }
     </div>
   );
 }
@@ -107,8 +183,8 @@ export function ConfigServidoresPanel() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Servidores</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Espaço e saúde do Cloud2 (NVMe) e do R2 (Cloudflare). Atualize a cada visita ou use
-            Atualizar.
+            Espaço, carga da VM e fila de processamento. Gráficos usam o Neon (faixas/dia) e amostras
+            ao abrir esta página (disco — ~1× por hora).
           </p>
         </div>
         <button
@@ -132,6 +208,94 @@ export function ConfigServidoresPanel() {
       : null}
 
       <div className="space-y-4">
+        {status ?
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold">Capacidade cloud2 (agora)</h2>
+                <p
+                  className={`mt-1 text-sm ${
+                    status.capacity.level === "critical" ? "text-red-700 dark:text-red-300"
+                    : status.capacity.level === "warn" ? "text-amber-800 dark:text-amber-200"
+                    : "text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  {status.capacity.message}
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                  status.capacity.level === "critical" ?
+                    "bg-red-100 text-red-800"
+                  : status.capacity.level === "warn" ?
+                    "bg-amber-100 text-amber-900"
+                  : "bg-emerald-100 text-emerald-800"
+                }`}
+              >
+                {status.capacity.level === "critical" ?
+                  "Crítico"
+                : status.capacity.level === "warn" ?
+                  "Atenção"
+                : "Ok"}
+              </span>
+            </div>
+            <dl className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <dt className="text-xs text-slate-500">CPU (load ÷ núcleos)</dt>
+                <dd className="font-semibold">
+                  {status.cloud2.system ?
+                    `${status.cloud2.system.loadPercent}% · load ${status.cloud2.system.load1.toFixed(2)} / ${status.cloud2.system.cpuCount} núcleos`
+                  : disk ?
+                    `${disk.usedPercent}% disco (CPU após deploy ops no cloud2)`
+                  : "—"}
+                </dd>
+                {status.cloud2.system ?
+                  <UsageBar usedPercent={status.cloud2.system.loadPercent} />
+                : null}
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Disco NVMe</dt>
+                <dd className="font-semibold">{disk ? `${disk.usedPercent}%` : "—"}</dd>
+                {disk ?
+                  <UsageBar usedPercent={disk.usedPercent} />
+                : null}
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Fila processamento</dt>
+                <dd>
+                  {status.capacity.filaProcessando} processando · {status.capacity.filaAguardando}{" "}
+                  aguardando
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Faixas concluídas (total)</dt>
+                <dd>{status.capacity.faixasConcluidasTotal.toLocaleString("pt-BR")}</dd>
+              </div>
+            </dl>
+            <div className="grid gap-6 border-t border-slate-100 pt-4 dark:border-slate-800 lg:grid-cols-2">
+              <DailyBarChart
+                title="Processamento — faixas concluídas por dia"
+                subtitle="Últimos 30 dias (Neon, fuso São Paulo)"
+                points={status.charts.faixasConcluidasPorDia}
+                valueKey="count"
+                formatValue={(v) => `${v} faixa${v === 1 ? "" : "s"}`}
+              />
+              <DailyBarChart
+                title="Disco NVMe — % usado (amostras)"
+                subtitle="Pontos ao abrir Servidores (~1 amostra/hora); precisa deploy ops com CPU no cloud2"
+                points={status.charts.discoUsadoPorDia.map((p) => ({
+                  day: p.day,
+                  usedPercent: p.usedPercent,
+                }))}
+                valueKey="usedPercent"
+                maxValue={100}
+                formatValue={(v) => `${v}%`}
+                emptyHint="Ainda sem histórico — volte aqui depois de algumas visitas ou após migrate servidor_cloud2_snapshot."
+              />
+            </div>
+          </section>
+        : null}
+
         <ServerCard
           title="Cloud2 — API"
           subtitle={status?.cloud2.baseUrl}
@@ -284,7 +448,11 @@ export function ConfigServidoresPanel() {
 
         <ServerCard
           title="Cloudflare R2"
-          subtitle={r2?.bucket ? `Bucket ${r2.bucket}` : "Backup quente + staging downloads"}
+          subtitle={
+            r2?.bucket ?
+              `Opcional · bucket ${r2.bucket} — cópia quente das versões 128 mono`
+            : "Opcional — backup Cloudflare das versões de uso (não é o B2 nem o disco do player)"
+          }
           active={Boolean(r2?.enabled && !r2?.error)}
         >
           {r2 ?
@@ -314,10 +482,15 @@ export function ConfigServidoresPanel() {
                 <p className="mt-2 text-xs text-red-600">{r2.error}</p>
               : !r2.enabled ?
                 <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                  Offline no painel: configure <code className="text-[11px]">R2_*</code> no cloud2 e{" "}
-                  <code className="text-[11px]">CRIACAO_INGEST_SECRET</code> no portal (Netlify) para
-                  ler métricas via API. Acesso aos arquivos: console Cloudflare R2 ou credenciais no
-                  servidor cloud2 — o portal não abre o bucket diretamente.
+                  <strong>Offline é esperado</strong> se você não configurou R2 no cloud2 — o player
+                  toca a partir do disco NVMe (<code className="text-[11px]">uso/</code>). R2 só
+                  espelha opcionalmente o 128 mono/.rib. Para ativar:{" "}
+                  <code className="text-[11px]">R2_ENDPOINT</code>,{" "}
+                  <code className="text-[11px]">R2_BUCKET</code>,{" "}
+                  <code className="text-[11px]">R2_ACCESS_KEY_ID</code>,{" "}
+                  <code className="text-[11px]">R2_SECRET_ACCESS_KEY</code> no{" "}
+                  <code className="text-[11px]">/opt/portal-ibiza/infra/.env</code> (api + worker).
+                  Ver <code className="text-[11px]">docs/CLOUD2-ENV-OBRIGATORIO.md</code>.
                 </p>
               : null}
             </>
@@ -351,27 +524,122 @@ export function ConfigServidoresPanel() {
         {status?.cloud2.ops.b2 ?
           <ServerCard
             title="Backblaze B2 (masters)"
-            subtitle={`Bucket ${status.cloud2.ops.b2.bucket || "—"}`}
+            subtitle={
+              status.cloud2.ops.b2.bucket ?
+                `Bucket ${status.cloud2.ops.b2.bucket}${status.cloud2.ops.b2.prefix ? ` · prefixo ${status.cloud2.ops.b2.prefix}` : ""}`
+              : "Masters 192k (frio)"
+            }
             active={status.cloud2.ops.b2.enabled && !status.cloud2.ops.b2.error}
           >
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-xs text-slate-500">Objetos (amostra)</dt>
-                <dd>{status.cloud2.ops.b2.objectCount.toLocaleString("pt-BR")}</dd>
+                <dt className="text-xs text-slate-500">Objetos (amostra S3)</dt>
+                <dd>
+                  {status.cloud2.ops.b2.enabled && !status.cloud2.ops.b2.error ?
+                    status.cloud2.ops.b2.objectCount.toLocaleString("pt-BR")
+                  : "—"}
+                  {status.cloud2.ops.b2.truncated ?
+                    <span className="ml-1 text-amber-700 dark:text-amber-300">(parcial)</span>
+                  : null}
+                </dd>
               </div>
               <div>
-                <dt className="text-xs text-slate-500">Espaço estimado</dt>
-                <dd>{fmtBytes(status.cloud2.ops.b2.totalBytes)}</dd>
+                <dt className="text-xs text-slate-500">Espaço estimado (listagem)</dt>
+                <dd>
+                  {status.cloud2.ops.b2.enabled && !status.cloud2.ops.b2.error ?
+                    fmtBytes(status.cloud2.ops.b2.totalBytes)
+                  : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Masters no Neon (chave B2)</dt>
+                <dd>{status.neon.b2MastersCount.toLocaleString("pt-BR")} faixa(s)</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Masters só disco (local:)</dt>
+                <dd>{status.neon.localMastersCount.toLocaleString("pt-BR")} faixa(s)</dd>
               </div>
             </dl>
             {status.cloud2.ops.b2.error ?
-              <p className="mt-2 text-xs text-red-600">{status.cloud2.ops.b2.error}</p>
-            : !status.cloud2.ops.b2.enabled ?
-              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                Offline no painel: configure <code className="text-[11px]">B2_*</code> no cloud2 e o
-                secret de ingest no portal. Arquivos frios: painel Backblaze B2 ou chaves no servidor.
+              <p className="mt-2 text-xs text-red-600">
+                {b2ErrorHint(status.cloud2.ops.b2.error)}
+                <span className="mt-1 block text-[10px] text-slate-500">
+                  Detalhe técnico: {status.cloud2.ops.b2.error}
+                </span>
               </p>
             : null}
+            {!status.cloud2.ops.b2.enabled ?
+              <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-400">
+                <p>
+                  O painel lê o B2 pelo container <strong>api</strong> do cloud2 (
+                  <code className="text-[10px]">GET /criacao/ops/storage</code>), não só pelo
+                  worker-audio. Falta variável no <strong>api</strong>:
+                </p>
+                {(status.cloud2.ops.b2.missingEnv?.length ?? 0) > 0 ?
+                  <ul className="list-disc pl-4">
+                    {status.cloud2.ops.b2.missingEnv!.map((v) => (
+                      <li key={v}>
+                        <code className="text-[10px]">{v}</code>
+                      </li>
+                    ))}
+                  </ul>
+                : (
+                  <ul className="list-disc pl-4">
+                    <li>
+                      <code className="text-[10px]">B2_S3_ENDPOINT</code> (ex.{" "}
+                      <code className="text-[10px]">https://s3.us-west-002.backblazeb2.com</code>)
+                    </li>
+                    <li>
+                      <code className="text-[10px]">B2_BUCKET</code>,{" "}
+                      <code className="text-[10px]">B2_KEY_ID</code>,{" "}
+                      <code className="text-[10px]">B2_APPLICATION_KEY</code>
+                    </li>
+                    <li>
+                      <code className="text-[10px]">B2_REGION=us-west-002</code> (região do bucket)
+                    </li>
+                  </ul>
+                )}
+                <p>
+                  No Envyron: mesmo <code className="text-[10px]">.env</code> do worker em{" "}
+                  <code className="text-[10px]">api</code> e{" "}
+                  <code className="text-[10px]">worker-audio</code>, depois{" "}
+                  <code className="text-[10px]">docker compose up -d api</code>. No Netlify,{" "}
+                  <code className="text-[10px]">CRIACAO_INGEST_SECRET</code> já deve estar ok para
+                  chamar o cloud2.
+                </p>
+              </div>
+            : null}
+          </ServerCard>
+        : null}
+
+        {status?.cloud2.ops.b2Uso ?
+          <ServerCard
+            title="Backblaze B2 (128 mono cliente)"
+            subtitle={
+              status.cloud2.ops.b2Uso.bucket ?
+                `Bucket ${status.cloud2.ops.b2Uso.bucket}${status.cloud2.ops.b2Uso.prefix ? ` · prefixo ${status.cloud2.ops.b2Uso.prefix}` : ""}`
+              : "Versão de uso no B2"
+            }
+            active={status.cloud2.ops.b2Uso.enabled && !status.cloud2.ops.b2Uso.error}
+          >
+            <dl className="grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-slate-500">Objetos (amostra S3)</dt>
+                <dd>
+                  {status.cloud2.ops.b2Uso.enabled && !status.cloud2.ops.b2Uso.error ?
+                    status.cloud2.ops.b2Uso.objectCount.toLocaleString("pt-BR")
+                  : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Versões Neon (chave b2:)</dt>
+                <dd>{status.neon.b2UsoVersoesCount.toLocaleString("pt-BR")} registro(s)</dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Auditar: <code className="text-[10px]">npm run criacao:audit-b2</code> (após deploy
+              cloud2 com /ops/b2-audit).
+            </p>
           </ServerCard>
         : null}
 
