@@ -10,7 +10,8 @@ RUN npm run build:api
 
 FROM node:20-alpine
 WORKDIR /app
-RUN apk add --no-cache ffmpeg
+# FFmpeg: demora no Envyron; camada cacheia entre deploys (evite DEPLOY_NO_CACHE=1).
+RUN apk add --no-cache ffmpeg || (sleep 10 && apk add --no-cache ffmpeg)
 ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev

@@ -16,6 +16,8 @@
 #   CLOUD2_INFRA_DIR   default: /opt/portal-ibiza/infra
 #   DEPLOY_MODE        patch | full (default: patch)
 #   SKIP_LOCAL_SYNC    1 = não roda sync-cloud2-to-portal-ibiza.sh
+#   DEPLOY_NO_CACHE    1 = docker build --no-cache (lento; só se rotas JS presas)
+#   API_ONLY           1 = rebuild só container api (rotas /ops/b2-*; não mexe worker-audio)
 
 set -euo pipefail
 
@@ -25,7 +27,7 @@ REMOTE="${CLOUD2_HOST:-radioibiza@cloudserver165.envyron.cloud}"
 REMOTE_DIR="${CLOUD2_APP_DIR:-/opt/portal-ibiza/app}"
 INFRA_DIR="${CLOUD2_INFRA_DIR:-/opt/portal-ibiza/infra}"
 MODE="${DEPLOY_MODE:-patch}"
-SSH=(ssh -o BatchMode=yes)
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30)
 
 echo "== Cloud2 deploy (mode=$MODE) → $REMOTE"
 echo ""
@@ -110,8 +112,19 @@ else
   exit 1
 fi
 
-echo "== 3/3 Docker rebuild api + worker-audio (sem cache na API — corrige rotas webservice)"
-"${SSH[@]}" "$REMOTE" "cd '$INFRA_DIR' && docker compose build --no-cache api && docker compose build worker-audio && docker compose up -d api worker-audio"
+echo "== 3/3 Docker rebuild (cache Docker ativo; DEPLOY_NO_CACHE=1 força rebuild total)"
+NO_CACHE_FLAG=""
+if [[ "${DEPLOY_NO_CACHE:-0}" == "1" ]]; then
+  NO_CACHE_FLAG="--no-cache"
+  echo "    (DEPLOY_NO_CACHE=1 — apk/ffmpeg pode levar 10–20 min)"
+fi
+export DOCKER_BUILDKIT=1
+if [[ "${API_ONLY:-0}" == "1" ]]; then
+  echo "    API_ONLY=1 — só api (audit/ops); worker-audio inalterado"
+  "${SSH[@]}" "$REMOTE" "cd '$INFRA_DIR' && docker compose build $NO_CACHE_FLAG --progress=plain api && docker compose up -d api"
+else
+  "${SSH[@]}" "$REMOTE" "cd '$INFRA_DIR' && docker compose build $NO_CACHE_FLAG --progress=plain api && docker compose build $NO_CACHE_FLAG --progress=plain worker-audio && docker compose up -d api worker-audio"
+fi
 
 echo ""
 echo "OK. Teste sync-registry (401 sem secret = rota existe):"
