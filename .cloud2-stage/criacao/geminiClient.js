@@ -6,9 +6,15 @@ const DEFAULT_TIMEOUT_MS = Math.min(
 const MODEL_FALLBACKS = [
   process.env.GEMINI_MODEL?.trim(),
   'gemini-2.5-flash',
-  'gemini-3.5-flash',
   'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
 ].filter(Boolean);
+
+const UNIQUE_MODELS = [...new Set(MODEL_FALLBACKS)];
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 export function geminiEnabled() {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
@@ -76,14 +82,31 @@ export async function geminiGenerateJson(prompt, opts) {
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let lastError;
 
-  for (const model of MODEL_FALLBACKS) {
+  for (const model of UNIQUE_MODELS) {
     const attempt = await geminiGenerateJsonWithModel(model, prompt, timeoutMs);
     if (attempt.data != null) {
       return { data: attempt.data, modelUsed: model };
     }
     lastError = attempt.error ?? `http_${attempt.httpStatus ?? 'unknown'}`;
+
+    const retryable =
+      attempt.httpStatus === 429 ||
+      attempt.httpStatus === 503 ||
+      attempt.httpStatus === 502 ||
+      attempt.error === 'timeout' ||
+      attempt.error === 'fetch_failed';
+
+    if (retryable) {
+      await sleep(900);
+      const retry = await geminiGenerateJsonWithModel(model, prompt, timeoutMs);
+      if (retry.data != null) {
+        return { data: retry.data, modelUsed: model };
+      }
+      lastError = retry.error ?? lastError;
+    }
+
     if (attempt.httpStatus === 404 || attempt.httpStatus === 400) continue;
-    if (attempt.error === 'timeout') break;
+    if (attempt.error === 'timeout' || attempt.httpStatus === 429) continue;
   }
 
   return { data: null, modelUsed: null, error: lastError ?? 'all_models_failed' };

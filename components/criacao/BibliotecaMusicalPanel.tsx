@@ -355,10 +355,27 @@ export function BibliotecaMusicalPanel({
       setRowMsg(null);
       try {
         const res = await fetch(`/api/criacao/biblioteca/${m.id}/refresh-tags`, { method: "POST" });
-        if (!res.ok) throw new Error("refresh_failed");
+        const data = (await res.json().catch(() => null)) as {
+          updated?: boolean;
+          gravadora?: string;
+          isrc?: string | null;
+          hint?: string;
+          error?: string;
+        } | null;
+        if (!res.ok) {
+          throw new Error(data?.error ?? (res.status === 504 ? "timeout" : "refresh_failed"));
+        }
         await patchMusica(m.id);
-      } catch {
-        setRowMsg("Falha ao buscar tags na internet.");
+        const isrc = data?.isrc?.trim();
+        if (isrc) {
+          setRowMsg(`«${m.titulo}» — ISRC ${isrc}${data?.gravadora ? ` · ${data.gravadora}` : ""}.`);
+        } else if (data?.updated) {
+          setRowMsg(`«${m.titulo}» — ${data.hint ?? "Tags atualizadas."}`);
+        } else {
+          setRowMsg(`«${m.titulo}» — ${data?.hint ?? "Nenhum ISRC/gravadora novo encontrado."}`);
+        }
+      } catch (e) {
+        setRowMsg(e instanceof Error ? e.message : "Falha ao buscar tags na internet.");
       } finally {
         setRefreshingTagId(null);
       }
@@ -378,7 +395,14 @@ export function BibliotecaMusicalPanel({
         });
         const data = (await res.json().catch(() => null)) as {
           error?: string;
-          results?: { musicaId: string; geminiStatus?: "sim" | "nao" | "desconhecida"; geminiFailed?: boolean; explicit?: boolean }[];
+          geminiLastError?: string;
+          results?: {
+            musicaId: string;
+            geminiStatus?: "sim" | "nao" | "desconhecida";
+            geminiFailed?: boolean;
+            geminiError?: string;
+            explicit?: boolean;
+          }[];
         } | null;
         if (!res.ok) {
           if (res.status === 504) throw new Error("Timeout do servidor (504) — tente IA em uma faixa por vez.");
@@ -389,7 +413,8 @@ export function BibliotecaMusicalPanel({
         const r = data?.results?.[0];
         const titulo = m.titulo || "(sem título)";
         if (r?.geminiFailed) {
-          setRowMsg(`«${titulo}» — Gemini não respondeu. Confira GEMINI_MODEL=gemini-2.5-flash no Netlify.`);
+          const detail = r.geminiError ?? data?.geminiLastError ?? "sem resposta";
+          setRowMsg(`«${titulo}» — Gemini falhou (${detail}). Tente de novo em alguns segundos.`);
           return;
         }
         const st = r?.geminiStatus;
@@ -420,6 +445,7 @@ export function BibliotecaMusicalPanel({
     let okCount = 0;
     let unkCount = 0;
     let failTotal = 0;
+    let lastGeminiErr: string | undefined;
     try {
       while (true) {
         const res = await fetch("/api/criacao/biblioteca/check-explicit/gemini", {
@@ -431,6 +457,7 @@ export function BibliotecaMusicalPanel({
           error?: string;
           processed?: number;
           hasMore?: boolean;
+          geminiLastError?: string;
           results?: { geminiStatus?: "sim" | "nao" | "desconhecida"; geminiFailed?: boolean }[];
           geminiFailed?: number;
         } | null;
@@ -448,6 +475,7 @@ export function BibliotecaMusicalPanel({
         }
         total += n;
         failTotal += data?.geminiFailed ?? 0;
+        if (data?.geminiLastError) lastGeminiErr = data.geminiLastError;
         if (n > 0) {
           setRowMsg(
             `IA em lote: ${total} faixa${total === 1 ? "" : "s"}… (${expCount} EXP · ${okCount} ok · ${unkCount} ?${failTotal ? ` · ${failTotal} falha API` : ""})`,
@@ -459,7 +487,7 @@ export function BibliotecaMusicalPanel({
       await load({ silent: true });
       setRowMsg(
         total > 0 ?
-          `IA em lote concluída — ${total} faixa${total === 1 ? "" : "s"}: ${expCount} EXP · ${okCount} IA ok · ${unkCount} desconhecida${failTotal > 0 ? ` · ${failTotal} falha Gemini (veja GEMINI_MODEL)` : ""}.`
+          `IA em lote concluída — ${total} faixa${total === 1 ? "" : "s"}: ${expCount} EXP · ${okCount} IA ok · ${unkCount} desconhecida${failTotal > 0 ? ` · ${failTotal} falha Gemini${lastGeminiErr ? ` (${lastGeminiErr})` : ""}` : ""}.`
         : "Nenhuma faixa pendente de avaliação IA.",
       );
     } catch (e) {

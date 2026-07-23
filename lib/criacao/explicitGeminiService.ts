@@ -13,6 +13,8 @@ export type GeminiExplicitResult = "sim" | "nao" | "desconhecida";
 export type GeminiClassifyOutcome = {
   result: GeminiExplicitResult;
   apiFailed?: boolean;
+  /** timeout | http_429 | parse_failed | … */
+  apiError?: string;
 };
 
 type GeminiRow = {
@@ -94,14 +96,23 @@ export async function classifyExplicitLyricsWithGemini(
   if (!geminiEnabled() || tracks.length === 0) return out;
 
   const prompt = buildPrompt(tracks);
-  const { data: parsed, error } = await geminiGenerateJson<unknown>(prompt, {
-    timeoutMs: tracks.length === 1 ? Math.max(geminiTimeoutMs(), 14_000) : geminiTimeoutMs(),
-  });
+  const perTrackTimeout =
+    tracks.length === 1 ? Math.min(22_000, Math.max(geminiTimeoutMs(), 16_000)) : geminiTimeoutMs();
+
+  const callGemini = async () =>
+    geminiGenerateJson<unknown>(prompt, { timeoutMs: perTrackTimeout });
+
+  let { data: parsed, error } = await callGemini();
+  if (tracks.length === 1 && parsed == null && error) {
+    await new Promise((r) => setTimeout(r, 700));
+    ({ data: parsed, error } = await callGemini());
+  }
 
   const rows = normalizeGeminiExplicitRows(parsed);
   if (rows.length === 0) {
+    const errLabel = error ?? "empty_response";
     for (const t of tracks) {
-      out.set(t.id, { result: "desconhecida", apiFailed: true });
+      out.set(t.id, { result: "desconhecida", apiFailed: true, apiError: errLabel });
     }
     if (error) console.warn("[explicitGemini] API failed:", error);
     return out;

@@ -3,16 +3,23 @@ const DEFAULT_TIMEOUT_MS = Math.min(
   Math.max(4_000, Number(process.env.GEMINI_TIMEOUT_MS) || 12_000),
 );
 
-/** Modelos em ordem de tentativa — 2.0-flash desligado em jun/2026. */
+/** Modelos em ordem de tentativa — evite nomes que ainda não existem na API. */
 const MODEL_FALLBACKS = [
   process.env.GEMINI_MODEL?.trim(),
   "gemini-2.5-flash",
-  "gemini-3.5-flash",
   "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
 ].filter((m): m is string => Boolean(m));
 
+/** Dedupe mantendo ordem (GEMINI_MODEL repetido no fallback). */
+const UNIQUE_MODELS = [...new Set(MODEL_FALLBACKS)];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export function geminiDefaultModel(): string {
-  return MODEL_FALLBACKS[0] ?? "gemini-2.5-flash";
+  return UNIQUE_MODELS[0] ?? "gemini-2.5-flash";
 }
 
 export function geminiEnabled(): boolean {
@@ -101,14 +108,31 @@ export async function geminiGenerateJson<T>(
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let lastError: string | undefined;
 
-  for (const model of MODEL_FALLBACKS) {
+  for (const model of UNIQUE_MODELS) {
     const attempt = await geminiGenerateJsonWithModel<T>(model, prompt, timeoutMs);
     if (attempt.data != null) {
       return { data: attempt.data, modelUsed: model };
     }
     lastError = attempt.error ?? `http_${attempt.httpStatus ?? "unknown"}`;
+
+    const retryable =
+      attempt.httpStatus === 429 ||
+      attempt.httpStatus === 503 ||
+      attempt.httpStatus === 502 ||
+      attempt.error === "timeout" ||
+      attempt.error === "fetch_failed";
+
+    if (retryable) {
+      await sleep(900);
+      const retry = await geminiGenerateJsonWithModel<T>(model, prompt, timeoutMs);
+      if (retry.data != null) {
+        return { data: retry.data, modelUsed: model };
+      }
+      lastError = retry.error ?? lastError;
+    }
+
     if (attempt.httpStatus === 404 || attempt.httpStatus === 400) continue;
-    if (attempt.error === "timeout") break;
+    if (attempt.error === "timeout" || attempt.httpStatus === 429) continue;
   }
 
   return { data: null, modelUsed: null, error: lastError ?? "all_models_failed" };

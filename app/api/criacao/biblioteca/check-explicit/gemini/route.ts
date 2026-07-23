@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { checkMusicasExplicitGeminiBatch } from "@/lib/criacao/explicitContentService";
 
-export const maxDuration = 26;
+export const maxDuration = 60;
 
 const BATCH_MAX = 5;
 const BATCH_DEFAULT = 1;

@@ -34,22 +34,34 @@ async function throttleMusicBrainz(): Promise<void> {
   lastMbAt = Date.now();
 }
 
-async function mbFetch(path: string): Promise<unknown | null> {
+async function mbFetch(path: string, attempt = 0): Promise<unknown | null> {
   await throttleMusicBrainz();
   try {
     const res = await fetch(`${MB_BASE}${path}`, {
       headers: { Accept: "application/json", "User-Agent": UA },
+      signal: AbortSignal.timeout(12_000),
     });
+    if ((res.status === 429 || res.status === 503) && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+      return mbFetch(path, attempt + 1);
+    }
     if (!res.ok) return null;
     return (await res.json()) as unknown;
   } catch {
+    if (attempt < 1) {
+      await new Promise((r) => setTimeout(r, 800));
+      return mbFetch(path, attempt + 1);
+    }
     return null;
   }
 }
 
 async function dzFetch(path: string): Promise<unknown | null> {
   try {
-    const res = await fetch(`${DZ_BASE}${path}`, { headers: { Accept: "application/json" } });
+    const res = await fetch(`${DZ_BASE}${path}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!res.ok) return null;
     return (await res.json()) as unknown;
   } catch {
@@ -439,11 +451,20 @@ export function extractGravadoraFromTags(tags: ExternalAutoTag[]): string {
   return hit?.valor ?? "";
 }
 
-function normalizeIsrc(raw: string | null | undefined): string | null {
+export function normalizeIsrc(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const s = raw.trim().replace(/-/g, "").toUpperCase();
   if (!/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(s)) return null;
   return s;
+}
+
+export function pickIsrcFromTags(tags: ExternalAutoTag[]): string | null {
+  for (const t of tags) {
+    if ((t.chave ?? "").toLowerCase() !== "isrc") continue;
+    const n = normalizeIsrc(t.valor);
+    if (n) return n;
+  }
+  return null;
 }
 
 export type ExternalTrackMetadata = {

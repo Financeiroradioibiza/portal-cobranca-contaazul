@@ -25,6 +25,7 @@ export type ExplicitCheckResult = {
   updated: boolean;
   geminiStatus?: "sim" | "nao" | "desconhecida";
   geminiFailed?: boolean;
+  geminiError?: string;
 };
 
 function tagsToJson(tags: ExternalAutoTag[]): Prisma.InputJsonValue {
@@ -119,6 +120,7 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
   updated: number;
   skippedGemini: number;
   geminiFailed: number;
+  geminiLastError?: string;
   hasMorePending: boolean;
   geminiEnabled: boolean;
   results: ExplicitCheckResult[];
@@ -188,6 +190,7 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
   let updated = 0;
   let skippedGemini = 0;
   let geminiFailed = 0;
+  let geminiLastError: string | undefined;
 
   for (const m of rows) {
     const existing = parseTagsFromJson(m.tagsAuto);
@@ -199,7 +202,14 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
 
     if (!apiConfirmed && outcome?.apiFailed) {
       geminiFailed += 1;
-      results.push({ musicaId: m.id, explicit: false, updated: false, geminiFailed: true });
+      if (!geminiLastError && outcome.apiError) geminiLastError = outcome.apiError;
+      results.push({
+        musicaId: m.id,
+        explicit: false,
+        updated: false,
+        geminiFailed: true,
+        geminiError: outcome.apiError,
+      });
       continue;
     }
 
@@ -241,6 +251,7 @@ export async function checkMusicasExplicitGeminiBatch(opts: {
     updated,
     skippedGemini,
     geminiFailed,
+    geminiLastError,
     hasMorePending,
     geminiEnabled: true,
     results,

@@ -674,7 +674,7 @@ export async function deleteAllLegacyMusicas(): Promise<BulkDeleteResult> {
 
 export async function refreshMusicaInternetTags(
   musicaId: string,
-): Promise<{ updated: boolean; gravadora: string }> {
+): Promise<{ updated: boolean; gravadora: string; isrc: string | null; hint: string }> {
   const m = await prisma.musicaBiblioteca.findUnique({
     where: { id: musicaId },
     select: { id: true, titulo: true, artista: true, isrc: true, bpm: true, ano: true, tagsAuto: true },
@@ -690,15 +690,18 @@ export async function refreshMusicaInternetTags(
     isEligibleForExternalTrackMatch,
     mergeExternalTags,
     parseTagsFromJson,
+    pickIsrcFromTags,
+    normalizeIsrc,
   } = await import("@/lib/criacao/tagEnrichmentCore");
   const { mergeApiExplicitCheck } = await import("@/lib/criacao/explicitContentCore");
 
   const beforeSig = JSON.stringify(parseTagsFromJson(m.tagsAuto));
   let merged = parseTagsFromJson(m.tagsAuto);
   let bpm = m.bpm;
-  let isrc = m.isrc;
+  let isrc = m.isrc?.trim() ? m.isrc : null;
   let ano = m.ano;
   let metaChanged = false;
+  let hint = "";
 
   if (isEligibleForExternalTrackMatch({ titulo: m.titulo, artista: m.artista })) {
     const meta = await fetchExternalTrackMetadata({
@@ -714,14 +717,20 @@ export async function refreshMusicaInternetTags(
       bpm = meta.bpm;
       metaChanged = true;
     }
-    if (meta.isrc && !isrc?.trim()) {
-      isrc = meta.isrc;
-      metaChanged = true;
+    if (meta.isrc) {
+      const had = normalizeIsrc(isrc);
+      if (!had) {
+        isrc = meta.isrc;
+        metaChanged = true;
+        hint = "ISRC encontrado (Deezer/MusicBrainz).";
+      }
     }
     if (meta.ano && !ano) {
       ano = meta.ano;
       metaChanged = true;
     }
+  } else {
+    hint = "Título/artista curtos demais para busca Deezer — tentando só MusicBrainz se houver ISRC.";
   }
 
   const labels = await fetchLabelTags({
@@ -738,9 +747,21 @@ export async function refreshMusicaInternetTags(
     : null;
   merged = mergeApiExplicitCheck(merged, { deezer, musicbrainz });
 
+  const fromTags = pickIsrcFromTags(merged);
+  if (fromTags && !normalizeIsrc(isrc)) {
+    isrc = fromTags;
+    metaChanged = true;
+    if (!hint) hint = "ISRC vindo das tags automáticas.";
+  }
+
   const afterSig = JSON.stringify(merged);
   if (beforeSig === afterSig && !metaChanged) {
-    return { updated: false, gravadora: extractGravadoraFromTags(merged) };
+    return {
+      updated: false,
+      gravadora: extractGravadoraFromTags(merged),
+      isrc: normalizeIsrc(isrc) ?? pickIsrcFromTags(merged),
+      hint: hint || "Nada novo — Deezer/MB não devolveram dados extras.",
+    };
   }
 
   await prisma.musicaBiblioteca.update({
@@ -753,5 +774,10 @@ export async function refreshMusicaInternetTags(
     },
   });
 
-  return { updated: true, gravadora: extractGravadoraFromTags(merged) };
+  return {
+    updated: true,
+    gravadora: extractGravadoraFromTags(merged),
+    isrc: normalizeIsrc(isrc) ?? pickIsrcFromTags(merged),
+    hint: hint || "Tags/gravadora/ISRC atualizados.",
+  };
 }
