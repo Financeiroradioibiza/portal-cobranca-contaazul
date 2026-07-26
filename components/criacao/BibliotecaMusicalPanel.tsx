@@ -136,16 +136,17 @@ function rowSelectFromEvent(
 }
 
 function slimRowGridClass(hasSelect: boolean, hasDrag: boolean): string {
+  const storageCol = "minmax(0,4.25rem)";
   if (hasSelect && hasDrag) {
-    return "grid-cols-[1.5rem_1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+    return `grid-cols-[1.5rem_1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
   }
   if (hasSelect) {
-    return "grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+    return `grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
   }
   if (hasDrag) {
-    return "grid-cols-[1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+    return `grid-cols-[1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
   }
-  return "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_3.5rem]";
+  return `grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
 }
 
 function BibliotecaListPagination({
@@ -901,6 +902,7 @@ export function BibliotecaMusicalPanel({
                 <span>Música</span>
                 <span>Banda</span>
                 <span>Tag criativo</span>
+                <span>B2</span>
                 <span className="text-right">⏱</span>
               </div>
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -956,7 +958,6 @@ export function BibliotecaMusicalPanel({
                           legado
                         </span>
                       : null}
-                      <MusicaStorageBadges badges={m.storageBadges} size="compact" />
                       <MusicaVotosBadges
                         musicaId={m.id}
                         titulo={m.titulo || "(sem título)"}
@@ -986,6 +987,9 @@ export function BibliotecaMusicalPanel({
                           </span>
                         ))
                       }
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center justify-end gap-0.5">
+                      <MusicaStorageBadges badges={m.storageBadges} size="compact" />
                     </div>
                     <div className="text-right text-[11px] tabular-nums text-slate-500">
                       {formatDuration(m.durationMs)}
@@ -1057,7 +1061,6 @@ export function BibliotecaMusicalPanel({
                       </span>
                     : null}
                     <LegacyBadge motivos={m.legacyMotivos} />
-                    <MusicaStorageBadges badges={m.storageBadges} />
                     {m.rejeicoesCount > 0 ?
                       <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">
                         rejeitada ×{m.rejeicoesCount}
@@ -1073,6 +1076,7 @@ export function BibliotecaMusicalPanel({
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <MusicaStorageBadges badges={m.storageBadges} />
                   <ExplicitApiChip fonte="DZ" status={m.explicitDeezer} />
                   <ExplicitApiChip fonte="MB" status={m.explicitMusicbrainz} />
                   <ExplicitApiChip fonte="IA" status={m.explicitGemini} />
