@@ -136,17 +136,16 @@ function rowSelectFromEvent(
 }
 
 function slimRowGridClass(hasSelect: boolean, hasDrag: boolean): string {
-  const storageCol = "minmax(0,4.25rem)";
   if (hasSelect && hasDrag) {
-    return `grid-cols-[1.5rem_1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
+    return "grid-cols-[1.5rem_1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,4.25rem)_3.5rem]";
   }
   if (hasSelect) {
-    return `grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
+    return "grid-cols-[1.5rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,4.25rem)_3.5rem]";
   }
   if (hasDrag) {
-    return `grid-cols-[1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
+    return "grid-cols-[1.25rem_2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,4.25rem)_3.5rem]";
   }
-  return `grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_${storageCol}_3.5rem]`;
+  return "grid-cols-[2rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,4.25rem)_3.5rem]";
 }
 
 function BibliotecaListPagination({
