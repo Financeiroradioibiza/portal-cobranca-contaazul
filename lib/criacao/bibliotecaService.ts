@@ -13,6 +13,10 @@ import {
   type ExplicitApiStatus,
 } from "@/lib/criacao/explicitContentCore";
 import { computeLegacyMotivos, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
+import {
+  deriveMusicaStorageBadges,
+  type MusicaStorageBadge,
+} from "@/lib/criacao/musicaStorageBadges";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -64,6 +68,8 @@ export type MusicaBibliotecaRow = {
   programacoesCount: number;
   /** Pipeline antigo — sem 128 mono, LUFS ou master completo. */
   legacyMotivos: LegacyMotivo[];
+  /** Destinos B2 (master 192, 128 mono, 64 preview futuro). */
+  storageBadges: MusicaStorageBadge[];
 };
 
 export function parseAutoTagsFromJson(raw: Prisma.JsonValue | null): AutoTag[] {
@@ -165,7 +171,7 @@ type MusicaDbRow = {
       criativoNome: string;
     };
   }>;
-  versoes: Array<{ formato: string }>;
+  versoes: Array<{ formato: string; storageKey: string | null }>;
 };
 
 async function countProgramacoesPorMusica(ids: string[]): Promise<Map<string, number>> {
@@ -315,6 +321,10 @@ function mapMusicaToRow(
     dislikesCount: votoMap.get(m.id)?.dislikes ?? 0,
     programacoesCount: progMap.get(m.id) ?? 0,
     legacyMotivos: computeLegacyMotivos(m),
+    storageBadges: deriveMusicaStorageBadges({
+      masterStorageKey: m.masterStorageKey,
+      versoes: m.versoes,
+    }),
   };
 }
 
@@ -338,7 +348,7 @@ async function loadCriativoUserMap(
 
 const musicaInclude = {
   tagsManuais: { include: { tag: true } },
-  versoes: { select: { formato: true } },
+  versoes: { select: { formato: true, storageKey: true } },
 } as const;
 
 export type BibliotecaListFilter = import("@/lib/criacao/bibliotecaSearchService").BibliotecaListFilter;
@@ -540,6 +550,7 @@ export async function listMusicasBiblioteca(opts: {
         dislikesCount: 0,
         programacoesCount: 0,
         legacyMotivos: [],
+        storageBadges: [],
       });
       have.add(f.musicaId);
     }

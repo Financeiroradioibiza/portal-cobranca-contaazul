@@ -7,6 +7,8 @@ import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { BibliotecaMusicaDragGrip } from "@/components/criacao/BibliotecaMusicaDragGrip";
 import { MusicaVotosBadges, MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
+import { MusicaStorageBadges } from "@/components/criacao/MusicaStorageBadges";
+import type { MusicaStorageBadge } from "@/lib/criacao/musicaStorageBadges";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
@@ -44,6 +46,7 @@ type Musica = {
   dislikesCount: number;
   programacoesCount: number;
   legacyMotivos: LegacyMotivo[];
+  storageBadges: MusicaStorageBadge[];
 };
 
 function formatDuration(ms: number | null): string {
@@ -953,6 +956,7 @@ export function BibliotecaMusicalPanel({
                           legado
                         </span>
                       : null}
+                      <MusicaStorageBadges badges={m.storageBadges} size="compact" />
                       <MusicaVotosBadges
                         musicaId={m.id}
                         titulo={m.titulo || "(sem título)"}
@@ -1053,6 +1057,7 @@ export function BibliotecaMusicalPanel({
                       </span>
                     : null}
                     <LegacyBadge motivos={m.legacyMotivos} />
+                    <MusicaStorageBadges badges={m.storageBadges} />
                     {m.rejeicoesCount > 0 ?
                       <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">
                         rejeitada ×{m.rejeicoesCount}

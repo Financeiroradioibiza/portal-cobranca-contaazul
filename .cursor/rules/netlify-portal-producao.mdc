@@ -1,0 +1,21 @@
+# Netlify — portal produção (NÃO confundir sites)
+
+## Site correto
+
+| Campo | Valor |
+|-------|--------|
+| Nome Netlify | **site-vencidos-ibiza** |
+| Site ID | `0107bc8a-2d4c-4c8f-a33f-8132779d9aee` |
+| URL produção | **https://portal.radioibiza.app.br** |
+| Repo GitHub | `Financeiroradioibiza/portal-cobranca-contaazul` |
+| Deploy normal | **push na branch `main`** (CI Netlify) |
+
+## Proibido
+
+- **Nunca** rodar `netlify deploy` sem confirmar que `.netlify/state.json` aponta para `0107bc8a-2d4c-4c8f-a33f-8132779d9aee`.
+- **Nunca** usar sites Netlify aleatórios (ex.: `delightful-jelly-*`) — não são o portal.
+- Deploy manual de emergência: **`bash scripts/deploy-netlify-portal.sh`** (valida o site ID antes).
+
+## cloud2 ≠ Netlify
+
+Processamento de áudio e preview stream: **cloud2.radioibiza.app.br** (Envyron). Não deployar `.cloud2-stage` via Netlify.

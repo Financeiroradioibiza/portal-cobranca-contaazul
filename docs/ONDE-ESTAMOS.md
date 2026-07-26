@@ -33,8 +33,8 @@ Cole algo neste formato:
 
 | Ambiente | URL | Deploy |
 |----------|-----|--------|
-| **Portal Criação / Produção musical** | https://portal.radioibiza.app.br | Netlify, branch `main` |
-| **Portal cobrança (legado URL)** | https://site-vencidos-ibiza.netlify.app | Mesmo repo Netlify |
+| **Portal Criação / Produção musical** | https://portal.radioibiza.app.br | Netlify **`site-vencidos-ibiza`** (`0107bc8a-2d4c-4c8f-a33f-8132779d9aee`), branch `main` |
+| **Portal cobrança (legado URL)** | https://site-vencidos-ibiza.netlify.app | Mesmo site Netlify acima |
 | **Processamento de áudio (cloud2)** | https://cloud2.radioibiza.app.br | VM Envyron — repo `portal-ibiza`, pasta `.cloud2-stage/` |
 | **Repositório** | `Financeiroradioibiza/portal-cobranca-contaazul` | GitHub |
 
