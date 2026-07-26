@@ -16,6 +16,9 @@ export async function applyPendingPastaUploads(limit = 80): Promise<number> {
        AND pi.musica_id IS NOT NULL
        AND j.pasta_id IS NOT NULL
        AND j.status = 'concluido'
+       AND EXISTS (
+         SELECT 1 FROM musica_biblioteca mb WHERE mb.id = pi.musica_id
+       )
        AND NOT EXISTS (
          SELECT 1 FROM pasta_musica pm
           WHERE pm.pasta_id = j.pasta_id
@@ -28,14 +31,22 @@ export async function applyPendingPastaUploads(limit = 80): Promise<number> {
   let applied = 0;
   const programacaoIds = new Set<string>();
   for (const item of items) {
-    const n = await addMusicasToPasta(item.pastaId, [item.musicaId]);
-    if (n > 0) {
-      applied += n;
-      const pasta = await prisma.pasta.findUnique({
-        where: { id: item.pastaId },
-        select: { programacaoId: true },
+    try {
+      const n = await addMusicasToPasta(item.pastaId, [item.musicaId]);
+      if (n > 0) {
+        applied += n;
+        const pasta = await prisma.pasta.findUnique({
+          where: { id: item.pastaId },
+          select: { programacaoId: true },
+        });
+        if (pasta?.programacaoId) programacaoIds.add(pasta.programacaoId);
+      }
+    } catch (e) {
+      console.warn("[pastaUploadService] falha ao colocar faixa na pasta", {
+        musicaId: item.musicaId,
+        pastaId: item.pastaId,
+        err: e instanceof Error ? e.message : String(e),
       });
-      if (pasta?.programacaoId) programacaoIds.add(pasta.programacaoId);
     }
   }
 

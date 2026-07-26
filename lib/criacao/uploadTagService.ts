@@ -26,6 +26,9 @@ export async function applyPendingUploadTags(limit = 80): Promise<number> {
        AND pi.musica_id IS NOT NULL
        AND j.upload_tag_nome <> ''
        AND j.status IN ('concluido', 'revisao')
+       AND EXISTS (
+         SELECT 1 FROM musica_biblioteca mb WHERE mb.id = pi.musica_id
+       )
        AND NOT EXISTS (
          SELECT 1
            FROM musica_tag_manual mtm
@@ -40,13 +43,21 @@ export async function applyPendingUploadTags(limit = 80): Promise<number> {
 
   let applied = 0;
   for (const item of items) {
-    const ok = await applyUploadTagForMusica({
-      musicaId: item.musicaId,
-      tagNome: item.uploadTagNome,
-      criativoUserId: item.criativoUserId,
-      criativoNome: item.criativoNome,
-    });
-    if (ok) applied += 1;
+    try {
+      const ok = await applyUploadTagForMusica({
+        musicaId: item.musicaId,
+        tagNome: item.uploadTagNome,
+        criativoUserId: item.criativoUserId,
+        criativoNome: item.criativoNome,
+      });
+      if (ok) applied += 1;
+    } catch (e) {
+      console.warn("[uploadTagService] falha ao aplicar tag", {
+        musicaId: item.musicaId,
+        tag: item.uploadTagNome,
+        err: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
   return applied;
 }
