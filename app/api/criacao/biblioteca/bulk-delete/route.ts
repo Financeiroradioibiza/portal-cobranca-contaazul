@@ -3,14 +3,24 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import {
   bulkDeleteMusicasBiblioteca,
   deleteAllLegacyMusicas,
+  deleteAllPreB2Musicas,
 } from "@/lib/criacao/bibliotecaService";
-import { getLegacyDeleteStats } from "@/lib/criacao/bibliotecaSearchService";
+import {
+  countB2FullMusicas,
+  getLegacyDeleteStats,
+  getPreB2DeleteStats,
+} from "@/lib/criacao/bibliotecaSearchService";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     requirePortalSession(await getPortalSession());
+    const scope = new URL(request.url).searchParams.get("scope");
+    if (scope === "pre_b2") {
+      const [stats, keepB2Full] = await Promise.all([getPreB2DeleteStats(), countB2FullMusicas()]);
+      return NextResponse.json({ ok: true, scope: "pre_b2", keepB2Full, ...stats });
+    }
     const stats = await getLegacyDeleteStats();
-    return NextResponse.json({ ok: true, ...stats });
+    return NextResponse.json({ ok: true, scope: "legacy", ...stats });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/biblioteca/bulk-delete GET]", e);
@@ -28,7 +38,12 @@ export async function POST(request: Request) {
 
     if (body?.scope === "legacy") {
       const result = await deleteAllLegacyMusicas();
-      return NextResponse.json({ ok: true, ...result });
+      return NextResponse.json({ ok: true, scope: "legacy", ...result });
+    }
+
+    if (body?.scope === "pre_b2") {
+      const result = await deleteAllPreB2Musicas();
+      return NextResponse.json({ ok: true, scope: "pre_b2", ...result });
     }
 
     const ids = Array.isArray(body?.ids) ? body!.ids.filter((id) => typeof id === "string") : [];

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { LEGACY_MUSICA_SQL } from "@/lib/criacao/legacyMusicaSql";
+import { B2_FULL_MUSICA_SQL, PRE_B2_MUSICA_SQL } from "@/lib/criacao/musicaB2Criteria";
 
 export type BibliotecaListFilter = "all" | "unused" | "leastUsed" | "legacy";
 
@@ -240,6 +241,45 @@ export async function getLegacyDeleteStats(): Promise<LegacyDeleteStats> {
       LEFT JOIN pasta_musica pm ON pm.musica_id = m.id
       LEFT JOIN pasta p ON p.id = pm.pasta_id
      WHERE ${LEGACY_MUSICA_SQL}`;
+
+  const row = rows[0];
+  return {
+    total: Number(row?.total ?? 0),
+    emProgramacoes: Number(row?.em_programacoes ?? 0),
+    emPastas: Number(row?.em_pastas ?? 0),
+  };
+}
+
+/** Todos os IDs pré-B2 (fora do contrato master B2 + 128 b2:). */
+export async function listAllPreB2MusicaIds(): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT m.id
+      FROM musica_biblioteca m
+     WHERE ${PRE_B2_MUSICA_SQL}
+     ORDER BY m.created_at ASC`;
+  return rows.map((r) => r.id);
+}
+
+export async function countB2FullMusicas(): Promise<number> {
+  const rows = await prisma.$queryRaw<{ total: bigint }[]>`
+    SELECT COUNT(*)::bigint AS total
+      FROM musica_biblioteca m
+     WHERE ${B2_FULL_MUSICA_SQL}`;
+  return Number(rows[0]?.total ?? 0);
+}
+
+export async function getPreB2DeleteStats(): Promise<LegacyDeleteStats> {
+  const rows = await prisma.$queryRaw<
+    { total: bigint; em_programacoes: bigint; em_pastas: bigint }[]
+  >`
+    SELECT
+      COUNT(*)::bigint AS total,
+      COUNT(DISTINCT p.programacao_id)::bigint AS em_programacoes,
+      COUNT(pm.pasta_id)::bigint AS em_pastas
+      FROM musica_biblioteca m
+      LEFT JOIN pasta_musica pm ON pm.musica_id = m.id
+      LEFT JOIN pasta p ON p.id = pm.pasta_id
+     WHERE ${PRE_B2_MUSICA_SQL}`;
 
   const row = rows[0];
   return {

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import type { FastifyReply } from 'fastify';
 import { getB2ObjectBuffer } from './b2.js';
+import { portalQuery } from './portalDb.js';
 import { decryptRib, isRibFile, ribEnabled } from './rib.js';
 import {
   s3KeyFromVersaoStorageKey,
@@ -24,7 +25,7 @@ type ResolvedAudio = {
 
 const FORMATO_USO_FALLBACK = 'mp3_128_mono';
 
-/** Resolve áudio de uso pelo id da faixa — sem consulta ao Neon (evita 500 por timeout do pool). */
+/** Resolve áudio de uso pelo id — Neon (b2:/uso:) primeiro; fallback paths NVMe legado. */
 export async function resolveMusicaUsoAudioById(
   musicaId: string,
   formato: string,
@@ -33,8 +34,26 @@ export async function resolveMusicaUsoAudioById(
   if (!id) return null;
 
   const formatos = formato === FORMATO_USO_FALLBACK ? [formato] : [formato, FORMATO_USO_FALLBACK];
-  const exts: Array<'.rib' | '.mp3'> = ribEnabled() ? ['.rib', '.mp3'] : ['.mp3', '.rib'];
 
+  try {
+    for (const fmt of formatos) {
+      const ver = await portalQuery<{ storage_key: string | null }>(
+        `SELECT storage_key FROM musica_versao
+          WHERE musica_id = $1 AND formato::text = $2
+          LIMIT 1`,
+        [id, fmt],
+      );
+      const neonKey = ver.rows[0]?.storage_key?.trim();
+      if (neonKey) {
+        const fromNeon = await resolveUsoAudio(neonKey);
+        if (fromNeon) return fromNeon;
+      }
+    }
+  } catch {
+    /* pool Neon indisponível — tenta disco abaixo */
+  }
+
+  const exts: Array<'.rib' | '.mp3'> = ribEnabled() ? ['.rib', '.mp3'] : ['.mp3', '.rib'];
   for (const fmt of formatos) {
     for (const ext of exts) {
       const resolved = await resolveUsoAudio(usoStorageKey(id, fmt, ext));

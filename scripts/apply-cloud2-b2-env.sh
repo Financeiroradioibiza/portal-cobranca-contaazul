@@ -47,8 +47,8 @@ echo "== Reiniciando api + worker-audio"
 
 echo "== Verificação (sem mostrar secrets)"
 "${SSH[@]}" "$REMOTE" "cd '$INFRA' && docker compose exec -T worker-audio node -e \"\
-const { b2Enabled } = require('./dist/criacao/config.js');\
-console.log('b2Enabled=', b2Enabled());\
+const { b2Enabled, usoB2Enabled, usoDiskMirrorEnabled } = require('./dist/criacao/config.js');\
+console.log('b2Enabled=', b2Enabled(), 'usoB2=', usoB2Enabled(), 'diskMirror=', usoDiskMirrorEnabled());\
 \""
 
 echo "OK. Processe 1 faixa teste; confira master/ e uso/ no bucket; npm run criacao:audit-b2 -- --musica=ID"

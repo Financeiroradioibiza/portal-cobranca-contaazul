@@ -683,6 +683,12 @@ export async function deleteAllLegacyMusicas(): Promise<BulkDeleteResult> {
   return bulkDeleteMusicasBiblioteca(ids);
 }
 
+export async function deleteAllPreB2Musicas(): Promise<BulkDeleteResult> {
+  const { listAllPreB2MusicaIds } = await import("@/lib/criacao/bibliotecaSearchService");
+  const ids = await listAllPreB2MusicaIds();
+  return bulkDeleteMusicasBiblioteca(ids);
+}
+
 export async function refreshMusicaInternetTags(
   musicaId: string,
 ): Promise<{ updated: boolean; gravadora: string; isrc: string | null; hint: string }> {
