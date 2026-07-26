@@ -25,6 +25,7 @@ Toda faixa na fila: dedupe → mix → LUFS → tags → **128 mono no B2 (`B2_U
 |----------|---------|--------|
 | `CRIACAO_USO_B2` | **`0`** | **`1` só após homolog** — grava 128 no B2 (`b2:` no Neon). **`0` = baseline (disco `uso:` + player/publicar como hoje)** |
 | `CRIACAO_USO_DISK_MIRROR` | `1` | **Manter `1` em prod** — cópia `uso/` para preview portal e fallback do player |
+| `CRIACAO_WORKER_CONCURRENCY` | `1` | Faixas em paralelo no worker (`2` = duas no Kanban ao mesmo tempo; max 8) |
 
 ### Auditar chegada no B2
 

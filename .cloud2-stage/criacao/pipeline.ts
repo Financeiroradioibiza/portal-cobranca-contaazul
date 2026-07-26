@@ -488,28 +488,35 @@ export async function runPipelineOnce(): Promise<boolean> {
 }
 
 export async function runPipelineLoop(): Promise<void> {
+  const concurrency = criacaoConfig.workerConcurrency;
   console.log(
     JSON.stringify({
       ts: new Date().toISOString(),
       component: 'criacao-worker',
       msg: 'iniciado',
       pollMs: criacaoConfig.workerPollMs,
+      concurrency,
       mixRegras: 'fade_2s_outro_quieto_0',
       rib: criacaoConfig.ribSecret.length >= 16,
     }),
   );
   ensureStorageDirs();
-  for (;;) {
-    try {
-      const did = await runPipelineOnce();
-      if (!did) {
+
+  async function slotLoop(slot: number): Promise<void> {
+    for (;;) {
+      try {
+        const did = await runPipelineOnce();
+        if (!did) {
+          await new Promise((r) => setTimeout(r, criacaoConfig.workerPollMs));
+        }
+      } catch (e) {
+        console.error(`[criacao-worker] slot ${slot} erro no loop:`, e);
         await new Promise((r) => setTimeout(r, criacaoConfig.workerPollMs));
       }
-    } catch (e) {
-      console.error('[criacao-worker] erro no loop:', e);
-      await new Promise((r) => setTimeout(r, criacaoConfig.workerPollMs));
     }
   }
+
+  await Promise.all(Array.from({ length: concurrency }, (_, slot) => slotLoop(slot)));
 }
 
 export { ETAPAS };

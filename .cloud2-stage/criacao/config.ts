@@ -13,6 +13,11 @@ export const criacaoConfig = {
   /** Legado — publicação usa mix detectado; 0 se ausente. */
   defaultMixSegundos: Number(process.env.CRIACAO_DEFAULT_MIX_SEG ?? '0'),
   workerPollMs: Number(process.env.CRIACAO_WORKER_POLL_MS ?? '2000'),
+  /** Faixas processadas em paralelo no mesmo worker (ffmpeg + B2). Default 1 — homolog: 2. */
+  workerConcurrency: Math.max(
+    1,
+    Math.min(8, Number(process.env.CRIACAO_WORKER_CONCURRENCY ?? '1') || 1),
+  ),
   /** Mantém upload/work em erro por N horas antes do GC (retentativa manual). */
   scratchRetentionErroHours: Number(process.env.CRIACAO_SCRATCH_RETENTION_ERRO_HOURS ?? '48'),
   /** Arquivos/pastas em pastas temp com mtime mais antigo que N dias → alerta «limbo» no /ops/orphans. */
