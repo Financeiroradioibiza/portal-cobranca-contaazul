@@ -12,7 +12,7 @@ Objetivo desta fase: infra de borda pronta para homologar `.rib` via Cloudflare 
 |-----|---------|
 | Worker CF → GET `.rib` no B2 (Bandwidth Alliance) | Alterar `/api/playlist/` ou `url_musica` |
 | Domínio `cloud3.radioibiza.app.br` (quando DNS ok) | Desligar `get_musica` |
-| CORS no bucket B2 (origens player/portal/audio) | Player v2 / presign na playlist |
+| CORS no bucket B2 (origens player/portal/cloud3) | Player v2 / presign na playlist |
 | Teste ops: HEAD/GET com `x-criacao-secret` | Gravar MP3 no cache ou decrypt na borda |
 
 ---
@@ -70,13 +70,23 @@ Variável opcional: `CORS_ALLOWED_ORIGINS` (vírgula).
 
 Naming: **cloud2** = comando/API (Envyron); **cloud3** = entrega de áudio na borda CF (Worker → B2).
 
-`radioibiza.app.br` hoje usa NS do **Registro.br** (`f.sec.dns.br`). Duas opções:
+`radioibiza.app.br` hoje usa NS do **Registro.br** e **não está** na conta Cloudflare (`ibizapreview.com`). Por isso o custom domain exige **dois passos manuais**:
 
 ### A) Subdomínio via Registro.br (recomendado agora)
 
-1. No painel Cloudflare Workers → *radioibiza-audio-b2* → **Custom Domains** → adicionar `cloud3.radioibiza.app.br`.
-2. A CF mostra o **target** do CNAME (ex. `radioibiza-audio-b2.<account>.workers.dev` ou registro específico).
-3. No **Registro.br**, criar **CNAME** `audio` → target indicado pela CF.
+1. [Cloudflare Dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **radioibiza-audio-b2** → **Settings** → **Domains & Routes** → **Add** → `cloud3.radioibiza.app.br`
+2. A CF mostra o **CNAME target** (copiar exatamente).
+3. [Registro.br](https://registro.br) → domínio `radioibiza.app.br` → **DNS** → novo **CNAME**:
+   - Nome: `cloud3`
+   - Destino: target da CF (passo 2)
+4. Aguardar propagação (minutos a ~1h).
+5. Homolog:
+
+```bash
+npx tsx scripts/test-cf-audio-worker.ts --host=cloud3.radioibiza.app.br
+```
+
+**Nota:** não é preciso migrar o domínio inteiro para a CF — só esse CNAME.
 
 ### B) Zona inteira na Cloudflare (futuro)
 
@@ -123,7 +133,7 @@ curl -sI \
 ## Rollback Fase A
 
 1. Remover custom domain ou pausar Worker no painel CF.
-2. Remover CNAME `audio` no Registro.br (opcional).
+2. Remover CNAME `cloud3` no Registro.br (opcional).
 3. CORS B2 pode permanecer (inofensivo).
 
 Nenhum impacto em fila, publicação ou Player v1.
