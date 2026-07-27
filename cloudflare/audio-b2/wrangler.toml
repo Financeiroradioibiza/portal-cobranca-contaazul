@@ -1,6 +1,6 @@
 # Fase A — entrega de áudio .rib (origin Backblaze B2).
 # Deploy: bash scripts/deploy-cf-audio-worker.sh
-# Domínio alvo: audio.radioibiza.app.br (CNAME no Registro.br após 1º deploy)
+# Domínio alvo: cloud3.radioibiza.app.br (CNAME cloud3 no Registro.br após 1º deploy)
 
 name = "radioibiza-audio-b2"
 main = "src/index.ts"
@@ -8,7 +8,7 @@ compatibility_date = "2025-01-01"
 workers_dev = true
 
 # Custom domain (Cloudflare DNS ou CNAME externo autorizado no painel Workers)
-# routes = [{ pattern = "audio.radioibiza.app.br/*", zone_name = "radioibiza.app.br" }]
+# routes = [{ pattern = "cloud3.radioibiza.app.br/*", zone_name = "radioibiza.app.br" }]
 
 [vars]
 B2_USO_PREFIX = "uso/"

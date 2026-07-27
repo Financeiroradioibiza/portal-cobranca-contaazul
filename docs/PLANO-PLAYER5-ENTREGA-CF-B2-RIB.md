@@ -47,7 +47,7 @@ Qualquer PR desta fase que toque em dedupe, LUFS, mix, tags, publicar, cronogram
 | **Download no PDV** | cloud2 faz proxy (decrypt + stream MP3) | PDV baixa **`.rib`**, grava **`.rib`** no cache local |
 | **Reprodução** | MP3 recebido do cloud2 | Descriptografa **`.rib` só em memória** na hora do play |
 | **Tráfego Envyron (áudio)** | ~2× tamanho da faixa (B2→cloud2→PDV) | **Zero** bytes de MP3/rib no proxy (cloud2 só JSON de playlist) |
-| **Certificados** | TLS cloud2 | TLS domínio CF de entrega (ex. `audio.radioibiza.app.br`) |
+| **Certificados** | TLS cloud2 | TLS **`cloud3.radioibiza.app.br`** (CF) |
 
 **cloud2 continua mandando** login, playlist, ping e validação — só deixa de ser CDN de áudio para PDVs v2.
 
@@ -118,7 +118,7 @@ url_musica: https://cloud2.radioibiza.app.br/api/get_musica/?token=…&id_musica
 ### v2 (opt-in)
 
 ```http
-url_musica: https://audio.radioibiza.app.br/…/mp3_128_mono.rib?…assinatura…&exp=…
+url_musica: https://cloud3.radioibiza.app.br/…/mp3_128_mono.rib?…assinatura…&exp=…
 ```
 
 Regras:
@@ -144,7 +144,7 @@ Regras:
 Runbook: **`docs/FASE-A-CF-AUDIO-SETUP.md`** · Worker: `cloudflare/audio-b2/`
 
 - [ ] Conta / zona DNS (`radioibiza.app.br`).
-- [ ] Subdomínio entrega (ex. `audio.radioibiza.app.br`).
+- [ ] Subdomínio entrega (ex. `cloud3.radioibiza.app.br`).
 - [ ] CDN / pull zone apontando origin B2 (`B2_USO_PREFIX`) — Bandwidth Alliance configurada.
 - [ ] CORS no bucket B2 (origins: `player5.radioibiza.app.br`, TWA se aplicável).
 - [ ] Certificado TLS na CF.
@@ -187,7 +187,7 @@ Adicionar em `docs/CLOUD2-ENV-OBRIGATORIO.md` quando implementar. **Defaults pre
 | Variável | Default | Efeito |
 |----------|---------|--------|
 | `PLAYER5_ENTREGA_CF` | `0` | `1` = playlist pode emitir URL CF para PDVs v2 |
-| `CF_AUDIO_DOMAIN` | vazio | ex. `audio.radioibiza.app.br` |
+| `CF_AUDIO_DOMAIN` | vazio | ex. **`cloud3.radioibiza.app.br`** |
 | `CF_AUDIO_SIGN_TTL_SEC` | `3600` | validade URL assinada |
 | `B2_USO_PUBLIC_BASE` | vazio | base URL origin (se diferente do domínio CF) |
 

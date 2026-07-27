@@ -11,7 +11,7 @@ Objetivo desta fase: infra de borda pronta para homologar `.rib` via Cloudflare 
 | Faz | Não faz |
 |-----|---------|
 | Worker CF → GET `.rib` no B2 (Bandwidth Alliance) | Alterar `/api/playlist/` ou `url_musica` |
-| Domínio `audio.radioibiza.app.br` (quando DNS ok) | Desligar `get_musica` |
+| Domínio `cloud3.radioibiza.app.br` (quando DNS ok) | Desligar `get_musica` |
 | CORS no bucket B2 (origens player/portal/audio) | Player v2 / presign na playlist |
 | Teste ops: HEAD/GET com `x-criacao-secret` | Gravar MP3 no cache ou decrypt na borda |
 
@@ -35,7 +35,7 @@ npx tsx scripts/apply-b2-cors.ts --dry-run
 npx tsx scripts/apply-b2-cors.ts
 ```
 
-Origens: `player5.radioibiza.app.br`, `portal.radioibiza.app.br`, `audio.radioibiza.app.br`.
+Origens: `player5.radioibiza.app.br`, `portal.radioibiza.app.br`, `cloud3.radioibiza.app.br`.
 
 ---
 
@@ -66,13 +66,15 @@ Variável opcional: `CORS_ALLOWED_ORIGINS` (vírgula).
 
 ---
 
-## Passo 3 — DNS `audio.radioibiza.app.br`
+## Passo 3 — DNS `cloud3.radioibiza.app.br`
+
+Naming: **cloud2** = comando/API (Envyron); **cloud3** = entrega de áudio na borda CF (Worker → B2).
 
 `radioibiza.app.br` hoje usa NS do **Registro.br** (`f.sec.dns.br`). Duas opções:
 
 ### A) Subdomínio via Registro.br (recomendado agora)
 
-1. No painel Cloudflare Workers → *radioibiza-audio-b2* → **Custom Domains** → adicionar `audio.radioibiza.app.br`.
+1. No painel Cloudflare Workers → *radioibiza-audio-b2* → **Custom Domains** → adicionar `cloud3.radioibiza.app.br`.
 2. A CF mostra o **target** do CNAME (ex. `radioibiza-audio-b2.<account>.workers.dev` ou registro específico).
 3. No **Registro.br**, criar **CNAME** `audio` → target indicado pela CF.
 
@@ -111,7 +113,7 @@ Esperado: `HTTP/2 200`, `content-type: application/octet-stream`, tamanho ~3,8 M
 ```bash
 curl -sI \
   -H "x-criacao-secret: SEU_CRIACAO_INGEST_SECRET" \
-  "https://audio.radioibiza.app.br/uso/musicas/cf85f05e-05be-43b8-8e72-f79b1240e296/mp3_128_mono.rib"
+  "https://cloud3.radioibiza.app.br/uso/musicas/cf85f05e-05be-43b8-8e72-f79b1240e296/mp3_128_mono.rib"
 ```
 
 **Player / playlist:** inalterados — PDVs continuam em `get_musica`.
@@ -133,7 +135,7 @@ Nenhum impacto em fila, publicação ou Player v1.
 - [ ] ~~Bandwidth Alliance no painel B2~~ — **não existe**; aliança ativa quando o Worker CF busca no B2 (deploy + DNS)
 - [x] CORS B2 aplicado (`2026-07-27` — bucket `radioibiza-masters-2026`)
 - [x] Worker deployado + secrets ok (`radioibiza-audio-b2.radioibiza-audio.workers.dev`)
-- [ ] CNAME `audio.radioibiza.app.br` apontando (custom domain no painel CF)
+- [ ] CNAME **`cloud3`** no Registro.br → custom domain no painel CF
 - [ ] HEAD 200 num `.rib` real via domínio CF
 - [ ] Player v1 piloto ainda toca via `get_musica` (regressão zero)
 

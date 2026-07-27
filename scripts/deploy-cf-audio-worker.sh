@@ -54,4 +54,4 @@ echo "== Deploy"
 npx wrangler deploy
 
 echo ""
-echo "OK. Próximo: docs/FASE-A-CF-AUDIO-SETUP.md (DNS audio.radioibiza.app.br + curl HEAD)"
+echo "OK. Próximo: docs/FASE-A-CF-AUDIO-SETUP.md (DNS cloud3.radioibiza.app.br + curl HEAD)"

@@ -19,7 +19,7 @@ const dryRun = process.argv.includes("--dry-run");
 const ORIGINS = [
   "https://player5.radioibiza.app.br",
   "https://portal.radioibiza.app.br",
-  "https://audio.radioibiza.app.br",
+  "https://cloud3.radioibiza.app.br",
 ];
 
 async function main(): Promise<void> {
