@@ -20,7 +20,7 @@ Objetivo desta fase: infra de borda pronta para homologar `.rib` via Cloudflare 
 ## Pré-requisitos
 
 1. **Backblaze B2** — bucket `radioibiza-masters-2026`, prefixo `uso/` com `.rib` (já homologado).
-2. **Bandwidth Alliance** — no painel B2: *Settings → Cloudflare Bandwidth Alliance* → ativar (egress B2→CF sem custo B2 nessa perna).
+2. **Bandwidth Alliance** — **não há botão no painel B2.** A parceria Backblaze↔Cloudflare é automática: egress **B2 → rede Cloudflare** = $0 no B2. Basta o tráfego passar pelo Worker/CDN CF (nosso desenho). Ver [Cloudflare Integrations (Backblaze)](https://www.backblaze.com/docs/cloud-storage-cloudflare-integrations).
 3. **Conta Cloudflare** — API token com *Workers Scripts* + *Workers Routes* (e DNS se zona estiver na CF).
 4. **Segredo** — mesmo `CRIACAO_INGEST_SECRET` do cloud2 (só ops/Fase A; Fase C usa URL assinada).
 
@@ -90,7 +90,13 @@ Faixa teste hiphop (ex. Shaggy):
 Object key: uso/musicas/cf85f05e-05be-43b8-8e72-f79b1240e296/mp3_128_mono.rib
 ```
 
-**Via workers.dev** (antes do DNS):
+**Via workers.dev** (Fase A — deploy 2026-07-27):
+
+```
+https://radioibiza-audio-b2.radioibiza-audio.workers.dev/uso/musicas/{id}/mp3_128_mono.rib
+```
+
+**Antes do DNS** (URL antiga de exemplo):
 
 ```bash
 curl -sI \
@@ -124,10 +130,10 @@ Nenhum impacto em fila, publicação ou Player v1.
 
 ## Checklist Fase A
 
-- [ ] Bandwidth Alliance B2 ↔ CF ativada (painel Backblaze)
+- [ ] ~~Bandwidth Alliance no painel B2~~ — **não existe**; aliança ativa quando o Worker CF busca no B2 (deploy + DNS)
 - [x] CORS B2 aplicado (`2026-07-27` — bucket `radioibiza-masters-2026`)
-- [ ] Worker deployado + secrets ok (`bash scripts/deploy-cf-audio-worker.sh` + `CLOUDFLARE_API_TOKEN`)
-- [ ] CNAME `audio.radioibiza.app.br` apontando
+- [x] Worker deployado + secrets ok (`radioibiza-audio-b2.radioibiza-audio.workers.dev`)
+- [ ] CNAME `audio.radioibiza.app.br` apontando (custom domain no painel CF)
 - [ ] HEAD 200 num `.rib` real via domínio CF
 - [ ] Player v1 piloto ainda toca via `get_musica` (regressão zero)
 

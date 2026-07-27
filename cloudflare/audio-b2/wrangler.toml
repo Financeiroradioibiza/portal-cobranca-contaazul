@@ -5,6 +5,7 @@
 name = "radioibiza-audio-b2"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
+workers_dev = true
 
 # Custom domain (Cloudflare DNS ou CNAME externo autorizado no painel Workers)
 # routes = [{ pattern = "audio.radioibiza.app.br/*", zone_name = "radioibiza.app.br" }]
