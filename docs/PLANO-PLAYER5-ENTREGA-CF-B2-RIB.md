@@ -1,6 +1,6 @@
 # Plano — Player 5: entrega via Cloudflare + B2 (`.rib` end-to-end)
 
-**Status:** acordado, **não implementado** (jul/2026).  
+**Status:** Fase A concluída; **Fase C implementada no repo** (jul/2026) — deploy cloud2 + Worker pendente.  
 **Objetivo:** eliminar o proxy de áudio no cloud2 (B2 → Envyron → PDV) em escala (~4000 PDVs), **sem alterar** fila, pipeline, publicação, cronogramas, login, ping nem contratos operacionais já homologados.
 
 Documentos irmãos:
@@ -159,10 +159,10 @@ Runbook: **`docs/FASE-A-CF-AUDIO-SETUP.md`** · Worker: `cloudflare/audio-b2/`
 
 ### Fase C — cloud2 presign na playlist (flag `PLAYER5_ENTREGA_CF=0` default)
 
-- [ ] Função presign B2/CF (SDK já no cloud2).
-- [ ] Campo/flag por PDV ou `player_version` no ping → playlist v2 URLs.
-- [ ] **`get_musica` permanece** para v1 e fallback.
-- [ ] Homolog **1 PDV** com build v2; demais continuam v1.
+- [x] Função presign B2/CF — `.cloud2-stage/criacao/cfAudioUrl.ts` + Worker `exp`/`sig`
+- [x] Campo/flag por PDV (`PLAYER5_ENTREGA_CF_PDV_IDS`) ou `PLAYER5_CF_MIN_VERSION` no ping
+- [x] **`get_musica` permanece** para v1 e fallback
+- [ ] Homolog **1 PDV** com build v2 (Fase D); demais continuam v1
 
 ### Fase D — Player 5 v2 build
 

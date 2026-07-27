@@ -33,7 +33,9 @@
   "exclude": [
     "node_modules",
     ".cloud2-stage",
+    "cloudflare",
+    "scripts",
     "tools",
-    "scripts/reanalisar-mix-biblioteca.ts"
+    "tmp-fluxo"
   ]
 }

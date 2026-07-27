@@ -1,6 +1,7 @@
 import { getPool } from '../../db/pool.js';
 import { apiPublicBaseUrl, intervalToLegacyHms, resolveProgramaIdForSession } from './helpers.js';
 import { loadSessionByToken } from './loginByToken.js';
+import { buildPlaylistUrlMusica, pdvUsaEntregaCf } from '../../criacao/cfAudioUrl.js';
 
 /** GET /api/playlist/ — programação musical (pastas + faixas + url_musica). */
 export async function registerPlaylistRoutes(app, prefix) {
@@ -41,6 +42,7 @@ export async function registerPlaylistRoutes(app, prefix) {
       `SELECT
          pl.id AS playlist_id, pm.id AS pm_id,
          m.titulo, m.nome_arquivo, m.tamanho_bytes::text, m.duracao, m.corte_seg,
+         m.storage_key,
          COALESCE(pm.downloaded, 'N') AS downloaded,
          a.id AS artista_id, a.nome AS artista_nome, m.id AS musica_id
        FROM playlists pl
@@ -60,6 +62,7 @@ export async function registerPlaylistRoutes(app, prefix) {
     }
 
     const baseUrl = apiPublicBaseUrl();
+    const useCf = await pdvUsaEntregaCf(pool, session.pdv_id);
 
     return reply.send({
       programa: { id: prog.rows[0].id, nome: prog.rows[0].nome, cliente_id: session.cliente_id },
@@ -88,7 +91,14 @@ export async function registerPlaylistRoutes(app, prefix) {
             nome: m.artista_nome ?? '',
             foto: '',
           },
-          url_musica: `${baseUrl}/api/get_musica/?token=${encodeURIComponent(token)}&id_musica=${m.musica_id}&playlist_id=${pl.id}`,
+          url_musica: buildPlaylistUrlMusica({
+            baseUrl,
+            token,
+            musicaId: m.musica_id,
+            playlistId: pl.id,
+            storageKey: m.storage_key,
+            useCf,
+          }),
         })),
       })),
     });

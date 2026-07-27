@@ -72,7 +72,13 @@ Worker `cloudflare/audio-b2/` — ver **`docs/FASE-A-CF-AUDIO-SETUP.md`**.
 |------|----------|--------|
 | Mac deploy Worker | `CLOUDFLARE_API_TOKEN` | API token CF (Workers) |
 | Worker secrets | `CRIACAO_INGEST_SECRET`, `B2_*` | Iguais ao cloud2 |
-| cloud2 (fase C) | `PLAYER5_ENTREGA_CF=0` | Default — playlist legacy |
+| cloud2 (fase C) | `PLAYER5_ENTREGA_CF=0` | Default — playlist legacy (`get_musica`) |
+| cloud2 (fase C) | `CF_AUDIO_DOMAIN=cloud3.radioibiza.app.br` | Host na URL assinada |
+| cloud2 (fase C) | `CF_AUDIO_SIGN_TTL_SEC=3600` | Validade da assinatura (segundos) |
+| cloud2 (fase C) | `PLAYER5_ENTREGA_CF_PDV_IDS=` | Piloto: IDs gateway separados por vírgula |
+| cloud2 (fase C) | `PLAYER5_CF_MIN_VERSION=` | Alternativa: versao_player mínima (ex. `5.2.0`) |
+
+Com `PLAYER5_ENTREGA_CF=1`, só PDVs piloto (ou versão ≥ mínima) recebem `url_musica` apontando para `cloud3` com `?exp=&sig=`. Demais PDVs e rollback (`=0`) continuam em `get_musica`.
 
 ## Aplicar B2 a partir do Mac (sem colar secrets no chat)
 

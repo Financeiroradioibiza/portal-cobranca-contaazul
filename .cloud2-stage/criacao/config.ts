@@ -75,6 +75,12 @@ export function usoB2Enabled(): boolean {
   return v === '1' || v === 'true' || v === 'on';
 }
 
+/** Fase C — playlist emite URL cloud3 assinada para PDVs v2 (default off). */
+export function player5EntregaCfEnabled(): boolean {
+  const v = (process.env.PLAYER5_ENTREGA_CF ?? '0').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
 /** Espelha 128 no disco cloud2 (preview legado /criacao/audio). Desligar: CRIACAO_USO_DISK_MIRROR=0 */
 export function usoDiskMirrorEnabled(): boolean {
   const v = (process.env.CRIACAO_USO_DISK_MIRROR ?? '1').trim().toLowerCase();

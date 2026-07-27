@@ -72,21 +72,55 @@ Naming: **cloud2** = comando/API (Envyron); **cloud3** = entrega de áudio na bo
 
 `radioibiza.app.br` hoje usa NS do **Registro.br** e **não está** na conta Cloudflare (`ibizapreview.com`). Por isso o custom domain exige **dois passos manuais**:
 
-### A) Subdomínio via Registro.br (recomendado agora)
+### A) Subdomínio `cloud3` (recomendado)
 
-1. [Cloudflare Dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **radioibiza-audio-b2** → **Settings** → **Domains & Routes** → **Add** → `cloud3.radioibiza.app.br`
-2. A CF mostra o **CNAME target** (copiar exatamente).
-3. [Registro.br](https://registro.br) → domínio `radioibiza.app.br` → **DNS** → novo **CNAME**:
-   - Nome: `cloud3`
-   - Destino: target da CF (passo 2)
-4. Aguardar propagação (minutos a ~1h).
-5. Homolog:
+**Por que “Add Domain” só mostra bots/IA e volta?**  
+Custom Domain do Worker exige a zona **`radioibiza.app.br` na conta Cloudflare**. Só digitar `cloud3…` tenta criar zona nova e **não completa** (sem CNAME).
+
+**Caminho que funciona:**
+
+#### 1) Adicionar o domínio pai na Cloudflare (uma vez)
+
+1. Dashboard CF → **Add a site** (não pelo Worker).
+2. Domínio: **`radioibiza.app.br`** (apex, não `cloud3`).
+3. Plano **Free**.
+4. A CF mostra **2 nameservers** (ex. `ada.ns.cloudflare.com` …).
+5. No **Registro.br** → trocar NS do `radioibiza.app.br` pelos da CF (propagação ~ até 24h, often 1–2h).
+
+#### 2) Recriar DNS na CF (antes/depois da troca de NS)
+
+Copiar do Registro.br para **DNS** na CF tudo que já existe, por exemplo:
+
+| Tipo | Nome | Destino (manter o que já usa hoje) |
+|------|------|-------------------------------------|
+| CNAME ou A | `cloud2` | IP/host Envyron (como hoje) |
+| CNAME | `portal` | Netlify |
+| CNAME | `player5` | Netlify |
+| … | … | demais subdomínios ativos |
+
+**Não apagar** registros de produção — só **replicar** na CF.
+
+#### 3) Worker → Custom Domain
+
+1. **Workers & Pages** → **radioibiza-audio-b2** → **Domains** → **+ Add Domain**
+2. `cloud3.radioibiza.app.br`
+3. Agora a CF **cria o DNS sozinha** (proxy laranja) — aparece na zona `radioibiza.app.br`.
+
+#### 4) Teste
 
 ```bash
 npx tsx scripts/test-cf-audio-worker.ts --host=cloud3.radioibiza.app.br
 ```
 
-**Nota:** não é preciso migrar o domínio inteiro para a CF — só esse CNAME.
+**Nota:** não use “Add Domain” com `cloud3…` no fluxo **Add site** genérico (tela de bots/IA) — use apex `radioibiza.app.br` no Add site, e `cloud3…` só no Worker.
+
+### B) Enquanto NS não migra (homolog)
+
+URL já validada:
+
+`https://radioibiza-audio-b2.radioibiza-audio.workers.dev/...`
+
+Fase C pode homologar no `workers.dev`; `cloud3` fica para quando NS estiver na CF.
 
 ### B) Zona inteira na Cloudflare (futuro)
 
@@ -95,6 +129,16 @@ Migrar NS de `radioibiza.app.br` para Cloudflare — fora do escopo Fase A salvo
 ---
 
 ## Passo 4 — Homolog (ops)
+
+Script automático:
+
+```bash
+npx tsx scripts/test-cf-audio-worker.ts
+# ou, após DNS cloud3:
+npx tsx scripts/test-cf-audio-worker.ts --host=cloud3.radioibiza.app.br
+# Fase C — URL assinada (sem header; igual ao Player v2):
+npx tsx scripts/test-cf-audio-worker.ts --host=cloud3.radioibiza.app.br --signed
+```
 
 Faixa teste hiphop (ex. Shaggy):
 
@@ -145,8 +189,9 @@ Nenhum impacto em fila, publicação ou Player v1.
 - [ ] ~~Bandwidth Alliance no painel B2~~ — **não existe**; aliança ativa quando o Worker CF busca no B2 (deploy + DNS)
 - [x] CORS B2 aplicado (`2026-07-27` — bucket `radioibiza-masters-2026`)
 - [x] Worker deployado + secrets ok (`radioibiza-audio-b2.radioibiza-audio.workers.dev`)
-- [ ] CNAME **`cloud3`** no Registro.br → custom domain no painel CF
-- [ ] HEAD 200 num `.rib` real via domínio CF
+- [x] HEAD 200 num `.rib` real via **workers.dev** (`2026-07-27`, script `test-cf-audio-worker.ts`, 3791396 bytes)
+- [ ] CNAME **`cloud3`** no Registro.br + custom domain no painel CF
+- [ ] HEAD 200 via `cloud3.radioibiza.app.br`
 - [ ] Player v1 piloto ainda toca via `get_musica` (regressão zero)
 
 ---

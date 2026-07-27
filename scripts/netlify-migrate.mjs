@@ -70,6 +70,9 @@ function sleep(ms) {
 }
 
 function hintFromStderr(stderr) {
+  if (/DIRECT_DATABASE_URL/i.test(stderr)) {
+    return "DIRECT_DATABASE_URL ausente no Netlify — adicione a connection string **Direct** do Neon (sem pooler), ou deixe o script derivar de DATABASE_URL (-pooler → direct).";
+  }
   if (/P1012|must start with the protocol `postgresql/i.test(stderr)) {
     return "DATABASE_URL mal formatada (P1012) — use a string pooled do Neon, ex.: postgresql://user:pass@ep-….neon.tech/neondb?sslmode=require";
   }
@@ -104,6 +107,18 @@ function finishMigrateFailure(hint, attemptsLabel) {
   process.exit(1);
 }
 
+function ensureDirectDatabaseUrl() {
+  if (process.env.DIRECT_DATABASE_URL?.trim()) return;
+  const pooled = process.env.DATABASE_URL?.trim().replace(/^["']|["']$/g, "");
+  if (!pooled) return;
+  // Neon: ep-…-pooler.… → ep-….… (migrate exige conexão direta)
+  const derived = pooled.includes("-pooler")
+    ? pooled.replace("-pooler", "")
+    : pooled;
+  process.env.DIRECT_DATABASE_URL = derived;
+  console.log("[netlify-migrate] DIRECT_DATABASE_URL derivada de DATABASE_URL (Neon direct).");
+}
+
 (async () => {
   const dbCheck = validateDatabaseUrl();
   if (!dbCheck.ok) {
@@ -111,6 +126,7 @@ function finishMigrateFailure(hint, attemptsLabel) {
     return;
   }
 
+  ensureDirectDatabaseUrl();
   let lastStderr = "";
   for (let i = 1; i <= attempts; i++) {
     console.log(`[netlify-migrate] tentativa ${i}/${attempts}: npx prisma migrate deploy`);

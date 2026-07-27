@@ -1,6 +1,7 @@
 /**
- * Fase A — GET .rib do B2 via borda Cloudflare.
- * Não altera player, playlist nem pipeline. Auth ops: header x-criacao-secret.
+ * Fase A/C — GET .rib do B2 via borda Cloudflare.
+ * Auth ops: header x-criacao-secret (Fase A).
+ * Auth Player: query exp+sig HMAC (Fase C — emitido pelo cloud2 na playlist).
  */
 
 import { AwsClient } from "aws4fetch";
@@ -48,6 +49,59 @@ function normalizeObjectKey(pathname: string, env: Env): string | null {
   return key;
 }
 
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
+  return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function signedUrlAuthorized(
+  objectKey: string,
+  exp: string | null,
+  sig: string | null,
+  secret: string,
+): Promise<boolean> {
+  if (!exp || !sig || !secret) return false;
+  const expNum = Number(exp);
+  if (!Number.isFinite(expNum) || expNum < Math.floor(Date.now() / 1000)) return false;
+  const expected = await hmacSha256Hex(secret, `${objectKey}:${exp}`);
+  return timingSafeEqualHex(sig.toLowerCase(), expected.toLowerCase());
+}
+
+async function requestAuthorized(
+  request: Request,
+  env: Env,
+  objectKey: string,
+): Promise<boolean> {
+  const secret = env.CRIACAO_INGEST_SECRET ?? "";
+  if (!secret) return false;
+
+  const headerSecret = request.headers.get("x-criacao-secret") ?? "";
+  if (headerSecret === secret) return true;
+
+  const url = new URL(request.url);
+  return signedUrlAuthorized(
+    objectKey,
+    url.searchParams.get("exp"),
+    url.searchParams.get("sig"),
+    secret,
+  );
+}
+
 async function b2GetObject(
   env: Env,
   objectKey: string,
@@ -84,14 +138,13 @@ export default {
       return new Response("method_not_allowed", { status: 405, headers: cors });
     }
 
-    const secret = request.headers.get("x-criacao-secret") ?? "";
-    if (!env.CRIACAO_INGEST_SECRET || secret !== env.CRIACAO_INGEST_SECRET) {
-      return new Response("nao_autorizado", { status: 401, headers: cors });
-    }
-
     const objectKey = normalizeObjectKey(new URL(request.url).pathname, env);
     if (!objectKey) {
       return new Response("caminho_invalido", { status: 403, headers: cors });
+    }
+
+    if (!(await requestAuthorized(request, env, objectKey))) {
+      return new Response("nao_autorizado", { status: 401, headers: cors });
     }
 
     try {
