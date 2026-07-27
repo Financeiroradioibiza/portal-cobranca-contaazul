@@ -1,0 +1,18 @@
+{
+  "name": "radioibiza-audio-b2",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Fase A — borda Cloudflare para .rib no B2 (proxy GET; auth por secret ops)",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250204.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^3.109.0"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  }
+}

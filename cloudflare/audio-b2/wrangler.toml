@@ -1,0 +1,21 @@
+# Fase A — entrega de áudio .rib (origin Backblaze B2).
+# Deploy: bash scripts/deploy-cf-audio-worker.sh
+# Domínio alvo: audio.radioibiza.app.br (CNAME no Registro.br após 1º deploy)
+
+name = "radioibiza-audio-b2"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Custom domain (Cloudflare DNS ou CNAME externo autorizado no painel Workers)
+# routes = [{ pattern = "audio.radioibiza.app.br/*", zone_name = "radioibiza.app.br" }]
+
+[vars]
+B2_USO_PREFIX = "uso/"
+B2_REGION = "us-east-005"
+
+# Secrets via wrangler (não commitar):
+#   wrangler secret put CRIACAO_INGEST_SECRET
+#   wrangler secret put B2_ENDPOINT
+#   wrangler secret put B2_BUCKET
+#   wrangler secret put B2_KEY_ID
+#   wrangler secret put B2_APPLICATION_KEY

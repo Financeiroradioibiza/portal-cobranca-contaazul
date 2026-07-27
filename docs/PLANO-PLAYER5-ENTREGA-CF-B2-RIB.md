@@ -141,6 +141,8 @@ Regras:
 
 ### Fase A — Infra Cloudflare (sem mudar player)
 
+Runbook: **`docs/FASE-A-CF-AUDIO-SETUP.md`** · Worker: `cloudflare/audio-b2/`
+
 - [ ] Conta / zona DNS (`radioibiza.app.br`).
 - [ ] Subdomínio entrega (ex. `audio.radioibiza.app.br`).
 - [ ] CDN / pull zone apontando origin B2 (`B2_USO_PREFIX`) — Bandwidth Alliance configurada.

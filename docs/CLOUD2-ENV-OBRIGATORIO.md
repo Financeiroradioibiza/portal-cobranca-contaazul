@@ -64,6 +64,16 @@ Se `R2_*` estiver vazio, o painel **Servidores** mostra R2 offline — **normal*
 
 B2 **não** vai no Netlify; só no cloud2.
 
+## Cloudflare entrega áudio (Fase A — opt-in, não altera player)
+
+Worker `cloudflare/audio-b2/` — ver **`docs/FASE-A-CF-AUDIO-SETUP.md`**.
+
+| Onde | Variável | Papel |
+|------|----------|--------|
+| Mac deploy Worker | `CLOUDFLARE_API_TOKEN` | API token CF (Workers) |
+| Worker secrets | `CRIACAO_INGEST_SECRET`, `B2_*` | Iguais ao cloud2 |
+| cloud2 (fase C) | `PLAYER5_ENTREGA_CF=0` | Default — playlist legacy |
+
 ## Aplicar B2 a partir do Mac (sem colar secrets no chat)
 
 1. Crie arquivo local **gitignored**: `.cloud2-secrets/b2.env` (veja `.cloud2-secrets/b2.env.example`).
