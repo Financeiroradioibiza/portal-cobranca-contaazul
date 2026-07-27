@@ -139,6 +139,8 @@ Upload de logo no portal: **Cadastros → IDs Player** (JPEG + sync). Coluna `pl
 
 **Armazenamento (baseline jul/2026):** o Player 5 consome MP3 via **`GET /api/get_musica/`** → arquivo no **NVMe cloud2** (`storage_key` tipo `uso:musicas/…` copiado na publicação). Não usa B2 direto. Detalhes, chaves e fallback: **`docs/BASELINE-PORTAL-PLAYER-ARMAZENAMENTO.md`** e **`docs/FALLBACK-ARMAZENAMENTO-B2.md`**.
 
+**Entrega v2 (planejada):** `.rib` direto na borda Cloudflare (origin B2), player descriptografa localmente — **só muda `url_musica`**, processos intocados: **`docs/PLANO-PLAYER5-ENTREGA-CF-B2-RIB.md`**.
+
 Cronogramas de pastas/vinhetas: publicados via `publishCronogramas.ts`. Avisos operador: Neon + `/api/player-avisos` no cloud2.
 
 ---

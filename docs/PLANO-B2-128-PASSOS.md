@@ -35,6 +35,6 @@ Baseline e fallback: **`docs/BASELINE-PORTAL-PLAYER-ARMAZENAMENTO.md`**, **`docs
 2. Homolog: `CRIACAO_USO_B2=1` → faixa teste → Neon `b2:…` + objetos em `master/` e `uso/`.
 3. `npm run criacao:audit-b2 -- --musica=ID` → `ok: true`.
 4. Trim na faixa → audit de novo; master inalterado no B2.
-5. **Depois:** portal preview CDN (128 B2); **depois:** Player 5 v2 URL/CORS.
+5. **Depois:** portal preview CDN (128 B2); **depois:** Player 5 v2 URL/CORS — ver **`docs/PLANO-PLAYER5-ENTREGA-CF-B2-RIB.md`** (`.rib` end-to-end, Cloudflare, sem mudar pipeline/publicação).
 
 Rollback: `CRIACAO_USO_B2=0` (volta chave `uso:` disco); faixas já `b2:` continuam legíveis se B2 ativo.

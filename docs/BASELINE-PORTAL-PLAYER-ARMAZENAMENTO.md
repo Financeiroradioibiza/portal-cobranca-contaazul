@@ -12,7 +12,7 @@ Documentos irmãos:
 
 ## Regra de ouro (não regredir)
 
-1. **Player 5 em produção** continua no contrato abaixo até existir **Player 5 v2** homologado + OK explícito para trocar URL de download.
+1. **Player 5 em produção** continua no contrato abaixo até existir **Player 5 v2** homologado + OK explícito para trocar URL de download. Plano v2 (só URL/cert entrega, `.rib` + Cloudflare): **`docs/PLANO-PLAYER5-ENTREGA-CF-B2-RIB.md`**.
 2. **Portal preview** continua via **cloud2** (`/criacao/audio`) enquanto não houver fase CDN/B2 no Netlify.
 3. **Faixas já publicadas** no gateway usam o `storage_key` copiado na publicação — mudar Neon **não** altera o player até **republicar / disparar atualização**.
 
