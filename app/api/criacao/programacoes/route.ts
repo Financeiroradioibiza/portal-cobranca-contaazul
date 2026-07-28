@@ -40,7 +40,10 @@ export async function POST(request: Request) {
       criativoUserId: dono.email,
       criativoNome: dono.displayName,
     });
-    return NextResponse.json({ id: created.id }, { status: 201 });
+    return NextResponse.json(
+      { id: created.id, pdvsAutoAssigned: created.pdvsAutoAssigned ?? 0 },
+      { status: 201 },
+    );
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";

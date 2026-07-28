@@ -133,6 +133,8 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
   const [logAberto, setLogAberto] = useState<Set<string>>(new Set());
   const [atualizacoesAbertas, setAtualizacoesAbertas] = useState<AtualizacaoAbertaRow[]>([]);
   const [focusProgId, setFocusProgId] = useState<string | null>(null);
+  const [pdvRefreshToken, setPdvRefreshToken] = useState(0);
+  const [pdvAssignNotice, setPdvAssignNotice] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/criacao/clientes")
@@ -204,6 +206,10 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
     if (clienteSel) void loadArvore(clienteSel.ref);
     else setArvore([]);
   }, [clienteSel, loadArvore]);
+
+  useEffect(() => {
+    setPdvAssignNotice(null);
+  }, [clienteSel?.ref]);
 
   const clientesFiltrados = useMemo(() => {
     const q = clienteBusca.trim().toLowerCase();
@@ -439,6 +445,9 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
             clienteNome={clienteSel.nome}
             openProgramacaoIds={openProgramacaoIds}
             encerradaProgramacaoIds={encerradaProgramacaoIds}
+            refreshToken={pdvRefreshToken}
+            assignNotice={pdvAssignNotice}
+            onDismissAssignNotice={() => setPdvAssignNotice(null)}
           />
         : null}
 
@@ -486,9 +495,16 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                   loadingCriativos={loadingCriativos}
                   assignDono={assignDono}
                   onClose={() => setShowNovaProg(false)}
-                  onCreated={async () => {
+                  onCreated={async (result) => {
                     setShowNovaProg(false);
                     await loadArvore(clienteSel.ref);
+                    setPdvRefreshToken((n) => n + 1);
+                    if (result.pdvsAutoAssigned && result.pdvsAutoAssigned > 0) {
+                      const n = result.pdvsAutoAssigned;
+                      setPdvAssignNotice(
+                        `${n} PDV${n === 1 ? "" : "s"} vinculado${n === 1 ? "" : "s"} automaticamente à primeira programação.`,
+                      );
+                    }
                   }}
                 />
               : null}
@@ -744,11 +760,17 @@ function PdvProgramacaoColumn({
   clienteNome,
   openProgramacaoIds,
   encerradaProgramacaoIds,
+  refreshToken = 0,
+  assignNotice,
+  onDismissAssignNotice,
 }: {
   clienteRef: string;
   clienteNome: string;
   openProgramacaoIds: Set<string>;
   encerradaProgramacaoIds: Set<string>;
+  refreshToken?: number;
+  assignNotice?: string | null;
+  onDismissAssignNotice?: () => void;
 }) {
   const [pdvs, setPdvs] = useState<PdvProgramacaoRow[]>([]);
   const [programacoes, setProgramacoes] = useState<ProgOption[]>([]);
@@ -779,7 +801,7 @@ function PdvProgramacaoColumn({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshToken]);
 
   async function assign(rioPdvKey: string, programacaoId: string | null) {
     setSavingKey(rioPdvKey);
@@ -824,6 +846,20 @@ function PdvProgramacaoColumn({
           Escolha qual programação musical fica amarrada em cada loja. Laranja = atualização aberta; verde = enviada e
           atualizada.
         </p>
+        {assignNotice ?
+          <div className="mt-2 flex items-start justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+            <span>{assignNotice}</span>
+            {onDismissAssignNotice ?
+              <button
+                type="button"
+                onClick={onDismissAssignNotice}
+                className="shrink-0 font-semibold text-emerald-700 hover:text-emerald-900 dark:text-emerald-300"
+              >
+                OK
+              </button>
+            : null}
+          </div>
+        : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {loading ?
@@ -943,7 +979,7 @@ function NovaProgramacaoInline({
     criativo: { email: string; displayName: string; tagIniciais: string; tagCor: string },
   ) => void;
   onClose: () => void;
-  onCreated: () => void | Promise<void>;
+  onCreated: (result: { id: string; pdvsAutoAssigned?: number }) => void | Promise<void>;
 }) {
   const [nome, setNome] = useState("");
   const [formato, setFormato] = useState("mp3_128_mono");
@@ -978,12 +1014,12 @@ function NovaProgramacaoInline({
         }
         return;
       }
-      const data = (await res.json()) as { id: string };
+      const data = (await res.json()) as { id: string; pdvsAutoAssigned?: number };
       const criativo = criativos.find((c) => c.email === donoUserId.trim());
       if (criativo) assignDono(data.id, criativo);
       setNome("");
       setDonoUserId("");
-      await onCreated();
+      await onCreated(data);
     } finally {
       setBusy(false);
     }

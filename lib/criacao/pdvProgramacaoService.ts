@@ -146,6 +146,30 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
   };
 }
 
+/** Vincula PDVs sem `programacao_id` à programação (ex.: primeira do cliente). */
+export async function assignUnassignedPdvsToProgramacao(
+  clienteRef: string,
+  programacaoId: string,
+): Promise<number> {
+  const { bucket } = await findBucketForClienteRef(clienteRef);
+  if (!bucket) return 0;
+
+  const rioKeys = bucket.pdvs.map((p) => p.rioPdvId);
+  const cadastros = await prisma.producaoPdvCadastro.findMany({
+    where: { rioPdvKey: { in: rioKeys } },
+    select: { rioPdvKey: true, programacaoId: true },
+  });
+  const cadByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
+
+  let assigned = 0;
+  for (const pdv of bucket.pdvs) {
+    if (cadByKey.get(pdv.rioPdvId)?.programacaoId) continue;
+    await savePdvProgramacaoAssignment(clienteRef, pdv.rioPdvId, programacaoId);
+    assigned++;
+  }
+  return assigned;
+}
+
 export async function savePdvProgramacaoAssignment(
   clienteRef: string,
   rioPdvKey: string,

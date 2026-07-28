@@ -5,6 +5,7 @@ import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { listAgendamentosByProgramacaoIds, type AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { buildVinhetaPreviewUrl } from "@/lib/criacao/vinhetaSign";
+import { assignUnassignedPdvsToProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 
 export const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"] as const;
 export type Formato = (typeof FORMATOS)[number];
@@ -239,9 +240,12 @@ export async function createProgramacao(input: {
   if (!clienteRef) throw new Error("cliente_obrigatorio");
   if (!criativoUserId || !criativoNome) throw new Error("dono_obrigatorio");
 
-  return prisma.programacao.create({
+  const clienteRefNorm = clienteRef.slice(0, 120);
+  const existingCount = await prisma.programacao.count({ where: { clienteRef: clienteRefNorm } });
+
+  const created = await prisma.programacao.create({
     data: {
-      clienteRef: clienteRef.slice(0, 120),
+      clienteRef: clienteRefNorm,
       clienteNome: (input.clienteNome ?? "").slice(0, 200),
       nome: nome.slice(0, 120),
       formatoPadrao: isFormato(input.formatoPadrao) ? input.formatoPadrao : "mp3_128_mono",
@@ -250,6 +254,13 @@ export async function createProgramacao(input: {
     },
     select: { id: true },
   });
+
+  let pdvsAutoAssigned = 0;
+  if (existingCount === 0) {
+    pdvsAutoAssigned = await assignUnassignedPdvsToProgramacao(clienteRefNorm, created.id);
+  }
+
+  return { id: created.id, pdvsAutoAssigned };
 }
 
 export type PastaMusicaView = {
