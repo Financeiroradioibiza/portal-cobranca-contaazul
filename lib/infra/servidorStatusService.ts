@@ -66,6 +66,13 @@ export type SystemStatsView = {
   loadPercent: number;
 };
 
+export type MemoryStatsView = {
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  usedPercent: number;
+};
+
 export type DayCountView = { day: string; count: number };
 
 export type CapacityView = {
@@ -91,6 +98,7 @@ export type ServidoresStatus = {
     api: HealthProbe;
     downloadWorker: HealthProbe;
     system: SystemStatsView | null;
+    memory: MemoryStatsView | null;
     ops: {
       available: boolean;
       error: string | null;
@@ -156,6 +164,7 @@ async function probeUrl(url: string, init?: RequestInit): Promise<HealthProbe> {
 async function fetchCloud2Ops(): Promise<{
   ops: ServidoresStatus["cloud2"]["ops"];
   system: SystemStatsView | null;
+  memory: MemoryStatsView | null;
 }> {
   const emptyOps: ServidoresStatus["cloud2"]["ops"] = {
     available: false,
@@ -168,7 +177,7 @@ async function fetchCloud2Ops(): Promise<{
     providers: {},
     tempLimbo: null,
   };
-  if (!cloud2Enabled()) return { ops: emptyOps, system: null };
+  if (!cloud2Enabled()) return { ops: emptyOps, system: null, memory: null };
 
   const res = await cloud2FetchWithTimeout("/ops/storage", {}, 20000);
   if (!res) {
@@ -178,6 +187,7 @@ async function fetchCloud2Ops(): Promise<{
         error: "Timeout ao consultar cloud2 /ops/storage — publique a rota no servidor.",
       },
       system: null,
+      memory: null,
     };
   }
   if (res.status === 404) {
@@ -187,16 +197,18 @@ async function fetchCloud2Ops(): Promise<{
         error: "Rota /criacao/ops/storage ainda não deployada no cloud2 (sync-cloud2-to-portal-ibiza).",
       },
       system: null,
+      memory: null,
     };
   }
   if (!res.ok) {
-    return { ops: { ...emptyOps, error: `cloud2 ops HTTP ${res.status}` }, system: null };
+    return { ops: { ...emptyOps, error: `cloud2 ops HTTP ${res.status}` }, system: null, memory: null };
   }
 
   try {
     const data = await parseCloud2Json<{
       disk?: DiskStatsView | null;
       system?: SystemStatsView | null;
+      memory?: MemoryStatsView | null;
       dirs?: { name: string; path: string; bytes: number | null }[];
       r2?: BucketStatsView;
       b2?: BucketStatsView;
@@ -216,6 +228,7 @@ async function fetchCloud2Ops(): Promise<{
         tempLimbo: null,
       },
       system: data.system ?? null,
+      memory: data.memory ?? null,
     };
   } catch (e) {
     return {
@@ -224,6 +237,7 @@ async function fetchCloud2Ops(): Promise<{
         error: e instanceof Error ? e.message : "ops_parse_error",
       },
       system: null,
+      memory: null,
     };
   }
 }
@@ -409,10 +423,12 @@ export async function loadServidoresStatus(): Promise<ServidoresStatus> {
   const ops = cloud2Ops.ops;
   ops.tempLimbo = tempLimbo;
   const system = cloud2Ops.system;
+  const memory = cloud2Ops.memory;
 
   const hint = buildCapacityHint({
     diskUsedPercent: ops.disk?.usedPercent ?? null,
     loadPercent: system?.loadPercent ?? null,
+    memoryUsedPercent: memory?.usedPercent ?? null,
     filaProcessando: fila.processando,
     filaAguardando: fila.aguardando,
   });
@@ -438,6 +454,7 @@ export async function loadServidoresStatus(): Promise<ServidoresStatus> {
       api,
       downloadWorker: downloadDiag,
       system,
+      memory,
       ops,
     },
     neon,

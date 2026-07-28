@@ -239,7 +239,7 @@ export function ConfigServidoresPanel() {
                 : "Ok"}
               </span>
             </div>
-            <dl className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <dl className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
               <div>
                 <dt className="text-xs text-slate-500">CPU (load ÷ núcleos)</dt>
                 <dd className="font-semibold">
@@ -251,6 +251,17 @@ export function ConfigServidoresPanel() {
                 </dd>
                 {status.cloud2.system ?
                   <UsageBar usedPercent={status.cloud2.system.loadPercent} />
+                : null}
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Memória RAM</dt>
+                <dd className="font-semibold">
+                  {status.cloud2.memory ?
+                    `${status.cloud2.memory.usedPercent}% · ${fmtBytes(status.cloud2.memory.usedBytes)} / ${fmtBytes(status.cloud2.memory.totalBytes)}`
+                  : "— (deploy ops no cloud2)"}
+                </dd>
+                {status.cloud2.memory ?
+                  <UsageBar usedPercent={status.cloud2.memory.usedPercent} />
                 : null}
               </div>
               <div>

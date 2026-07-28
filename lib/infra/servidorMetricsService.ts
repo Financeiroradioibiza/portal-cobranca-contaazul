@@ -135,30 +135,36 @@ export async function maybeRecordServidorSnapshot(input: {
 export function buildCapacityHint(opts: {
   diskUsedPercent: number | null;
   loadPercent: number | null;
+  memoryUsedPercent?: number | null;
   filaProcessando: number;
   filaAguardando: number;
 }): { level: "ok" | "warn" | "critical"; message: string } {
   const disk = opts.diskUsedPercent ?? 0;
   const load = opts.loadPercent ?? 0;
-  if (disk >= 92 || load >= 95) {
+  const mem = opts.memoryUsedPercent ?? 0;
+  if (disk >= 92 || load >= 95 || mem >= 92) {
     return {
       level: "critical",
       message:
-        disk >= 92 && load >= 85 ?
-          "Disco e CPU/load altos — risco de falha no pipeline."
+        disk >= 92 && (load >= 85 || mem >= 85) ?
+          "Disco e CPU/memória altos — risco de falha no pipeline."
         : disk >= 92 ?
           "Disco NVMe acima de 92% — libere espaço ou expanda volume."
+        : mem >= 92 ?
+          "Memória RAM acima de 92% — risco de OOM no ffmpeg."
         : "Load da VM muito alto — fila pode ficar lenta (ffmpeg).",
     };
   }
-  if (disk >= 80 || load >= 75 || (opts.filaAguardando > 20 && opts.filaProcessando > 0)) {
+  if (disk >= 80 || load >= 75 || mem >= 80 || (opts.filaAguardando > 20 && opts.filaProcessando > 0)) {
     return {
       level: "warn",
       message:
         opts.filaAguardando > 0 && opts.filaProcessando > 0 ?
-          `Backlog: ${opts.filaAguardando} aguardando · ${opts.filaProcessando} processando — worker serial (~1 faixa por vez).`
+          `Backlog: ${opts.filaAguardando} aguardando · ${opts.filaProcessando} processando.`
         : load >= 75 ?
           `CPU/load ~${load.toFixed(0)}% (load ÷ núcleos) — perto do limite em picos.`
+        : mem >= 80 ?
+          `RAM ~${mem.toFixed(0)}% — acompanhe ao subir concorrência do worker.`
         : `Disco em ${disk.toFixed(0)}% — acompanhe crescimento.`,
     };
   }

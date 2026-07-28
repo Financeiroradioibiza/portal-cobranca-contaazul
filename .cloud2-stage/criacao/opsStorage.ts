@@ -15,6 +15,21 @@ export type SystemStats = {
   loadPercent: number;
 };
 
+export type MemoryStats = {
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  usedPercent: number;
+};
+
+export function collectMemoryStats(): MemoryStats {
+  const totalBytes = os.totalmem();
+  const freeBytes = os.freemem();
+  const usedBytes = Math.max(0, totalBytes - freeBytes);
+  const usedPercent = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0;
+  return { totalBytes, usedBytes, freeBytes, usedPercent };
+}
+
 export function collectSystemStats(): SystemStats {
   const [load1, load5, load15] = os.loadavg();
   const cpuCount = Math.max(1, os.cpus().length);
@@ -203,6 +218,7 @@ export async function collectOpsStorageSnapshot() {
     storageRoot: root,
     disk,
     system: collectSystemStats(),
+    memory: collectMemoryStats(),
     dirs,
     r2: r2Stats,
     b2: b2Stats,
