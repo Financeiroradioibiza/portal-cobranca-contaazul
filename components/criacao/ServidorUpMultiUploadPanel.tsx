@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import {
@@ -34,6 +34,11 @@ type BuildResponse = {
     stagingReady?: number;
     concluidoTotal?: number;
   };
+  stagingRepair?: {
+    restored?: number;
+    restoreError?: string | null;
+    stillReady?: number;
+  } | null;
   error?: string;
 };
 
@@ -100,6 +105,7 @@ export function ServidorUpMultiUploadPanel() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [selectingJob, setSelectingJob] = useState(false);
   const [repairingStaging, setRepairingStaging] = useState(false);
+  const autoRepairAttemptedRef = useRef<Set<string>>(new Set());
 
   const loadPlan = useCallback(async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[]) => {
     setPlanLoading(true);
@@ -128,16 +134,24 @@ export function ServidorUpMultiUploadPanel() {
       const stagingReady = data.stats?.stagingReady ?? 0;
       const concluidoTotal = data.stats?.concluidoTotal ?? jobRow?.itensOk ?? 0;
 
+      if ((data.stagingRepair?.restored ?? 0) > 0) {
+        setMsg(`${data.stagingRepair!.restored} MP3 recuperado(s) do disco — plano atualizado.`);
+      }
+
       if ((data.stats?.hierarchyErrors ?? 0) > 0 && matched === 0) {
         setErr(
           `${data.stats!.hierarchyErrors} pasta(s) do passo 0 incompleta(s) neste snapshot — abra Servidor UP, confira hierarquia (passo 0) e «Salvar snapshot» de novo.`,
         );
       } else if (matched === 0 && stagingReady === 0 && concluidoTotal > 0) {
+        const restoreHint =
+          data.stagingRepair?.restoreError?.includes("404") ?
+            " O cloud2 ainda não tem o endpoint de recuperação — peça deploy do patch staging."
+          : data.stagingRepair?.restoreError ?
+            ` (${data.stagingRepair.restoreError})`
+          : "";
         setErr(
-          `O job marca ${concluidoTotal} faixa(s) concluída(s), mas o staging no banco está vazio. ` +
-            `Causa provável: limpeza automática no cloud2 (já corrigida — precisa deploy no servidor). ` +
-            `Use «Recuperar MP3» uma vez após o deploy cloud2; evite baixar tudo de novo antes disso. ` +
-            `Job alternativo: snapshot cmrtpz5… (325 MP3).`,
+          `O job marca ${concluidoTotal} download(s) concluído(s), mas os MP3 sumiram do staging.` +
+            ` Clique «Recuperar MP3» — tenta repor do disco antes de baixar de novo.${restoreHint}`,
         );
       } else if (matched === 0 && (data.stats?.unmatched ?? 0) > 5) {
         const best = [...jobs]
@@ -350,34 +364,78 @@ export function ServidorUpMultiUploadPanel() {
       }
       const parts: string[] = [];
       if ((data.restored ?? 0) > 0) {
-        parts.push(`${data.restored} MP3 repostos no staging (disco)`);
+        parts.push(`${data.restored} MP3 repostos do disco (sem baixar de novo)`);
       }
       if ((data.requeued ?? 0) > 0) {
-        parts.push(`${data.requeued} voltaram para fila Deemix`);
+        parts.push(`${data.requeued} precisam baixar de novo no Deemix — aguarde abaixo`);
       }
       if ((data.stillReady ?? 0) > 0) {
-        parts.push(`${data.stillReady} prontos — clique «Atualizar plano»`);
+        parts.push(`${data.stillReady} prontos para subir`);
       }
-      if (data.restoreError && (data.restored ?? 0) === 0) {
+      if (data.restoreError && (data.restored ?? 0) === 0 && (data.requeued ?? 0) === 0) {
         parts.push(`cloud2: ${data.restoreError}`);
       }
       if (data.needsCloud2Deploy || data.restoreError?.includes("404")) {
-        parts.push("IMPORTANTE: rode deploy cloud2 (patch) antes de baixar de novo.");
+        parts.push("Deploy cloud2 (patch staging) pendente — avise antes de baixar tudo outra vez.");
       }
       setMsg(
         parts.length > 0 ?
           parts.join(" · ")
-        : "Nada a recuperar — tente «Atualizar plano» ou o job cmrtpz5… (325 MP3).",
+        : "Nada recuperável no disco — confira Download link ou Servidor UP passo 4.",
       );
-      if ((data.stillReady ?? 0) > 0 && session) {
-        await loadPlan(session, deemixJobs);
-      }
+      const jobsRes = await fetch("/api/criacao/servidor-up/upload-sessions");
+      const jobsData = (await jobsRes.json()) as SessionsResponse;
+      const jobs = jobsRes.ok ? (jobsData.servidorUpJobs ?? []) : deemixJobs;
+      if (jobsRes.ok) setDeemixJobs(jobs);
+      if (session) await loadPlan(session, jobs);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao recuperar staging.");
     } finally {
       setRepairingStaging(false);
     }
-  }, [session]);
+  }, [session, deemixJobs, loadPlan]);
+
+  useEffect(() => {
+    if (!session || planLoading || repairingStaging) return;
+    const matched = plan?.lotes.reduce((n, l) => n + l.tracks.length, 0) ?? 0;
+    const stagingReady = stats?.stagingReady ?? 0;
+    const concluidoTotal = stats?.concluidoTotal ?? 0;
+    if (matched > 0 || stagingReady > 0 || concluidoTotal === 0) return;
+    if (autoRepairAttemptedRef.current.has(session.downloadJobId)) return;
+    const job = deemixJobs.find((j) => j.id === session.downloadJobId);
+    if (job?.status === "processando") return;
+    autoRepairAttemptedRef.current.add(session.downloadJobId);
+    void repairStagingForJob();
+  }, [session, plan, stats, planLoading, repairingStaging, deemixJobs, repairStagingForJob]);
+
+  useEffect(() => {
+    const job = session ? deemixJobs.find((j) => j.id === session.downloadJobId) : null;
+    if (!session || !job || job.status !== "processando") return;
+
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/criacao/servidor-up/upload-sessions");
+        const data = (await res.json()) as SessionsResponse;
+        if (cancelled || !res.ok) return;
+        const jobs = data.servidorUpJobs ?? [];
+        setDeemixJobs(jobs);
+        const updated = jobs.find((j) => j.id === session.downloadJobId);
+        if (updated?.status !== "processando" && updated && updated.itensOk > 0) {
+          await loadPlan(session, jobs);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    void tick();
+    const id = window.setInterval(() => void tick(), 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [session, deemixJobs, loadPlan]);
 
   async function submitMultiUpload() {
     if (!session || !plan) return;
@@ -672,7 +730,7 @@ export function ServidorUpMultiUploadPanel() {
             onClick={() => void repairStagingForJob()}
             className="rounded-lg bg-amber-800 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
           >
-            {repairingStaging ? "Reenfileirando…" : "Recuperar MP3 deste job"}
+            {repairingStaging ? "Recuperando…" : "Recuperar MP3 deste job"}
           </button>
           <button
             type="button"

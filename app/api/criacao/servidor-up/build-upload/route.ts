@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { repairDownloadStagingIfEmpty } from "@/lib/criacao/downloadService";
 import {
   buildServidorUpUploadPlan,
   countStagingReadyForJob,
@@ -30,6 +31,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "tracks_vazios" }, { status: 400 });
     }
 
+    let staging = await countStagingReadyForJob(downloadJobId);
+    let stagingRepair: Awaited<ReturnType<typeof repairDownloadStagingIfEmpty>> | null = null;
+    if (staging.concluidoTotal > 0 && staging.stagingReady === 0) {
+      stagingRepair = await repairDownloadStagingIfEmpty(downloadJobId, { allowRequeue: false });
+      staging = await countStagingReadyForJob(downloadJobId);
+    }
+
     const plan = await buildServidorUpUploadPlan({
       downloadJobId,
       hierarchyRows,
@@ -38,7 +46,6 @@ export async function POST(request: Request) {
     });
 
     const totalTracks = plan.lotes.reduce((n, l) => n + l.tracks.length, 0);
-    const staging = await countStagingReadyForJob(downloadJobId);
 
     return NextResponse.json({
       ok: true,
@@ -52,6 +59,13 @@ export async function POST(request: Request) {
         stagingReady: staging.stagingReady,
         concluidoTotal: staging.concluidoTotal,
       },
+      stagingRepair: stagingRepair ?
+        {
+          restored: stagingRepair.restored,
+          restoreError: stagingRepair.restoreError,
+          stillReady: stagingRepair.stillReady,
+        }
+      : null,
     });
   } catch (e) {
     if (e instanceof Response) return e;

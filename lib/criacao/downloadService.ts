@@ -534,6 +534,63 @@ export async function countDownloadStagingReady(jobId: string): Promise<number> 
   });
 }
 
+export type DownloadStagingRepairResult = {
+  restored: number;
+  restoreScanned: number;
+  restoreError: string | null;
+  requeued: number;
+  stillReady: number;
+  processingTriggered: boolean;
+};
+
+/** Repõe staging vazio: disco primeiro; re-download Deemix só se allowRequeue. */
+export async function repairDownloadStagingIfEmpty(
+  jobId: string,
+  opts?: { allowRequeue?: boolean },
+): Promise<DownloadStagingRepairResult> {
+  const id = jobId.trim();
+  const allowRequeue = opts?.allowRequeue !== false;
+
+  let stillReady = await countDownloadStagingReady(id);
+  const concluidoTotal = await prisma.downloadItem.count({
+    where: { jobId: id, status: "concluido" },
+  });
+  if (concluidoTotal === 0 || stillReady > 0) {
+    return {
+      restored: 0,
+      restoreScanned: 0,
+      restoreError: null,
+      requeued: 0,
+      stillReady,
+      processingTriggered: false,
+    };
+  }
+
+  const restore = await triggerRestoreDownloadStaging(id);
+  stillReady = await countDownloadStagingReady(id);
+
+  let requeued = 0;
+  let processingTriggered = false;
+  if (stillReady === 0 && allowRequeue) {
+    const rq = await requeueDownloadItemsMissingStorage(id);
+    requeued = rq.requeued;
+    stillReady = rq.stillReady;
+    if (requeued > 0) {
+      processingTriggered = true;
+      void triggerDownloadProcessing(Math.min(8, requeued), { timeoutMs: 8_000 }).catch(() => {});
+    }
+  }
+
+  return {
+    restored: restore.restored,
+    restoreScanned: restore.scanned,
+    restoreError: restore.error ?? null,
+    requeued,
+    stillReady,
+    processingTriggered,
+  };
+}
+
 export async function triggerRestoreDownloadStaging(
   jobId: string,
 ): Promise<{ restored: number; scanned: number; error?: string }> {

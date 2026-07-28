@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import {
-  countDownloadStagingReady,
-  requeueDownloadItemsMissingStorage,
-  triggerDownloadProcessing,
-  triggerRestoreDownloadStaging,
-} from "@/lib/criacao/downloadService";
+import { repairDownloadStagingIfEmpty } from "@/lib/criacao/downloadService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -17,30 +12,20 @@ export async function POST(_request: Request, ctx: Ctx) {
     requirePortalSession(await getPortalSession());
     const { id: jobId } = await ctx.params;
 
-    const restore = await triggerRestoreDownloadStaging(jobId);
-    let stillReady = await countDownloadStagingReady(jobId);
-
-    let requeued = 0;
-    if (stillReady === 0) {
-      const rq = await requeueDownloadItemsMissingStorage(jobId);
-      requeued = rq.requeued;
-      stillReady = await countDownloadStagingReady(jobId);
-    }
-
-    if (requeued > 0) {
-      void triggerDownloadProcessing(Math.min(8, requeued), { timeoutMs: 8_000 }).catch(() => {});
-    }
+    const repair = await repairDownloadStagingIfEmpty(jobId, { allowRequeue: true });
 
     return NextResponse.json({
       ok: true,
-      restored: restore.restored,
-      restoreScanned: restore.scanned,
-      restoreError: restore.error ?? null,
-      requeued,
-      stillReady,
-      processingTriggered: requeued > 0,
+      restored: repair.restored,
+      restoreScanned: repair.restoreScanned,
+      restoreError: repair.restoreError,
+      requeued: repair.requeued,
+      stillReady: repair.stillReady,
+      processingTriggered: repair.processingTriggered,
       processingError: null,
-      needsCloud2Deploy: Boolean(restore.error?.includes("404") || restore.error?.includes("deploy")),
+      needsCloud2Deploy: Boolean(
+        repair.restoreError?.includes("404") || repair.restoreError?.includes("deploy"),
+      ),
     });
   } catch (e) {
     if (e instanceof Response) return e;

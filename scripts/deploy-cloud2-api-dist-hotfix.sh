@@ -22,7 +22,7 @@ echo "== 2/4 rsync PATCH (src) → servidor"
 rsync -avz -e "ssh -o BatchMode=yes" \
   "$ROOT/.cloud2-stage/criacao/" \
   "$REMOTE:$REMOTE_DIR/src/criacao/"
-for f in ops-storage.ts atualizacaoPendentePulse.ts; do
+for f in download-process.ts ops-storage.ts atualizacaoPendentePulse.ts; do
   rsync -avz -e "ssh -o BatchMode=yes" \
     "$ROOT/.cloud2-stage/$f" \
     "$REMOTE:$REMOTE_DIR/src/routes/criacao/$f"
@@ -47,6 +47,10 @@ rsync -avz -e "ssh -o BatchMode=yes" \
   sleep 3
   docker compose ps api
 "
+
+echo ""
+echo "== 5/5 Verificar cloud3-only (Player 5)"
+bash "$ROOT/scripts/verify-cloud3-player5-prod.sh"
 
 echo ""
 echo "OK hotfix. Teste:"
