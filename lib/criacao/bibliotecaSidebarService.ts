@@ -52,7 +52,23 @@ export type BibliotecaSidebarTree = {
   programacoesArquivadas: BibliotecaSidebarProgramacaoArquivada[];
 };
 
+/** Remove pastas custom vazias (com grace) e tags sem faixa — sidebar mais limpa. */
+async function pruneEmptyBibliotecaSidebarClutter(): Promise<void> {
+  const grace = new Date(Date.now() - 2 * 60 * 1000);
+  await prisma.bibliotecaPasta.deleteMany({
+    where: {
+      musicas: { none: {} },
+      createdAt: { lt: grace },
+    },
+  });
+  await prisma.tagCriativo.deleteMany({
+    where: { musicas: { none: {} } },
+  });
+}
+
 export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree> {
+  await pruneEmptyBibliotecaSidebarClutter();
+
   const [tags, pastasCustom, especiais, progs, offIndex] = await Promise.all([
     listTags(),
     listBibliotecaPastas(),
@@ -78,9 +94,11 @@ export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree
   ]);
 
   return {
-    tags: tags.map((t) => ({ ...t, kind: "tag" as const })),
+    tags: tags.filter((t) => t.usoCount > 0).map((t) => ({ ...t, kind: "tag" as const })),
     pastasCustom: pastasCustom.map((p) => ({ ...p, kind: "custom" as const })),
-    pastasEspeciais: especiais.map((p) => ({
+    pastasEspeciais: especiais
+      .filter((p) => p.musicaCount > 0)
+      .map((p) => ({
       kind: "especial" as const,
       id: p.id,
       nome: p.nome,

@@ -73,6 +73,12 @@ export async function deleteTag(id: string): Promise<void> {
   await prisma.tagCriativo.delete({ where: { id } });
 }
 
+async function deleteTagIfUnused(tagId: string): Promise<void> {
+  const n = await prisma.musicaTagManual.count({ where: { tagId } });
+  if (n > 0) return;
+  await prisma.tagCriativo.delete({ where: { id: tagId } }).catch(() => {});
+}
+
 export async function assignTag(musicaId: string, tagId: string): Promise<void> {
   await prisma.musicaTagManual.upsert({
     where: { musicaId_tagId: { musicaId, tagId } },
@@ -83,4 +89,5 @@ export async function assignTag(musicaId: string, tagId: string): Promise<void> 
 
 export async function unassignTag(musicaId: string, tagId: string): Promise<void> {
   await prisma.musicaTagManual.deleteMany({ where: { musicaId, tagId } });
+  await deleteTagIfUnused(tagId);
 }

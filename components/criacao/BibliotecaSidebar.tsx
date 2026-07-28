@@ -279,7 +279,13 @@ export function BibliotecaSidebar({
         ))}
 
         <SectionTitle>Pastas custom</SectionTitle>
-        {(tree?.pastasCustom ?? []).map((p) => (
+        {(tree?.pastasCustom ?? [])
+          .filter(
+            (p) =>
+              p.musicaCount > 0 ||
+              (active.kind === "custom" && active.id === p.id),
+          )
+          .map((p) => (
           <SidebarItem
             key={p.id}
             active={isActive({
