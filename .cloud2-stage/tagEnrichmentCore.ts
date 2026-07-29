@@ -1,3 +1,5 @@
+import { fetchDeezerTrackDisplayMeta } from './criacao/deezerArtistDisplay.js';
+
 /** Tag automática externa — mesmo formato gravado em musica_biblioteca.tags_auto */
 export type ExternalAutoTag = { fonte: string; chave?: string; valor: string };
 
@@ -599,7 +601,16 @@ export async function fetchDeezerCanonicalNames(input: {
   const hit = await findBestDeezerTrack(input);
   if (!hit || scoreDeezerHit(input, hit) < 85) return null;
   const titulo = hit.title?.trim();
+  if (!titulo) return null;
+
+  if (hit.id) {
+    const detail = await fetchDeezerTrackDisplayMeta(String(hit.id));
+    if (detail?.artista) {
+      return { titulo: detail.titulo.slice(0, 500), artista: detail.artista.slice(0, 500) };
+    }
+  }
+
   const artista = hit.artist?.name?.trim();
-  if (!titulo || !artista) return null;
+  if (!artista) return null;
   return { titulo: titulo.slice(0, 500), artista: artista.slice(0, 500) };
 }

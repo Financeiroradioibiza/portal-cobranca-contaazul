@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
+import { fetchDeezerTrackDisplayMeta } from './deezerArtistDisplay.js';
 
 const require = createRequire(import.meta.url);
 const { Deezer } = require('deezer-js');
@@ -61,26 +62,6 @@ function buildCanonicalMp3Name(artista: string, titulo: string): string {
   return a ? `${a} - ${t}.mp3` : `${t}.mp3`;
 }
 
-/** Metadados públicos da faixa — fallback quando deemix-js não preenche artista. */
-async function fetchDeezerTrackMeta(trackUrl: string): Promise<{ titulo: string; artista: string } | null> {
-  const m = trackUrl.match(/\/track\/(\d+)/i);
-  if (!m) return null;
-  try {
-    const res = await fetch(`https://api.deezer.com/track/${m[1]}`, {
-      headers: { 'User-Agent': 'RadioIbizaCloud2/1.0' },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { title?: string; artist?: { name?: string } };
-    const titulo = String(data.title ?? '').trim();
-    const artista = String(data.artist?.name ?? '').trim();
-    if (!titulo) return null;
-    return { titulo, artista };
-  } catch {
-    return null;
-  }
-}
-
 /** Baixa faixa Deezer para dest (path absoluto do staging). */
 export async function downloadDeezerTrackToFile(opts: {
   trackUrl: string;
@@ -120,9 +101,9 @@ export async function downloadDeezerTrackToFile(opts: {
     mp3s.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
     await fsp.copyFile(mp3s[0]!, opts.destPath);
 
-    const apiMeta = await fetchDeezerTrackMeta(opts.trackUrl);
+    const apiMeta = await fetchDeezerTrackDisplayMeta(opts.trackUrl);
     const titulo = String(downloadObject.title ?? apiMeta?.titulo ?? path.basename(mp3s[0]!, '.mp3')).trim();
-    const artista = String(downloadObject.artist ?? apiMeta?.artista ?? '').trim();
+    const artista = String(apiMeta?.artista || downloadObject.artist || '').trim();
 
     return {
       titulo,
