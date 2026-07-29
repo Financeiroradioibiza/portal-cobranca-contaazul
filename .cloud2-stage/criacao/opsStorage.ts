@@ -13,6 +13,8 @@ export type SystemStats = {
   load15: number;
   /** load1 / cpuCount × 100 — proxy de CPU ocupada (Linux load average). */
   loadPercent: number;
+  /** Detectado no container (pode ser menor que a VM se houver limite Docker). */
+  detectedCpuCount?: number;
 };
 
 export type MemoryStats = {
@@ -20,21 +22,105 @@ export type MemoryStats = {
   usedBytes: number;
   freeBytes: number;
   usedPercent: number;
+  /** Detectado no container (pode ser menor que a VM se houver limite Docker). */
+  detectedTotalBytes?: number;
 };
 
+/** Spec contratada na Envyron — opcional via .env quando o SO ainda não refletiu o resize. */
+export type VmContractStats = {
+  cpuCount: number;
+  ramBytes: number;
+  source: "env";
+};
+
+function readEnvInt(name: string): number | null {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function readCgroupCpuCount(): number | null {
+  const paths = [
+    "/sys/fs/cgroup/cpu.max",
+    "/sys/fs/cgroup/cpu/cpu.cfs_quota_us",
+  ];
+  for (const p of paths) {
+    try {
+      const raw = fs.readFileSync(p, "utf8").trim();
+      if (p.endsWith("cpu.max")) {
+        if (!raw || raw.startsWith("max")) continue;
+        const [quota, period] = raw.split(/\s+/);
+        const q = Number(quota);
+        const per = Number(period);
+        if (Number.isFinite(q) && Number.isFinite(per) && per > 0 && q > 0) {
+          return Math.max(1, Math.round(q / per));
+        }
+      } else {
+        const quota = Number(raw);
+        if (Number.isFinite(quota) && quota > 0) {
+          return Math.max(1, Math.round(quota / 100_000));
+        }
+      }
+    } catch {
+      /* próximo path */
+    }
+  }
+  return null;
+}
+
+function readCgroupMemoryLimitBytes(): number | null {
+  const paths = [
+    "/sys/fs/cgroup/memory.max",
+    "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+  ];
+  for (const p of paths) {
+    try {
+      const raw = fs.readFileSync(p, "utf8").trim();
+      if (!raw || raw === "max") continue;
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0 && n < Number.MAX_SAFE_INTEGER) return n;
+    } catch {
+      /* próximo path */
+    }
+  }
+  return null;
+}
+
+export function collectVmContractStats(): VmContractStats | null {
+  const cpuCount = readEnvInt("CLOUD2_VM_CPU_COUNT");
+  const ramGb = readEnvInt("CLOUD2_VM_RAM_GB");
+  if (!cpuCount && !ramGb) return null;
+  return {
+    cpuCount: cpuCount ?? Math.max(1, os.cpus().length),
+    ramBytes: (ramGb ?? 0) * 1024 ** 3,
+    source: "env",
+  };
+}
+
 export function collectMemoryStats(): MemoryStats {
-  const totalBytes = os.totalmem();
+  const detectedTotalBytes = readCgroupMemoryLimitBytes() ?? os.totalmem();
   const freeBytes = os.freemem();
-  const usedBytes = Math.max(0, totalBytes - freeBytes);
+  const usedBytes = Math.max(0, detectedTotalBytes - freeBytes);
+  const vm = collectVmContractStats();
+  const totalBytes = vm?.ramBytes && vm.ramBytes > detectedTotalBytes ? vm.ramBytes : detectedTotalBytes;
   const usedPercent = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0;
-  return { totalBytes, usedBytes, freeBytes, usedPercent };
+  return {
+    totalBytes,
+    usedBytes,
+    freeBytes,
+    usedPercent,
+    detectedTotalBytes,
+  };
 }
 
 export function collectSystemStats(): SystemStats {
   const [load1, load5, load15] = os.loadavg();
-  const cpuCount = Math.max(1, os.cpus().length);
+  const detectedCpuCount = readCgroupCpuCount() ?? Math.max(1, os.cpus().length);
+  const vm = collectVmContractStats();
+  const cpuCount = vm?.cpuCount && vm.cpuCount > detectedCpuCount ? vm.cpuCount : detectedCpuCount;
   const loadPercent = Math.round((load1 / cpuCount) * 1000) / 10;
-  return { cpuCount, load1, load5, load15, loadPercent };
+  return { cpuCount, load1, load5, load15, loadPercent, detectedCpuCount };
 }
 
 const execFileAsync = promisify(execFile);
@@ -219,6 +305,7 @@ export async function collectOpsStorageSnapshot() {
     disk,
     system: collectSystemStats(),
     memory: collectMemoryStats(),
+    vmContract: collectVmContractStats(),
     dirs,
     r2: r2Stats,
     b2: b2Stats,

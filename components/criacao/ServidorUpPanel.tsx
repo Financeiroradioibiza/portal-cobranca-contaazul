@@ -147,8 +147,9 @@ function matchApproved(
   skipped: Set<string>,
 ): boolean {
   if (skipped.has(row.relativePath)) return false;
-  if (row.verdict === "auto") return Boolean(row.deezerUrl);
-  if (row.verdict === "review") return Boolean(row.deezerUrl);
+  if (row.verdict === "auto" || row.verdict === "review") {
+    return Boolean(matchDeezerUrl(row, picks));
+  }
   if (row.verdict === "pick" || row.verdict === "rejected") {
     const id = picks[row.relativePath];
     return Boolean(id && row.candidates.some((c) => c.trackId === id));
@@ -156,19 +157,24 @@ function matchApproved(
   return false;
 }
 
-function matchDeezerUrl(row: ServidorUpMatchRow, picks: Record<string, number>): string | null {
-  if (row.verdict === "auto" || row.verdict === "review") return row.deezerUrl;
+function matchPickedCandidate(
+  row: ServidorUpMatchRow,
+  picks: Record<string, number>,
+): ServidorUpMatchCandidate | null {
   const id = picks[row.relativePath];
-  const c = row.candidates.find((x) => x.trackId === id);
-  return c?.url ?? null;
+  if (id) {
+    const picked = row.candidates.find((x) => x.trackId === id);
+    if (picked) return picked;
+  }
+  return row.selected;
+}
+
+function matchDeezerUrl(row: ServidorUpMatchRow, picks: Record<string, number>): string | null {
+  return matchPickedCandidate(row, picks)?.url ?? row.deezerUrl;
 }
 
 function matchDeemixLabel(row: ServidorUpMatchRow, picks: Record<string, number>): string {
-  if (row.selected && (row.verdict === "auto" || row.verdict === "review")) {
-    return `${row.selected.artist} — ${row.selected.title}`;
-  }
-  const id = picks[row.relativePath];
-  const c = row.candidates.find((x) => x.trackId === id);
+  const c = matchPickedCandidate(row, picks);
   if (c) return `${c.artist} — ${c.title}`;
   return row.searchLine;
 }

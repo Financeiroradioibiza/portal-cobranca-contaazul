@@ -64,6 +64,7 @@ export type SystemStatsView = {
   load5: number;
   load15: number;
   loadPercent: number;
+  detectedCpuCount?: number;
 };
 
 export type MemoryStatsView = {
@@ -71,6 +72,13 @@ export type MemoryStatsView = {
   usedBytes: number;
   freeBytes: number;
   usedPercent: number;
+  detectedTotalBytes?: number;
+};
+
+export type VmContractView = {
+  cpuCount: number;
+  ramBytes: number;
+  source: "env";
 };
 
 export type DayCountView = { day: string; count: number };
@@ -99,6 +107,7 @@ export type ServidoresStatus = {
     downloadWorker: HealthProbe;
     system: SystemStatsView | null;
     memory: MemoryStatsView | null;
+    vmContract: VmContractView | null;
     ops: {
       available: boolean;
       error: string | null;
@@ -165,6 +174,7 @@ async function fetchCloud2Ops(): Promise<{
   ops: ServidoresStatus["cloud2"]["ops"];
   system: SystemStatsView | null;
   memory: MemoryStatsView | null;
+  vmContract: VmContractView | null;
 }> {
   const emptyOps: ServidoresStatus["cloud2"]["ops"] = {
     available: false,
@@ -177,7 +187,7 @@ async function fetchCloud2Ops(): Promise<{
     providers: {},
     tempLimbo: null,
   };
-  if (!cloud2Enabled()) return { ops: emptyOps, system: null, memory: null };
+  if (!cloud2Enabled()) return { ops: emptyOps, system: null, memory: null, vmContract: null };
 
   const res = await cloud2FetchWithTimeout("/ops/storage", {}, 20000);
   if (!res) {
@@ -188,6 +198,7 @@ async function fetchCloud2Ops(): Promise<{
       },
       system: null,
       memory: null,
+      vmContract: null,
     };
   }
   if (res.status === 404) {
@@ -198,10 +209,11 @@ async function fetchCloud2Ops(): Promise<{
       },
       system: null,
       memory: null,
+      vmContract: null,
     };
   }
   if (!res.ok) {
-    return { ops: { ...emptyOps, error: `cloud2 ops HTTP ${res.status}` }, system: null, memory: null };
+    return { ops: { ...emptyOps, error: `cloud2 ops HTTP ${res.status}` }, system: null, memory: null, vmContract: null };
   }
 
   try {
@@ -209,6 +221,7 @@ async function fetchCloud2Ops(): Promise<{
       disk?: DiskStatsView | null;
       system?: SystemStatsView | null;
       memory?: MemoryStatsView | null;
+      vmContract?: VmContractView | null;
       dirs?: { name: string; path: string; bytes: number | null }[];
       r2?: BucketStatsView;
       b2?: BucketStatsView;
@@ -229,6 +242,7 @@ async function fetchCloud2Ops(): Promise<{
       },
       system: data.system ?? null,
       memory: data.memory ?? null,
+      vmContract: data.vmContract ?? null,
     };
   } catch (e) {
     return {
@@ -238,6 +252,7 @@ async function fetchCloud2Ops(): Promise<{
       },
       system: null,
       memory: null,
+      vmContract: null,
     };
   }
 }
@@ -424,6 +439,7 @@ export async function loadServidoresStatus(): Promise<ServidoresStatus> {
   ops.tempLimbo = tempLimbo;
   const system = cloud2Ops.system;
   const memory = cloud2Ops.memory;
+  const vmContract = cloud2Ops.vmContract;
 
   const hint = buildCapacityHint({
     diskUsedPercent: ops.disk?.usedPercent ?? null,
@@ -455,6 +471,7 @@ export async function loadServidoresStatus(): Promise<ServidoresStatus> {
       downloadWorker: downloadDiag,
       system,
       memory,
+      vmContract,
       ops,
     },
     neon,

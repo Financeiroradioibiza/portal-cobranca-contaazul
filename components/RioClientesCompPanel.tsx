@@ -1112,6 +1112,9 @@ export function RioClientesCompPanel() {
       const { data } = await readJsonFromResponse<{
         pdv?: RioPdv;
         gatewaySync?: { ok?: boolean; error?: string };
+        clienteId?: string;
+        numeroPdvSite?: number;
+        valorClienteTexto?: string;
       }>(res);
       if (!res.ok || !data?.pdv) return;
       if (data.gatewaySync && data.gatewaySync.ok === false) {
@@ -1122,9 +1125,8 @@ export function RioClientesCompPanel() {
         );
       }
       setLinhas((prev) =>
-        prev.map((ln) => ({
-          ...ln,
-          pdvs: sortRioPdvsByNome(
+        prev.map((ln) => {
+          const pdvs = sortRioPdvsByNome(
             ln.pdvs.map((p) =>
               p.id === pdvId ?
                 {
@@ -1135,8 +1137,17 @@ export function RioClientesCompPanel() {
                 }
               : p,
             ),
-          ),
-        })),
+          );
+          if (data.clienteId !== ln.id) return { ...ln, pdvs };
+          return {
+            ...ln,
+            pdvs,
+            ...(typeof data.numeroPdvSite === "number" ? { numeroPdvSite: data.numeroPdvSite } : {}),
+            ...(typeof data.valorClienteTexto === "string" ?
+              { valorClienteTexto: data.valorClienteTexto }
+            : {}),
+          };
+        }),
       );
     },
     [],

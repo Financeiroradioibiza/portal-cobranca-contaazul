@@ -26,12 +26,13 @@ Registro de testes de carga para calibrar `CRIACAO_WORKER_CONCURRENCY` e dimensi
 | Item | Valor |
 |------|-------|
 | VM cloud2 | Envyron |
-| CPU | **2 núcleos** |
-| RAM | _(anotar após painel Servidores mostrar memória)_ |
+| CPU | **2 núcleos** → upgrade **8 vCPU** (jul/2026) |
+| RAM | → upgrade **16 GB** |
+| Disco | → upgrade **80 GB** |
 | `CRIACAO_WORKER_CONCURRENCY` | **2** |
 | Pipeline | dedupe → mix → LUFS → tags → B2 (master + uso 128) |
 
-**Upgrade proposto Envyron:** 4 CPU + mais RAM.
+**Após resize Envyron:** reiniciar a VM (CPU/RAM só aparecem no painel Servidores depois do reboot). Opcional no `.env`: `CLOUD2_VM_CPU_COUNT=8` e `CLOUD2_VM_RAM_GB=16` até o SO refletir.
 
 ---
 
@@ -66,31 +67,38 @@ Registro de testes de carga para calibrar `CRIACAO_WORKER_CONCURRENCY` e dimensi
 
 ---
 
-## Teste T2 — (próximo bloco, ~46 faixas)
-
-_Preencher após o segundo lote._
+## Teste T2 — pós-upgrade VM (43 faixas)
 
 | Métrica | T1 (2 CPU) | T2 |
 |---------|------------|-----|
-| Faixas | 46 | |
-| Tempo total | 21:09 | |
-| s/faixa efetivo | ~27,6 | |
-| Concorrência | 2 | |
-| CPU pico | 106% | |
-| RAM pico | — | |
-| Erros | | |
+| Faixas | 46 | **43** |
+| Tempo total | 21:09 | **17:30** |
+| s/faixa efetivo | ~27,6 | **~24,4** |
+| Concorrência | 2 | **2** |
+| CPU pico | 106% | _(anotar)_ |
+| RAM pico | — | _(anotar)_ |
+
+Throughput ~**13%** maior que T1. VM upgrade + reboot; worker ainda em concorrência 2.
 
 ---
 
-## Teste T3 — pós-upgrade 4 CPU
+## Teste T3 — concorrência 4 (próximo lote)
+
+| Cenário | `CRIACAO_WORKER_CONCURRENCY` | Tempo ~43–46 faixas | CPU pico | RAM pico | Notas |
+|---------|------------------------------|---------------------|----------|----------|-------|
+| T3 | **4** | | | | jul/2026 — teste pós-deploy |
+
+---
+
+## Teste T4 — pós-upgrade 8 vCPU (histórico)
 
 _Agendar com Envyron após resize._
 
 | Cenário | `CRIACAO_WORKER_CONCURRENCY` | Tempo 46 faixas | CPU pico | RAM pico | Notas |
 |---------|------------------------------|-----------------|----------|----------|-------|
-| A | 2 | | | | baseline pós-upgrade |
+| A | 2 | 17:30 (43 fx) | | | T2 |
 | B | 3 | | | | |
-| C | 4 | | | | |
+| C | 4 | | | | T3 |
 
 **Como aplicar concorrência:**
 

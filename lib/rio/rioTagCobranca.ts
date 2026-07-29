@@ -34,6 +34,14 @@ export function effectiveRioTagCobranca(
   return lt;
 }
 
+/** PDV entra no Nº PDV / valor (cobrando e bloqueio financeiro sim; cancelado não). */
+export function rioPdvContaParaCobranca(
+  pdvTag?: RioTagCobranca | null,
+  linhaTag?: RioTagCobranca | null,
+): boolean {
+  return effectiveRioTagCobranca(pdvTag, linhaTag) !== "cancelado";
+}
+
 /** Tag Rio que deve inativar o PDV no gateway (Player para ao pingar). */
 export function rioTagCobrancaBloqueiaPlayer(tag: RioTagCobranca | null | undefined): boolean {
   const t = normalizeRioTagCobranca(tag);

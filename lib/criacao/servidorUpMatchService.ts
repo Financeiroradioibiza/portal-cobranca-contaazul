@@ -162,12 +162,12 @@ function compareServidorUpCandidates(
   legacyArtist: string,
   legacyTitle: string,
 ): number {
-  const scoreGap = b.score - a.score;
-  if (Math.abs(scoreGap) >= 8) return scoreGap;
-
   const aArtistOk = artistSimilarity(legacyArtist, a.artist) >= ARTIST_SIM_MATCH_MIN;
   const bArtistOk = artistSimilarity(legacyArtist, b.artist) >= ARTIST_SIM_MATCH_MIN;
   if (aArtistOk !== bArtistOk) return aArtistOk ? -1 : 1;
+
+  const scoreGap = b.score - a.score;
+  if (Math.abs(scoreGap) >= 8) return scoreGap;
 
   const da = a.durationDiffSec ?? 9999;
   const db = b.durationDiffSec ?? 9999;
@@ -178,6 +178,18 @@ function compareServidorUpCandidates(
   if (altA !== altB) return altA - altB;
 
   return b.score - a.score;
+}
+
+/** Entre candidatos com Δ duração ≤ limite, escolhe o melhor artista/título (não o primeiro da lista). */
+function bestAmongDurationWindow(
+  pool: ServidorUpMatchCandidate[],
+  legacyArtist: string,
+  legacyTitle: string,
+  maxDiffSec: number,
+): ServidorUpMatchCandidate | null {
+  const close = pool.filter((c) => c.durationDiffSec != null && c.durationDiffSec <= maxDiffSec);
+  if (close.length === 0) return null;
+  return [...close].sort((a, b) => compareServidorUpCandidates(a, b, legacyArtist, legacyTitle))[0]!;
 }
 
 function pickByLegacyDuration(
@@ -263,7 +275,7 @@ function pickByLegacyDuration(
   }
 
   if (diff <= 10) {
-    const closeAlt = sorted.find((c) => c.durationDiffSec != null && c.durationDiffSec <= 3);
+    const closeAlt = bestAmongDurationWindow(pool, legacyArtist, legacyTitle, 3);
     if (closeAlt) {
       return {
         selected: closeAlt,
@@ -278,7 +290,7 @@ function pickByLegacyDuration(
     };
   }
 
-  const closeAlt = sorted.find((c) => c.durationDiffSec != null && c.durationDiffSec <= 10);
+  const closeAlt = bestAmongDurationWindow(pool, legacyArtist, legacyTitle, 10);
   if (closeAlt) {
     return {
       selected: closeAlt,
@@ -349,11 +361,15 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
   }
 
   const enriched = await enrichCandidates(candidatesRaw, track.durationSec);
+  const legacyArtist =
+    parseArtistFromSearch(normalizedSearchLine) ||
+    track.artista.trim() ||
+    parseArtistFromSearch(searchLine);
   const { selected, verdict, reason } = pickByLegacyDuration(
     enriched,
     track.durationSec,
     track.titulo,
-    track.artista || parseArtistFromSearch(searchLine),
+    legacyArtist,
   );
 
   let finalVerdict = verdict;

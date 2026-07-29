@@ -85,12 +85,18 @@ function normalizeSearchArtist(artista: string): string {
   return alt || trimmed;
 }
 
-/** Artista principal — remove feat/ft (Deezer costuma listar só o projeto). */
+/** Artista principal — remove feat/ft; dupla «A & B» usa o primeiro nome quando há sobrenome. */
 export function primaryArtistForMatch(artista: string): string {
-  return artista
+  let s = artista
     .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
     .replace(/\s+/g, " ")
     .trim();
+  const duet = s.match(/^(.+?)\s*&\s+(.+)$/);
+  if (duet?.[1]?.trim() && duet[2]!.trim().length >= 3) {
+    const leftWords = duet[1].trim().split(/\s+/).filter(Boolean);
+    if (leftWords.length >= 2) s = duet[1]!.trim();
+  }
+  return s;
 }
 
 function normalizeArtistKey(artista: string): string {

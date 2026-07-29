@@ -24,7 +24,11 @@ import {
   sortRioCompGruposForDisplay,
 } from "@/lib/rio/sortRioCompLinhas";
 import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
-import { normalizeRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import {
+  normalizeRioTagCobranca,
+  rioPdvContaParaCobranca,
+  type RioTagCobranca,
+} from "@/lib/rio/rioTagCobranca";
 import {
   mergeValorClienteFromContaAzul,
   valorClienteTextoFromPdvUnit,
@@ -1009,6 +1013,10 @@ export async function patchRioCompClienteLinha(
     where: { id: linhaId },
     data: payload,
   });
+
+  if (payload.tagCobranca != null) {
+    await syncRioCompNumeroPdvSiteFromPdvs(linhaId);
+  }
 }
 
 export async function createRioCompGrupo(monthId: string, nomeRaw?: string) {
@@ -1119,19 +1127,28 @@ export async function renameRioCompGrupo(monthId: string, grupoId: string, nomeR
   });
 }
 
-/** Atualiza `numero_pdv_site` para bater com a quantidade de PDVs cadastrados na linha. */
+/** Atualiza `numero_pdv_site` para bater com PDVs cobráveis (exclui só tag cancelado). */
 export async function syncRioCompNumeroPdvSiteFromPdvs(linhaId: string): Promise<number> {
   const linha = await prisma.rioCompClienteLinha.findUnique({
     where: { id: linhaId },
-    select: { valorPdvUnitarioTexto: true, month: { select: { yearMonth: true } } },
+    select: {
+      tagCobranca: true,
+      valorPdvUnitarioTexto: true,
+      month: { select: { yearMonth: true } },
+    },
   });
   const countWhere =
     linha?.month && isRioTurnoverMonth(linha.month.yearMonth) ?
       { clienteId: linhaId, movimento: { not: "saida" as const } }
     : { clienteId: linhaId };
-  const count = await prisma.rioCompPdv.count({ where: countWhere });
+  const pdvs = await prisma.rioCompPdv.findMany({
+    where: countWhere,
+    select: { tagCobranca: true },
+  });
+  const linhaTag = linha?.tagCobranca ?? "cobrando";
+  const billable = pdvs.filter((p) => rioPdvContaParaCobranca(p.tagCobranca, linhaTag)).length;
   /** Sem PDVs internos na linha, mantém 1 no Nº PDV (faturamento / valor por PDV). */
-  const numeroPdvSite = Math.max(count, 1);
+  const numeroPdvSite = pdvs.length === 0 ? Math.max(billable, 1) : billable;
   const valorClienteTexto =
     linha?.valorPdvUnitarioTexto.trim() ?
       valorClienteTextoFromPdvUnit(linha.valorPdvUnitarioTexto, numeroPdvSite)
@@ -1380,6 +1397,14 @@ export async function patchRioCompPdv(
     patch.tagCobranca = normalizeRioTagCobranca(patch.tagCobranca);
   }
   await prisma.rioCompPdv.update({ where: { id: pdvId }, data: patch });
+
+  if (patch.tagCobranca != null) {
+    const row = await prisma.rioCompPdv.findUnique({
+      where: { id: pdvId },
+      select: { clienteId: true },
+    });
+    if (row) await syncRioCompNumeroPdvSiteFromPdvs(row.clienteId);
+  }
 }
 
 export async function deleteRioCompPdv(pdvId: string) {

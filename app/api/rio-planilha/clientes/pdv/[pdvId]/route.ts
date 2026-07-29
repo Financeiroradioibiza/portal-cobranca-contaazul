@@ -56,7 +56,26 @@ export async function PATCH(request: Request, context: Ctx) {
     gatewaySync = await syncPlayerGatewayAfterRioPdvTagChange(pdvId);
   }
   const pdv = await prisma.rioCompPdv.findUniqueOrThrow({ where: { id: pdvId } });
-  return NextResponse.json({ ok: true, pdv, gatewaySync });
+  const linhaVals =
+    "tagCobranca" in body ?
+      await prisma.rioCompClienteLinha.findUnique({
+        where: { id: row.cliente.id },
+        select: { numeroPdvSite: true, valorClienteTexto: true, valorPdvUnitarioTexto: true },
+      })
+    : null;
+  return NextResponse.json({
+    ok: true,
+    pdv,
+    gatewaySync,
+    ...(linhaVals ?
+      {
+        clienteId: row.cliente.id,
+        numeroPdvSite: linhaVals.numeroPdvSite,
+        valorClienteTexto: linhaVals.valorClienteTexto,
+        valorPdvUnitarioTexto: linhaVals.valorPdvUnitarioTexto,
+      }
+    : {}),
+  });
 }
 
 export async function DELETE(_req: Request, context: Ctx) {

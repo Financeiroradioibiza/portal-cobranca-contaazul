@@ -213,6 +213,11 @@ export function ConfigServidoresPanel() {
             <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
               <div>
                 <h2 className="text-base font-bold">Capacidade cloud2 (agora)</h2>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  CPU e RAM vêm do container <code className="text-[10px]">api</code> no cloud2 (não
+                  da VM inteira). Se Envyron já mostra 8 vCPU / 16 GB mas aqui aparece 2 / 8 GB,
+                  ajuste limites no <code className="text-[10px]">docker-compose.yml</code> do servidor.
+                </p>
                 <p
                   className={`mt-1 text-sm ${
                     status.capacity.level === "critical" ? "text-red-700 dark:text-red-300"
@@ -241,7 +246,7 @@ export function ConfigServidoresPanel() {
             </div>
             <dl className="mb-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
               <div>
-                <dt className="text-xs text-slate-500">CPU (load ÷ núcleos)</dt>
+                <dt className="text-xs text-slate-500">CPU container (load ÷ núcleos)</dt>
                 <dd className="font-semibold">
                   {status.cloud2.system ?
                     `${status.cloud2.system.loadPercent}% · load ${status.cloud2.system.load1.toFixed(2)} / ${status.cloud2.system.cpuCount} núcleos`
@@ -249,17 +254,32 @@ export function ConfigServidoresPanel() {
                     `${disk.usedPercent}% disco (CPU após deploy ops no cloud2)`
                   : "—"}
                 </dd>
+                {status.cloud2.system?.detectedCpuCount != null &&
+                status.cloud2.system.detectedCpuCount < status.cloud2.system.cpuCount ?
+                  <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                    SO/container reporta {status.cloud2.system.detectedCpuCount} núcleo
+                    {status.cloud2.system.detectedCpuCount === 1 ? "" : "s"} — reinicie a VM após
+                    resize Envyron.
+                  </p>
+                : null}
                 {status.cloud2.system ?
                   <UsageBar usedPercent={status.cloud2.system.loadPercent} />
                 : null}
               </div>
               <div>
-                <dt className="text-xs text-slate-500">Memória RAM</dt>
+                <dt className="text-xs text-slate-500">RAM container</dt>
                 <dd className="font-semibold">
                   {status.cloud2.memory ?
                     `${status.cloud2.memory.usedPercent}% · ${fmtBytes(status.cloud2.memory.usedBytes)} / ${fmtBytes(status.cloud2.memory.totalBytes)}`
                   : "— (deploy ops no cloud2)"}
                 </dd>
+                {status.cloud2.memory?.detectedTotalBytes != null &&
+                status.cloud2.memory.detectedTotalBytes < status.cloud2.memory.totalBytes ?
+                  <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                    SO/container reporta {fmtBytes(status.cloud2.memory.detectedTotalBytes)} — reinicie
+                    a VM se acabou de aumentar a RAM.
+                  </p>
+                : null}
                 {status.cloud2.memory ?
                   <UsageBar usedPercent={status.cloud2.memory.usedPercent} />
                 : null}
