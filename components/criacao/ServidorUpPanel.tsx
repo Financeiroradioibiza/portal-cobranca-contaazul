@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CriativoTagSelect,
   formatTagChipPreview,
 } from "@/components/criacao/CriativoTagSelect";
+import { ServidorUpTrackCompareInline } from "@/components/criacao/ServidorUpTrackCompareInline";
 import { listMp3PathsFromFileList } from "@/lib/criacao/atlCricaZipClient";
 import {
   getLocalServidorUpConfig,
@@ -162,6 +163,16 @@ function matchDeezerUrl(row: ServidorUpMatchRow, picks: Record<string, number>):
   return c?.url ?? null;
 }
 
+function matchDeemixLabel(row: ServidorUpMatchRow, picks: Record<string, number>): string {
+  if (row.selected && (row.verdict === "auto" || row.verdict === "review")) {
+    return `${row.selected.artist} — ${row.selected.title}`;
+  }
+  const id = picks[row.relativePath];
+  const c = row.candidates.find((x) => x.trackId === id);
+  if (c) return `${c.artist} — ${c.title}`;
+  return row.searchLine;
+}
+
 export function ServidorUpPanel() {
   const router = useRouter();
   const [localHealth, setLocalHealth] = useState<{ ok: boolean; version?: string; ffprobe?: boolean } | null>(
@@ -183,6 +194,8 @@ export function ServidorUpPanel() {
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
   const [showSetup, setShowSetup] = useState(false);
   const [busy, setBusy] = useState("");
+  const [comparePath, setComparePath] = useState<string | null>(null);
+  const [previewJobId, setPreviewJobId] = useState<string | null>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
   const checkLocal = useCallback(async () => {
@@ -1064,8 +1077,8 @@ export function ServidorUpPanel() {
               {skippedTracks.size > 0 ? ` · ${skippedTracks.size} pulada(s)` : ""}
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              Na dúvida: abra o link Deezer, compare com o MP3 legado no PC e escolha na lista — ou use{" "}
-              <strong>Pular</strong> para não subir.
+              Na dúvida: use <strong>Check</strong> para comparar legado × Deemix (waveforms) — só quando
+              precisar. Ou abra o Deezer, escolha na lista, ou <strong>Pular</strong>.
             </p>
           </div>
 
@@ -1090,9 +1103,13 @@ export function ServidorUpPanel() {
                       row.verdict === "review" ||
                       row.verdict === "rejected" ||
                       row.verdict === "not_found");
+                  const deezerUrl = matchDeezerUrl(row, matchPicks) ?? row.selected?.url ?? null;
+                  const canCheck = !isSkipped && Boolean(deezerUrl);
+                  const isCompareOpen = comparePath === row.relativePath;
 
                   return (
-                  <tr key={row.relativePath} className={isSkipped ? "opacity-50" : undefined}>
+                  <Fragment key={row.relativePath}>
+                  <tr className={isSkipped ? "opacity-50" : undefined}>
                     <td className="px-3 py-2">
                       <div className="font-medium">{row.searchLine}</div>
                       {row.normalizedSearchLine !== row.searchLine ?
@@ -1144,15 +1161,33 @@ export function ServidorUpPanel() {
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1">
-                        {(matchDeezerUrl(row, matchPicks) ?? row.selected?.url) ?
+                        {deezerUrl ?
                           <a
-                            href={matchDeezerUrl(row, matchPicks) ?? row.selected?.url ?? "#"}
+                            href={deezerUrl}
                             target="_blank"
                             rel="noreferrer"
                             className="rounded border px-2 py-0.5 text-[10px] font-semibold dark:border-slate-700"
                           >
                             Ouvir Deezer
                           </a>
+                        : null}
+                        {canCheck ?
+                          <button
+                            type="button"
+                            disabled={!!busy}
+                            onClick={() =>
+                              setComparePath((prev) =>
+                                prev === row.relativePath ? null : row.relativePath,
+                              )
+                            }
+                            className={`rounded border px-2 py-0.5 text-[10px] font-semibold dark:border-slate-700 ${
+                              isCompareOpen ?
+                                "border-amber-500 bg-amber-100 text-amber-950 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100"
+                              : ""
+                            }`}
+                          >
+                            {isCompareOpen ? "Fechar check" : "Check"}
+                          </button>
                         : null}
                         <button
                           type="button"
@@ -1171,6 +1206,22 @@ export function ServidorUpPanel() {
                       </div>
                     </td>
                   </tr>
+                  {isCompareOpen && deezerUrl ?
+                    <tr>
+                      <td colSpan={5} className="px-3 py-3">
+                        <ServidorUpTrackCompareInline
+                          relativePath={row.relativePath}
+                          legacyLabel={row.searchLine}
+                          deemixLabel={matchDeemixLabel(row, matchPicks)}
+                          deezerUrl={deezerUrl}
+                          previewJobId={previewJobId}
+                          onPreviewJobId={setPreviewJobId}
+                          onClose={() => setComparePath(null)}
+                        />
+                      </td>
+                    </tr>
+                  : null}
+                  </Fragment>
                   );
                 })}
               </tbody>
