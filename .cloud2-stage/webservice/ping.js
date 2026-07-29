@@ -2,6 +2,7 @@ import { getPool } from '../../db/pool.js';
 import { loadSessionByToken } from './loginByToken.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { avaliarBloqueioReproducao, healGatewayStatusSeNecessario } from './rioCobrancaBlock.js';
+import { resolverAvisoAutomatizadoPorGatewayPdv } from './playerAvisos.js';
 import { randomUUID } from 'node:crypto';
 
 function buildPingPdvPayload(row) {
@@ -133,6 +134,11 @@ export async function registerPingRoutes(app, prefix) {
     }
 
     await gravarVotoMusicaPing(rowAtivo, req);
+
+    const avisoResolvido = String(req.query.aviso_resolvido ?? '').trim();
+    if (avisoResolvido === 'cadastro_loja' || avisoResolvido === 'cadastro_financeiro') {
+      await resolverAvisoAutomatizadoPorGatewayPdv(rowAtivo.pdv_id, avisoResolvido);
+    }
 
     return reply.send({
       pdv: buildPingPdvPayload(rowAtivo),

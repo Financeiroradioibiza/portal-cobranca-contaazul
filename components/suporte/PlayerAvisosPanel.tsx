@@ -4,6 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { formatPortalPdvIdDisplay, parsePortalPdvDisplay } from "@/lib/player/portalPlayerIds";
 import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
 import type { PlayerAvisoListEntry } from "@/lib/suporte/playerAvisoService";
+import {
+  MENSAGEM_PADRAO_AVISO_CADASTRO_FINANCEIRO,
+  MENSAGEM_PADRAO_AVISO_CADASTRO_LOJA,
+  rotuloAvisoModelo,
+  type PlayerAvisoModeloAutomatizado,
+} from "@/lib/suporte/playerAvisoModelo";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
 type TargetScope = "pdv" | "cliente";
@@ -20,6 +26,29 @@ type SelectedClient = {
   portalClienteId: number;
   clienteNome: string;
 };
+
+const MODELOS_AUTOMATIZADOS: Array<{
+  modelo: PlayerAvisoModeloAutomatizado;
+  titulo: string;
+  descricao: string;
+  mensagem: string;
+  accent: string;
+}> = [
+  {
+    modelo: "cadastro_loja",
+    titulo: "Atualização de cadastro de loja",
+    descricao: "Bloqueia o player até enviar cadastro da loja. Desativa sozinho após envio.",
+    mensagem: MENSAGEM_PADRAO_AVISO_CADASTRO_LOJA,
+    accent: "border-orange-500/50 bg-orange-950/40 ring-1 ring-orange-500/30",
+  },
+  {
+    modelo: "cadastro_financeiro",
+    titulo: "Atualização de cadastro do financeiro",
+    descricao: "Bloqueia o player até enviar cadastro financeiro. Desativa sozinho após envio.",
+    mensagem: MENSAGEM_PADRAO_AVISO_CADASTRO_FINANCEIRO,
+    accent: "border-emerald-500/50 bg-emerald-950/40 ring-1 ring-emerald-500/30",
+  },
+];
 
 const AVISO_TEMPLATES = [
   "Favor atualize o seu cadasto abaixo :)",
@@ -83,6 +112,13 @@ function parseEntries(data: unknown): PlayerAvisoListEntry[] {
         null
       : parsePdvIdField(String(pdvRaw));
 
+    const modeloRaw = r.modelo;
+    const modelo =
+      modeloRaw === "cadastro_loja" || modeloRaw === "cadastro_financeiro" || modeloRaw === "manual"
+        ? modeloRaw
+        : "manual";
+    const automatizado = modelo === "cadastro_loja" || modelo === "cadastro_financeiro";
+
     out.push({
       scope,
       deactivate_key,
@@ -90,6 +126,8 @@ function parseEntries(data: unknown): PlayerAvisoListEntry[] {
       pdv_id,
       pdv_count: typeof r.pdv_count === "number" && r.pdv_count > 0 ? r.pdv_count : 1,
       mensagem,
+      modelo,
+      automatizado,
       atualizado_em,
       cliente_nome: typeof r.cliente_nome === "string" ? r.cliente_nome : undefined,
       pdv_nome: typeof r.pdv_nome === "string" ? r.pdv_nome : undefined,
@@ -367,6 +405,65 @@ export function PlayerAvisosPanel() {
     void refreshList();
   }, [refreshList]);
 
+  async function onAtivarAutomatizado(modelo: PlayerAvisoModeloAutomatizado) {
+    setBusy(true);
+    setStatus(null);
+    try {
+      if (scope === "cliente") {
+        const cid = resolveClienteId();
+        if (cid == null) {
+          setStatus({
+            kind: "err",
+            text: "Escolha o cliente na busca ou informe o ID cliente válido.",
+          });
+          return;
+        }
+        const { res, data } = await postAvisos({
+          action: "ativar_automatizado_cliente",
+          cliente_id: cid,
+          modelo,
+        });
+        if (!res.ok || !data || typeof data !== "object" || !(data as { ok?: boolean }).ok) {
+          setStatus({ kind: "err", text: mapApiError(data) });
+          return;
+        }
+        applyListResponse(data);
+        setStatus({
+          kind: "ok",
+          text: "Aviso automatizado ativo em todos os PDVs do cliente — o player bloqueia até o cadastro ser enviado.",
+        });
+        return;
+      }
+
+      const ids = resolvePdvIds();
+      if (!ids) {
+        setStatus({
+          kind: "err",
+          text: "Escolha um PDV na busca ou informe ID cliente e ID PDV válidos.",
+        });
+        return;
+      }
+
+      const { res, data } = await postAvisos({
+        action: "ativar_automatizado",
+        cliente_id: ids.cid,
+        pdv_id: ids.pid,
+        modelo,
+      });
+      if (!res.ok || !data || typeof data !== "object" || !(data as { ok?: boolean }).ok) {
+        setStatus({ kind: "err", text: mapApiError(data) });
+        return;
+      }
+      applyListResponse(data);
+      setStatus({
+        kind: "ok",
+        text: "Aviso automatizado ativo — o player bloqueia até o operador enviar o cadastro.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onAtivar(e: React.FormEvent) {
     e.preventDefault();
     const msg = mensagem.trim();
@@ -613,9 +710,39 @@ export function PlayerAvisosPanel() {
             : null}
           </div>
 
+          <div className="space-y-2 rounded-xl border border-violet-500/30 bg-violet-950/20 p-3">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-violet-200">
+              Modelos automatizados
+            </p>
+            <p className="text-[11px] leading-relaxed text-zinc-400">
+              O player abre a tela de cadastro e só volta após enviar. O aviso desativa automaticamente
+              quando o operador conclui o formulário.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {MODELOS_AUTOMATIZADOS.map((m) => (
+                <div
+                  key={m.modelo}
+                  className={`rounded-xl border p-3 ${m.accent}`}
+                >
+                  <p className="text-sm font-semibold text-white">{m.titulo}</p>
+                  <p className="mt-1 text-[11px] leading-snug text-zinc-300">{m.descricao}</p>
+                  <p className="mt-2 text-[10px] italic text-zinc-400">&ldquo;{m.mensagem}&rdquo;</p>
+                  <button
+                    type="button"
+                    disabled={busy || !loaded}
+                    onClick={() => void onAtivarAutomatizado(m.modelo)}
+                    className="mt-3 w-full rounded-lg bg-violet-700/90 px-3 py-2 text-xs font-bold text-white hover:bg-violet-600 disabled:opacity-40"
+                  >
+                    Ativar automatizado
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div>
             <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-              Modelos (clique para usar)
+              Modelos manuais (clique para usar)
             </p>
             <div className="flex flex-wrap gap-2">
               {AVISO_TEMPLATES.map((tpl) => (
@@ -692,6 +819,11 @@ export function PlayerAvisosPanel() {
                         <> · {entry.codigo_display ?? formatPortalPdvIdDisplay(entry.pdv_id)}</>
                       : null}
                     </span>
+                    {entry.automatizado ?
+                      <span className="ml-2 inline-flex rounded-md bg-violet-900/60 px-1.5 py-0.5 text-[10px] font-semibold text-violet-100">
+                        {rotuloAvisoModelo(entry.modelo)}
+                      </span>
+                    : null}
                     <p className="mt-1 text-zinc-200">{entry.mensagem}</p>
                     {entry.atualizado_em ?
                       <p className="mt-1 text-[10px] text-zinc-600">

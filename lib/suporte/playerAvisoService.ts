@@ -3,8 +3,22 @@ import { prisma } from "@/lib/prisma";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
 import { listPortalPlayerRows } from "@/lib/player/listPortalPlayerRows";
 import { resolvePlayerAvisoPdvLabels } from "@/lib/suporte/playerAvisoPdvSearch";
+import {
+  isPlayerAvisoModeloAutomatizado,
+  mensagemPadraoAvisoModelo,
+  parsePlayerAvisoModelo,
+  type PlayerAvisoModelo,
+  type PlayerAvisoModeloAutomatizado,
+} from "@/lib/suporte/playerAvisoModelo";
 
-export type PlayerAvisosAction = "listar" | "ativar" | "ativar_cliente" | "apagar" | "desativar";
+export type PlayerAvisosAction =
+  | "listar"
+  | "ativar"
+  | "ativar_cliente"
+  | "ativar_automatizado"
+  | "ativar_automatizado_cliente"
+  | "apagar"
+  | "desativar";
 
 /** Linha agrupada para a UI (um PDV ou todos PDVs de um cliente). */
 export type PlayerAvisoListEntry = {
@@ -15,6 +29,8 @@ export type PlayerAvisoListEntry = {
   pdv_id: number | null;
   pdv_count: number;
   mensagem: string;
+  modelo: PlayerAvisoModelo;
+  automatizado: boolean;
   atualizado_em: string;
   cliente_nome?: string;
   pdv_nome?: string;
@@ -104,6 +120,7 @@ export async function listPlayerAvisoEntries(): Promise<PlayerAvisoListEntry[]> 
   for (const [batchId, group] of batchGroups) {
     const first = group[0]!;
     const label = labels.get(first.portalPdvId);
+    const modelo = parsePlayerAvisoModelo(first.modelo);
     entries.push({
       scope: "cliente",
       deactivate_key: batchId,
@@ -111,6 +128,8 @@ export async function listPlayerAvisoEntries(): Promise<PlayerAvisoListEntry[]> 
       pdv_id: null,
       pdv_count: group.length,
       mensagem: first.mensagem.trim(),
+      modelo,
+      automatizado: isPlayerAvisoModeloAutomatizado(modelo),
       atualizado_em: first.createdAt.toISOString(),
       cliente_nome: label?.clienteNome ?? (await resolveClienteNome(first.portalClienteId)),
     });
@@ -118,6 +137,7 @@ export async function listPlayerAvisoEntries(): Promise<PlayerAvisoListEntry[]> 
 
   for (const r of singles) {
     const label = labels.get(r.portalPdvId);
+    const modelo = parsePlayerAvisoModelo(r.modelo);
     entries.push({
       scope: "pdv",
       deactivate_key: r.id,
@@ -125,6 +145,8 @@ export async function listPlayerAvisoEntries(): Promise<PlayerAvisoListEntry[]> 
       pdv_id: r.portalPdvId,
       pdv_count: 1,
       mensagem: r.mensagem.trim(),
+      modelo,
+      automatizado: isPlayerAvisoModeloAutomatizado(modelo),
       atualizado_em: r.createdAt.toISOString(),
       cliente_nome: label?.clienteNome,
       pdv_nome: label?.pdvNome,
@@ -150,7 +172,7 @@ export async function activatePlayerAviso(
   if (!msg) throw new Error("mensagem_vazia");
 
   await prisma.playerAvisoOperador.create({
-    data: { portalClienteId, portalPdvId, mensagem: msg },
+    data: { portalClienteId, portalPdvId, mensagem: msg, modelo: "manual" },
   });
   await trimExcessRows();
   return listPlayerAvisoEntries();
@@ -172,6 +194,7 @@ export async function activatePlayerAvisoForCliente(
       portalClienteId,
       portalPdvId,
       mensagem: msg,
+      modelo: "manual",
       batchId,
     })),
   });
@@ -204,19 +227,97 @@ export async function deletePlayerAvisosForPair(
   return listPlayerAvisoEntries();
 }
 
+export async function activatePlayerAvisoAutomatizado(
+  portalClienteId: number,
+  portalPdvId: number,
+  modelo: PlayerAvisoModeloAutomatizado,
+): Promise<PlayerAvisoListEntry[]> {
+  const msg = mensagemPadraoAvisoModelo(modelo);
+  await prisma.playerAvisoOperador.deleteMany({
+    where: { portalClienteId, portalPdvId, modelo },
+  });
+  await prisma.playerAvisoOperador.create({
+    data: { portalClienteId, portalPdvId, mensagem: msg, modelo },
+  });
+  await trimExcessRows();
+  return listPlayerAvisoEntries();
+}
+
+export async function activatePlayerAvisoAutomatizadoForCliente(
+  portalClienteId: number,
+  modelo: PlayerAvisoModeloAutomatizado,
+): Promise<PlayerAvisoListEntry[]> {
+  const msg = mensagemPadraoAvisoModelo(modelo);
+  const pdvIds = await listPortalPdvIdsForCliente(portalClienteId);
+  if (pdvIds.length === 0) throw new Error("cliente_sem_pdvs");
+
+  await prisma.playerAvisoOperador.deleteMany({
+    where: { portalClienteId, modelo },
+  });
+
+  const batchId = crypto.randomUUID();
+  await prisma.playerAvisoOperador.createMany({
+    data: pdvIds.map((portalPdvId) => ({
+      portalClienteId,
+      portalPdvId,
+      mensagem: msg,
+      modelo,
+      batchId,
+    })),
+  });
+  await trimExcessRows();
+  return listPlayerAvisoEntries();
+}
+
+export async function deactivateAutomatedAvisoForPdv(
+  portalClienteId: number,
+  portalPdvId: number,
+  modelo: PlayerAvisoModeloAutomatizado,
+): Promise<void> {
+  await prisma.playerAvisoOperador.deleteMany({
+    where: { portalClienteId, portalPdvId, modelo },
+  });
+}
+
+export type PlayerAvisoOperadorPayload = {
+  id: string;
+  modelo: PlayerAvisoModelo;
+  mensagem: string;
+  bloqueia: boolean;
+};
+
+export async function fetchPlayerAvisoPayloadForPdv(
+  portalClienteId: number,
+  portalPdvId: number,
+): Promise<{ mensagens: string[]; avisos: PlayerAvisoOperadorPayload[] }> {
+  const rows = await prisma.playerAvisoOperador.findMany({
+    where: { portalClienteId, portalPdvId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, mensagem: true, modelo: true },
+    take: 50,
+  });
+
+  const mensagens: string[] = [];
+  const avisos: PlayerAvisoOperadorPayload[] = [];
+
+  for (const r of rows) {
+    const m = r.mensagem.trim();
+    if (!m) continue;
+    const modelo = parsePlayerAvisoModelo(r.modelo);
+    if (isPlayerAvisoModeloAutomatizado(modelo)) {
+      avisos.push({ id: r.id, modelo, mensagem: m, bloqueia: true });
+    } else {
+      mensagens.push(m);
+    }
+  }
+
+  return { mensagens, avisos };
+}
+
 export async function fetchPlayerAvisoMensagensForPdv(
   portalClienteId: number,
   portalPdvId: number,
 ): Promise<string[]> {
-  const rows = await prisma.playerAvisoOperador.findMany({
-    where: { portalClienteId, portalPdvId },
-    orderBy: { createdAt: "desc" },
-    select: { mensagem: true },
-  });
-  const out: string[] = [];
-  for (const r of rows) {
-    const m = r.mensagem.trim();
-    if (m) out.push(m);
-  }
-  return out;
+  const pack = await fetchPlayerAvisoPayloadForPdv(portalClienteId, portalPdvId);
+  return pack.mensagens;
 }

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requirePortalSession, getPortalSession } from "@/lib/auth/portalAccess";
 import {
   activatePlayerAviso,
+  activatePlayerAvisoAutomatizado,
+  activatePlayerAvisoAutomatizadoForCliente,
   activatePlayerAvisoForCliente,
   deactivatePlayerAviso,
   deletePlayerAvisosForPair,
@@ -17,11 +19,19 @@ function parseAction(raw: unknown): PlayerAvisosAction | null {
     raw === "listar" ||
     raw === "ativar" ||
     raw === "ativar_cliente" ||
+    raw === "ativar_automatizado" ||
+    raw === "ativar_automatizado_cliente" ||
     raw === "apagar" ||
     raw === "desativar"
   ) {
     return raw;
   }
+  return null;
+}
+
+function parseModeloAutomatizado(raw: unknown) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (s === "cadastro_loja" || s === "cadastro_financeiro") return s;
   return null;
 }
 
@@ -73,8 +83,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, rows });
     }
 
+    if (action === "ativar_automatizado_cliente") {
+      const cliente_id = parsePortalPlayerNumericId(body.cliente_id);
+      const modelo = parseModeloAutomatizado(body.modelo);
+      if (cliente_id == null || modelo == null) {
+        return NextResponse.json({ ok: false, error: "cliente_pdv_invalido" }, { status: 400 });
+      }
+      const rows = await activatePlayerAvisoAutomatizadoForCliente(cliente_id, modelo);
+      return NextResponse.json({ ok: true, rows });
+    }
+
     const cliente_id = parsePortalPlayerNumericId(body.cliente_id);
     const pdv_id = parsePortalPlayerNumericId(body.pdv_id);
+
+    if (action === "ativar_automatizado") {
+      const modelo = parseModeloAutomatizado(body.modelo);
+      if (cliente_id == null || pdv_id == null || modelo == null) {
+        return NextResponse.json({ ok: false, error: "cliente_pdv_invalido" }, { status: 400 });
+      }
+      const rows = await activatePlayerAvisoAutomatizado(cliente_id, pdv_id, modelo);
+      return NextResponse.json({ ok: true, rows });
+    }
 
     if (action === "ativar") {
       if (cliente_id == null || pdv_id == null) {

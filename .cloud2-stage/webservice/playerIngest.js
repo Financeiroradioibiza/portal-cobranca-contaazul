@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { portalQuery } from '../../criacao/portalDb.js';
+import { resolverAvisoAutomatizadoPorGatewayPdv } from './playerAvisos.js';
 
 function str(v) {
   return typeof v === 'string' ? v.trim() : '';
@@ -180,6 +181,14 @@ export async function registerPlayerCadastroRoutes(app, prefix = '/api') {
         payloadJson: JSON.stringify(body).slice(0, 12000),
         chamadoId: null,
       });
+
+      const secao = str(body.secao);
+      if (secao === 'loja') {
+        await resolverAvisoAutomatizadoPorGatewayPdv(pdvGatewayId, 'cadastro_loja');
+      } else if (secao === 'financeiro') {
+        await resolverAvisoAutomatizadoPorGatewayPdv(pdvGatewayId, 'cadastro_financeiro');
+      }
+
       return reply.send({ ok: true, id, mensagem: 'cadastro_recebido' });
     } catch (e) {
       console.error('[player-cadastro]', e instanceof Error ? e.message : e);

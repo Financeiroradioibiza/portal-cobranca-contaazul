@@ -353,11 +353,14 @@ model PlayerAvisoOperador {
   portalClienteId Int      @map("portal_cliente_id")
   portalPdvId     Int      @map("portal_pdv_id")
   mensagem        String   @db.Text
+  /// manual | cadastro_loja | cadastro_financeiro
+  modelo          String   @default("manual")
   /// Agrupa avisos «todos PDVs do cliente» — desativação e listagem em uma linha.
   batchId         String?  @map("batch_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@index([portalClienteId, portalPdvId])
+  @@index([portalClienteId, portalPdvId, modelo])
   @@index([batchId])
   @@map("player_aviso_operador")
 }
