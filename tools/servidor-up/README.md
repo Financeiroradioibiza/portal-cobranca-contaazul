@@ -51,6 +51,7 @@ Pode haver uma pasta raiz extra (ex. `LegadoTeste/`); o portal usa os **3 últim
 | GET/POST | `/config` | Pasta raiz no PC |
 | POST | `/scan/paths` | Lista caminhos MP3 |
 | POST | `/scan/inventory` | MP3 + ffprobe + metadados |
+| GET | `/audio?rel=…` | Stream do MP3 legado (waveform / ouvir na verificação) |
 
 ## Fluxo no portal
 
@@ -59,6 +60,7 @@ Pode haver uma pasta raiz extra (ex. `LegadoTeste/`); o portal usa os **3 últim
 3. **Passo 2** — Match Deezer + conferência de duração
 4. **Passo 3** — Revisão de ambíguos
 5. **Passo 4** — Download Deemix (cloud2) + fila de processamento
+6. **Multi-Upload** — Verificação visual legado vs Deemix (waveforms) antes de subir
 
 ## Variável no portal (opcional)
 

@@ -540,6 +540,7 @@ export function ServidorUpPanel() {
     const payload = {
       downloadJobId: jobId,
       titulo: `Servidor UP · ${rootPath.split("/").pop() || "legado"}`,
+      rootPath: rootPath.trim() || undefined,
       hierarchyRows: preview.rows,
       drafts: Object.fromEntries(
         Object.entries(drafts).map(([key, d]) => [

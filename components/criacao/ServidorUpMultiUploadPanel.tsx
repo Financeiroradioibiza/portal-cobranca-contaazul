@@ -5,9 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import {
+  ServidorUpDownloadVerifyPanel,
+  type ServidorUpVerifyDecision,
+} from "@/components/criacao/ServidorUpDownloadVerifyPanel";
+import {
   buildUploadSessionFromDraft,
   clearServidorUpMultiUploadManualPick,
   clearServidorUpUploadSession,
+  clearVerifyDecisions,
   fetchServidorUpUploadSession,
   markServidorUpMultiUploadManualPick,
   readServidorUpMultiUploadManualPick,
@@ -16,11 +21,17 @@ import {
   readActiveDeemixJobId,
   readServidorUpUploadSession,
   readServidorUpWorkflowDraft,
+  readVerifyDecisions,
   setActiveDeemixJobId,
   writeServidorUpUploadSession,
+  writeVerifyDecisions,
   type ServidorUpUploadSession,
 } from "@/lib/criacao/servidorUpUploadSession";
 import type { ServidorUpUploadPlan } from "@/lib/criacao/servidorUpUploadService";
+import type {
+  ServidorUpDownloadVerifyPayload,
+  ServidorUpTrackVerifyRow,
+} from "@/lib/criacao/servidorUpDownloadVerifyService";
 
 type BuildResponse = {
   ok?: boolean;
@@ -77,6 +88,12 @@ type SessionsResponse = {
   error?: string;
 };
 
+type VerifyResponse = {
+  ok?: boolean;
+  verify?: ServidorUpDownloadVerifyPayload;
+  error?: string;
+};
+
 async function readApiJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   try {
@@ -105,7 +122,39 @@ export function ServidorUpMultiUploadPanel() {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [selectingJob, setSelectingJob] = useState(false);
   const [repairingStaging, setRepairingStaging] = useState(false);
+  const [verifyTracks, setVerifyTracks] = useState<ServidorUpTrackVerifyRow[]>([]);
+  const [verifyStreamEnabled, setVerifyStreamEnabled] = useState(true);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyDecisions, setVerifyDecisions] = useState<Record<string, ServidorUpVerifyDecision>>({});
   const autoRepairAttemptedRef = useRef<Set<string>>(new Set());
+
+  const loadVerifyTracks = useCallback(async (s: ServidorUpUploadSession) => {
+    setVerifyLoading(true);
+    try {
+      const res = await fetch("/api/criacao/servidor-up/download-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          downloadJobId: s.downloadJobId,
+          hierarchyRows: s.hierarchyRows,
+          drafts: s.drafts,
+          tracks: s.tracks,
+        }),
+      });
+      const data = await readApiJson<VerifyResponse>(res);
+      if (!res.ok || !data.verify) {
+        throw new Error(data.error ?? "Falha ao carregar verificação.");
+      }
+      setVerifyTracks(data.verify.tracks);
+      setVerifyStreamEnabled(data.verify.streamEnabled);
+      const saved = readVerifyDecisions(s.downloadJobId);
+      setVerifyDecisions(saved);
+    } catch {
+      setVerifyTracks([]);
+    } finally {
+      setVerifyLoading(false);
+    }
+  }, []);
 
   const loadPlan = useCallback(async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[]) => {
     setPlanLoading(true);
@@ -127,6 +176,7 @@ export function ServidorUpMultiUploadPanel() {
       }
       setPlan(data.plan);
       setStats(data.stats ?? null);
+      void loadVerifyTracks(s);
 
       const matched = data.plan.lotes.reduce((n, l) => n + l.tracks.length, 0);
       const jobRow = jobs.find((j) => j.id === s.downloadJobId);
@@ -183,7 +233,15 @@ export function ServidorUpMultiUploadPanel() {
     } finally {
       setPlanLoading(false);
     }
-  }, []);
+  }, [loadVerifyTracks]);
+
+  const handleVerifyDecisionsChange = useCallback(
+    (next: Record<string, ServidorUpVerifyDecision>) => {
+      setVerifyDecisions(next);
+      if (session) writeVerifyDecisions(session.downloadJobId, next);
+    },
+    [session],
+  );
 
   const activateSession = useCallback(
     async (s: ServidorUpUploadSession, jobs: DeemixJobSummary[]) => {
@@ -439,6 +497,25 @@ export function ServidorUpMultiUploadPanel() {
 
   async function submitMultiUpload() {
     if (!session || !plan) return;
+    const approvedIds =
+      verifyTracks.length > 0 ?
+        verifyTracks
+          .filter((t) => verifyDecisions[t.downloadItemId] === "approved")
+          .map((t) => t.downloadItemId)
+      : plan.lotes.flatMap((l) => l.tracks.map((t) => t.downloadItemId));
+
+    if (verifyTracks.length > 0) {
+      const allDecided = verifyTracks.every((t) => verifyDecisions[t.downloadItemId]);
+      if (!allDecided) {
+        setErr("Aprove ou rejeite todas as faixas na verificação antes de subir.");
+        return;
+      }
+      if (approvedIds.length === 0) {
+        setErr("Nenhuma faixa aprovada — aprove ao menos uma na verificação.");
+        return;
+      }
+    }
+
     setSubmitting(true);
     setErr(null);
     setMsg(null);
@@ -452,6 +529,7 @@ export function ServidorUpMultiUploadPanel() {
           hierarchyRows: session.hierarchyRows,
           drafts: session.drafts,
           tracks: session.tracks,
+          approvedDownloadItemIds: approvedIds,
         }),
       });
       const data = (await res.json()) as EnqueueResponse;
@@ -473,6 +551,7 @@ export function ServidorUpMultiUploadPanel() {
         throw new Error(data.message ?? data.error ?? "Falha no multi-upload.");
       }
       clearServidorUpUploadSession();
+      clearVerifyDecisions(session.downloadJobId);
       const parts = [
         `${data.stats?.tracks ?? data.stagingImported ?? 0} faixa(s) importadas`,
         `${data.stats?.lotes ?? data.jobIds?.length ?? 0} pasta(s)`,
@@ -665,6 +744,18 @@ export function ServidorUpMultiUploadPanel() {
   }
 
   const totalMatched = plan?.lotes.reduce((n, l) => n + l.tracks.length, 0) ?? 0;
+  const approvedForUpload =
+    verifyTracks.length > 0 ?
+      verifyTracks.filter((t) => verifyDecisions[t.downloadItemId] === "approved").length
+    : totalMatched;
+  const verifyPending =
+    verifyTracks.length > 0 ?
+      verifyTracks.filter((t) => !verifyDecisions[t.downloadItemId]).length
+    : 0;
+  const canSubmit =
+    totalMatched > 0 &&
+    approvedForUpload > 0 &&
+    (verifyTracks.length === 0 || verifyPending === 0);
   const sessionDeemixJob = deemixJobs.find((j) => j.id === session.downloadJobId);
   const stagingNeedsRepair =
     totalMatched === 0 &&
@@ -768,6 +859,17 @@ export function ServidorUpMultiUploadPanel() {
             </p>
           : null}
 
+          {verifyLoading ?
+            <p className="mb-3 text-xs text-violet-800/80">Carregando verificação legado vs Deemix…</p>
+          : verifyTracks.length > 0 ?
+            <ServidorUpDownloadVerifyPanel
+              tracks={verifyTracks}
+              streamEnabled={verifyStreamEnabled}
+              decisions={verifyDecisions}
+              onDecisionsChange={handleVerifyDecisionsChange}
+            />
+          : null}
+
           <ul className="mb-3 max-h-64 space-y-2 overflow-y-auto">
             {plan.lotes.map((lote) => (
               <li
@@ -823,13 +925,15 @@ export function ServidorUpMultiUploadPanel() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={submitting || totalMatched === 0}
+              disabled={submitting || !canSubmit}
               onClick={() => void submitMultiUpload()}
               className="rounded-lg bg-violet-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {submitting ?
                 "Enviando para fila…"
-              : `Subir ${totalMatched} faixa(s) para ${plan.lotes.length} pasta(s)`}
+              : verifyPending > 0 ?
+                `Verifique ${verifyPending} faixa(s) restante(s)`
+              : `Subir ${approvedForUpload} faixa(s) para ${plan.lotes.length} pasta(s)`}
             </button>
             <Link
               href="/criacao/servidor-up"

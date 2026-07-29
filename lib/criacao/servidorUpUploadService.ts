@@ -355,3 +355,20 @@ export async function countStagingReadyForJob(downloadJobId: string): Promise<{
   ]);
   return { stagingReady, concluidoTotal };
 }
+
+/** Mantém só faixas aprovadas na verificação legado vs Deemix. */
+export function filterServidorUpPlanApproved(
+  plan: ServidorUpUploadPlan,
+  approvedDownloadItemIds: string[],
+): ServidorUpUploadPlan {
+  const allowed = new Set(approvedDownloadItemIds);
+  return {
+    ...plan,
+    lotes: plan.lotes
+      .map((lote) => ({
+        ...lote,
+        tracks: lote.tracks.filter((t) => allowed.has(t.downloadItemId)),
+      }))
+      .filter((lote) => lote.tracks.length > 0),
+  };
+}

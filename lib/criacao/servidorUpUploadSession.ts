@@ -7,6 +7,8 @@ export const SERVIDOR_UP_ACTIVE_DEEMIX_JOB_KEY = "servidorUpActiveDeemixJobId";
 export const SERVIDOR_UP_MULTI_UPLOAD_MANUAL_PICK_KEY = "servidorUpMultiUploadManualPick";
 /** Hierarquia + match no browser — vincula a um job Deemix depois do download. */
 export const SERVIDOR_UP_WORKFLOW_DRAFT_KEY = "servidorUpWorkflowDraft";
+/** Decisões de verificação legado vs Deemix por job (sessionStorage). */
+export const SERVIDOR_UP_VERIFY_DECISIONS_PREFIX = "servidorUpVerifyDecisions:";
 
 export type ServidorUpUploadDraft = {
   uploadTag: string;
@@ -35,11 +37,14 @@ export type ServidorUpWorkflowDraft = {
 export type ServidorUpUploadSession = {
   downloadJobId: string;
   titulo: string;
+  rootPath?: string;
   hierarchyRows: ServidorUpHierarchyRow[];
   drafts: Record<string, ServidorUpUploadDraft>;
   tracks: ServidorUpUploadTrack[];
   savedAt: number;
 };
+
+export type ServidorUpVerifyDecision = "approved" | "rejected";
 
 export function readServidorUpUploadSession(): ServidorUpUploadSession | null {
   if (typeof window === "undefined") return null;
@@ -118,11 +123,39 @@ export function buildUploadSessionFromDraft(
   return {
     downloadJobId,
     titulo: draft.titulo,
+    rootPath: draft.rootPath,
     hierarchyRows: draft.hierarchyRows,
     drafts: draft.drafts,
     tracks: draft.tracks,
     savedAt: Date.now(),
   };
+}
+
+export function readVerifyDecisions(downloadJobId: string): Record<string, ServidorUpVerifyDecision> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = sessionStorage.getItem(`${SERVIDOR_UP_VERIFY_DECISIONS_PREFIX}${downloadJobId}`);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, ServidorUpVerifyDecision>;
+  } catch {
+    return {};
+  }
+}
+
+export function writeVerifyDecisions(
+  downloadJobId: string,
+  decisions: Record<string, ServidorUpVerifyDecision>,
+): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(
+    `${SERVIDOR_UP_VERIFY_DECISIONS_PREFIX}${downloadJobId}`,
+    JSON.stringify(decisions),
+  );
+}
+
+export function clearVerifyDecisions(downloadJobId: string): void {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(`${SERVIDOR_UP_VERIFY_DECISIONS_PREFIX}${downloadJobId}`);
 }
 
 export function isUploadSessionStaleForJob(

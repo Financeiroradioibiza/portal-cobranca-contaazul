@@ -12,6 +12,7 @@ const SECRET = process.env.CRIACAO_INGEST_SECRET ?? "";
 /** Base de áudio derivada da URL de ingest (…/criacao/ingest -> …/criacao/audio). */
 const AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/audio");
 const UPLOAD_AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/upload-audio");
+const STAGING_AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/staging-audio");
 
 /** Validade do link de preview: 8h (cobre uma jornada de trabalho do criativo). */
 const TTL_MS = 8 * 60 * 60 * 1000;
@@ -42,4 +43,14 @@ export function buildUploadPreviewUrl(itemId: string, ttlMs: number = TTL_MS): s
   const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
   const qs = new URLSearchParams({ exp: String(exp), token: sig });
   return `${UPLOAD_AUDIO_BASE}/${itemId}?${qs.toString()}`;
+}
+
+/** Gera URL tocável do MP3 em download-staging (Deemix / Servidor UP). */
+export function buildStagingPreviewUrl(downloadItemId: string, ttlMs: number = TTL_MS): string | null {
+  if (!SECRET) return null;
+  const exp = Date.now() + ttlMs;
+  const base = `${downloadItemId}.${exp}`;
+  const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
+  const qs = new URLSearchParams({ exp: String(exp), token: sig });
+  return `${STAGING_AUDIO_BASE}/${downloadItemId}?${qs.toString()}`;
 }

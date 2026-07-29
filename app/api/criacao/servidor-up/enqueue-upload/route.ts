@@ -9,6 +9,7 @@ import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
 import { CRIACAO_INGEST_URL, ingestEnabled } from "@/lib/criacao/ingestTicket";
 import {
   buildServidorUpUploadPlan,
+  filterServidorUpPlanApproved,
   servidorUpPlanToUploadLotes,
   type ServidorUpUploadDraftInput,
   type ServidorUpUploadTrackInput,
@@ -88,6 +89,7 @@ export async function POST(request: Request) {
       hierarchyRows?: ServidorUpHierarchyRow[];
       drafts?: Record<string, ServidorUpUploadDraftInput>;
       tracks?: ServidorUpUploadTrackInput[];
+      approvedDownloadItemIds?: string[];
     };
 
     const downloadJobId = (body.downloadJobId ?? "").trim();
@@ -109,14 +111,20 @@ export async function POST(request: Request) {
       tracks,
     });
 
-    if (plan.hierarchyErrors.length > 0) {
+    const approvedIds = Array.isArray(body.approvedDownloadItemIds) ?
+      body.approvedDownloadItemIds.filter((id) => typeof id === "string" && id.trim())
+    : [];
+    const planForUpload =
+      approvedIds.length > 0 ? filterServidorUpPlanApproved(plan, approvedIds) : plan;
+
+    if (planForUpload.hierarchyErrors.length > 0) {
       return NextResponse.json(
-        { error: "hierarquia_incompleta", messages: plan.hierarchyErrors.slice(0, 10) },
+        { error: "hierarquia_incompleta", messages: planForUpload.hierarchyErrors.slice(0, 10) },
         { status: 409 },
       );
     }
 
-    const semDono = plan.lotes.filter((l) => l.tracks.length > 0 && !l.tagCriativoUserId);
+    const semDono = planForUpload.lotes.filter((l) => l.tracks.length > 0 && !l.tagCriativoUserId);
     if (semDono.length > 0) {
       const sample = semDono[0]!;
       return NextResponse.json(
@@ -128,12 +136,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const rawLotes = servidorUpPlanToUploadLotes(plan, titulo);
+    const rawLotes = servidorUpPlanToUploadLotes(planForUpload, titulo);
     if (rawLotes.length === 0) {
       return NextResponse.json(
         {
           error: "nenhuma_faixa_mapeada",
-          unmatched: plan.unmatchedTracks.slice(0, 20),
+          unmatched: planForUpload.unmatchedTracks.slice(0, 20),
         },
         { status: 400 },
       );
@@ -206,9 +214,9 @@ export async function POST(request: Request) {
       stats: {
         lotes: lotes.length,
         tracks: stagingImported,
-        unmatched: plan.unmatchedTracks.length,
+        unmatched: planForUpload.unmatchedTracks.length,
       },
-      unmatched: plan.unmatchedTracks.slice(0, 30),
+      unmatched: planForUpload.unmatchedTracks.slice(0, 30),
     });
   } catch (e) {
     if (e instanceof Response) return e;

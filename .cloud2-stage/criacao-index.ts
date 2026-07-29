@@ -10,6 +10,7 @@ import { registerRefreshTagsRoutes } from "./refresh-tags.js";
 import { registerReprocessEdicaoRoutes } from "./reprocess-edicao.js";
 import { registerReanalisarMixTrimRoutes } from "./reanalisar-mix-trim.js";
 import { registerUploadAudioRoutes } from "./upload-audio.js";
+import { registerStagingAudioRoutes } from "./staging-audio.js";
 import { registerDownloadProcessRoutes } from "./download-process.js";
 import { registerIngestFromStagingRoutes } from "./ingest-from-staging.js";
 import { registerOpsStorageRoutes } from "./ops-storage.js";
@@ -22,6 +23,7 @@ export async function registerCriacaoRoutes(app: FastifyInstance): Promise<void>
   await registerIngestRoutes(app, CRIACAO_PREFIX);
   await registerAudioRoutes(app, CRIACAO_PREFIX);
   await registerUploadAudioRoutes(app, CRIACAO_PREFIX);
+  await registerStagingAudioRoutes(app, CRIACAO_PREFIX);
   await registerDownloadProcessRoutes(app, CRIACAO_PREFIX);
   await registerIngestFromStagingRoutes(app, CRIACAO_PREFIX);
   await registerVinhetaRoutes(app, CRIACAO_PREFIX);

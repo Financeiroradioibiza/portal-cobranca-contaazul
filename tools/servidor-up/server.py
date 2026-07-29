@@ -23,6 +23,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
@@ -103,6 +104,44 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
+    def _serve_mp3(self, file_path: Path) -> None:
+        size = file_path.stat().st_size
+        range_header = self.headers.get("Range")
+        if range_header:
+            m = re.match(r"bytes=(\d*)-(\d*)", range_header)
+            if m:
+                start = int(m.group(1) or 0)
+                end = int(m.group(2) or size - 1)
+                if start < 0:
+                    start = 0
+                if end >= size:
+                    end = size - 1
+                if start <= end:
+                    length = end - start + 1
+                    self.send_response(206)
+                    self._cors()
+                    self.send_header("Content-Type", "audio/mpeg")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                    self.send_header("Content-Length", str(length))
+                    self.end_headers()
+                    with file_path.open("rb") as fh:
+                        fh.seek(start)
+                        self.wfile.write(fh.read(length))
+                    return
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(size))
+        self.end_headers()
+        with file_path.open("rb") as fh:
+            while True:
+                chunk = fh.read(1024 * 256)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self._cors()
@@ -117,7 +156,7 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "version": VERSION,
-                    "capabilities": ["scan", "ffprobe", "inventory", "paths"],
+                    "capabilities": ["scan", "ffprobe", "inventory", "paths", "audio"],
                     "ffprobe": ffprobe_available(),
                     "rootPath": root,
                     "stagingDir": str(STAGING_DIR),
@@ -128,6 +167,32 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/config":
             with config_lock:
                 self._json(200, {"ok": True, "rootPath": str(config.get("rootPath") or "")})
+            return
+
+        parsed = urlparse(self.path)
+        if parsed.path == "/audio":
+            qs = parse_qs(parsed.query)
+            rel = (qs.get("rel") or [""])[0].strip()
+            if not rel:
+                self._json(400, {"error": "rel_obrigatorio"})
+                return
+            try:
+                root = resolve_root({})
+            except ValueError as e:
+                self._json(400, {"error": str(e)})
+                return
+            file_path = (root / rel).resolve()
+            root_res = root.resolve()
+            if file_path != root_res and not str(file_path).startswith(str(root_res) + os.sep):
+                self._json(403, {"error": "path_invalido"})
+                return
+            if not file_path.is_file():
+                self._json(404, {"error": "arquivo_ausente"})
+                return
+            try:
+                self._serve_mp3(file_path)
+            except OSError as e:
+                self._json(500, {"error": str(e)[:400]})
             return
 
         self._json(404, {"error": "not_found"})

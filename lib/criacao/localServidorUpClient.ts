@@ -89,3 +89,9 @@ export async function scanLocalServidorUpInventory(rootPath?: string): Promise<L
     body: JSON.stringify(rootPath ? { rootPath } : {}),
   });
 }
+
+/** URL tocável do MP3 legado no agente local (Servidor UP). */
+export function buildLocalLegacyAudioUrl(relativePath: string): string {
+  const qs = new URLSearchParams({ rel: relativePath.trim() });
+  return `${LOCAL_SERVIDOR_UP_BASE}/audio?${qs.toString()}`;
+}
