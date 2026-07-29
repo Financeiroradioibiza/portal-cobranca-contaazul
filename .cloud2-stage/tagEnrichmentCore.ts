@@ -1,4 +1,4 @@
-import { fetchDeezerTrackDisplayMeta } from './criacao/deezerArtistDisplay.js';
+import { fetchDeezerTrackDisplayMeta } from '../../criacao/deezerArtistDisplay.js';
 
 /** Tag automática externa — mesmo formato gravado em musica_biblioteca.tags_auto */
 export type ExternalAutoTag = { fonte: string; chave?: string; valor: string };
