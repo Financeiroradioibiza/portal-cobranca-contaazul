@@ -166,11 +166,11 @@ Runbook: **`docs/FASE-A-CF-AUDIO-SETUP.md`** · Worker: `cloudflare/audio-b2/`
 
 ### Fase D — Player 5 v2 build
 
-- [ ] Download `.rib` da URL CF.
-- [ ] Cache `.rib` (filesystem / IndexedDB — igual política de cache atual, extensão `.rib`).
-- [ ] `decryptRib()` portado — play from memory buffer.
-- [ ] Fallback: se URL é `get_musica`, comportamento v1 intacto.
-- [ ] Piloto → rollout gradual → métricas egress Envyron (deve cair).
+- [x] Download `.rib` da URL CF (`cacheManager` + `cfAudioDelivery`)
+- [x] Cache `.rib` (IndexedDB + Electron `{id}.rib`)
+- [x] `decryptRib()` Web Crypto — play from memory buffer
+- [x] Fallback `get_musica` se cloud3 falhar
+- [ ] Piloto PDV **316004** + `VITE_CRIACAO_RIB_SECRET` no build player5
 
 ### Fase E — Escala (4000 PDVs)
 

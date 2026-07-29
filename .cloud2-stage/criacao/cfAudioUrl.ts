@@ -1,20 +1,35 @@
 /**
- * Fase C — URLs assinadas cloud3 para entrega .rib (Player v2).
- * Default off: PLAYER5_ENTREGA_CF=0 → playlist continua get_musica.
+ * Fase C — URLs assinadas cloud3 para entrega .rib (Player 5 v2).
+ * Default **on** (`PLAYER5_ENTREGA_CF` ausente = cloud3). Rollback consciente: `=0`.
  */
 import crypto from 'node:crypto';
 import { criacaoConfig } from './config.js';
 import {
   s3KeyFromVersaoStorageKey,
   usoB2ObjectKey,
+  usoPublicRibBasename,
   usoRelFromStorageKey,
 } from './storage.js';
 
 const FORMATO_USO = 'mp3_128_mono';
 
+/** `false` só com PLAYER5_ENTREGA_CF=0|false|off (rollback explícito). */
 export function player5EntregaCfEnabled(): boolean {
-  const v = (process.env.PLAYER5_ENTREGA_CF ?? '0').trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'on';
+  const v = (process.env.PLAYER5_ENTREGA_CF ?? '1').trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'off') return false;
+  return v === '1' || v === 'true' || v === 'on' || v === '';
+}
+
+/** Log único no boot da API — alerta se alguém desligou cloud3 sem querer. */
+export function assertPlayer5Cloud3EntregaAtBoot(): void {
+  if (player5EntregaCfEnabled()) {
+    console.info('[player5-entrega] cloud3 ativo (%s)', cfAudioDomain());
+    return;
+  }
+  console.error(
+    '[player5-entrega] INCIDENTE: PLAYER5_ENTREGA_CF desligado — playlist volta get_musica e Player 5 v2 para. ' +
+      'Rollback só com OK explícito do Rafael.',
+  );
 }
 
 export function cfAudioDomain(): string {
@@ -22,27 +37,21 @@ export function cfAudioDomain(): string {
   return raw || 'cloud3.radioibiza.app.br';
 }
 
+assertPlayer5Cloud3EntregaAtBoot();
+
 export function cfAudioSignTtlSec(): number {
   const n = Number(process.env.CF_AUDIO_SIGN_TTL_SEC ?? '3600');
   if (!Number.isFinite(n) || n < 60) return 3600;
   return Math.min(Math.floor(n), 86400);
 }
 
-function compareSemverLoose(a: string, b: string): number {
-  const pa = a.replace(/^v/i, '').split(/[.-]/).map((x) => parseInt(x, 10) || 0);
-  const pb = b.replace(/^v/i, '').split(/[.-]/).map((x) => parseInt(x, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da !== db) return da - db;
-  }
-  return 0;
-}
-
-/** PDV piloto (PLAYER5_ENTREGA_CF_PDV_IDS) ou versao_player >= PLAYER5_CF_MIN_VERSION. */
+/**
+ * Com PLAYER5_ENTREGA_CF=1, todos os PDVs no webservice cloud2 recebem cloud3.
+ * (Player 4 continua em cloud.radioibiza.com.br — outro servidor.)
+ * Piloto opcional: PLAYER5_ENTREGA_CF_PDV_IDS (rollback / homolog).
+ */
 export async function pdvUsaEntregaCf(
-  pool: { query: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ versao_player?: string | null }> }> },
+  _pool: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   pdvId: number,
 ): Promise<boolean> {
   if (!player5EntregaCfEnabled()) return false;
@@ -53,13 +62,7 @@ export async function pdvUsaEntregaCf(
     if (ids.length > 0) return ids.includes(String(pdvId));
   }
 
-  const minVer = (process.env.PLAYER5_CF_MIN_VERSION ?? '').trim();
-  if (!minVer) return false;
-
-  const r = await pool.query(`SELECT versao_player FROM pdvs WHERE id = $1 LIMIT 1`, [pdvId]);
-  const ver = String(r.rows[0]?.versao_player ?? '').trim();
-  if (!ver) return false;
-  return compareSemverLoose(ver, minVer) >= 0;
+  return true;
 }
 
 /** Key S3/B2 (`uso/musicas/...`) a partir de storage_key gateway ou musica_id. */
@@ -80,6 +83,17 @@ export function b2ObjectKeyForMusica(
   const id = musicaId.trim();
   if (!id) return null;
   return usoB2ObjectKey(id, FORMATO_USO, '.rib');
+}
+
+/** Key assinada na URL cloud3 — nome opaco (msk.rib), caminho do storage_key interno. */
+export function b2PublicDeliveryObjectKey(
+  storageKey: string | null | undefined,
+  musicaId: string,
+): string | null {
+  const internal = b2ObjectKeyForMusica(storageKey, musicaId);
+  if (!internal) return null;
+  if (!internal.endsWith('.rib')) return internal;
+  return internal.replace(/\/[^/]+\.rib$/i, `/${usoPublicRibBasename()}.rib`);
 }
 
 export function signCfAudioPayload(objectKey: string, exp: number, secret: string): string {
@@ -106,7 +120,7 @@ export function buildLegacyGetMusicaUrl(params: {
   return `${params.baseUrl}/api/get_musica/?token=${encodeURIComponent(params.token)}&id_musica=${params.musicaId}&playlist_id=${params.playlistId}`;
 }
 
-/** url_musica na playlist — CF assinada se useCf; senão get_musica (v1). */
+/** url_musica na playlist — cloud3 assinada se useCf; get_musica só com PLAYER5_ENTREGA_CF=0. */
 export function buildPlaylistUrlMusica(params: {
   baseUrl: string;
   token: string;
@@ -115,11 +129,14 @@ export function buildPlaylistUrlMusica(params: {
   storageKey: string | null;
   useCf: boolean;
 }): string {
-  const legacy = buildLegacyGetMusicaUrl(params);
-  if (!params.useCf) return legacy;
+  if (!params.useCf) {
+    return buildLegacyGetMusicaUrl(params);
+  }
 
-  const objectKey = b2ObjectKeyForMusica(params.storageKey, String(params.musicaId));
-  if (!objectKey) return legacy;
+  const objectKey = b2PublicDeliveryObjectKey(params.storageKey, String(params.musicaId));
+  const signed = objectKey ? signCfAudioObjectKey(objectKey) : null;
+  if (signed) return signed;
 
-  return signCfAudioObjectKey(objectKey) ?? legacy;
+  console.error('[cfAudioUrl] cloud3 indisponível musica_id=%s playlist_id=%s', params.musicaId, params.playlistId);
+  return '';
 }

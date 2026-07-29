@@ -71,6 +71,19 @@ export function usoB2ObjectKey(musicaId: string, formato: string, ext: '.mp3' | 
   return `${prefix}musicas/${musicaId}/${formato}${ext}`;
 }
 
+/** Basename público na URL cloud3 (default msk). Interno continua mp3_128_mono. */
+export function usoPublicRibBasename(): string {
+  const raw = (process.env.CRIACAO_USO_PUBLIC_RIB_BASENAME ?? 'msk').trim();
+  const base = raw.replace(/\.rib$/i, '').replace(/[^\w.-]/g, '');
+  return base || 'msk';
+}
+
+/** Object key B2 assinado na entrega CF — ex. uso/musicas/{id}/msk.rib */
+export function usoPublicB2ObjectKey(musicaId: string): string {
+  const prefix = criacaoConfig.b2.usoPrefix.replace(/\/?$/, '/');
+  return `${prefix}musicas/${musicaId}/${usoPublicRibBasename()}.rib`;
+}
+
 /** Valor gravado em musica_versao.storage_key quando o arquivo está no B2. */
 export function b2VersaoStorageKey(objectKey: string): string {
   return `b2:${objectKey}`;

@@ -42,7 +42,7 @@ Registro de testes de carga para calibrar `CRIACAO_WORKER_CONCURRENCY` e dimensi
 | Data/hora | 2026-07-28 ~18:04 (captura Servidores) |
 | Faixas | **46** |
 | Origem | Servidor UP → Multi-Upload |
-| Tempo total fila | **21 min 9 s** _(1269 s)_ — confirmar se não foi outro intervalo |
+| Tempo total fila | **21 min 9 s** _(1269 s)_ ✓ confirmado |
 | Tempo médio efetivo | **~27,6 s/faixa** (1269 ÷ 46) |
 | MB entrada (est.) | **~350–460 MB** (46 × MP3 Deemix ~320 kbps, ~8–10 MB/faixa) — conferir no job |
 | Concorrência worker | **2** |

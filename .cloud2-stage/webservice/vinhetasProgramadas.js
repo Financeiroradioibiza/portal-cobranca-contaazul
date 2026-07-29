@@ -1,6 +1,7 @@
 import { getPool } from '../../db/pool.js';
 import { apiPublicBaseUrl, intervalToLegacyHms, resolveProgramaIdForSession } from './helpers.js';
 import { loadSessionByToken } from './loginByToken.js';
+import { buildPlaylistUrlMusica, pdvUsaEntregaCf } from '../../criacao/cfAudioUrl.js';
 
 /** GET /api/vinhetas_programadas/ — vinhetas VP (intervalo regular). */
 export async function registerVinhetasProgramadasRoutes(app, prefix) {
@@ -14,6 +15,8 @@ export async function registerVinhetasProgramadasRoutes(app, prefix) {
     const pool = getPool();
     const programaId = await resolveProgramaIdForSession(pool, session);
     if (!programaId) return reply.send({ playlists: [] });
+
+    const useCf = await pdvUsaEntregaCf(pool, session.pdv_id);
 
     const pls = await pool.query(
       `SELECT id, tocar_cada, tipo_tocar FROM playlists
@@ -35,7 +38,7 @@ export async function registerVinhetasProgramadasRoutes(app, prefix) {
 
       const musRows = await pool.query(
         `SELECT pm.id AS pm_id, m.id AS musica_id, m.titulo, m.nome_arquivo,
-                m.tamanho_bytes::text, m.duracao, m.corte_seg
+                m.tamanho_bytes::text, m.duracao, m.corte_seg, m.storage_key
            FROM playlist_musicas pm
            JOIN musicas m ON m.id = pm.musica_id
           WHERE pm.playlist_id = $1 ORDER BY pm.ordem, pm.id`,
@@ -62,7 +65,14 @@ export async function registerVinhetasProgramadasRoutes(app, prefix) {
             corte: String(m.corte_seg),
             downloaded: '0',
           },
-          url_musica: `${baseUrl}/api/get_musica/?token=${encodeURIComponent(token)}&id_musica=${m.musica_id}&playlist_id=${pl.id}`,
+          url_musica: buildPlaylistUrlMusica({
+            baseUrl,
+            token,
+            musicaId: m.musica_id,
+            playlistId: pl.id,
+            storageKey: m.storage_key,
+            useCf,
+          }),
         })),
       });
     }

@@ -8,7 +8,7 @@ Escopo: **caminhos de armazenamento**, leitura dual, verificação B2. Player 5 
 |----------|--------|-------------|------|
 | Master 192 | B2 | `B2_MASTER_PREFIX` (ex. `master/`) | `musica_biblioteca.master_storage_key` |
 | 128 mono / .rib | B2 | `B2_USO_PREFIX` (ex. `uso/`) | `musica_versao.storage_key` = `b2:uso/musicas/{id}/mp3_128_mono…` |
-| Espelho preview legado | NVMe cloud2 | `uso/musicas/…` | opcional com `CRIACAO_USO_DISK_MIRROR=1` (default) |
+| Espelho preview legado | NVMe cloud2 | `uso/musicas/…` | **`CRIACAO_USO_DISK_MIRROR=0`** (default alvo) — ver `docs/PLANO-ZERO-USO-DISCO-DO.md` |
 
 Trim **não** altera master. Reprocess só regera 128 (+ espelho disco se ativo).
 
@@ -17,7 +17,7 @@ Trim **não** altera master. Reprocess só regera 128 (+ espelho disco se ativo)
 | Variável | Default | Efeito |
 |----------|---------|--------|
 | `CRIACAO_USO_B2` | **`0`** | **`1` só após homolog** — envia 128 para B2; **`0` preserva produção atual** |
-| `CRIACAO_USO_DISK_MIRROR` | `1` | **Manter ligado** — espelho NVMe (portal + fallback player) |
+| `CRIACAO_USO_DISK_MIRROR` | **`0`** | **Alvo prod** — sem espelho NVMe; preview via B2. **`1` = rollback** |
 
 Baseline e fallback: **`docs/BASELINE-PORTAL-PLAYER-ARMAZENAMENTO.md`**, **`docs/FALLBACK-ARMAZENAMENTO-B2.md`**.
 

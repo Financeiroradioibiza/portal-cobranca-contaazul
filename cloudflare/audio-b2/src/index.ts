@@ -102,6 +102,18 @@ async function requestAuthorized(
   );
 }
 
+/** Faixas antigas no B2 usam mp3_128_mono.rib; URL pública pode usar outro basename. */
+const LEGACY_RIB_BASENAME = "mp3_128_mono";
+
+function b2FetchKeys(signedKey: string): string[] {
+  const keys = [signedKey];
+  const m = signedKey.match(/^(.+\/musicas\/[^/]+)\/([^/]+)\.rib$/);
+  if (m && m[2] !== LEGACY_RIB_BASENAME) {
+    keys.push(`${m[1]}/${LEGACY_RIB_BASENAME}.rib`);
+  }
+  return keys;
+}
+
 async function b2GetObject(
   env: Env,
   objectKey: string,
@@ -148,12 +160,19 @@ export default {
     }
 
     try {
-      const upstream = await b2GetObject(env, objectKey, request.headers.get("Range"));
-      if (!upstream.ok) {
-        return new Response(upstream.status === 404 ? "nao_encontrado" : "origin_erro", {
-          status: upstream.status === 404 ? 404 : 502,
-          headers: cors,
-        });
+      let upstream: Response | null = null;
+      for (const b2Key of b2FetchKeys(objectKey)) {
+        const res = await b2GetObject(env, b2Key, request.headers.get("Range"));
+        if (res.ok) {
+          upstream = res;
+          break;
+        }
+        if (res.status !== 404) {
+          return new Response("origin_erro", { status: 502, headers: cors });
+        }
+      }
+      if (!upstream) {
+        return new Response("nao_encontrado", { status: 404, headers: cors });
       }
 
       const outHeaders = new Headers(cors);

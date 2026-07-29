@@ -14,6 +14,7 @@ Em produção, estes comportamentos são **intocáveis** salvo plano explícito 
 - Sync portal ↔ cloud2 ↔ player (publicação, ping, login, tokens)
 - Logins, PDVs, bloqueio financeiro Rio, programação em cache local
 - **Fila Criação:** dedupe → LUFS → **128 mono no cloud2** → **master 192k no B2** (ver `.cursor/rules/infra-contratos-producao.mdc`)
+- **Player 5 v2 (cloud2):** entrega **só cloud3** (`PLAYER5_ENTREGA_CF` default **1**). **Não** reintroduzir `get_musica` na playlist, proxy Netlify `/ws-get_musica_cloud`, nem `PLAYER5_ENTREGA_CF=0` sem OK explícito. Player **4** permanece em `cloud.radioibiza.com.br` (Cake).
 
 ## Regra de consentimento (infra)
 
