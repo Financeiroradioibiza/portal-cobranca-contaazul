@@ -26,6 +26,7 @@ import {
 } from "@/lib/criacao/servidorUpHierarchyService";
 import type {
   ServidorUpMatchBatchResult,
+  ServidorUpMatchCandidate,
   ServidorUpMatchRow,
   ServidorUpMatchVerdict,
 } from "@/lib/criacao/servidorUpMatchService";
