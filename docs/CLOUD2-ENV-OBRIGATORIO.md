@@ -25,7 +25,7 @@ Toda faixa na fila: dedupe → mix → LUFS → tags → **128 mono no B2 (`B2_U
 |----------|---------|--------|
 | `CRIACAO_USO_B2` | **`0`** | **`1` em homolog/prod atual** — grava 128 no B2 (`b2:` no Neon). **`0` = rollback (disco `uso:`)** |
 | `CRIACAO_USO_DISK_MIRROR` | `1` | **`0` recomendado** — sem cópia permanente em `uso/` no NVMe (preview/player via B2). **`1` = rollback legado** |
-| `CRIACAO_WORKER_CONCURRENCY` | `1` | Faixas em paralelo no worker (**prod jul/2026 teste: `4`**; max 8) |
+| `CRIACAO_WORKER_CONCURRENCY` | `1` | Faixas em paralelo no worker (**prod jul/2026: `6`** após benchmark; max 8) |
 | `CLOUD2_VM_CPU_COUNT` | — | Opcional — núcleos contratados na Envyron (ex. `8`). Painel Servidores usa se o SO ainda não refletiu o resize |
 | `CLOUD2_VM_RAM_GB` | — | Opcional — RAM contratada em GB (ex. `16`). Idem |
 

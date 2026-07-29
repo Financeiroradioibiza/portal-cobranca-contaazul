@@ -21,12 +21,117 @@ function fmtBytes(n: number | null | undefined): string {
   return `${(n / 1024 ** 3).toFixed(2)} GB`;
 }
 
-function StatusDot({ ok }: { ok: boolean }) {
+function StatusDot({ health }: { health: "ok" | "warn" | "error" }) {
+  const cls =
+    health === "ok" ? "bg-emerald-500"
+    : health === "warn" ? "bg-amber-500"
+    : "bg-red-500";
   return (
     <span
-      className={`inline-block h-2.5 w-2.5 rounded-full ${ok ? "bg-emerald-500" : "bg-red-500"}`}
-      title={ok ? "Ativo" : "Indisponível"}
+      className={`inline-block h-2.5 w-2.5 rounded-full ${cls}`}
+      title={health === "ok" ? "Ok" : health === "warn" ? "Atenção" : "Erro"}
     />
+  );
+}
+
+const HEALTH_BADGE: Record<
+  "ok" | "warn" | "error",
+  { label: string; className: string }
+> = {
+  ok: {
+    label: "Ativo",
+    className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+  },
+  warn: {
+    label: "Não configurado",
+    className: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+  },
+  error: {
+    label: "Offline",
+    className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
+  },
+};
+
+function bucketStorageHealth(b: {
+  configured?: boolean;
+  enabled?: boolean;
+  error?: string | null;
+}): "ok" | "warn" | "error" {
+  if (b.error) return "error";
+  if (b.enabled && !b.error) return "ok";
+  if (b.configured) return "error";
+  return "warn";
+}
+
+function ServerCard({
+  title,
+  subtitle,
+  health,
+  badgeLabel,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  /** ok = verde, warn = âmbar (ex.: opcional não configurado), error = vermelho */
+  health: "ok" | "warn" | "error";
+  badgeLabel?: string;
+  children: ReactNode;
+}) {
+  const badge = HEALTH_BADGE[health];
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <StatusDot health={health} />
+            <h2 className="text-base font-bold">{title}</h2>
+          </div>
+          {subtitle ?
+            <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
+          : null}
+        </div>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${badge.className}`}
+        >
+          {badgeLabel ?? badge.label}
+        </span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function BucketStatsRows({
+  bucket,
+  extraRows,
+}: {
+  bucket: {
+    enabled?: boolean;
+    error?: string | null;
+    objectCount: number;
+    totalBytes: number;
+    truncated?: boolean;
+  };
+  extraRows?: ReactNode;
+}) {
+  const ok = Boolean(bucket.enabled && !bucket.error);
+  return (
+    <dl className="grid gap-2 text-sm sm:grid-cols-2">
+      <div>
+        <dt className="text-xs text-slate-500">Objetos (amostra S3)</dt>
+        <dd>
+          {ok ? bucket.objectCount.toLocaleString("pt-BR") : "—"}
+          {bucket.truncated ?
+            <span className="ml-1 text-amber-700 dark:text-amber-300">(parcial)</span>
+          : null}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs text-slate-500">Espaço estimado (listagem)</dt>
+        <dd>{ok ? fmtBytes(bucket.totalBytes) : "—"}</dd>
+      </div>
+      {extraRows}
+    </dl>
   );
 }
 
@@ -105,44 +210,6 @@ function DailyBarChart({
         </>
       }
     </div>
-  );
-}
-
-function ServerCard({
-  title,
-  subtitle,
-  active,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  active: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <StatusDot ok={active} />
-            <h2 className="text-base font-bold">{title}</h2>
-          </div>
-          {subtitle ?
-            <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
-          : null}
-        </div>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-            active ?
-              "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-            : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-          }`}
-        >
-          {active ? "Ativo" : "Offline"}
-        </span>
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -330,7 +397,7 @@ export function ConfigServidoresPanel() {
         <ServerCard
           title="Cloud2 — API"
           subtitle={status?.cloud2.baseUrl}
-          active={status?.cloud2.api.ok ?? false}
+          health={status?.cloud2.api.ok ? "ok" : "error"}
         >
           <dl className="grid gap-2 text-sm sm:grid-cols-2">
             <div>
@@ -350,7 +417,7 @@ export function ConfigServidoresPanel() {
         <ServerCard
           title="Cloud2 — Worker download"
           subtitle="Deemix / Spotizerr / YouTube"
-          active={status?.cloud2.downloadWorker.ok ?? false}
+          health={status?.cloud2.downloadWorker.ok ? "ok" : "error"}
         >
           <dl className="grid gap-2 text-sm sm:grid-cols-2">
             <div>
@@ -378,7 +445,7 @@ export function ConfigServidoresPanel() {
         <ServerCard
           title="Cloud2 — Disco NVMe"
           subtitle={disk?.path ?? status?.cloud2.ops.error ?? "Métricas via /criacao/ops/storage"}
-          active={Boolean(disk)}
+          health={disk ? "ok" : "error"}
         >
           {disk ?
             <>
@@ -415,7 +482,7 @@ export function ConfigServidoresPanel() {
               `Pastas upload/, download-staging/, work/ com mais de ${tempLimbo.limboDays} dia(s) sem uso`
             : tempLimbo?.error ?? "Métricas via /criacao/ops/orphans"
           }
-          active={Boolean(tempLimbo?.available)}
+          health={tempLimbo?.available ? "ok" : "error"}
         >
           {tempLimbo?.available ?
             <>
@@ -484,7 +551,7 @@ export function ConfigServidoresPanel() {
               `Opcional · bucket ${r2.bucket} — cópia quente das versões 128 mono`
             : "Opcional — backup Cloudflare das versões de uso (não é o B2 nem o disco do player)"
           }
-          active={Boolean(r2?.enabled && !r2?.error)}
+          health={r2 ? bucketStorageHealth(r2) : "error"}
         >
           {r2 ?
             <>
@@ -511,17 +578,19 @@ export function ConfigServidoresPanel() {
               </dl>
               {r2.error ?
                 <p className="mt-2 text-xs text-red-600">{r2.error}</p>
-              : !r2.enabled ?
+              : bucketStorageHealth(r2) === "warn" ?
                 <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                  <strong>Offline é esperado</strong> se você não configurou R2 no cloud2 — o player
-                  toca a partir do disco NVMe (<code className="text-[11px]">uso/</code>). R2 só
-                  espelha opcionalmente o 128 mono/.rib. Para ativar:{" "}
+                  <strong>Não configurado</strong> — o player toca a partir do disco NVMe (
+                  <code className="text-[11px]">uso/</code>). R2 só espelha opcionalmente o 128
+                  mono/.rib. Para monitorar aqui como &quot;Ativo&quot;, configure no cloud2:{" "}
                   <code className="text-[11px]">R2_ENDPOINT</code>,{" "}
                   <code className="text-[11px]">R2_BUCKET</code>,{" "}
                   <code className="text-[11px]">R2_ACCESS_KEY_ID</code>,{" "}
-                  <code className="text-[11px]">R2_SECRET_ACCESS_KEY</code> no{" "}
-                  <code className="text-[11px]">/opt/portal-ibiza/infra/.env</code> (api + worker).
-                  Ver <code className="text-[11px]">docs/CLOUD2-ENV-OBRIGATORIO.md</code>.
+                  <code className="text-[11px]">R2_SECRET_ACCESS_KEY</code> em{" "}
+                  <code className="text-[11px]">/opt/portal-ibiza/infra/.env</code> (api +
+                  worker-audio), depois{" "}
+                  <code className="text-[11px]">docker compose up -d api</code>. Ver{" "}
+                  <code className="text-[11px]">docs/CLOUD2-ENV-OBRIGATORIO.md</code>.
                 </p>
               : null}
             </>
@@ -560,37 +629,23 @@ export function ConfigServidoresPanel() {
                 `Bucket ${status.cloud2.ops.b2.bucket}${status.cloud2.ops.b2.prefix ? ` · prefixo ${status.cloud2.ops.b2.prefix}` : ""}`
               : "Masters 192k (frio)"
             }
-            active={status.cloud2.ops.b2.enabled && !status.cloud2.ops.b2.error}
+            health={bucketStorageHealth(status.cloud2.ops.b2)}
           >
-            <dl className="grid gap-2 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-xs text-slate-500">Objetos (amostra S3)</dt>
-                <dd>
-                  {status.cloud2.ops.b2.enabled && !status.cloud2.ops.b2.error ?
-                    status.cloud2.ops.b2.objectCount.toLocaleString("pt-BR")
-                  : "—"}
-                  {status.cloud2.ops.b2.truncated ?
-                    <span className="ml-1 text-amber-700 dark:text-amber-300">(parcial)</span>
-                  : null}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500">Espaço estimado (listagem)</dt>
-                <dd>
-                  {status.cloud2.ops.b2.enabled && !status.cloud2.ops.b2.error ?
-                    fmtBytes(status.cloud2.ops.b2.totalBytes)
-                  : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500">Masters no Neon (chave B2)</dt>
-                <dd>{status.neon.b2MastersCount.toLocaleString("pt-BR")} faixa(s)</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500">Masters só disco (local:)</dt>
-                <dd>{status.neon.localMastersCount.toLocaleString("pt-BR")} faixa(s)</dd>
-              </div>
-            </dl>
+            <BucketStatsRows
+              bucket={status.cloud2.ops.b2}
+              extraRows={
+                <>
+                  <div>
+                    <dt className="text-xs text-slate-500">Masters no Neon (chave B2)</dt>
+                    <dd>{status.neon.b2MastersCount.toLocaleString("pt-BR")} faixa(s)</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Masters só disco (local:)</dt>
+                    <dd>{status.neon.localMastersCount.toLocaleString("pt-BR")} faixa(s)</dd>
+                  </div>
+                </>
+              }
+            />
             {status.cloud2.ops.b2.error ?
               <p className="mt-2 text-xs text-red-600">
                 {b2ErrorHint(status.cloud2.ops.b2.error)}
@@ -649,24 +704,46 @@ export function ConfigServidoresPanel() {
             subtitle={
               status.cloud2.ops.b2Uso.bucket ?
                 `Bucket ${status.cloud2.ops.b2Uso.bucket}${status.cloud2.ops.b2Uso.prefix ? ` · prefixo ${status.cloud2.ops.b2Uso.prefix}` : ""}`
-              : "Versão de uso no B2"
+              : "Versão de uso no B2 (opt-in CRIACAO_USO_B2=1)"
             }
-            active={status.cloud2.ops.b2Uso.enabled && !status.cloud2.ops.b2Uso.error}
+            health={bucketStorageHealth(status.cloud2.ops.b2Uso)}
           >
-            <dl className="grid gap-2 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-xs text-slate-500">Objetos (amostra S3)</dt>
-                <dd>
-                  {status.cloud2.ops.b2Uso.enabled && !status.cloud2.ops.b2Uso.error ?
-                    status.cloud2.ops.b2Uso.objectCount.toLocaleString("pt-BR")
-                  : "—"}
-                </dd>
+            <BucketStatsRows
+              bucket={status.cloud2.ops.b2Uso}
+              extraRows={
+                <div>
+                  <dt className="text-xs text-slate-500">Versões Neon (chave b2:)</dt>
+                  <dd>{status.neon.b2UsoVersoesCount.toLocaleString("pt-BR")} registro(s)</dd>
+                </div>
+              }
+            />
+            {status.cloud2.ops.b2Uso.error ?
+              <p className="mt-2 text-xs text-red-600">
+                {b2ErrorHint(status.cloud2.ops.b2Uso.error)}
+                <span className="mt-1 block text-[10px] text-slate-500">
+                  Detalhe técnico: {status.cloud2.ops.b2Uso.error}
+                </span>
+              </p>
+            : null}
+            {!status.cloud2.ops.b2Uso.enabled ?
+              <div className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-400">
+                <p>
+                  Usa as mesmas credenciais B2 do master. Gravação de novas faixas no prefixo{" "}
+                  <code className="text-[10px]">uso/</code> exige{" "}
+                  <code className="text-[10px]">CRIACAO_USO_B2=1</code> no worker — a listagem acima
+                  mostra o que já existe no bucket.
+                </p>
+                {(status.cloud2.ops.b2Uso.missingEnv?.length ?? 0) > 0 ?
+                  <ul className="list-disc pl-4">
+                    {status.cloud2.ops.b2Uso.missingEnv!.map((v) => (
+                      <li key={v}>
+                        <code className="text-[10px]">{v}</code>
+                      </li>
+                    ))}
+                  </ul>
+                : null}
               </div>
-              <div>
-                <dt className="text-xs text-slate-500">Versões Neon (chave b2:)</dt>
-                <dd>{status.neon.b2UsoVersoesCount.toLocaleString("pt-BR")} registro(s)</dd>
-              </div>
-            </dl>
+            : null}
             <p className="mt-2 text-[11px] text-slate-500">
               Auditar: <code className="text-[10px]">npm run criacao:audit-b2</code> (após deploy
               cloud2 com /ops/b2-audit).

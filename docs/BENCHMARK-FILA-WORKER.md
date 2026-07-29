@@ -82,11 +82,53 @@ Throughput ~**13%** maior que T1. VM upgrade + reboot; worker ainda em concorrê
 
 ---
 
-## Teste T3 — concorrência 4 (próximo lote)
+## Teste T3 — concorrência 4 (41 faixas)
 
-| Cenário | `CRIACAO_WORKER_CONCURRENCY` | Tempo ~43–46 faixas | CPU pico | RAM pico | Notas |
-|---------|------------------------------|---------------------|----------|----------|-------|
-| T3 | **4** | | | | jul/2026 — teste pós-deploy |
+| Métrica | T1 (2 CPU) | T2 | T3 |
+|---------|------------|-----|-----|
+| Faixas | 46 | 43 | **41** |
+| Tempo total | 21:09 | 17:30 | **10:20** |
+| s/faixa efetivo | ~27,6 | ~24,4 | **~15,1** |
+| Concorrência | 2 | 2 | **4** |
+| CPU pico | 106% | — | **~65%** (máx. ~55% sustentado) |
+| RAM pico | — | — | **~12%** (~1 GB / 8 GB container) |
+| Throughput | ~2,17 fx/min | ~2,46 | **~3,97 fx/min** |
+
+Ganho T3 vs T2: **~41%** menos tempo total · **~38%** menos s/faixa.
+
+---
+
+## Teste T4 — concorrência 5 (46 faixas)
+
+| Métrica | T1 | T3 (4 fx) | T4 |
+|---------|-----|-----------|-----|
+| Faixas | 46 | 41 | **46** |
+| Tempo total | 21:09 | 10:20 | **9:55** |
+| s/faixa efetivo | ~27,6 | ~15,1 | **~12,9** |
+| Concorrência | 2 | 4 | **5** |
+| CPU pico | 106% | ~65% | **~66%** |
+| RAM pico | — | ~12% | **~12,5%** |
+
+T4 vs T1: **~53%** mais rápido. T4 vs T3 (normalizado 46 fx ≈ 11:36): **~15%** — ganho marginal 4→5 slots (esperado).
+
+---
+
+## Teste T5 — concorrência 7
+
+| Métrica | T4 (5 fx) | T5 |
+|---------|-----------|-----|
+| Tempo total | 9:55 (46 fx) | **4:09** |
+| Concorrência | 5 | **7** |
+| CPU pico | ~66% | **110%** (estourou) |
+| RAM pico | ~12,5% | **~12,6%** |
+
+**Decisão:** voltar para **6** — melhor equilíbrio (rápido sem saturar CPU). RAM não é gargalo.
+
+---
+
+## Produção (jul/2026)
+
+| `CRIACAO_WORKER_CONCURRENCY` | **6** |
 
 ---
 
