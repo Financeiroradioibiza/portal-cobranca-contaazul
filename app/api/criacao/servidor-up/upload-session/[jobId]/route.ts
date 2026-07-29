@@ -60,7 +60,7 @@ export async function GET(_request: Request, ctx: Ctx) {
 
 export async function PUT(request: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const portalSession = requirePortalSession(await getPortalSession());
     const { jobId } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as ServidorUpUploadSession;
     if (!body.tracks?.length || !body.hierarchyRows?.length) {
@@ -70,6 +70,9 @@ export async function PUT(request: Request, ctx: Ctx) {
       ...(await reconcileSession({ ...body, downloadJobId: jobId, savedAt: Date.now() })),
       downloadJobId: jobId,
       savedAt: Date.now(),
+      autoEnqueueFila: body.autoEnqueueFila !== false,
+      enqueuedByEmail: portalSession.email,
+      enqueuedByDisplayName: portalSession.displayName ?? portalSession.email,
     };
     await saveServidorUpUploadSnapshot(jobId, session);
     return NextResponse.json({ ok: true });

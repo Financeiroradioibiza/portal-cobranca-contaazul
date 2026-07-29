@@ -570,6 +570,7 @@ export function ServidorUpPanel() {
       ),
       tracks: buildUploadTracks(),
       savedAt: Date.now(),
+      autoEnqueueFila: true,
     };
     writeServidorUpUploadSession(payload);
     void persistServidorUpUploadSession(payload);
@@ -603,6 +604,43 @@ export function ServidorUpPanel() {
     }
     persistUploadSession(downloadJobId);
     router.push("/criacao/multi-upload-legado");
+  }
+
+  async function triggerAutoEnqueueFila(jobId: string) {
+    try {
+      setBusy("Enviando para fila automaticamente…");
+      const res = await fetch("/api/criacao/servidor-up/auto-enqueue-fila", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ downloadJobId: jobId, maxChunks: 80 }),
+      });
+      const data = await readApiJson<{
+        ok?: boolean;
+        done?: boolean;
+        totalTracks?: number;
+        lotesRemaining?: number;
+        error?: string;
+        message?: string;
+      }>(res);
+      if (!res.ok || !data.ok) {
+        if (data.error === "nao_pronto") return;
+        setErr(data.message ?? data.error ?? "Fila automática não enfileirou — use Passo 5 ou aguarde o worker noturno.");
+        return;
+      }
+      const filaMsg =
+        data.done ?
+          `${data.totalTracks ?? 0} faixa(s) na fila — processamento automático iniciado.`
+        : `${data.totalTracks ?? 0} faixa(s) enfileirada(s); ${data.lotesRemaining ?? 0} pasta(s) restante(s) — o worker noturno ou Passo 5 concluem.`;
+      setMsg((m) => `${m}${m ? " · " : ""}${filaMsg}`);
+    } catch (e) {
+      setErr(
+        e instanceof Error ?
+          e.message
+        : "Fila automática: resposta inválida — confira a Fila; o worker noturno pode concluir.",
+      );
+    } finally {
+      setBusy("");
+    }
   }
 
   async function pollDeemixJob(jobId: string, lineCount: number, totalItens: number) {
@@ -655,7 +693,10 @@ export function ServidorUpPanel() {
     setMsg(parts.join(" · "));
     setDownloadJobId(jobId);
     persistUploadSession(jobId);
-    if (pendingCount === 0) setActiveStep(5);
+    if (pendingCount === 0) {
+      setActiveStep(5);
+      void triggerAutoEnqueueFila(jobId);
+    }
     return { okCount, pendingCount, processErrors };
   }
 
@@ -673,6 +714,7 @@ export function ServidorUpPanel() {
         setMsg(`Deemix já concluído: ${snap.ok}/${snap.totalItens} · Job ${downloadJobId.slice(0, 8)}…`);
         persistUploadSession(downloadJobId);
         setActiveStep(5);
+        void triggerAutoEnqueueFila(downloadJobId);
         return;
       }
       await pollDeemixJob(downloadJobId, snap.pending + snap.ok, snap.totalItens);
@@ -814,6 +856,9 @@ export function ServidorUpPanel() {
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Servidor UP</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
           Migração legado → qualidade alta: scan no PC, match Deezer por duração, download 320k e fila cloud2.
+          Após o Deemix, as faixas vão para a <strong>fila automaticamente</strong> (sem Passo 5 manual).
+          Migrações noturnas: agende o worker{" "}
+          <code className="text-[10px]">/api/criacao/servidor-up/night-worker</code> a cada 5 min (CRON_SECRET).
         </p>
       </div>
 

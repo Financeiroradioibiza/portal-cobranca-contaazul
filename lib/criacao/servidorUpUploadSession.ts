@@ -42,6 +42,10 @@ export type ServidorUpUploadSession = {
   drafts: Record<string, ServidorUpUploadDraft>;
   tracks: ServidorUpUploadTrack[];
   savedAt: number;
+  /** Default true — após Deemix, envia para fila sem Passo 5 manual. */
+  autoEnqueueFila?: boolean;
+  enqueuedByEmail?: string;
+  enqueuedByDisplayName?: string;
 };
 
 export type ServidorUpVerifyDecision = "approved" | "rejected";

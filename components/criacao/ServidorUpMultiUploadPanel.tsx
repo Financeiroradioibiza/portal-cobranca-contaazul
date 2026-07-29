@@ -443,42 +443,70 @@ export function ServidorUpMultiUploadPanel() {
     setErr(null);
     setMsg(null);
     try {
-      const res = await fetch("/api/criacao/servidor-up/enqueue-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          downloadJobId: session.downloadJobId,
-          titulo: session.titulo,
-          hierarchyRows: session.hierarchyRows,
-          drafts: session.drafts,
-          tracks: session.tracks,
-        }),
-      });
-      const data = (await res.json()) as EnqueueResponse;
-      if (!res.ok || !data.ok) {
-        if (data.error === "hierarquia_incompleta") {
-          throw new Error(data.messages?.join(" · ") ?? "Hierarquia incompleta no passo 0.");
+      let loteOffset = 0;
+      let totalTracks = 0;
+      let totalLotes = 0;
+      let jobIds: string[] = [];
+      let done = false;
+      let unmatched = 0;
+      let loops = 0;
+
+      while (!done && loops < 200) {
+        loops += 1;
+        setMsg(`Enviando para fila… ${totalTracks > 0 ? `${totalTracks} faixa(s) · ` : ""}lote ${loteOffset + 1}…`);
+        const res = await fetch("/api/criacao/servidor-up/enqueue-upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            downloadJobId: session.downloadJobId,
+            titulo: session.titulo,
+            hierarchyRows: session.hierarchyRows,
+            drafts: session.drafts,
+            tracks: session.tracks,
+            loteOffset,
+            markAutoEnqueue: true,
+          }),
+        });
+        const data = await readApiJson<
+          EnqueueResponse & {
+            done?: boolean;
+            lotesProcessed?: number;
+            lotesRemaining?: number;
+            lotesTotal?: number;
+          }
+        >(res);
+        if (!res.ok || !data.ok) {
+          if (data.error === "hierarquia_incompleta") {
+            throw new Error(data.messages?.join(" · ") ?? "Hierarquia incompleta no passo 0.");
+          }
+          if (data.error === "programacao_sem_dono") {
+            throw new Error(
+              data.message ??
+                "Programação sem dono criativo — defina na Central ou no Passo 0 do Servidor UP.",
+            );
+          }
+          if (data.error === "nenhuma_faixa_mapeada") {
+            throw new Error(
+              `Nenhuma faixa mapeada. ${(data.unmatched ?? []).slice(0, 3).join(" · ")}`,
+            );
+          }
+          throw new Error(data.message ?? data.error ?? "Falha no multi-upload.");
         }
-        if (data.error === "programacao_sem_dono") {
-          throw new Error(
-            data.message ??
-              "Programação sem dono criativo — defina na Central ou no Passo 0 do Servidor UP.",
-          );
-        }
-        if (data.error === "nenhuma_faixa_mapeada") {
-          throw new Error(
-            `Nenhuma faixa mapeada. ${(data.unmatched ?? []).slice(0, 3).join(" · ")}`,
-          );
-        }
-        throw new Error(data.message ?? data.error ?? "Falha no multi-upload.");
+        totalTracks += data.stats?.tracks ?? data.stagingImported ?? 0;
+        totalLotes = data.lotesTotal ?? totalLotes;
+        unmatched = data.stats?.unmatched ?? unmatched;
+        jobIds = [...jobIds, ...(data.jobIds ?? [])];
+        done = data.done ?? (data.lotesRemaining ?? 0) === 0;
+        const nextOffset = data.lotesProcessed;
+        if (nextOffset == null || nextOffset <= loteOffset) break;
+        loteOffset = nextOffset;
+        if (done) break;
+        await new Promise((r) => setTimeout(r, 300));
       }
+
       clearServidorUpUploadSession();
-      const parts = [
-        `${data.stats?.tracks ?? data.stagingImported ?? 0} faixa(s) importadas`,
-        `${data.stats?.lotes ?? data.jobIds?.length ?? 0} pasta(s)`,
-      ];
-      if ((data.stats?.unmatched ?? 0) > 0) parts.push(`${data.stats!.unmatched} não mapeada(s)`);
-      if (data.stagingErrors?.length) parts.push(`avisos: ${data.stagingErrors.slice(0, 2).join(" · ")}`);
+      const parts = [`${totalTracks} faixa(s) importadas`, `${totalLotes || jobIds.length} pasta(s)`];
+      if (unmatched > 0) parts.push(`${unmatched} não mapeada(s)`);
       setMsg(parts.join(" · "));
       router.push("/criacao/fila");
     } catch (e) {
