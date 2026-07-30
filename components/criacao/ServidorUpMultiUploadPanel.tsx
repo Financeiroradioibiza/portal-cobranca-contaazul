@@ -29,6 +29,7 @@ type BuildResponse = {
     lotes: number;
     tracksMatched: number;
     unmatched: number;
+    alreadyEnqueued?: number;
     orphanDownloads: number;
     hierarchyErrors: number;
     stagingReady?: number;
@@ -819,19 +820,36 @@ export function ServidorUpMultiUploadPanel() {
               {stats?.lotes ?? plan.lotes.length} pasta(s)
             </span>
             <span className="rounded bg-white/80 px-2 py-0.5 dark:bg-slate-900/60">
-              {totalMatched} faixa(s) mapeada(s)
+              {totalMatched} faixa(s) pronta(s) para subir
             </span>
+            {(stats?.alreadyEnqueued ?? plan.alreadyEnqueuedTracks.length) > 0 ?
+              <span className="rounded bg-emerald-100 px-2 py-0.5 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+                {stats?.alreadyEnqueued ?? plan.alreadyEnqueuedTracks.length} já na fila
+              </span>
+            : null}
             {(stats?.unmatched ?? 0) > 0 ?
               <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                {stats!.unmatched} sem MP3 (pode subir o resto)
+                {stats!.unmatched} sem MP3 (erro Deemix)
               </span>
             : null}
           </div>
 
-          {(stats?.unmatched ?? 0) > 0 && totalMatched > 0 ?
+          {(stats?.alreadyEnqueued ?? plan.alreadyEnqueuedTracks.length) > 0 ?
             <p className="mb-2 text-[11px] text-emerald-900 dark:text-emerald-200">
-              Lote Deemix com falhas parciais: <strong>{totalMatched}</strong> faixa(s) prontas para subir; as
-              que falharam ficam listadas abaixo (Deezer indisponível etc.).
+              <strong>{stats?.alreadyEnqueued ?? plan.alreadyEnqueuedTracks.length}</strong> faixa(s) já foram
+              enviadas à fila automaticamente (envio parcial antes do timeout). Suba abaixo as{" "}
+              <strong>{totalMatched}</strong> restante(s).
+            </p>
+          : null}
+
+          {(stats?.unmatched ?? 0) > 0 && totalMatched > 0 ?
+            <p className="mb-2 text-[11px] text-amber-900 dark:text-amber-200">
+              <strong>{stats!.unmatched}</strong> faixa(s) falharam no download Deemix (indisponível no Deezer
+              etc.) — listadas abaixo.
+            </p>
+          : (stats?.unmatched ?? 0) > 0 && totalMatched === 0 ?
+            <p className="mb-2 text-[11px] text-amber-900 dark:text-amber-200">
+              Nenhuma faixa pendente de upload neste job — confira «já na fila» ou erros abaixo.
             </p>
           : null}
 
@@ -869,11 +887,27 @@ export function ServidorUpMultiUploadPanel() {
             ))}
           </ul>
 
+          {plan.alreadyEnqueuedTracks.length > 0 ?
+            <details className="mb-3 text-[11px] text-emerald-900 dark:text-emerald-200">
+              <summary className="cursor-pointer font-semibold">
+                {plan.alreadyEnqueuedTracks.length} faixa(s) já na fila de processamento (não precisa subir de
+                novo)
+              </summary>
+              <ul className="mt-1 list-inside list-disc">
+                {plan.alreadyEnqueuedTracks.slice(0, 12).map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+                {plan.alreadyEnqueuedTracks.length > 12 ?
+                  <li>… +{plan.alreadyEnqueuedTracks.length - 12} faixa(s)</li>
+                : null}
+              </ul>
+            </details>
+          : null}
+
           {plan.unmatchedTracks.length > 0 ?
             <details className="mb-3 text-[11px] text-amber-900 dark:text-amber-200">
               <summary className="cursor-pointer font-semibold">
-                {plan.unmatchedTracks.length} faixa(s) sem MP3 neste job Deemix (erro de download ou link
-                diferente)
+                {plan.unmatchedTracks.length} faixa(s) sem MP3 neste job Deemix (erro de download)
               </summary>
               <ul className="mt-1 list-inside list-disc">
                 {plan.unmatchedTracks.slice(0, 15).map((u) => (

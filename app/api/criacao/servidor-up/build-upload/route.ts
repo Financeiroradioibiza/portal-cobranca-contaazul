@@ -54,6 +54,7 @@ export async function POST(request: Request) {
         lotes: plan.lotes.length,
         tracksMatched: totalTracks,
         unmatched: plan.unmatchedTracks.length,
+        alreadyEnqueued: plan.alreadyEnqueuedTracks.length,
         orphanDownloads: plan.orphanDownloadItems,
         hierarchyErrors: plan.hierarchyErrors.length,
         stagingReady: staging.stagingReady,

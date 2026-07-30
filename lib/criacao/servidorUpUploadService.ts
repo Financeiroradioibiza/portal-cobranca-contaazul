@@ -9,6 +9,7 @@ import {
   deezerTrackIdFromUrl,
   legacyStemArtistTitle,
   resolveDownloadItemForTrack,
+  resolveImportedDownloadItemForTrack,
   type DownloadItemForMatch,
 } from "@/lib/criacao/servidorUpUploadReconcile";
 import { buildServidorUpPastaUploadTag } from "@/lib/criacao/servidorUpUploadTag";
@@ -52,7 +53,10 @@ export type ServidorUpUploadLotePreview = {
 
 export type ServidorUpUploadPlan = {
   lotes: ServidorUpUploadLotePreview[];
+  /** Faixas sem MP3 no job (erro Deemix / link diferente). */
   unmatchedTracks: string[];
+  /** Faixas cujo MP3 já foi importado na fila (`providerRef import:`). */
+  alreadyEnqueuedTracks: string[];
   orphanDownloadItems: number;
   hierarchyErrors: string[];
 };
@@ -240,6 +244,10 @@ export async function buildServidorUpUploadPlan(input: {
     allJobItems.filter((i) => i.providerRef.startsWith("import:")).map((i) => i.id),
   );
 
+  const importedItems: DownloadItemForMatch[] = allJobItems
+    .filter((i) => i.providerRef.startsWith("import:"))
+    .map(({ providerRef: _pr, ...rest }) => rest);
+
   const downloadItems: DownloadItemForMatch[] = allJobItems
     .filter((i) => !i.providerRef.startsWith("import:"))
     .map(({ providerRef: _pr, ...rest }) => rest);
@@ -249,8 +257,10 @@ export async function buildServidorUpUploadPlan(input: {
   const indexes = buildDownloadItemMatchIndexes(downloadItems);
   const loteMap = new Map<string, ServidorUpUploadLotePreview>();
   const unmatchedTracks: string[] = [];
+  const alreadyEnqueuedTracks: string[] = [];
   const hierarchyErrors: string[] = [];
   const usedDownloadIds = new Set<string>();
+  const usedImportedIds = new Set<string>();
   const matchOpts = {
     indexMap: globalIndexMap,
     unavailableDownloadIds: importedDownloadIds,
@@ -272,6 +282,12 @@ export async function buildServidorUpUploadPlan(input: {
     const key = hierarchy.key || servidorUpHierarchyKey(track);
     const dl = resolveDownloadItemForTrack(track, indexes, downloadItems, usedDownloadIds, matchOpts);
     if (!dl) {
+      const imported = resolveImportedDownloadItemForTrack(track, importedItems, usedImportedIds);
+      if (imported) {
+        usedImportedIds.add(imported.id);
+        alreadyEnqueuedTracks.push(track.relativePath);
+        continue;
+      }
       const legacy = legacyStemArtistTitle(track.relativePath);
       const hint =
         legacy ?
@@ -296,7 +312,13 @@ export async function buildServidorUpUploadPlan(input: {
 
   await enrichLotesUploadTags(lotes, drafts);
 
-  return { lotes, unmatchedTracks, orphanDownloadItems, hierarchyErrors: [...new Set(hierarchyErrors)] };
+  return {
+    lotes,
+    unmatchedTracks,
+    alreadyEnqueuedTracks,
+    orphanDownloadItems,
+    hierarchyErrors: [...new Set(hierarchyErrors)],
+  };
 }
 
 export function servidorUpPlanToUploadLotes(

@@ -192,6 +192,21 @@ export function resolveDownloadItemForTrack(
   return undefined;
 }
 
+/** MP3 já importado na fila (`providerRef import:`) — pareia só por ID Deezer. */
+export function resolveImportedDownloadItemForTrack(
+  track: ServidorUpUploadTrackInput,
+  importedItems: DownloadItemForMatch[],
+  usedImportedIds: Set<string>,
+): DownloadItemForMatch | undefined {
+  const deezerId = deezerTrackIdFromUrl(track.deezerUrl);
+  if (!deezerId) return undefined;
+  for (const item of importedItems) {
+    if (usedImportedIds.has(item.id)) continue;
+    if (deezerTrackIdFromUrl(item.linhaOriginal) === deezerId) return item;
+  }
+  return undefined;
+}
+
 function unavailable(
   id: string,
   opts?: { unavailableDownloadIds?: Set<string> },
