@@ -316,6 +316,13 @@ function artistMatches(want: string, got: string): boolean {
   return false;
 }
 
+function titleWordMatches(wantWord: string, gotCore: string): boolean {
+  if (gotCore.includes(wantWord)) return true;
+  if (wantWord.length < 5) return false;
+  const gotWords = gotCore.split(/\s+/).filter(Boolean);
+  return gotWords.some((gw) => stringSimilarity(wantWord, gw) >= 0.72);
+}
+
 function titleMatches(want: string, got: string): { ok: boolean; ratio: number } {
   const wantCore = foldAccents(coreTitleForMatch(want));
   const gotCore = foldAccents(coreTitleForMatch(got));
@@ -323,10 +330,11 @@ function titleMatches(want: string, got: string): { ok: boolean; ratio: number }
   if (wantCore === gotCore) return { ok: true, ratio: 1 };
   if (wantCore.length >= 5 && gotCore.includes(wantCore)) return { ok: true, ratio: 0.92 };
   if (gotCore.length >= 5 && wantCore.includes(gotCore)) return { ok: true, ratio: 0.88 };
+  if (stringSimilarity(wantCore, gotCore) >= 0.82) return { ok: true, ratio: 0.9 };
 
   const words = titleWords(want);
   if (words.length === 0) return { ok: false, ratio: 0 };
-  const matched = words.filter((w) => gotCore.includes(w));
+  const matched = words.filter((w) => titleWordMatches(w, gotCore));
   const ratio = matched.length / words.length;
   const ok = ratio >= 0.55 && matched.length >= 1;
   return { ok, ratio };
@@ -462,6 +470,70 @@ async function searchDeezerTracks(
   return { hits: mergeDeezerHits(results), failures };
 }
 
+type DeezerArtistRow = { id?: number; name?: string };
+
+/**
+ * Faixas de compilação/bossa: a busca geral devolve «Banda Do Sul» / «48th St. Collective»,
+ * mas o catálogo do artista no Deezer tem a faixa correta (o site web usa ranking diferente).
+ */
+async function searchDeezerArtistCatalog(
+  input: ParsedArtistTitle,
+): Promise<{ hits: DeezerTrackHit[]; failures: number }> {
+  const artistaPrimary = primaryArtistForMatch(input.artista);
+  const artistaPlain = accentStripForSearch(artistaPrimary);
+  const artistQueries = [artistaPrimary, input.artista.trim(), artistaPlain].filter(
+    (q, i, a) => Boolean(q?.trim()) && a.indexOf(q) === i,
+  );
+
+  let failures = 0;
+  const seenArtistIds = new Set<number>();
+  const artistRows: DeezerArtistRow[] = [];
+
+  for (const q of artistQueries) {
+    const r = await dzFetch(`/search/artist?q=${encodeURIComponent(q)}&limit=6`);
+    if (r == null || r.status != null) {
+      failures += 1;
+      continue;
+    }
+    for (const row of (r.data ?? []) as DeezerArtistRow[]) {
+      if (row.id && !seenArtistIds.has(row.id)) {
+        seenArtistIds.add(row.id);
+        artistRows.push(row);
+      }
+    }
+    await sleep(80);
+  }
+
+  const hits: DeezerTrackHit[] = [];
+  const seenTrackIds = new Set<number>();
+
+  for (const artist of artistRows.slice(0, 3)) {
+    const name = artist.name?.trim() ?? "";
+    if (!artist.id || !name) continue;
+    if (artistSimilarity(input.artista, name) < ARTIST_SIM_PICK_MIN) continue;
+
+    const top = await dzFetch(`/artist/${artist.id}/top?limit=100`);
+    if (top == null || top.status != null) {
+      failures += 1;
+      continue;
+    }
+    for (const track of top.data ?? []) {
+      if (!track.id || seenTrackIds.has(track.id)) continue;
+      seenTrackIds.add(track.id);
+      hits.push({
+        id: track.id,
+        link: track.link,
+        title: track.title,
+        duration: track.duration,
+        artist: { name },
+      });
+    }
+    await sleep(80);
+  }
+
+  return { hits, failures };
+}
+
 const MIN_HITS_BEFORE_EXTRA_SEARCH = 4;
 
 /** Busca Deezer em camadas — combo artista+título, título, fallback. */
@@ -476,9 +548,15 @@ async function collectDeezerSearchHits(
   const artistaPlain = accentStripForSearch(artistaPrimary);
 
   let failures = 0;
+
+  // Catálogo do artista primeiro — compilações/bossa não aparecem na busca geral da API.
+  const catalog = await searchDeezerArtistCatalog(forSearch);
+  failures += catalog.failures;
+  let hits = catalog.hits;
+
   const artistSearch = await searchDeezerTracks(forSearch);
   failures += artistSearch.failures;
-  let hits = artistSearch.hits;
+  hits = mergeDeezerHits([{ data: hits }, { data: artistSearch.hits }]);
 
   const needMore = () => hits.length < MIN_HITS_BEFORE_EXTRA_SEARCH;
 
