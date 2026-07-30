@@ -138,6 +138,31 @@ const DEDUPE_TONE: Record<ServidorUpDedupeStatus, string> = {
   needs_deezer: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
 };
 
+/** Só «precisa Deezer» entra no Match/Deemix — duplicatas ficam fora do download. */
+function deemixEligible(status: ServidorUpDedupeStatus | undefined): boolean {
+  return !status || status === "needs_deezer";
+}
+
+function dedupeBibliotecaStatus(status: ServidorUpDedupeStatus | undefined): boolean {
+  return status === "in_biblioteca" || status === "suggest_metadata";
+}
+
+const ASSIGN_BIBLIOTECA_CHUNK = 200;
+
+type AssignBibliotecaItem = {
+  relativePath: string;
+  musicaId: string;
+  pastaId: string;
+  pastaNome: string;
+  uploadTagNome: string;
+};
+
+type AssignBibliotecaBatchResult = {
+  assigned: number;
+  skipped: number;
+  errors: string[];
+};
+
 const STEPS = [
   { n: 0, title: "Hierarquia", desc: "Pastas legado × portal" },
   { n: 1, title: "Inventário", desc: "Scan + dedupe" },
@@ -556,45 +581,91 @@ export function ServidorUpPanel() {
     }
   }
 
-  async function assignInBibliotecaTracks(paths: string[]) {
+  function buildAssignBibliotecaItems(paths: string[]): AssignBibliotecaItem[] {
+    return paths
+      .map((relativePath) => {
+        const dedupe = dedupeMap.get(relativePath);
+        const track = inventory.find((t) => t.relativePath === relativePath);
+        const hier = track ? hierarchyForTrack(track) : undefined;
+        if (!dedupe?.musicaId || !hier?.pastaId || !track) return null;
+        return {
+          relativePath,
+          musicaId: dedupe.musicaId,
+          pastaId: hier.pastaId,
+          pastaNome: track.pastaNome,
+          uploadTagNome: uploadTagForTrack(track),
+        };
+      })
+      .filter((x): x is AssignBibliotecaItem => x !== null);
+  }
+
+  async function postAssignBibliotecaBatch(items: AssignBibliotecaItem[]): Promise<AssignBibliotecaBatchResult> {
+    const res = await fetch("/api/criacao/servidor-up/assign-biblioteca", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      assigned?: number;
+      skipped?: number;
+      errors?: string[];
+      error?: string;
+    };
+    if (!res.ok) throw new Error(data.error ?? "Falha ao atribuir.");
+    const assigned = data.assigned ?? 0;
+    const skipped = data.skipped ?? 0;
+    if (!data.ok && assigned === 0) {
+      throw new Error(data.errors?.[0] ?? data.error ?? "Falha ao atribuir.");
+    }
+    return { assigned, skipped, errors: data.errors ?? [] };
+  }
+
+  async function assignInBibliotecaTracksManual(paths: string[]) {
     setErr("");
-    if (paths.length === 0) return;
     try {
-      const items = paths
-        .map((relativePath) => {
-          const dedupe = dedupeMap.get(relativePath);
-          const track = inventory.find((t) => t.relativePath === relativePath);
-          const hier = track ? hierarchyForTrack(track) : undefined;
-          if (!dedupe?.musicaId || !hier?.pastaId || !track) return null;
-          return {
-            relativePath,
-            musicaId: dedupe.musicaId,
-            pastaId: hier.pastaId,
-            pastaNome: track.pastaNome,
-            uploadTagNome: uploadTagForTrack(track),
-          };
-        })
-        .filter(Boolean);
-      if (items.length === 0) throw new Error("Nenhuma faixa válida para atribuir.");
-      setBusy(`Atribuindo ${items.length} faixa(s)…`);
-      const res = await fetch("/api/criacao/servidor-up/assign-biblioteca", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        assigned?: number;
-        skipped?: number;
-        error?: string;
-      };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "Falha ao atribuir.");
-      setMsg(`Atribuídas à pasta: ${data.assigned ?? 0} faixa(s) (sem download).`);
+      await assignInBibliotecaTracks(paths);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao atribuir.");
     } finally {
       setBusy("");
     }
+  }
+
+  async function assignInBibliotecaTracks(
+    paths: string[],
+    opts?: { keepBusy?: boolean },
+  ): Promise<AssignBibliotecaBatchResult> {
+    if (paths.length === 0) return { assigned: 0, skipped: 0, errors: [] };
+    const items = buildAssignBibliotecaItems(paths);
+    if (items.length === 0) {
+      throw new Error("Nenhuma faixa válida para atribuir (confira hierarquia e dedupe).");
+    }
+
+    let assigned = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < items.length; i += ASSIGN_BIBLIOTECA_CHUNK) {
+      const end = Math.min(i + ASSIGN_BIBLIOTECA_CHUNK, items.length);
+      setBusy(`Biblioteca → pasta… ${end}/${items.length}`);
+      const batch = await postAssignBibliotecaBatch(items.slice(i, end));
+      assigned += batch.assigned;
+      skipped += batch.skipped;
+      errors.push(...batch.errors);
+    }
+
+    if (errors.length > 0 && assigned === 0) {
+      throw new Error(errors[0] ?? "Falha ao atribuir.");
+    }
+
+    if (!opts?.keepBusy) {
+      const skipHint = skipped > 0 ? ` · ${skipped} já na programação` : "";
+      const errHint = errors.length > 0 ? ` · ${errors.length} aviso(s)` : "";
+      setMsg(`Atribuídas à pasta: ${assigned} faixa(s) (sem download)${skipHint}${errHint}.`);
+    }
+
+    return { assigned, skipped, errors };
   }
 
   async function rodarInventario() {
@@ -628,7 +699,33 @@ export function ServidorUpPanel() {
     try {
       if (inventory.length === 0) throw new Error("Rode o inventário primeiro.");
 
-      const toMatch = inventory.filter((t) => dedupeMap.get(t.relativePath)?.status !== "in_biblioteca");
+      const bibliotecaPaths = inventory
+        .filter((t) => dedupeBibliotecaStatus(dedupeMap.get(t.relativePath)?.status))
+        .map((t) => t.relativePath);
+
+      let assignSummary: AssignBibliotecaBatchResult = { assigned: 0, skipped: 0, errors: [] };
+      if (bibliotecaPaths.length > 0) {
+        assignSummary = await assignInBibliotecaTracks(bibliotecaPaths, { keepBusy: true });
+      }
+
+      const toMatch = inventory.filter((t) =>
+        deemixEligible(dedupeMap.get(t.relativePath)?.status),
+      );
+
+      if (toMatch.length === 0) {
+        const skipHint =
+          assignSummary.skipped > 0 ? ` · ${assignSummary.skipped} já estavam na programação` : "";
+        setMsg(
+          `${assignSummary.assigned} faixa(s) da biblioteca → pasta${skipHint} · nenhuma precisa Deemix.`,
+        );
+        setActiveStep(1);
+        return;
+      }
+
+      const assignPrefix =
+        assignSummary.assigned > 0 ?
+          `${assignSummary.assigned} biblioteca → pasta · `
+        : "";
 
       const CHUNK = 5;
       const mergedRows: ServidorUpMatchRow[] = [];
@@ -677,9 +774,11 @@ export function ServidorUpPanel() {
         mergedStats.apiErrors > 0 ?
           ` · ${mergedStats.apiErrors} falha(s) API Deezer (tente Match de novo)`
         : "";
+      const assignSkipHint =
+        assignSummary.skipped > 0 ? ` · ${assignSummary.skipped} bib. já na programação` : "";
       setMsg(
-        `Match: ${mergedStats.auto} auto · ${mergedStats.review} revisar · ${mergedStats.pick} escolher · ` +
-          `${mergedStats.notFound} não achou · ${mergedStats.rejected} outra versão${apiHint}.`,
+        `${assignPrefix}Match: ${mergedStats.auto} auto · ${mergedStats.review} revisar · ${mergedStats.pick} escolher · ` +
+          `${mergedStats.notFound} não achou · ${mergedStats.rejected} outra versão${apiHint}${assignSkipHint}.`,
       );
       setActiveStep(2);
     } catch (e) {
@@ -694,6 +793,7 @@ export function ServidorUpPanel() {
     const tracks: ServidorUpUploadTrack[] = [];
     for (const row of matchResult.rows) {
       if (dedupeMap.get(row.relativePath)?.status === "in_biblioteca") continue;
+      if (!deemixEligible(dedupeMap.get(row.relativePath)?.status)) continue;
       if (!matchApproved(row, matchPicks, skippedTracks)) continue;
       const url = matchDeezerUrl(row, matchPicks);
       if (!url) continue;
@@ -923,6 +1023,7 @@ export function ServidorUpPanel() {
       const lines: string[] = [];
       for (const row of matchResult.rows) {
         if (dedupeMap.get(row.relativePath)?.status === "in_biblioteca") continue;
+        if (!deemixEligible(dedupeMap.get(row.relativePath)?.status)) continue;
         if (!matchApproved(row, matchPicks, skippedTracks)) continue;
         const url = matchDeezerUrl(row, matchPicks);
         if (url) lines.push(url);
@@ -1008,6 +1109,15 @@ export function ServidorUpPanel() {
     matchResult?.rows.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length ?? 0;
   const inBibliotecaTracks = inventory.filter(
     (t) => dedupeMap.get(t.relativePath)?.status === "in_biblioteca",
+  );
+  const suggestMetadataTracks = inventory.filter(
+    (t) => dedupeMap.get(t.relativePath)?.status === "suggest_metadata",
+  );
+  const bibliotecaAssignTracks = inventory.filter((t) =>
+    dedupeBibliotecaStatus(dedupeMap.get(t.relativePath)?.status),
+  );
+  const needsDeemixTracks = inventory.filter((t) =>
+    deemixEligible(dedupeMap.get(t.relativePath)?.status),
   );
 
   const deemixPending =
@@ -1304,8 +1414,18 @@ export function ServidorUpPanel() {
                   onClick={() => void rodarMatch()}
                   className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  Continuar → Match Deezer
+                  {bibliotecaAssignTracks.length > 0 && needsDeemixTracks.length > 0 ?
+                    `Continuar → ${bibliotecaAssignTracks.length} bib. + Match (${needsDeemixTracks.length})`
+                  : bibliotecaAssignTracks.length > 0 ?
+                    `Continuar → ${bibliotecaAssignTracks.length} biblioteca → pasta`
+                  : `Continuar → Match Deezer (${needsDeemixTracks.length})`}
                 </button>
+                {bibliotecaAssignTracks.length > 0 && needsDeemixTracks.length > 0 ?
+                  <p className="w-full text-xs text-slate-500">
+                    Ao continuar: deduplicadas vão direto à pasta com tag; só as{" "}
+                    {needsDeemixTracks.length} novas passam pelo Deemix e fila.
+                  </p>
+                : null}
               </>
             : null}
           </div>
@@ -1315,17 +1435,42 @@ export function ServidorUpPanel() {
                 {inBibliotecaTracks.length} faixa(s) já na biblioteca — sem Deemix
               </p>
               <p className="mt-1 text-xs text-teal-800 dark:text-teal-300">
-                Atribui direto à pasta (assign-only). A fila de processamento continua deduplicando depois, se entrar por outro caminho.
+                Vão para a pasta automaticamente ao clicar Continuar (assign da biblioteca). Botão abaixo
+                só se quiser adiantar sem Match.
               </p>
               <button
                 type="button"
                 disabled={!!busy}
                 onClick={() =>
-                  void assignInBibliotecaTracks(inBibliotecaTracks.map((t) => t.relativePath))
+                  void assignInBibliotecaTracksManual(inBibliotecaTracks.map((t) => t.relativePath))
                 }
                 className="mt-2 rounded-lg bg-teal-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
                 Atribuir todas à pasta
+              </button>
+            </div>
+          : null}
+          {suggestMetadataTracks.length > 0 ?
+            <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50/80 p-3 dark:border-violet-900 dark:bg-violet-950/40">
+              <p className="text-sm font-semibold text-violet-900 dark:text-violet-100">
+                {suggestMetadataTracks.length} possível duplicata —{" "}
+                <strong>fora do Deemix</strong>
+              </p>
+              <p className="mt-1 text-xs text-violet-800 dark:text-violet-300">
+                Nome parecido com faixa na biblioteca; não baixa de novo no Deezer. Vão para a pasta ao
+                clicar Continuar, ou adiante abaixo. Rode Fingerprints para confirmar por áudio se quiser.
+              </p>
+              <button
+                type="button"
+                disabled={!!busy}
+                onClick={() =>
+                  void assignInBibliotecaTracksManual(
+                    suggestMetadataTracks.map((t) => t.relativePath),
+                  )
+                }
+                className="mt-2 rounded-lg bg-violet-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Atribuir possíveis duplicatas à pasta
               </button>
             </div>
           : null}
@@ -1341,6 +1486,9 @@ export function ServidorUpPanel() {
               {skippedTracks.size > 0 ? ` · ${skippedTracks.size} pulada(s)` : ""}
               {inBibliotecaTracks.length > 0 ?
                 ` · ${inBibliotecaTracks.length} já na biblioteca (fora do Deemix)`
+              : ""}
+              {suggestMetadataTracks.length > 0 ?
+                ` · ${suggestMetadataTracks.length} possível duplicata (fora do Deemix)`
               : ""}
             </p>
             <p className="mt-1 text-xs text-slate-400">
