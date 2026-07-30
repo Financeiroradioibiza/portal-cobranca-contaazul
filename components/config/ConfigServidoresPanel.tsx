@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ServidoresStatus } from "@/lib/infra/servidorStatusService";
 
 function b2ErrorHint(raw: string): string {
+  if (/storage cap exceeded|Caps & Alerts/i.test(raw)) {
+    return "Conta Backblaze B2 atingiu o limite de armazenamento (Caps & Alerts). Aumente o cap no painel B2 — a fila volta a subir masters assim que houver espaço.";
+  }
   if (/not valid|InvalidAccessKeyId/i.test(raw)) {
     return "A Backblaze não reconhece o keyID no servidor — a Application Key foi apagada, copiada errada ou não é a key do bucket. Crie uma Application Key nova no painel B2 e envie keyID + applicationKey para atualizarmos o cloud2.";
   }

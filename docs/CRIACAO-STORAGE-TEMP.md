@@ -10,8 +10,8 @@ Isso já é o desenho atual; este doc nomeia as pastas e como monitorar **limbo*
 
 | Pasta | Processo | Limpeza normal |
 |--------|-----------|----------------|
-| `upload/` | MP3 bruto da fila / ingest | `cleanupAfterItemPersisted`, GC após concluído/erro (48h default) |
-| `download-staging/` | Deemix / Spotizerr / YT | Após `ingest-from-staging`, GC de imports concluídos e órfãos |
+| `upload/` | MP3 bruto da fila / ingest | `cleanupAfterItemPersisted` / GC **somente após `concluido`** (erro mantém para retry) |
+| `download-staging/` | Deemix / Spotizerr / YT | GC **somente quando `processamento_item` concluiu** (não apaga no ingest) |
 | `work/{itemId}/` | FFmpeg, mix, intermediários | `cleanupProcessamentoItemScratch`, GC se não `processando` |
 
 Definições em código: `.cloud2-stage/criacao/tempStorageBuckets.ts`.

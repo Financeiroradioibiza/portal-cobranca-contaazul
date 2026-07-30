@@ -160,7 +160,7 @@ export async function restoreDownloadStagingKeysFromDisk(opts?: {
   return { restored, scanned: rows.rows.length };
 }
 
-/** Upload scratch sem linha na fila (fantasma). */
+/** Upload scratch sem linha na fila (fantasma). Só apaga concluídos ou arquivo sem registro. */
 async function gcOrphanUploadFiles(limit = 100): Promise<number> {
   const uploadDir = path.join(criacaoConfig.storageRoot, 'upload');
   if (!fs.existsSync(uploadDir)) return 0;
@@ -179,8 +179,8 @@ async function gcOrphanUploadFiles(limit = 100): Promise<number> {
   let removed = 0;
   for (const id of diskIds) {
     const st = byId.get(id);
-    const deletable =
-      !st || !['aguardando', 'processando', 'duplicata'].includes(st);
+    // Mantém upload em erro/revisão/aguardando para retry (ex.: cap B2 estourado).
+    const deletable = st === 'concluido' || st === undefined;
     if (!deletable) continue;
     try {
       await fsp.unlink(uploadPath(id));
@@ -268,18 +268,13 @@ export async function runStorageGarbageCollect(): Promise<{
 
   uploadRemoved += await gcOrphanUploadFiles(120);
 
-  const erroHours = Math.max(1, Math.floor(criacaoConfig.scratchRetentionErroHours));
-
+  // Upload scratch: só apaga após pipeline concluído (master B2 + uso). Erro mantém MP3 para retry.
   const uploadRows = await portalQuery<{ id: string }>(
     `SELECT id FROM processamento_item
      WHERE raw_storage_key IS NOT NULL
-       AND (
-         status = 'concluido'
-         OR (status = 'erro' AND updated_at < now() - make_interval(hours => $1))
-       )
+       AND status = 'concluido'
      ORDER BY updated_at ASC
      LIMIT 120`,
-    [erroHours],
   );
   for (const row of uploadRows.rows) {
     const r = await cleanupProcessamentoItemScratch(row.id);
@@ -324,12 +319,16 @@ export async function runStorageGarbageCollect(): Promise<{
     }
   }
 
+  // Staging Deemix: só remove quando o item da fila terminou (não só após ingest-from-staging).
   const stagingRows = await portalQuery<{ id: string }>(
-    `SELECT id FROM download_item
-     WHERE provider_ref LIKE 'import:%'
-       AND status = 'concluido'
-     ORDER BY updated_at ASC
-     LIMIT 120`,
+    `SELECT di.id
+       FROM download_item di
+       JOIN processamento_item pi
+         ON di.provider_ref = 'import:' || pi.id
+      WHERE di.status = 'concluido'
+        AND pi.status = 'concluido'
+      ORDER BY pi.updated_at ASC
+      LIMIT 120`,
   );
   for (const row of stagingRows.rows) {
     if (await cleanupDownloadStagingFile(row.id)) stagingRemoved += 1;

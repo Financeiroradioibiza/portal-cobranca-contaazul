@@ -9,7 +9,6 @@ import {
   uploadKey,
   uploadPath,
 } from '../../criacao/storage.js';
-import { cleanupDownloadStagingFile } from '../../criacao/storageCleanup.js';
 
 type Pair = { processamentoItemId: string; downloadItemId: string };
 
@@ -65,7 +64,7 @@ export async function registerIngestFromStagingRoutes(
           errors.push(`${processamentoItemId}: item_upload_nao_encontrado`);
           continue;
         }
-        if (procItem.status !== 'aguardando' && procItem.status !== 'processando') {
+        if (procItem.status !== 'aguardando' && procItem.status !== 'processando' && procItem.status !== 'erro') {
           errors.push(`${processamentoItemId}: item_ja_processado`);
           continue;
         }
@@ -91,7 +90,7 @@ export async function registerIngestFromStagingRoutes(
           errors.push(`${downloadItemId}: download_nao_concluido`);
           continue;
         }
-        if (dlItem.provider_ref.startsWith('import:')) {
+        if (dlItem.provider_ref.startsWith('import:') && dlItem.provider_ref !== `import:${processamentoItemId}`) {
           errors.push(`${downloadItemId}: download_ja_importado`);
           continue;
         }
@@ -137,8 +136,7 @@ export async function registerIngestFromStagingRoutes(
           [downloadItemId, `import:${processamentoItemId}`],
         );
 
-        await cleanupDownloadStagingFile(downloadItemId);
-
+        // Staging permanece até o item concluir (cleanupAfterItemPersisted / GC) — retry após erro B2 etc.
         imported += 1;
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'erro';

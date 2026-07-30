@@ -24,7 +24,7 @@ export const TEMP_STORAGE_BUCKETS: TempStorageBucketDef[] = [
     subdir: 'upload',
     entryKind: 'file',
     processo: 'Fila upload / ingest (MP3 bruto antes do pipeline)',
-    cleanupWhen: 'Item concluído, erro após retention, ou duplicata descartada (`cleanupAfterItemPersisted`)',
+    cleanupWhen: 'Somente item concluído (`cleanupAfterItemPersisted` / GC) — erro mantém MP3 para retry',
     neonTable: 'processamento_item.raw_storage_key',
   },
   {
@@ -32,7 +32,7 @@ export const TEMP_STORAGE_BUCKETS: TempStorageBucketDef[] = [
     subdir: 'download-staging',
     entryKind: 'file',
     processo: 'Deemix / Spotizerr / YouTube antes do import',
-    cleanupWhen: 'Após ingest-from-staging → upload, ou GC de download não importado',
+    cleanupWhen: 'Somente quando processamento_item concluiu (não no ingest-from-staging)',
     neonTable: 'download_item.storage_key',
   },
   {

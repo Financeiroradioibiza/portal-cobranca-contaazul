@@ -18,8 +18,8 @@ export const criacaoConfig = {
     1,
     Math.min(8, Number(process.env.CRIACAO_WORKER_CONCURRENCY ?? '1') || 1),
   ),
-  /** Mantém upload/work em erro por N horas antes do GC (retentativa manual). */
-  scratchRetentionErroHours: Number(process.env.CRIACAO_SCRATCH_RETENTION_ERRO_HOURS ?? '48'),
+  /** @deprecated Upload em erro não é mais apagado pelo GC — só após concluído. Reservado para uso futuro. */
+  scratchRetentionErroHours: Number(process.env.CRIACAO_SCRATCH_RETENTION_ERRO_HOURS ?? '168'),
   /** Arquivos/pastas em pastas temp com mtime mais antigo que N dias → alerta «limbo» no /ops/orphans. */
   tempLimboDays: Number(process.env.CRIACAO_TEMP_LIMBO_DAYS ?? '7'),
   storageGcIntervalMs: Number(process.env.CRIACAO_STORAGE_GC_INTERVAL_MS ?? '300000'),
