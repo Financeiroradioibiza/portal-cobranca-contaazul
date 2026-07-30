@@ -84,6 +84,15 @@ function foldAccents(input: string): string {
     .toLowerCase();
 }
 
+/** Variante sem acento para a API Deezer (legado costuma omitir ç, ã, é…). */
+function accentStripForSearch(input: string): string {
+  return input
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeSearchTitle(titulo: string): string {
   return titulo
     .replace(/\s*\((?:part\.|part|feat\.|feat|ft\.|ft|featuring)[^)]*\)/gi, "")
@@ -428,15 +437,18 @@ async function searchDeezerTracks(
   const artista = input.artista.trim();
   const artistaPrimary = primaryArtistForMatch(artista);
   const artistaAlt = normalizeSearchArtist(artistaPrimary);
+  const artistaPlain = accentStripForSearch(artistaPrimary);
   const words = titleWords(input.titulo);
   const shortQuery = words.slice(0, 5).join(" ");
 
+  // Combo «artista título» primeiro — mesmo comportamento da busca web do Deezer.
   const queries = [
-    `artist:"${artista}" track:"${core}"`,
-    artistaPrimary !== artista ? `artist:"${artistaPrimary}" track:"${core}"` : null,
     `${artistaPrimary} ${core}`,
     `${artista} ${core}`,
+    artistaPlain !== artistaPrimary ? `${artistaPlain} ${core}` : null,
     shortQuery && shortQuery !== core ? `${artistaPrimary} ${shortQuery}` : null,
+    `artist:"${artista}" track:"${core}"`,
+    artistaPrimary !== artista ? `artist:"${artistaPrimary}" track:"${core}"` : null,
     artistaAlt !== artistaPrimary ? `${artistaAlt} ${core}` : null,
   ].filter((q): q is string => Boolean(q?.trim()));
 
@@ -448,6 +460,54 @@ async function searchDeezerTracks(
   });
   const { results, failures } = await dzFetchSequential(paths, 120);
   return { hits: mergeDeezerHits(results), failures };
+}
+
+const MIN_HITS_BEFORE_EXTRA_SEARCH = 4;
+
+/** Busca Deezer em camadas — combo artista+título, título, fallback. */
+async function collectDeezerSearchHits(
+  parsed: ParsedArtistTitle,
+  searchArtist?: string,
+): Promise<{ hits: DeezerTrackHit[]; failures: number }> {
+  const forSearch =
+    searchArtist?.trim() ? { ...parsed, artista: searchArtist.trim() } : parsed;
+  const core = coreTitleForMatch(parsed.titulo);
+  const artistaPrimary = primaryArtistForMatch(forSearch.artista);
+  const artistaPlain = accentStripForSearch(artistaPrimary);
+
+  let failures = 0;
+  const artistSearch = await searchDeezerTracks(forSearch);
+  failures += artistSearch.failures;
+  let hits = artistSearch.hits;
+
+  const needMore = () => hits.length < MIN_HITS_BEFORE_EXTRA_SEARCH;
+
+  if (needMore()) {
+    const titleSearch = await searchDeezerByTitle(parsed);
+    failures += titleSearch.failures;
+    hits = mergeDeezerHits([{ data: hits }, { data: titleSearch.hits }]);
+  }
+
+  if (needMore()) {
+    const comboQueries = [
+      `${artistaPrimary} ${core}`,
+      artistaPlain !== artistaPrimary ? `${artistaPlain} ${core}` : null,
+    ].filter((q): q is string => Boolean(q?.trim()));
+    for (const combo of comboQueries) {
+      const comboSearch = await dzFetch(`/search/track?q=${encodeURIComponent(combo)}&limit=15`);
+      if (comboSearch == null || comboSearch.status != null) failures += 1;
+      hits = mergeDeezerHits([{ data: hits }, comboSearch?.status == null ? comboSearch : null]);
+      if (!needMore()) break;
+    }
+  }
+
+  if (needMore()) {
+    const coreSearch = await dzFetch(`/search/track?q=${encodeURIComponent(core)}&limit=15`);
+    if (coreSearch == null || coreSearch.status != null) failures += 1;
+    hits = mergeDeezerHits([{ data: hits }, coreSearch?.status == null ? coreSearch : null]);
+  }
+
+  return { hits, failures };
 }
 
 function versionHintFromTitle(titulo: string): string {
@@ -615,40 +675,9 @@ export async function resolveDeezerLegacyCandidates(
     throw new Error("Formato inválido — use «Artista - Música».");
   }
 
-  const core = coreTitleForMatch(parsed.titulo);
-  const artistaPrimary = primaryArtistForMatch(parsed.artista);
-  const searchParsed =
-    strictArtist ?
-      { ...parsed, artista: primaryLegacyArtist(parsed.artista) || parsed.artista }
-    : parsed;
-
-  let apiFailures = 0;
-  const artistSearch = await searchDeezerTracks(searchParsed);
-  apiFailures += artistSearch.failures;
-  let hits = artistSearch.hits;
-  if (!strictArtist) {
-    if (hits.length < 4) {
-      const titleSearch = await searchDeezerByTitle(parsed);
-      apiFailures += titleSearch.failures;
-      hits = mergeDeezerHits([{ data: hits }, { data: titleSearch.hits }]);
-    }
-    if (hits.length < 4) {
-      const coreSearch = await dzFetch(`/search/track?q=${encodeURIComponent(core)}&limit=15`);
-      if (coreSearch == null || coreSearch.status != null) apiFailures += 1;
-      hits = mergeDeezerHits([{ data: hits }, coreSearch?.status == null ? coreSearch : null]);
-    }
-    if (hits.length < 4) {
-      const combo = `${artistaPrimary} ${core}`.trim();
-      const comboSearch = await dzFetch(`/search/track?q=${encodeURIComponent(combo)}&limit=12`);
-      if (comboSearch == null || comboSearch.status != null) apiFailures += 1;
-      hits = mergeDeezerHits([{ data: hits }, comboSearch?.status == null ? comboSearch : null]);
-    }
-  } else if (hits.length < 4) {
-    const combo = `${primaryLegacyArtist(parsed.artista)} ${core}`.trim();
-    const comboSearch = await dzFetch(`/search/track?q=${encodeURIComponent(combo)}&limit=12`);
-    if (comboSearch == null || comboSearch.status != null) apiFailures += 1;
-    hits = mergeDeezerHits([{ data: hits }, comboSearch?.status == null ? comboSearch : null]);
-  }
+  const searchArtist =
+    strictArtist ? primaryLegacyArtist(parsed.artista) || parsed.artista : undefined;
+  const { hits, failures: apiFailures } = await collectDeezerSearchHits(parsed, searchArtist);
 
   const byId = new Map<number, DeezerTrackCandidate>();
   const legacyWantsAlt = isAlternateVersionTitle(parsed.titulo);
@@ -677,20 +706,18 @@ export async function resolveDeezerLegacyCandidates(
 
 /** Resolve texto ou devolve candidatos para escolha manual. */
 export async function resolveDeezerTrackFromText(line: string): Promise<DeezerTrackResolveResult> {
-  const parsed = parseArtistTitleFromLine(line);
+  const normalized = normalizeLegacyFilenameForSearch(line);
+  const parsed = parseArtistTitleFromLine(normalized);
   if (!parsed) {
     throw new Error(
       "Use o formato «Artista - Música» (primeiro hífen separa artista) ou cole link deezer.com/track/…",
     );
   }
 
-  const artistSearch = await searchDeezerTracks(parsed);
-  let candidates = rankArtistCandidates(parsed, artistSearch.hits);
-
+  const { hits, failures: apiFailures } = await collectDeezerSearchHits(parsed);
+  let candidates = rankArtistCandidates(parsed, hits);
   if (!isAmbiguousShortTitle(parsed.titulo)) {
-    const titleSearch = await searchDeezerByTitle(parsed);
-    const fromTitle = rankTitleFallbackCandidates(parsed, titleSearch.hits);
-    candidates = mergeRankedCandidates(candidates, fromTitle);
+    candidates = mergeRankedCandidates(candidates, rankTitleFallbackCandidates(parsed, hits));
   }
 
   candidates = candidates.slice(0, 6);
@@ -701,6 +728,12 @@ export async function resolveDeezerTrackFromText(line: string): Promise<DeezerTr
 
   if (candidates.length > 0) {
     return { status: "pick", parsed, candidates };
+  }
+
+  if (apiFailures >= 2) {
+    throw new Error(
+      "Busca Deezer falhou (limite de requisições ou timeout). Aguarde ~1 min e tente de novo — a faixa pode existir no Deezer.",
+    );
   }
 
   return { status: "not_found", parsed, candidates: [] };

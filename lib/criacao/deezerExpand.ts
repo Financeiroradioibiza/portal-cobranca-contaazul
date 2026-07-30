@@ -17,7 +17,8 @@ export type ExpandedDownloadLine = ParsedDownloadLine & {
 
 type DeezerTrackLink = { link?: string; title?: string; artist?: { name?: string } };
 
-const LINE_CONCURRENCY = 6;
+/** Paralelismo baixo evita 429 na API Deezer ao expandir lotes grandes. */
+const LINE_CONCURRENCY = 2;
 const PLAYLIST_FETCH_TIMEOUT_MS = 12_000;
 
 const SPOTIFY_CONVERT_HINT =

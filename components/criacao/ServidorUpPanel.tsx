@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   CriativoTagSelect,
   formatTagChipPreview,
@@ -36,7 +34,6 @@ import type {
   ServidorUpMatchVerdict,
 } from "@/lib/criacao/servidorUpMatchService";
 import {
-  clearServidorUpUploadSession,
   persistServidorUpUploadSession,
   readServidorUpUploadSession,
   setActiveDeemixJobId,
@@ -62,8 +59,8 @@ async function readApiJson<T>(res: Response): Promise<T> {
   } catch {
     throw new Error(
       res.ok ?
-        "Resposta inválida do portal (HTML em vez de JSON). Recarregue a página ou use Download link."
-      : `Portal HTTP ${res.status} — recarregue ou retome em Download link.`,
+        "Resposta inválida do portal (HTML em vez de JSON). Recarregue a página."
+      : `Portal HTTP ${res.status} — recarregue a página e aguarde.`,
     );
   }
 }
@@ -140,11 +137,12 @@ const DEDUPE_TONE: Record<ServidorUpDedupeStatus, string> = {
   needs_deezer: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
 };
 
-/** Só «precisa Deezer» entra no Match/Deemix — duplicatas ficam fora do download. */
+/** Só «precisa Deezer» entra no Match/Deemix — deduplicadas ficam fora do download. */
 function deemixEligible(status: ServidorUpDedupeStatus | undefined): boolean {
   return !status || status === "needs_deezer";
 }
 
+/** Hash/ISRC ou nome parecido — assign direto à pasta no Continuar (sem Deemix). */
 function dedupeBibliotecaStatus(status: ServidorUpDedupeStatus | undefined): boolean {
   return status === "in_biblioteca" || status === "suggest_metadata";
 }
@@ -168,10 +166,8 @@ type AssignBibliotecaBatchResult = {
 const STEPS = [
   { n: 0, title: "Hierarquia", desc: "Pastas legado × portal" },
   { n: 1, title: "Inventário", desc: "Scan + dedupe" },
-  { n: 2, title: "Match Deezer", desc: "Duração legado × Deezer" },
-  { n: 3, title: "Revisão", desc: "Ambíguos" },
-  { n: 4, title: "Deemix", desc: "Download 320k" },
-  { n: 5, title: "Subida", desc: "Multi-upload pastas" },
+  { n: 2, title: "Match", desc: "Conferir Deezer + revisão" },
+  { n: 3, title: "Entrega", desc: "Download e fila automáticos" },
 ] as const;
 
 function rowNeedsAction(row: ServidorUpHierarchyRow, draft: RowDraft | undefined): boolean {
@@ -228,7 +224,6 @@ function matchDeemixLabel(row: ServidorUpMatchRow, picks: Record<string, number>
 }
 
 export function ServidorUpPanel() {
-  const router = useRouter();
   const [localHealth, setLocalHealth] = useState<{
     ok: boolean;
     version?: string;
@@ -251,7 +246,6 @@ export function ServidorUpPanel() {
   } | null>(null);
   const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
   const [deemixJobSnapshot, setDeemixJobSnapshot] = useState<DeemixJobSnapshot | null>(null);
-  const [snapshotMsg, setSnapshotMsg] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
@@ -535,6 +529,18 @@ export function ServidorUpPanel() {
     return stats;
   }
 
+  function dedupeCountsFromMap(map: Map<string, ServidorUpDedupeRow>) {
+    let inBiblioteca = 0;
+    let suggestMetadata = 0;
+    let needsDeezer = 0;
+    for (const row of map.values()) {
+      if (row.status === "in_biblioteca") inBiblioteca += 1;
+      else if (row.status === "suggest_metadata") suggestMetadata += 1;
+      else needsDeezer += 1;
+    }
+    return { inBiblioteca, suggestMetadata, needsDeezer };
+  }
+
   function hierarchyForTrack(track: LocalServidorUpTrack): ServidorUpHierarchyRow | undefined {
     if (!preview) return undefined;
     return preview.rows.find(
@@ -663,17 +669,6 @@ export function ServidorUpPanel() {
       throw new Error(data.errors?.[0] ?? data.error ?? "Falha ao atribuir.");
     }
     return { assigned, skipped, errors: data.errors ?? [] };
-  }
-
-  async function assignInBibliotecaTracksManual(paths: string[]) {
-    setErr("");
-    try {
-      await assignInBibliotecaTracks(paths);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Falha ao atribuir.");
-    } finally {
-      setBusy("");
-    }
   }
 
   async function assignInBibliotecaTracks(
@@ -954,36 +949,6 @@ export function ServidorUpPanel() {
     void persistServidorUpUploadSession(payload);
   }
 
-  async function salvarSnapshotMultiUpload() {
-    setSnapshotMsg("");
-    setErr("");
-    if (!downloadJobId) {
-      setErr("Informe o job Deemix (Passo 5) — copie o ID do Download link se precisar.");
-      return;
-    }
-    if (!preview || !matchResult) {
-      setErr("Hierarquia/match ausentes — refaça passos 0–3 nesta aba.");
-      return;
-    }
-    persistUploadSession(downloadJobId);
-    setSnapshotMsg(
-      `Snapshot salvo para job ${downloadJobId.slice(0, 8)}… — abra Upload → Multi-Upload ou clique Multi-Upload abaixo.`,
-    );
-  }
-
-  function irParaMultiUpload() {
-    if (!downloadJobId) {
-      setErr("Faça o download Deemix (passo 4) antes da subida.");
-      return;
-    }
-    if (!preview || !matchResult) {
-      setErr("Dados do Servidor UP incompletos — refaça hierarquia e match.");
-      return;
-    }
-    persistUploadSession(downloadJobId);
-    router.push("/criacao/multi-upload-legado");
-  }
-
   async function triggerAutoEnqueueFila(jobId: string) {
     try {
       let importedTotal = 0;
@@ -1024,11 +989,11 @@ export function ServidorUpPanel() {
           if (data.error === "nao_pronto") return;
           if (importedTotal > 0) {
             setErr(
-              `${data.message ?? data.error ?? "Fila parou no meio"} — ${importedTotal} faixa(s) já enfileirada(s); use Passo 5 para retomar.`,
+              `${data.message ?? data.error ?? "Fila parou no meio"} — ${importedTotal} faixa(s) já enfileirada(s); recarregue a página para retomar.`,
             );
             return;
           }
-          setErr(data.message ?? data.error ?? "Fila automática não enfileirou — use Passo 5 ou aguarde o worker noturno.");
+          setErr(data.message ?? data.error ?? "Fila automática não enfileirou — recarregue a página.");
           return;
         }
 
@@ -1044,7 +1009,7 @@ export function ServidorUpPanel() {
       const filaMsg =
         done ?
           `${lastTracksProcessed || importedTotal}/${lastTracksTotal || importedTotal} faixa(s) na fila — processamento automático iniciado.`
-        : `${importedTotal} faixa(s) enfileirada(s) nesta sessão — retome em Passo 5 ou aguarde o worker noturno.`;
+        : `${importedTotal} faixa(s) enfileirada(s) — processamento continua automaticamente.`;
       setMsg((m) => `${m}${m ? " · " : ""}${filaMsg}`);
     } catch (e) {
       setErr(
@@ -1097,37 +1062,32 @@ export function ServidorUpPanel() {
     const parts = [`Deemix: ${okCount}/${total} baixada(s)`, `Job ${jobId.slice(0, 8)}…`];
     if (errCount > 0) parts.push(`${errCount} erro(s)`);
     if (pendingCount > 0) {
-      parts.push(
-        `${pendingCount} ainda pendente(s) — use «Continuar download» ou deixe Download link aberto`,
-      );
+      parts.push(`${pendingCount} ainda baixando — continua automaticamente`);
     }
     if (processErrors > 0 && pendingCount > 0) {
-      parts.push("(timeout em algum lote — o worker segue se Download link estiver aberto)");
+      parts.push("(algum lote demorou — retomando…)");
     }
     setMsg(parts.join(" · "));
     setDownloadJobId(jobId);
     persistUploadSession(jobId);
     if (pendingCount === 0) {
-      setActiveStep(5);
+      setActiveStep(3);
       void triggerAutoEnqueueFila(jobId);
     }
     return { okCount, pendingCount, processErrors };
   }
 
   async function continuarDownloadDeemix() {
-    if (!downloadJobId) {
-      setErr("Nenhum job Deemix — só «Continuar» se já enfileirou antes.");
-      return;
-    }
+    if (!downloadJobId) return;
     setErr("");
     try {
       const snap = await refreshDeemixJobSnapshot(downloadJobId);
-      if (!snap) throw new Error("Job não encontrado — confira o ID em Download link.");
+      if (!snap) throw new Error("Job de download não encontrado.");
       const pending = snap.pending + snap.processing;
+      setActiveStep(3);
       if (pending === 0) {
-        setMsg(`Deemix já concluído: ${snap.ok}/${snap.totalItens} · Job ${downloadJobId.slice(0, 8)}…`);
+        setMsg(`Download concluído: ${snap.ok}/${snap.totalItens}`);
         persistUploadSession(downloadJobId);
-        setActiveStep(5);
         void triggerAutoEnqueueFila(downloadJobId);
         return;
       }
@@ -1146,16 +1106,13 @@ export function ServidorUpPanel() {
       if (downloadJobId && !forceNew) {
         const snap = await refreshDeemixJobSnapshot(downloadJobId);
         const pending = (snap?.pending ?? 0) + (snap?.processing ?? 0);
-        if (snap && pending > 0) {
-          setErr(
-            `Já existe job em andamento (${snap.ok}/${snap.totalItens} prontas, ${pending} pendente(s)). Use «Continuar download» — não crie outro job.`,
-          );
-          return;
-        }
-        if (snap && snap.ok > 0 && !forceNew) {
-          setErr(
-            `Job ${downloadJobId.slice(0, 8)}… já tem ${snap.ok} faixa(s). Use «Continuar download» ou Passo 5. Para outro job, use o botão avançado abaixo.`,
-          );
+        if (snap && (pending > 0 || snap.ok > 0)) {
+          setActiveStep(3);
+          if (pending === 0) {
+            await pollDeemixJob(downloadJobId, snap.ok, snap.totalItens);
+          } else {
+            await pollDeemixJob(downloadJobId, snap.pending + snap.ok, snap.totalItens);
+          }
           return;
         }
       }
@@ -1215,7 +1172,7 @@ export function ServidorUpPanel() {
 
       if (!jobId) throw new Error("Job Deemix não criado.");
       if (itensPick > 0) {
-        setMsg(`Job ${jobId.slice(0, 8)}… · ${itensPick} faixa(s) aguardando escolha no Download link`);
+        setMsg(`Job ${jobId.slice(0, 8)}… · ${itensPick} faixa(s) aguardando escolha manual na fila Deemix`);
       }
       if (itensErro > 0) {
         setMsg((m) => `${m}${m ? " · " : ""}${itensErro} erro(s) ao enfileirar`);
@@ -1227,16 +1184,6 @@ export function ServidorUpPanel() {
     } finally {
       setBusy("");
     }
-  }
-
-  function pedirNovoJobDeemix() {
-    const ok = window.confirm(
-      "Isso cria um NOVO job Deemix e pode baixar de novo as mesmas faixas (duplicata no servidor).\n\nSó use se o job anterior estiver errado ou vazio.\n\nContinuar?",
-    );
-    if (!ok) return;
-    setDownloadJobId(null);
-    setDeemixJobSnapshot(null);
-    void criarJobDeemix(true);
   }
 
   const pendingCount = preview?.rows.filter((r) => rowNeedsAction(r, drafts[r.key])).length ?? 0;
@@ -1259,6 +1206,8 @@ export function ServidorUpPanel() {
   const needsDeemixTracks = inventory.filter((t) =>
     deemixEligible(dedupeMap.get(t.relativePath)?.status),
   );
+  const liveDedupeStats =
+    dedupeMap.size > 0 ? dedupeCountsFromMap(dedupeMap) : dedupeStats;
 
   const deemixPending =
     deemixJobSnapshot != null ?
@@ -1267,6 +1216,18 @@ export function ServidorUpPanel() {
   const hasDeemixJob = Boolean(downloadJobId && deemixJobSnapshot && deemixJobSnapshot.totalItens > 0);
   const deemixInProgress = hasDeemixJob && (deemixPending ?? 0) > 0;
   const canStartFreshDeemix = !deemixInProgress && !busy;
+  const entregaAutoStartedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!downloadJobId || !matchResult || busy) return;
+    const pending = (deemixJobSnapshot?.pending ?? 0) + (deemixJobSnapshot?.processing ?? 0);
+    if (pending <= 0) return;
+    const key = `dl:${downloadJobId}`;
+    if (entregaAutoStartedRef.current === key) return;
+    entregaAutoStartedRef.current = key;
+    void continuarDownloadDeemix();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- retoma download pendente ao reabrir a aba
+  }, [downloadJobId, matchResult, deemixJobSnapshot?.pending, deemixJobSnapshot?.processing, busy]);
 
   useEffect(() => {
     if (downloadJobId && preview && matchResult) {
@@ -1283,14 +1244,12 @@ export function ServidorUpPanel() {
       <div>
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Servidor UP</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-          Migração legado → qualidade alta: scan no PC, match Deezer por duração, download 320k e fila cloud2.
-          Após o Deemix, as faixas vão para a <strong>fila automaticamente</strong> (sem Passo 5 manual).
-          Migrações noturnas: agende o worker{" "}
-          <code className="text-[10px]">/api/criacao/servidor-up/night-worker</code> a cada 5 min (CRON_SECRET).
+          Suba o legado para as pastas dos clientes: hierarquia → inventário → conferir Match Deezer → entrega
+          automática (download + fila + pasta). Ajuste só o que for ambíguo; o resto o sistema faz sozinho.
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {STEPS.map((s) => (
           <button
             key={s.n}
@@ -1388,80 +1347,18 @@ export function ServidorUpPanel() {
         </div>
       </div>
 
-      {(msg || err || busy || downloadJobId) ?
+      {(msg || err || busy) ?
         <div className="space-y-2 text-sm">
-          {downloadJobId && !matchResult ?
-            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
-              <p className="font-semibold text-amber-950 dark:text-amber-100">
-                Job Deemix <code className="text-xs">{downloadJobId.slice(0, 12)}…</code> na sessão
-              </p>
-              <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">
-                Pode ser de migração anterior (ex. 29/7). Downloads no Download link podem ser desse job —
-                não confundir com o Continuar de hoje. Para fluxo novo, limpe antes de Match/Deemix.
-              </p>
-              <button
-                type="button"
-                disabled={!!busy}
-                onClick={() => {
-                  setDownloadJobId(null);
-                  setDeemixJobSnapshot(null);
-                  clearServidorUpUploadSession();
-                }}
-                className="mt-2 rounded-lg border border-amber-600 px-3 py-1.5 text-xs font-semibold text-amber-950 dark:border-amber-500 dark:text-amber-100"
-              >
-                Limpar job da sessão
-              </button>
-            </div>
-          : null}
           {busy ?
             <p className="text-violet-700">{busy}</p>
           : null}
           {msg ?
             <p className="text-emerald-800 dark:text-emerald-200">{msg}</p>
           : null}
-          {downloadJobId && okCountFromMsg(msg) ?
-            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/40">
-              <p className="font-semibold text-emerald-950 dark:text-emerald-100">Download Deemix concluído</p>
-              <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">
-                Próximo passo: subir cada faixa na pasta certa (definida no passo 0).{" "}
-                <strong>Não precisa copiar código</strong> — clique abaixo.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveStep(5)}
-                  className="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white"
-                >
-                  Passo 5 — Multi-Upload ({approvedCount} faixas)
-                </button>
-                <Link
-                  href="/criacao/multi-upload-legado"
-                  onClick={() => persistUploadSession(downloadJobId)}
-                  className="rounded-lg border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-600 dark:text-emerald-100"
-                >
-                  Abrir Multi-Upload legado →
-                </Link>
-              </div>
-            </div>
-          : null}
           {err ?
             <p className="text-red-700 dark:text-red-300">{err}</p>
           : null}
         </div>
-      : null}
-
-      {activeStep === 5 ?
-        <Step5MultiUploadPanel
-          downloadJobId={downloadJobId}
-          setDownloadJobId={setDownloadJobId}
-          approvedCount={approvedCount}
-          okPastas={preview?.rows.filter((r) => r.status === "ok").length ?? 0}
-          hasMatch={Boolean(matchResult)}
-          snapshotMsg={snapshotMsg}
-          onGo={() => irParaMultiUpload()}
-          onPersist={() => downloadJobId && persistUploadSession(downloadJobId)}
-          onSaveSnapshot={() => void salvarSnapshotMultiUpload()}
-        />
       : null}
 
       {activeStep === 0 ?
@@ -1547,8 +1444,8 @@ export function ServidorUpPanel() {
             {inventory.length > 0 ?
               `${inventory.length} faixa(s) lidas do disco.`
             : "Ainda não escaneado."}
-            {dedupeStats ?
-              ` · ${dedupeStats.inBiblioteca} já na biblioteca · ${dedupeStats.suggestMetadata} possível duplicata · ${dedupeStats.needsDeezer} precisa Deezer`
+            {liveDedupeStats ?
+              ` · ${liveDedupeStats.inBiblioteca} já na biblioteca · ${liveDedupeStats.suggestMetadata} possível duplicata · ${liveDedupeStats.needsDeezer} precisa Deezer`
             : ""}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -1578,72 +1475,32 @@ export function ServidorUpPanel() {
                   className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {bibliotecaAssignTracks.length > 0 && needsDeemixTracks.length > 0 ?
-                    `Continuar → ${bibliotecaAssignTracks.length} bib. + Match (${needsDeemixTracks.length})`
+                    `Continuar → ${bibliotecaAssignTracks.length} dedup → pasta + Match (${needsDeemixTracks.length})`
                   : bibliotecaAssignTracks.length > 0 ?
-                    `Continuar → ${bibliotecaAssignTracks.length} biblioteca → pasta`
+                    `Continuar → ${bibliotecaAssignTracks.length} dedup → pasta`
                   : `Continuar → Match Deezer (${needsDeemixTracks.length})`}
                 </button>
                 {bibliotecaAssignTracks.length > 0 && needsDeemixTracks.length > 0 ?
                   <p className="w-full text-xs text-slate-500">
-                    Ao continuar: deduplicadas vão direto à pasta com tag; só as{" "}
-                    {needsDeemixTracks.length} novas passam pelo Deemix e fila.
+                    Ao continuar: {bibliotecaAssignTracks.length} deduplicada(s) vão direto à pasta (biblioteca);
+                    só as {needsDeemixTracks.length} restantes passam pelo Match, Deemix e fila.
+                  </p>
+                : bibliotecaAssignTracks.length > 0 ?
+                  <p className="w-full text-xs text-slate-500">
+                    Ao continuar: todas as {bibliotecaAssignTracks.length} faixa(s) deduplicadas vão direto à
+                    pasta — nenhuma precisa Deemix.
                   </p>
                 : null}
               </>
             : null}
           </div>
-          {inBibliotecaTracks.length > 0 ?
-            <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50/80 p-3 dark:border-teal-900 dark:bg-teal-950/40">
-              <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">
-                {inBibliotecaTracks.length} faixa(s) já na biblioteca — sem Deemix
-              </p>
-              <p className="mt-1 text-xs text-teal-800 dark:text-teal-300">
-                Vão para a pasta automaticamente ao clicar Continuar (assign da biblioteca). Botão abaixo
-                só se quiser adiantar sem Match.
-              </p>
-              <button
-                type="button"
-                disabled={!!busy}
-                onClick={() =>
-                  void assignInBibliotecaTracksManual(inBibliotecaTracks.map((t) => t.relativePath))
-                }
-                className="mt-2 rounded-lg bg-teal-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                Atribuir todas à pasta
-              </button>
-            </div>
-          : null}
-          {suggestMetadataTracks.length > 0 ?
-            <div className="mt-4 rounded-lg border border-violet-200 bg-violet-50/80 p-3 dark:border-violet-900 dark:bg-violet-950/40">
-              <p className="text-sm font-semibold text-violet-900 dark:text-violet-100">
-                {suggestMetadataTracks.length} possível duplicata —{" "}
-                <strong>fora do Deemix</strong>
-              </p>
-              <p className="mt-1 text-xs text-violet-800 dark:text-violet-300">
-                Nome parecido com faixa na biblioteca; não baixa de novo no Deezer. Vão para a pasta ao
-                clicar Continuar, ou adiante abaixo. Rode Fingerprints para confirmar por áudio se quiser.
-              </p>
-              <button
-                type="button"
-                disabled={!!busy}
-                onClick={() =>
-                  void assignInBibliotecaTracksManual(
-                    suggestMetadataTracks.map((t) => t.relativePath),
-                  )
-                }
-                className="mt-2 rounded-lg bg-violet-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                Atribuir possíveis duplicatas à pasta
-              </button>
-            </div>
-          : null}
         </div>
       : null}
 
       {activeStep >= 2 && matchResult ?
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-            <p className="text-sm font-semibold">Passo 2–3 — Match e revisão</p>
+            <p className="text-sm font-semibold">Passo 2 — Match e revisão</p>
             <p className="mt-1 text-xs text-slate-500">
               Aprovadas para download: {approvedCount} / {matchResult.rows.length}
               {skippedTracks.size > 0 ? ` · ${skippedTracks.size} pulada(s)` : ""}
@@ -1651,7 +1508,7 @@ export function ServidorUpPanel() {
                 ` · ${inBibliotecaTracks.length} já na biblioteca (fora do Deemix)`
               : ""}
               {suggestMetadataTracks.length > 0 ?
-                ` · ${suggestMetadataTracks.length} possível duplicata (fora do Deemix)`
+                ` · ${suggestMetadataTracks.length} possível duplicata → pasta no Continuar`
               : ""}
             </p>
             <p className="mt-1 text-xs text-slate-400">
@@ -1831,161 +1688,55 @@ export function ServidorUpPanel() {
 
           {reviewRows.length > 0 ?
             <p className="text-xs text-amber-800">
-              {reviewRows.length} faixa(s) precisam de escolha manual (passo 3).
+              {reviewRows.length} faixa(s) precisam de escolha manual antes de entregar.
             </p>
           : null}
 
-          <div className="flex flex-col gap-3">
-            {hasDeemixJob ?
-              <div className="rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-xs text-violet-950 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
-                Job Deemix{" "}
-                <code className="font-mono">{downloadJobId!.slice(0, 8)}…</code>
-                {" · "}
-                {deemixJobSnapshot!.ok}/{deemixJobSnapshot!.totalItens} baixada(s)
-                {deemixInProgress ?
-                  ` · ${deemixPending} pendente(s) — não crie outro job`
-                : " · pronto para Passo 5"}
-              </div>
-            : null}
-
-            <div className="flex flex-wrap gap-3">
-              {deemixInProgress ?
-                <button
-                  type="button"
-                  disabled={!!busy}
-                  onClick={() => void continuarDownloadDeemix()}
-                  className="rounded-lg bg-violet-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Continuar download Deemix
-                </button>
-              : hasDeemixJob ?
-                <>
-                  <button
-                    type="button"
-                    disabled={!!busy}
-                    onClick={() => void continuarDownloadDeemix()}
-                    className="rounded-lg border border-violet-400 px-5 py-2 text-sm font-semibold text-violet-900 dark:border-violet-600 dark:text-violet-100 disabled:opacity-50"
-                  >
-                    Verificar / retomar job
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!!busy}
-                    onClick={() => setActiveStep(5)}
-                    className="rounded-lg bg-emerald-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    Passo 5 — Multi-Upload
-                  </button>
-                </>
-              : (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/25">
+            <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">Entrega nas pastas</p>
+            {deemixInProgress ?
+              <p className="mt-2 text-sm text-violet-900 dark:text-violet-100">
+                {busy ||
+                  `Baixando ${deemixJobSnapshot!.ok}/${deemixJobSnapshot!.totalItens} — aguarde, continua automaticamente.`}
+              </p>
+            : hasDeemixJob && (deemixJobSnapshot!.ok > 0) ?
+              <p className="mt-2 text-sm text-emerald-900 dark:text-emerald-100">
+                {busy ||
+                  `${deemixJobSnapshot!.ok} faixa(s) baixada(s) — fila e pastas em andamento (automático).`}
+              </p>
+            : <>
+                <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">
+                  Conferiu o Match? Clique uma vez: o sistema baixa no Deemix e entrega nas pastas do passo 0.
+                </p>
                 <button
                   type="button"
                   disabled={!!busy || approvedCount === 0 || !canStartFreshDeemix}
-                  onClick={() => void criarJobDeemix(false)}
-                  className="rounded-lg bg-violet-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  onClick={() => {
+                    setActiveStep(3);
+                    void criarJobDeemix(false);
+                  }}
+                  className="mt-3 rounded-lg bg-emerald-800 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  Passo 4 — Baixar via Deemix ({approvedCount} faixas)
+                  Entregar {approvedCount} faixa(s) nas pastas
                 </button>
-              )}
-              <Link
-                href="/criacao/download"
-                className="rounded-lg border border-slate-200 px-5 py-2 text-sm font-semibold dark:border-slate-700"
-              >
-                Abrir Download link →
-              </Link>
-              {hasDeemixJob ?
-                <button
-                  type="button"
-                  disabled={!!busy}
-                  onClick={pedirNovoJobDeemix}
-                  className="rounded-lg border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900 dark:border-amber-800 dark:text-amber-200"
-                >
-                  Novo job (duplicar — evitar)
-                </button>
-              : null}
-            </div>
+              </>
+            }
           </div>
         </div>
       : null}
-    </div>
-  );
-}
 
-function okCountFromMsg(msg: string): boolean {
-  return /Deemix:\s*\d+\/\d+\s*baixada/i.test(msg);
-}
-
-function Step5MultiUploadPanel({
-  downloadJobId,
-  setDownloadJobId,
-  approvedCount,
-  okPastas,
-  hasMatch,
-  snapshotMsg,
-  onGo,
-  onPersist,
-  onSaveSnapshot,
-}: {
-  downloadJobId: string | null;
-  setDownloadJobId: (id: string | null) => void;
-  approvedCount: number;
-  okPastas: number;
-  hasMatch: boolean;
-  snapshotMsg: string;
-  onGo: () => void;
-  onPersist: () => void;
-  onSaveSnapshot: () => void;
-}) {
-  return (
-    <div className="rounded-xl border-2 border-emerald-400 bg-emerald-50/80 p-4 dark:border-emerald-700 dark:bg-emerald-950/30">
-      <p className="text-base font-bold text-emerald-950 dark:text-emerald-100">Passo 5 — Multi-Upload</p>
-      <p className="mt-1 text-sm text-emerald-900/90 dark:text-emerald-200/90">
-        Cada faixa vai para a pasta/programação do passo 0 — sem escolher cliente no upload comum.
-      </p>
-      {!hasMatch ?
-        <p className="mt-2 text-xs text-amber-800">Faça o match (passos 2–3) antes da subida.</p>
+      {activeStep >= 3 && matchResult ?
+        <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+          <p className="text-sm font-semibold">Passo 3 — Entrega</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {deemixInProgress ?
+              `Download em andamento… ${deemixJobSnapshot?.ok ?? 0}/${deemixJobSnapshot?.totalItens ?? "?"}.`
+            : hasDeemixJob ?
+              `${deemixJobSnapshot?.ok ?? 0} baixada(s) — processamento na fila até aparecer nas pastas.`
+            : "Aguardando início da entrega no passo Match."}
+          </p>
+        </div>
       : null}
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <label className="text-xs">
-          <span className="mb-1 block font-semibold text-slate-600">Job Deemix</span>
-          <input
-            value={downloadJobId ?? ""}
-            onChange={(e) => setDownloadJobId(e.target.value.trim() || null)}
-            placeholder="ID do job (Download link → lote legadoteste)"
-            className="w-72 rounded border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-        <button
-          type="button"
-          disabled={!downloadJobId || !hasMatch}
-          onClick={onSaveSnapshot}
-          className="rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-500 dark:text-emerald-100 disabled:opacity-50"
-        >
-          Salvar snapshot no servidor
-        </button>
-        <button
-          type="button"
-          disabled={!downloadJobId || !hasMatch}
-          onClick={onGo}
-          className="rounded-lg bg-emerald-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          Multi-Upload → {approvedCount} faixa(s) · {okPastas} pasta(s)
-        </button>
-        <Link
-          href="/criacao/multi-upload-legado"
-          onClick={onPersist}
-          className="rounded-lg border border-emerald-500 px-5 py-2 text-sm font-semibold dark:border-emerald-600"
-        >
-          Abrir Multi-Upload legado →
-        </Link>
-      </div>
-      {snapshotMsg ?
-        <p className="mt-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200">{snapshotMsg}</p>
-      : null}
-      <p className="mt-2 text-[11px] text-emerald-900/80 dark:text-emerald-200/80">
-        Se fechou o portal após o download: cole o job Deemix de «legadoteste» e clique{" "}
-        <strong>Salvar snapshot</strong> antes do Multi-Upload.
-      </p>
     </div>
   );
 }
