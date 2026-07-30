@@ -44,6 +44,7 @@ import {
   writeServidorUpWorkflowDraft,
   type ServidorUpUploadTrack,
 } from "@/lib/criacao/servidorUpUploadSession";
+import { canonicalDeemixTrackUrl } from "@/lib/criacao/deezerCanonical";
 
 type DeemixJobSnapshot = {
   totalItens: number;
@@ -214,7 +215,10 @@ function matchPickedCandidate(
 }
 
 function matchDeezerUrl(row: ServidorUpMatchRow, picks: Record<string, number>): string | null {
-  return matchPickedCandidate(row, picks)?.url ?? row.deezerUrl;
+  const c = matchPickedCandidate(row, picks);
+  const raw = c?.url ?? row.deezerUrl;
+  if (!raw) return null;
+  return canonicalDeemixTrackUrl(c?.trackId ?? raw) ?? raw;
 }
 
 function matchDeemixLabel(row: ServidorUpMatchRow, picks: Record<string, number>): string {

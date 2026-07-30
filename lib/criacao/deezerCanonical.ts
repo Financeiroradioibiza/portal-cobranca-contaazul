@@ -57,3 +57,14 @@ export async function normalizeForDeemixInput(input: string): Promise<string> {
   if (canonical) return canonical.url;
   return resolved.trim();
 }
+
+/** URL track canônica para Deemix — preferir trackId quando conhecido. */
+export function canonicalDeemixTrackUrl(input: string | number): string | null {
+  if (typeof input === "number" && Number.isFinite(input) && input > 0) {
+    return `https://www.deezer.com/track/${Math.trunc(input)}`;
+  }
+  const trimmed = input.trim();
+  if (/^\d+$/.test(trimmed)) return `https://www.deezer.com/track/${trimmed}`;
+  const canonical = toCanonicalDeemixUrl(trimmed);
+  return canonical?.kind === "track" ? canonical.url : null;
+}

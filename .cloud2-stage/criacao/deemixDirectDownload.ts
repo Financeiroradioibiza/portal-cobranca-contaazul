@@ -32,6 +32,17 @@ async function getDeezerSession(arl: string): Promise<DeezerSession> {
   return dz;
 }
 
+function extractTrackId(trackUrl: string): string | null {
+  const m = trackUrl.match(/deezer\.com\/(?:[a-z]{2}\/)?track\/(\d+)/i);
+  return m?.[1] ?? null;
+}
+
+function canonicalTrackUrl(trackUrl: string): string {
+  const id = extractTrackId(trackUrl);
+  if (!id) return trackUrl.trim();
+  return `https://www.deezer.com/track/${id}`;
+}
+
 async function collectMp3Files(dir: string): Promise<string[]> {
   const out: string[] = [];
   for (const name of await fsp.readdir(dir, { withFileTypes: true })) {
@@ -62,6 +73,65 @@ function buildCanonicalMp3Name(artista: string, titulo: string): string {
   return a ? `${a} - ${t}.mp3` : `${t}.mp3`;
 }
 
+type DeemixRunResult = {
+  mp3s: string[];
+  downloadObject: { title?: string; artist?: string };
+  warnings: string[];
+};
+
+async function runDeemixOnce(
+  dz: DeezerSession,
+  trackUrl: string,
+  workDir: string,
+  bitrate: number,
+): Promise<DeemixRunResult> {
+  const warnings: string[] = [];
+  const settings = {
+    ...DEFAULTS,
+    downloadLocation: workDir,
+    maxBitrate: String(bitrate),
+    overwriteFile: 'y',
+    createArtistFolder: false,
+    createAlbumFolder: false,
+    createPlaylistFolder: false,
+    createSingleFolder: true,
+    saveArtwork: false,
+    queueConcurrency: 1,
+  };
+
+  const downloadObject = await generateDownloadObject(dz, trackUrl, bitrate);
+  downloadObject.uuid = `cloud2_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  const listener = {
+    send(event: string, payload?: { data?: { message?: string; title?: string }; state?: string }) {
+      if (event === 'downloadWarn' || event === 'errorPlaceHolder') {
+        const msg = payload?.data?.message ?? payload?.state ?? '';
+        if (msg) warnings.push(String(msg).slice(0, 200));
+      }
+    },
+  };
+
+  const dl = new Downloader(dz, downloadObject, settings, listener);
+  await dl.start();
+
+  const mp3s = await collectMp3Files(workDir);
+  return { mp3s, downloadObject, warnings };
+}
+
+async function preflightTrackReadable(dz: DeezerSession, trackId: string): Promise<void> {
+  try {
+    const track = (await dz.api.getTrack(trackId)) as { readable?: boolean; title?: string } | null;
+    if (track && track.readable === false) {
+      throw new Error(
+        `Faixa ${trackId} existe no Deezer mas não está liberada para download nesta conta (readable=false).`,
+      );
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('readable=false')) throw e;
+    // API indisponível — tenta download mesmo assim
+  }
+}
+
 /** Baixa faixa Deezer para dest (path absoluto do staging). */
 export async function downloadDeezerTrackToFile(opts: {
   trackUrl: string;
@@ -69,48 +139,56 @@ export async function downloadDeezerTrackToFile(opts: {
   destPath: string;
   bitrate?: number;
 }): Promise<DirectDeemixResult> {
-  const bitrate = opts.bitrate ?? (Number(process.env.CRIACAO_DEEMIX_BITRATE ?? '3') || 3);
-  const dz = await getDeezerSession(opts.arl);
-  const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'deemix-dl-'));
-
-  try {
-    const settings = {
-      ...DEFAULTS,
-      downloadLocation: workDir,
-      maxBitrate: String(bitrate),
-      overwriteFile: 'y',
-      createArtistFolder: false,
-      createAlbumFolder: false,
-      createPlaylistFolder: false,
-      createSingleFolder: true,
-      saveArtwork: false,
-      queueConcurrency: 1,
-    };
-
-    const downloadObject = await generateDownloadObject(dz, opts.trackUrl, bitrate);
-    downloadObject.uuid = `cloud2_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    const dl = new Downloader(dz, downloadObject, settings, null);
-    await dl.start();
-
-    const mp3s = await collectMp3Files(workDir);
-    if (mp3s.length === 0) {
-      throw new Error('Deemix concluiu sem gerar MP3 — faixa indisponível na conta Deezer?');
-    }
-
-    mp3s.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
-    await fsp.copyFile(mp3s[0]!, opts.destPath);
-
-    const apiMeta = await fetchDeezerTrackDisplayMeta(opts.trackUrl);
-    const titulo = String(downloadObject.title ?? apiMeta?.titulo ?? path.basename(mp3s[0]!, '.mp3')).trim();
-    const artista = String(apiMeta?.artista || downloadObject.artist || '').trim();
-
-    return {
-      titulo,
-      artista,
-      arquivoNome: buildCanonicalMp3Name(artista, titulo),
-    };
-  } finally {
-    await removeTree(workDir);
+  const primaryBitrate = opts.bitrate ?? (Number(process.env.CRIACAO_DEEMIX_BITRATE ?? '3') || 3);
+  const trackUrl = canonicalTrackUrl(opts.trackUrl);
+  const trackId = extractTrackId(trackUrl);
+  if (!trackId) {
+    throw new Error('URL Deezer inválida — use https://www.deezer.com/track/…');
   }
+
+  const dz = await getDeezerSession(opts.arl);
+  await preflightTrackReadable(dz, trackId);
+
+  const bitrates = [primaryBitrate];
+  if (primaryBitrate !== 1) bitrates.push(1);
+
+  const allWarnings: string[] = [];
+  let lastResult: DeemixRunResult | null = null;
+
+  for (const bitrate of bitrates) {
+    const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'deemix-dl-'));
+    try {
+      const result = await runDeemixOnce(dz, trackUrl, workDir, bitrate);
+      lastResult = result;
+      allWarnings.push(...result.warnings);
+
+      if (result.mp3s.length === 0) continue;
+
+      result.mp3s.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+      await fsp.copyFile(result.mp3s[0]!, opts.destPath);
+
+      const apiMeta = await fetchDeezerTrackDisplayMeta(trackUrl);
+      const titulo = String(
+        result.downloadObject.title ?? apiMeta?.titulo ?? path.basename(result.mp3s[0]!, '.mp3'),
+      ).trim();
+      const artista = String(apiMeta?.artista || result.downloadObject.artist || '').trim();
+
+      return {
+        titulo,
+        artista,
+        arquivoNome: buildCanonicalMp3Name(artista, titulo),
+      };
+    } finally {
+      await removeTree(workDir);
+    }
+  }
+
+  const hint =
+    allWarnings.length > 0 ?
+      allWarnings.slice(0, 2).join(' · ')
+    : 'Tente colar o link manual no Download link ou escolha outra versão no Match.';
+  const brHint = bitrates.length > 1 ? ` (tentou ${bitrates.join('k→')}kbps)` : '';
+  throw new Error(
+    `Deemix não gerou MP3 — track ${trackId}${brHint}. ${hint}`,
+  );
 }

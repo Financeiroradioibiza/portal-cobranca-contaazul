@@ -347,7 +347,7 @@ export function scoreDeezerHit(input: ParsedArtistTitle, hit: DeezerTrackHit): n
 
 function hitToCandidate(hit: DeezerTrackHit, score: number): DeezerTrackCandidate | null {
   if (!hit.id) return null;
-  const url = hit.link ?? `https://www.deezer.com/track/${hit.id}`;
+  const url = `https://www.deezer.com/track/${hit.id}`;
   const durationSec = typeof hit.duration === "number" ? hit.duration : null;
   return {
     trackId: hit.id,
