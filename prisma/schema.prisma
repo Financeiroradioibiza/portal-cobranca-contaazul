@@ -514,6 +514,8 @@ model ProducaoPdvCadastro {
   contatoLojaNome     String @default("") @map("contato_loja_nome") @db.Text
   contatoLojaEmail    String @default("") @map("contato_loja_email") @db.Text
   contatoLojaTelefone String @default("") @map("contato_loja_telefone") @db.VarChar(64)
+  /// Gerentes de loja adicionais (JSON: [{ id, nome, email, telefone }]).
+  contatosLojaExtrasJson String @default("[]") @map("contatos_loja_extras_json") @db.Text
 
   contatoCobrancaNome     String @default("") @map("contato_cobranca_nome") @db.Text
   contatoCobrancaEmail    String @default("") @map("contato_cobranca_email") @db.Text

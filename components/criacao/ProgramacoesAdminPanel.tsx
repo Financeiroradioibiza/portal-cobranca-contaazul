@@ -21,6 +21,8 @@ import { donoDisplayLabel, type ProgramacaoDono } from "@/lib/criacao/programaca
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import { rioTagCobrancaRowBgClass } from "@/lib/rio/rioTagCobranca";
+import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
 
 type Cliente = CriacaoClienteRow & { pdvCount: number; tagCobranca?: RioTagCobranca };
 
@@ -67,6 +69,7 @@ type PdvProgramacaoRow = {
   programacaoId: string | null;
   programacaoNome: string | null;
   isLinhaProxy: boolean;
+  tagCobranca: RioTagCobranca;
 };
 
 type ProgOption = { id: string; nome: string };
@@ -869,15 +872,20 @@ function PdvProgramacaoColumn({
         : pdvs.length === 0 ?
           <p className="px-2 py-6 text-sm text-slate-500">Nenhum PDV neste cliente.</p>
         : <ul className="space-y-2">
-            {pdvs.map((pdv) => (
+            {pdvs.map((pdv) => {
+              const pdvTagBg = rioTagCobrancaRowBgClass(pdv.tagCobranca);
+              return (
               <li
                 key={pdv.rioPdvKey}
-                className="rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 dark:border-slate-700 dark:bg-slate-950/40"
+                className={
+                  "rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 dark:border-slate-700 dark:bg-slate-950/40 " +
+                  (pdvTagBg ?? "")
+                }
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {pdv.nome}
+                      <RioTagCobrancaNome nome={pdv.nome} tag={pdv.tagCobranca} />
                     </div>
                     <div className="text-[10px] text-slate-400">
                       {pdv.codigoDisplay}
@@ -955,7 +963,8 @@ function PdvProgramacaoColumn({
                   })}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         }
       </div>

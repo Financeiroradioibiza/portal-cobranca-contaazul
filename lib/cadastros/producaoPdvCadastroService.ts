@@ -20,6 +20,11 @@ import {
   normalizePlayerContatoExtraCodigo,
   type PlayerContatoExtraCodigo,
 } from "@/lib/player/playerContatoExtraCodigo";
+import {
+  parseContatosLojaExtras,
+  serializeContatosLojaExtras,
+  type ContatoLojaExtra,
+} from "@/lib/cadastros/contatosLojaExtras";
 
 export type ProducaoPdvCadastroDto = {
   rioPdvKey: string;
@@ -43,6 +48,7 @@ export type ProducaoPdvCadastroDto = {
   contatoLojaNome: string;
   contatoLojaEmail: string;
   contatoLojaTelefone: string;
+  contatosLojaExtras: ContatoLojaExtra[];
   contatoCobrancaNome: string;
   contatoCobrancaEmail: string;
   contatoCobrancaTelefone: string;
@@ -159,6 +165,7 @@ function rowToDto(
     contatoLojaNome: row.contatoLojaNome,
     contatoLojaEmail: row.contatoLojaEmail,
     contatoLojaTelefone: row.contatoLojaTelefone,
+    contatosLojaExtras: parseContatosLojaExtras(row.contatosLojaExtrasJson),
     contatoCobrancaNome: row.contatoCobrancaNome,
     contatoCobrancaEmail: row.contatoCobrancaEmail,
     contatoCobrancaTelefone: row.contatoCobrancaTelefone,
@@ -345,6 +352,9 @@ export async function updatePdvCadastro(
       ...(patch.contatoLojaEmail !== undefined ? { contatoLojaEmail: patch.contatoLojaEmail } : {}),
       ...(patch.contatoLojaTelefone !== undefined ?
         { contatoLojaTelefone: patch.contatoLojaTelefone }
+      : {}),
+      ...(patch.contatosLojaExtras !== undefined ?
+        { contatosLojaExtrasJson: serializeContatosLojaExtras(patch.contatosLojaExtras) }
       : {}),
       ...(patch.contatoCobrancaNome !== undefined ?
         { contatoCobrancaNome: patch.contatoCobrancaNome }

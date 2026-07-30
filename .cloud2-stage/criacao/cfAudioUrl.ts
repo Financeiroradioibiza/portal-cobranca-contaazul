@@ -120,6 +120,12 @@ export function buildLegacyGetMusicaUrl(params: {
   return `${params.baseUrl}/api/get_musica/?token=${encodeURIComponent(params.token)}&id_musica=${params.musicaId}&playlist_id=${params.playlistId}`;
 }
 
+/** Vinhetas (normal + IA/trilha) continuam no disco cloud2 — não migradas pro B2. */
+export function isVinhetaStorageKey(storageKey: string | null | undefined): boolean {
+  const key = String(storageKey ?? '').trim();
+  return key.startsWith('vinheta:') || key.startsWith('vinheta-trilha:');
+}
+
 /** url_musica na playlist — cloud3 assinada se useCf; get_musica só com PLAYER5_ENTREGA_CF=0. */
 export function buildPlaylistUrlMusica(params: {
   baseUrl: string;
@@ -129,7 +135,7 @@ export function buildPlaylistUrlMusica(params: {
   storageKey: string | null;
   useCf: boolean;
 }): string {
-  if (!params.useCf) {
+  if (!params.useCf || isVinhetaStorageKey(params.storageKey)) {
     return buildLegacyGetMusicaUrl(params);
   }
 

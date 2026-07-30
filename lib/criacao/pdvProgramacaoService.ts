@@ -3,6 +3,7 @@ import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
 import { syncPdvProgramacaoToGateway, type SyncPdvProgramacaoResult } from "@/lib/player/pdvProgramacaoGatewaySync";
+import { effectiveRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 export type { SyncPdvProgramacaoResult };
 
@@ -14,6 +15,7 @@ export type PdvProgramacaoRow = {
   programacaoId: string | null;
   programacaoNome: string | null;
   isLinhaProxy: boolean;
+  tagCobranca: RioTagCobranca;
 };
 
 export type ClientePdvProgramacaoPayload = {
@@ -105,6 +107,7 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
   ]);
 
   const cadByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
+  const linhaTag = bucket.tagCobranca ?? "cobrando";
   const sorted = sortRioPdvsByNome(
     bucket.pdvs.map((p) => {
       const cad = cadByKey.get(p.rioPdvId);
@@ -134,6 +137,7 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
       programacaoId,
       programacaoNome,
       isLinhaProxy: !!p.isLinhaProxy,
+      tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
     };
   });
 

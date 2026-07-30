@@ -67,7 +67,18 @@ export async function PATCH(request: Request) {
     }
 
     if (action === "conciliar") {
-      const row = await conciliarPlayerCadastro(id, ctx);
+      let lojaAlvo: import("@/lib/player/playerIngestService").LojaConciliarAlvo | undefined;
+      const rawAlvo = body.lojaAlvo;
+      if (rawAlvo && typeof rawAlvo === "object" && !Array.isArray(rawAlvo)) {
+        const o = rawAlvo as Record<string, unknown>;
+        const tipo = o.tipo;
+        if (tipo === "principal" || tipo === "novo_extra") {
+          lojaAlvo = { tipo };
+        } else if (tipo === "extra" && typeof o.extraId === "string" && o.extraId.trim()) {
+          lojaAlvo = { tipo: "extra", extraId: o.extraId.trim() };
+        }
+      }
+      const row = await conciliarPlayerCadastro(id, ctx, { lojaAlvo });
       return NextResponse.json({ ok: true, row });
     }
 
@@ -81,7 +92,7 @@ export async function PATCH(request: Request) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "not_found") return NextResponse.json({ error: msg }, { status: 404 });
-    if (["tipo_invalido", "ja_conciliado", "ja_arquivado", "pdv_nao_vinculado", "payload_vazio", "rio_pdv_key_obrigatorio"].includes(msg)) {
+    if (["tipo_invalido", "ja_conciliado", "ja_arquivado", "pdv_nao_vinculado", "payload_vazio", "rio_pdv_key_obrigatorio", "contato_ja_e_principal", "contato_extra_duplicado", "contato_extra_nao_encontrado"].includes(msg)) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
     console.error("[cadastros/atualizacoes PATCH]", e);

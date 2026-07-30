@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 import type { PlayerIngestStatus, PlayerIngestTipo } from "@prisma/client";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
+import {
+  contatoLojaFingerprint,
+  findMatchingExtraIndex,
+  type ContatoLojaExtra,
+} from "@/lib/cadastros/contatosLojaExtras";
 import { loadMergedProducaoPlayerContext, type ProducaoPlayerBucket } from "@/lib/player/producaoPlayerBuckets";
 import { proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
 import { prisma } from "@/lib/prisma";
@@ -466,9 +471,76 @@ const CADASTRO_FIELD_MAP: Record<string, keyof import("@prisma/client").Producao
   contato_cobranca_telefone: "contatoCobrancaTelefone",
 };
 
+/** Como aplicar contato loja enviado pelo Player na conciliação. */
+export type LojaConciliarAlvo =
+  | { tipo: "principal" }
+  | { tipo: "novo_extra" }
+  | { tipo: "extra"; extraId: string };
+
+export async function applyLojaCadastroConciliacao(
+  rioPdvKey: string,
+  patch: Partial<Record<LojaCadastroField, string>>,
+  alvo: LojaConciliarAlvo,
+): Promise<void> {
+  const { getOrCreatePdvCadastro, updatePdvCadastro } = await import(
+    "@/lib/cadastros/producaoPdvCadastroService"
+  );
+
+  const novo: Pick<ContatoLojaExtra, "nome" | "email" | "telefone"> = {
+    nome: patch.contatoLojaNome?.trim() ?? "",
+    email: patch.contatoLojaEmail?.trim() ?? "",
+    telefone: patch.contatoLojaTelefone?.trim() ?? "",
+  };
+  if (!novo.nome && !novo.email && !novo.telefone) {
+    throw new Error("payload_vazio");
+  }
+
+  if (alvo.tipo === "principal") {
+    await updatePdvCadastro(rioPdvKey, patch);
+    return;
+  }
+
+  const cad = await getOrCreatePdvCadastro(rioPdvKey, { refreshCobranca: false });
+
+  if (alvo.tipo === "novo_extra") {
+    const extras = [...cad.contatosLojaExtras];
+    const principalFp = contatoLojaFingerprint({
+      nome: cad.contatoLojaNome,
+      email: cad.contatoLojaEmail,
+      telefone: cad.contatoLojaTelefone,
+    });
+    const novoFp = contatoLojaFingerprint(novo);
+    if (principalFp && principalFp === novoFp) {
+      throw new Error("contato_ja_e_principal");
+    }
+    if (findMatchingExtraIndex(extras, novo) >= 0) {
+      throw new Error("contato_extra_duplicado");
+    }
+    extras.push({ id: crypto.randomUUID(), ...novo });
+    await updatePdvCadastro(rioPdvKey, { contatosLojaExtras: extras });
+    return;
+  }
+
+  const idx = cad.contatosLojaExtras.findIndex((e) => e.id === alvo.extraId);
+  if (idx < 0) throw new Error("contato_extra_nao_encontrado");
+
+  const extras = cad.contatosLojaExtras.map((e, i) =>
+    i === idx ?
+      {
+        ...e,
+        ...(patch.contatoLojaNome !== undefined ? { nome: patch.contatoLojaNome } : {}),
+        ...(patch.contatoLojaEmail !== undefined ? { email: patch.contatoLojaEmail } : {}),
+        ...(patch.contatoLojaTelefone !== undefined ? { telefone: patch.contatoLojaTelefone } : {}),
+      }
+    : e,
+  );
+  await updatePdvCadastro(rioPdvKey, { contatosLojaExtras: extras });
+}
+
 export async function conciliarPlayerCadastro(
   ingestId: string,
   ctx: { email: string; displayName: string },
+  opts?: { lojaAlvo?: LojaConciliarAlvo },
 ): Promise<PlayerIngestView> {
   const ingest = await prisma.playerIngest.findUnique({ where: { id: ingestId } });
   if (!ingest) throw new Error("not_found");
@@ -496,8 +568,20 @@ export async function conciliarPlayerCadastro(
 
   if (Object.keys(patch).length === 0) throw new Error("payload_vazio");
 
-  const { updatePdvCadastro } = await import("@/lib/cadastros/producaoPdvCadastroService");
-  await updatePdvCadastro(rioPdvKey, patch);
+  if (secao === "financeiro") {
+    const { updatePdvCadastro } = await import("@/lib/cadastros/producaoPdvCadastroService");
+    await updatePdvCadastro(rioPdvKey, patch);
+  } else {
+    const lojaPatch = extractLojaCadastroFromPayload(payload);
+    const { getOrCreatePdvCadastro } = await import("@/lib/cadastros/producaoPdvCadastroService");
+    const cad = await getOrCreatePdvCadastro(rioPdvKey, { refreshCobranca: false });
+    const principalVazio =
+      !cad.contatoLojaNome.trim() && !cad.contatoLojaEmail.trim() && !cad.contatoLojaTelefone.trim();
+    const alvo: LojaConciliarAlvo =
+      opts?.lojaAlvo ??
+      (principalVazio ? { tipo: "principal" } : { tipo: "novo_extra" });
+    await applyLojaCadastroConciliacao(rioPdvKey, lojaPatch, alvo);
+  }
 
   const updated = await prisma.playerIngest.update({
     where: { id: ingestId },

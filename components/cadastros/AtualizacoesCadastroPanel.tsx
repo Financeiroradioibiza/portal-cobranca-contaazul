@@ -12,7 +12,13 @@ import {
   resolveCadastroSecao,
   type CobrancaCadastroField,
   type LojaCadastroField,
+  type LojaConciliarAlvo,
 } from "@/lib/player/playerIngestService";
+import {
+  listContatosLojaResumo,
+  type ContatoLojaExtra,
+} from "@/lib/cadastros/contatosLojaExtras";
+import type { ProducaoPdvCadastroDto } from "@/lib/cadastros/producaoPdvCadastroService";
 
 type IngestRow = {
   id: string;
@@ -30,7 +36,12 @@ type IngestRow = {
   createdAt: string;
 };
 
-type ProducaoDto = Record<string, unknown>;
+type ProducaoDto = ProducaoPdvCadastroDto;
+
+function producaoContatosLoja(producao: ProducaoDto | null): ContatoLojaExtra[] {
+  if (!producao) return [];
+  return Array.isArray(producao.contatosLojaExtras) ? producao.contatosLojaExtras : [];
+}
 
 function producaoLojaValue(producao: ProducaoDto | null, field: LojaCadastroField): string {
   const v = producao?.[field];
@@ -49,16 +60,21 @@ function mapConciliarError(data: unknown): string {
     : undefined;
   if (err === "pdv_nao_vinculado") return "Não foi possível localizar o PDV de produção.";
   if (err === "payload_vazio") return "O envio do player não contém dados para esta seção.";
-  if (err === "server_error") return "Erro no servidor ao conciliar. Tente de novo em instantes.";
+  if (err === "contato_ja_e_principal") return "Este contato já é o gerente principal.";
+  if (err === "contato_extra_duplicado") return "Este contato extra já existe no cadastro.";
+  if (err === "contato_extra_nao_encontrado") return "Contato extra selecionado não encontrado.";
   if (typeof err === "string" && err.trim()) return err;
   return "conciliar_failed";
 }
 
-async function conciliarIngest(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+async function conciliarIngest(
+  id: string,
+  lojaAlvo?: LojaConciliarAlvo,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const res = await fetch("/api/cadastros/atualizacoes", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, action: "conciliar" }),
+    body: JSON.stringify({ id, action: "conciliar", ...(lojaAlvo ? { lojaAlvo } : {}) }),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) return { ok: false, error: mapConciliarError(data) };
@@ -84,6 +100,7 @@ export function AtualizacoesCadastroPanel() {
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [msgKind, setMsgKind] = useState<"ok" | "err">("ok");
+  const [lojaAlvo, setLojaAlvo] = useState<LojaConciliarAlvo>({ tipo: "novo_extra" });
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -141,11 +158,26 @@ export function AtualizacoesCadastroPanel() {
     if (selectedId) void loadDetail(selectedId);
   }, [selectedId, loadDetail]);
 
+  useEffect(() => {
+    if (!producao || !selected || resolveCadastroSecao(selected.payload) !== "loja") return;
+    const principalVazio =
+      !producao.contatoLojaNome.trim() &&
+      !producao.contatoLojaEmail.trim() &&
+      !producao.contatoLojaTelefone.trim();
+    setLojaAlvo(principalVazio ? { tipo: "principal" } : { tipo: "novo_extra" });
+  }, [producao, selected]);
+
   async function vincularPdv() {
     if (!selectedId) return;
     if (
       !window.confirm(
-        "Aplicar os contatos da loja enviados pelo player ao cadastro de produção?\n\nSó nome, WhatsApp e e-mail da loja serão alterados.",
+        selectedSecao === "financeiro" ?
+          "Aplicar os contatos de cobrança enviados pelo player ao cadastro de produção?"
+        : lojaAlvo.tipo === "principal" ?
+          "Atualizar o gerente principal da loja com os dados enviados pelo player?"
+        : lojaAlvo.tipo === "novo_extra" ?
+          "Adicionar os dados enviados como novo contato extra de loja (sem substituir o principal)?"
+        : "Atualizar o contato extra selecionado com os dados enviados pelo player?",
       )
     ) {
       return;
@@ -153,10 +185,21 @@ export function AtualizacoesCadastroPanel() {
     setBusy(true);
     setMsg(null);
     try {
-      const result = await conciliarIngest(selectedId);
+      const result = await conciliarIngest(
+        selectedId,
+        selectedSecao === "loja" ? lojaAlvo : undefined,
+      );
       if (!result.ok) throw new Error(result.error);
       setMsgKind("ok");
-      setMsg("Cadastro vinculado e contatos da loja atualizados.");
+      setMsg(
+        selectedSecao === "financeiro" ?
+          "Cadastro vinculado e contatos de cobrança atualizados."
+        : lojaAlvo.tipo === "principal" ?
+          "Gerente principal da loja atualizado."
+        : lojaAlvo.tipo === "novo_extra" ?
+          "Contato extra de loja adicionado."
+        : "Contato extra de loja atualizado.",
+      );
       await loadList();
     } catch (e) {
       setMsgKind("err");
@@ -171,7 +214,7 @@ export function AtualizacoesCadastroPanel() {
     if (ids.length === 0) return;
     if (
       !window.confirm(
-        `Vincular ${ids.length} atualização(ões) uma por uma?\n\nSó nome, WhatsApp e e-mail da loja serão alterados em cada PDV.`,
+        `Vincular ${ids.length} atualização(ões) uma por uma?\n\nLoja: adiciona como contato extra quando já existe gerente principal; senão preenche o principal. Financeiro: atualiza cobrança.`,
       )
     ) {
       return;
@@ -195,7 +238,11 @@ export function AtualizacoesCadastroPanel() {
       setBulkProgress({ index: i + 1, total: ids.length, label, ok, failed });
       setSelectedId(id);
 
-      const result = await conciliarIngest(id);
+      const secaoRow = row ? resolveCadastroSecao(row.payload) : "loja";
+      const result = await conciliarIngest(
+        id,
+        secaoRow === "loja" ? undefined : undefined,
+      );
       if (result.ok) {
         ok += 1;
       } else {
@@ -280,6 +327,17 @@ export function AtualizacoesCadastroPanel() {
     : lojaPayloadEntries(selected.payload)
   : [];
   const cadastroEncontrado = Boolean(producao && suggestedRioPdvKey);
+  const contatosLojaAtuais =
+    producao && selectedSecao === "loja" ?
+      listContatosLojaResumo(
+        {
+          nome: producao.contatoLojaNome,
+          email: producao.contatoLojaEmail,
+          telefone: producao.contatoLojaTelefone,
+        },
+        producaoContatosLoja(producao),
+      )
+    : [];
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -452,6 +510,56 @@ export function AtualizacoesCadastroPanel() {
               </section>
 
               <div className="flex flex-col items-center justify-center gap-2 px-1">
+                {selectedSecao === "loja" && cadastroEncontrado && enviado.length > 0 ?
+                  <div className="w-full max-w-[220px] rounded-lg border border-slate-200 bg-white p-2 text-left dark:border-slate-700 dark:bg-slate-900">
+                    <p className="text-[10px] font-bold uppercase text-slate-500">Aplicar envio como</p>
+                    <div className="mt-2 space-y-1.5">
+                      <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-700 dark:text-slate-200">
+                        <input
+                          type="radio"
+                          name="lojaAlvo"
+                          className="mt-0.5"
+                          checked={lojaAlvo.tipo === "principal"}
+                          disabled={busy}
+                          onChange={() => setLojaAlvo({ tipo: "principal" })}
+                        />
+                        <span>Atualizar gerente principal</span>
+                      </label>
+                      <label className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-700 dark:text-slate-200">
+                        <input
+                          type="radio"
+                          name="lojaAlvo"
+                          className="mt-0.5"
+                          checked={lojaAlvo.tipo === "novo_extra"}
+                          disabled={busy}
+                          onChange={() => setLojaAlvo({ tipo: "novo_extra" })}
+                        />
+                        <span>Adicionar contato extra</span>
+                      </label>
+                      {contatosLojaAtuais
+                        .filter((c) => c.kind === "extra")
+                        .map((c) => (
+                          <label
+                            key={c.id}
+                            className="flex cursor-pointer items-start gap-2 text-[11px] text-slate-700 dark:text-slate-200"
+                          >
+                            <input
+                              type="radio"
+                              name="lojaAlvo"
+                              className="mt-0.5"
+                              checked={lojaAlvo.tipo === "extra" && lojaAlvo.extraId === c.id}
+                              disabled={busy}
+                              onChange={() => setLojaAlvo({ tipo: "extra", extraId: c.id })}
+                            />
+                            <span>
+                              Atualizar {c.label}
+                              <span className="block text-[10px] text-slate-400">{c.nome || "—"}</span>
+                            </span>
+                          </label>
+                        ))}
+                    </div>
+                  </div>
+                : null}
                 <button
                   type="button"
                   disabled={busy || !cadastroEncontrado || enviado.length === 0}
@@ -487,28 +595,35 @@ export function AtualizacoesCadastroPanel() {
                   <p className="mt-3 text-sm text-slate-500">
                     Não foi possível localizar o cadastro de produção para este cliente/PDV.
                   </p>
+                : selectedSecao === "loja" ?
+                  <div className="mt-3 space-y-4 text-sm">
+                    {contatosLojaAtuais.length === 0 ?
+                      <p className="text-slate-400">Nenhum contato de loja cadastrado.</p>
+                    : (
+                      contatosLojaAtuais.map((c) => (
+                        <div key={c.id} className="rounded-lg border border-slate-100 p-2 dark:border-slate-800">
+                          <p className="text-[10px] font-bold uppercase text-slate-400">{c.label}</p>
+                          <p className="font-medium text-slate-800 dark:text-slate-100">{c.nome || "—"}</p>
+                          <p className="text-xs text-slate-500">{c.telefone || "—"}</p>
+                          <p className="text-xs text-slate-500">{c.email || "—"}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 : (
                   <dl className="mt-3 space-y-3 text-sm">
-                    {(selectedSecao === "financeiro" ? COBRANCA_CADASTRO_FIELDS : LOJA_CADASTRO_FIELDS).map(
-                      (field) => {
-                        const value =
-                          selectedSecao === "financeiro" ?
-                            producaoFinanceiroValue(producao, field as CobrancaCadastroField)
-                          : producaoLojaValue(producao, field as LojaCadastroField);
-                        const label =
-                          selectedSecao === "financeiro" ?
-                            COBRANCA_FIELD_LABELS[field as CobrancaCadastroField]
-                          : LOJA_FIELD_LABELS[field as LojaCadastroField];
-                        return (
-                          <div key={field}>
-                            <dt className="text-[10px] font-bold uppercase text-slate-400">{label}</dt>
-                            <dd className={value ? "text-slate-800 dark:text-slate-100" : "text-slate-400"}>
-                              {value || "—"}
-                            </dd>
-                          </div>
-                        );
-                      },
-                    )}
+                    {COBRANCA_CADASTRO_FIELDS.map((field) => {
+                      const value = producaoFinanceiroValue(producao, field);
+                      const label = COBRANCA_FIELD_LABELS[field];
+                      return (
+                        <div key={field}>
+                          <dt className="text-[10px] font-bold uppercase text-slate-400">{label}</dt>
+                          <dd className={value ? "text-slate-800 dark:text-slate-100" : "text-slate-400"}>
+                            {value || "—"}
+                          </dd>
+                        </div>
+                      );
+                    })}
                   </dl>
                 )}
               </section>

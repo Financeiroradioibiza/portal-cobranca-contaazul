@@ -370,7 +370,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
               operacionais vêm do Suporte.
             </p>
 
-            <p className="text-[10px] font-bold uppercase text-slate-400">Contato loja</p>
+            <p className="text-[10px] font-bold uppercase text-slate-400">Contato loja (gerente principal)</p>
             <Field label="Nome">
               <input
                 className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
@@ -397,6 +397,103 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
                 />
               </Field>
             </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-bold uppercase text-slate-400">Contatos extras de loja</p>
+              {editMode ?
+                <button
+                  type="button"
+                  disabled={disabled}
+                  className="rounded border border-slate-300 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-white dark:border-slate-600 dark:text-slate-300"
+                  onClick={() =>
+                    setForm({
+                      ...form,
+                      contatosLojaExtras: [
+                        ...form.contatosLojaExtras,
+                        { id: crypto.randomUUID(), nome: "", email: "", telefone: "" },
+                      ],
+                    })
+                  }
+                >
+                  + Contato extra
+                </button>
+              : null}
+            </div>
+            {form.contatosLojaExtras.length === 0 ?
+              <p className="text-[11px] text-slate-500">Nenhum contato extra.</p>
+            : (
+              form.contatosLojaExtras.map((extra, idx) => (
+                <div
+                  key={extra.id}
+                  className="space-y-2 rounded-lg border border-slate-200 p-2 dark:border-slate-700"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold uppercase text-slate-400">
+                      Extra {idx + 1}
+                    </span>
+                    {editMode ?
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        className="text-[10px] font-semibold text-rose-600 hover:underline"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            contatosLojaExtras: form.contatosLojaExtras.filter((e) => e.id !== extra.id),
+                          })
+                        }
+                      >
+                        Remover
+                      </button>
+                    : null}
+                  </div>
+                  <Field label="Nome">
+                    <input
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+                      value={extra.nome}
+                      disabled={disabled}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const next = form.contatosLojaExtras.map((c) =>
+                          c.id === extra.id ? { ...c, nome: val } : c,
+                        );
+                        setForm({ ...form, contatosLojaExtras: next });
+                      }}
+                    />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="E-mail">
+                      <input
+                        className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+                        value={extra.email}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const next = form.contatosLojaExtras.map((c) =>
+                            c.id === extra.id ? { ...c, email: val } : c,
+                          );
+                          setForm({ ...form, contatosLojaExtras: next });
+                        }}
+                      />
+                    </Field>
+                    <Field label="Telefone">
+                      <input
+                        className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+                        value={extra.telefone}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const next = form.contatosLojaExtras.map((c) =>
+                            c.id === extra.id ? { ...c, telefone: val } : c,
+                          );
+                          setForm({ ...form, contatosLojaExtras: next });
+                        }}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))
+            )}
 
             <p className="text-[10px] font-bold uppercase text-slate-400">
               Contato cobrança {form.cobrancaFromCa ? "(Conta Azul — CCF + outros contatos)" : ""}

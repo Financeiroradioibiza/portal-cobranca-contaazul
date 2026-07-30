@@ -1,4 +1,8 @@
 import {
+  contatoViewToExtra,
+  findMatchingExtraIndex,
+} from "@/lib/cadastros/contatosLojaExtras";
+import {
   getOrCreatePdvCadastro,
   updatePdvCadastro,
   type ProducaoPdvCadastroDto,
@@ -119,6 +123,7 @@ function listImportedFields(
   for (const [k, v] of Object.entries(patch)) {
     if (typeof v === "boolean") fields.push(k);
     else if (typeof v === "string" && v.trim()) fields.push(k);
+    else if (k === "contatosLojaExtras" && Array.isArray(v) && v.length) fields.push(k);
   }
   return fields;
 }
@@ -152,6 +157,30 @@ export async function importProducaoCadastroFromPainel(
   const refreshCobranca = opts?.refreshCobranca !== false && !opts?.csvOnly;
   await getOrCreatePdvCadastro(rioCompPdvId, { refreshCobranca });
   await updatePdvCadastro(rioCompPdvId, patch);
+
+  if (live?.contatosExtras?.length) {
+    const cad = await getOrCreatePdvCadastro(rioCompPdvId, { refreshCobranca: false });
+    const extras = [...cad.contatosLojaExtras];
+    for (const c of live.contatosExtras) {
+      const extra = contatoViewToExtra(c);
+      if (!extra) continue;
+      const principalFp = [
+        cad.contatoLojaNome,
+        cad.contatoLojaEmail,
+        cad.contatoLojaTelefone,
+      ]
+        .map((s) => s.trim().toLowerCase())
+        .join("|");
+      if (principalFp && principalFp === [extra.nome, extra.email, extra.telefone].map((s) => s.toLowerCase()).join("|")) {
+        continue;
+      }
+      if (findMatchingExtraIndex(extras, extra) >= 0) continue;
+      extras.push(extra);
+    }
+    if (extras.length !== cad.contatosLojaExtras.length) {
+      await updatePdvCadastro(rioCompPdvId, { contatosLojaExtras: extras });
+    }
+  }
 
   const source: PainelCadastroImportResult["source"] =
     live && csv ? "mixed"
