@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
-from scanner import ffprobe_available, list_mp3_paths, scan_inventory
+from scanner import ffprobe_available, fpcalc_available, list_mp3_paths, scan_fingerprints, scan_inventory
 
 PORT = 8766
 VERSION = "1.0.0"
@@ -156,8 +156,9 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "version": VERSION,
-                    "capabilities": ["scan", "ffprobe", "inventory", "paths", "audio"],
+                    "capabilities": ["scan", "ffprobe", "inventory", "paths", "audio", "fingerprints"],
                     "ffprobe": ffprobe_available(),
+                    "fpcalc": fpcalc_available(),
                     "rootPath": root,
                     "stagingDir": str(STAGING_DIR),
                 },
@@ -230,6 +231,21 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 root = resolve_root(body)
                 payload = scan_inventory(root)
+                self._json(200, {"ok": True, **payload})
+            except ValueError as e:
+                self._json(400, {"error": str(e)})
+            except Exception as e:
+                self._json(500, {"error": str(e)[:400]})
+            return
+
+        if self.path == "/scan/fingerprints":
+            body = self._read_json()
+            try:
+                root = resolve_root(body)
+                paths = body.get("relativePaths") or body.get("paths") or []
+                if not isinstance(paths, list):
+                    paths = []
+                payload = scan_fingerprints(root, [str(p) for p in paths][:80])
                 self._json(200, {"ok": True, **payload})
             except ValueError as e:
                 self._json(400, {"error": str(e)})

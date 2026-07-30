@@ -8,6 +8,7 @@ export type LocalServidorUpHealth = {
   version?: string;
   capabilities?: string[];
   ffprobe?: boolean;
+  fpcalc?: boolean;
   rootPath?: string;
 };
 
@@ -22,6 +23,15 @@ export type LocalServidorUpTrack = {
   durationSec: number | null;
   bitrateKbps?: number | null;
   sizeBytes?: number;
+  contentHash?: string | null;
+  chromaprint?: string | null;
+};
+
+export type LocalServidorUpFingerprintRow = {
+  relativePath: string;
+  contentHash: string | null;
+  chromaprint: string | null;
+  error?: string;
 };
 
 export type LocalServidorUpInventory = {
@@ -88,6 +98,25 @@ export async function scanLocalServidorUpInventory(rootPath?: string): Promise<L
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(rootPath ? { rootPath } : {}),
   });
+}
+
+export async function scanLocalServidorUpFingerprints(
+  relativePaths: string[],
+  rootPath?: string,
+): Promise<{ rows: LocalServidorUpFingerprintRow[]; stats: { total: number; fpcalc?: boolean } }> {
+  const data = await localFetch<{
+    rows: LocalServidorUpFingerprintRow[];
+    stats: { total: number; fpcalc?: boolean };
+  }>("/scan/fingerprints", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      rootPath: rootPath?.trim() || undefined,
+      relativePaths: relativePaths.slice(0, 80),
+    }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  return { rows: data.rows ?? [], stats: data.stats ?? { total: 0 } };
 }
 
 /** URL tocável do MP3 legado no agente local (Servidor UP). */

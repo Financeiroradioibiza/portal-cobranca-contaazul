@@ -14,6 +14,7 @@ import {
   LOCAL_SERVIDOR_UP_BASE,
   pingLocalServidorUp,
   scanLocalServidorUpInventory,
+  scanLocalServidorUpFingerprints,
   scanLocalServidorUpPaths,
   setLocalServidorUpConfig,
   type LocalServidorUpTrack,
@@ -24,6 +25,10 @@ import {
   type ServidorUpHierarchyRow,
   type ServidorUpHierarchyStatus,
 } from "@/lib/criacao/servidorUpHierarchyService";
+import type {
+  ServidorUpDedupeRow,
+  ServidorUpDedupeStatus,
+} from "@/lib/criacao/servidorUpDedupeService";
 import type {
   ServidorUpMatchBatchResult,
   ServidorUpMatchCandidate,
@@ -121,9 +126,21 @@ const MATCH_TONE: Record<ServidorUpMatchVerdict, string> = {
   skipped: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
 };
 
+const DEDUPE_LABEL: Record<ServidorUpDedupeStatus, string> = {
+  in_biblioteca: "Já na biblioteca",
+  suggest_metadata: "Possível duplicata",
+  needs_deezer: "Precisa Deezer",
+};
+
+const DEDUPE_TONE: Record<ServidorUpDedupeStatus, string> = {
+  in_biblioteca: "bg-teal-100 text-teal-900 dark:bg-teal-950 dark:text-teal-200",
+  suggest_metadata: "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-200",
+  needs_deezer: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+};
+
 const STEPS = [
   { n: 0, title: "Hierarquia", desc: "Pastas legado × portal" },
-  { n: 1, title: "Inventário", desc: "Scan + ffprobe" },
+  { n: 1, title: "Inventário", desc: "Scan + dedupe" },
   { n: 2, title: "Match Deezer", desc: "Duração legado × Deezer" },
   { n: 3, title: "Revisão", desc: "Ambíguos" },
   { n: 4, title: "Deemix", desc: "Download 320k" },
@@ -182,9 +199,12 @@ function matchDeemixLabel(row: ServidorUpMatchRow, picks: Record<string, number>
 
 export function ServidorUpPanel() {
   const router = useRouter();
-  const [localHealth, setLocalHealth] = useState<{ ok: boolean; version?: string; ffprobe?: boolean } | null>(
-    null,
-  );
+  const [localHealth, setLocalHealth] = useState<{
+    ok: boolean;
+    version?: string;
+    ffprobe?: boolean;
+    fpcalc?: boolean;
+  } | null>(null);
   const [rootPath, setRootPath] = useState("");
   const [activeStep, setActiveStep] = useState(0);
   const [scanning, setScanning] = useState(false);
@@ -193,6 +213,12 @@ export function ServidorUpPanel() {
   const [matchResult, setMatchResult] = useState<ServidorUpMatchBatchResult | null>(null);
   const [matchPicks, setMatchPicks] = useState<Record<string, number>>({});
   const [skippedTracks, setSkippedTracks] = useState<Set<string>>(() => new Set());
+  const [dedupeMap, setDedupeMap] = useState<Map<string, ServidorUpDedupeRow>>(() => new Map());
+  const [dedupeStats, setDedupeStats] = useState<{
+    inBiblioteca: number;
+    suggestMetadata: number;
+    needsDeezer: number;
+  } | null>(null);
   const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
   const [deemixJobSnapshot, setDeemixJobSnapshot] = useState<DeemixJobSnapshot | null>(null);
   const [snapshotMsg, setSnapshotMsg] = useState("");
@@ -207,7 +233,7 @@ export function ServidorUpPanel() {
 
   const checkLocal = useCallback(async () => {
     const h = await pingLocalServidorUp();
-    setLocalHealth(h ? { ok: true, version: h.version, ffprobe: h.ffprobe } : { ok: false });
+    setLocalHealth(h ? { ok: true, version: h.version, ffprobe: h.ffprobe, fpcalc: h.fpcalc } : { ok: false });
     if (h?.rootPath) setRootPath((prev) => prev || h.rootPath || "");
   }, []);
 
@@ -433,6 +459,144 @@ export function ServidorUpPanel() {
     }
   }
 
+  async function runDedupeCheck(tracks: LocalServidorUpTrack[]) {
+    if (tracks.length === 0) {
+      setDedupeMap(new Map());
+      setDedupeStats(null);
+      return null;
+    }
+    const CHUNK = 120;
+    const merged = new Map<string, ServidorUpDedupeRow>();
+    const stats = { inBiblioteca: 0, suggestMetadata: 0, needsDeezer: 0 };
+    for (let i = 0; i < tracks.length; i += CHUNK) {
+      const chunk = tracks.slice(i, i + CHUNK);
+      const res = await fetch("/api/criacao/servidor-up/dedupe-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tracks: chunk.map((t) => ({
+            relativePath: t.relativePath,
+            artista: t.artista,
+            titulo: t.titulo,
+            durationSec: t.durationSec,
+            contentHash: t.contentHash ?? null,
+            chromaprint: t.chromaprint ?? null,
+          })),
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        rows?: ServidorUpDedupeRow[];
+        stats?: typeof stats;
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !data.rows) {
+        throw new Error(data.error ?? "Falha no dedupe-check.");
+      }
+      for (const row of data.rows) merged.set(row.relativePath, row);
+      if (data.stats) {
+        stats.inBiblioteca += data.stats.inBiblioteca;
+        stats.suggestMetadata += data.stats.suggestMetadata;
+        stats.needsDeezer += data.stats.needsDeezer;
+      }
+    }
+    setDedupeMap(merged);
+    setDedupeStats(stats);
+    return stats;
+  }
+
+  function hierarchyForTrack(track: LocalServidorUpTrack): ServidorUpHierarchyRow | undefined {
+    if (!preview) return undefined;
+    return preview.rows.find(
+      (r) =>
+        r.clienteNome === track.clienteNome &&
+        r.programacaoNome === track.programacaoNome &&
+        r.pastaNome === track.pastaNome,
+    );
+  }
+
+  function uploadTagForTrack(track: LocalServidorUpTrack): string {
+    const row = hierarchyForTrack(track);
+    if (!row) return track.pastaNome;
+    const draft = drafts[row.key];
+    return (draft?.uploadTag ?? "").trim() || row.suggestedUploadTag || track.pastaNome;
+  }
+
+  async function rodarFingerprints() {
+    setErr("");
+    if (inventory.length === 0) return;
+    try {
+      const CHUNK = 40;
+      const next = [...inventory];
+      for (let i = 0; i < next.length; i += CHUNK) {
+        const end = Math.min(i + CHUNK, next.length);
+        setBusy(`Fingerprints… ${end}/${next.length}`);
+        const paths = next.slice(i, end).map((t) => t.relativePath);
+        const fp = await scanLocalServidorUpFingerprints(paths, rootPath.trim() || undefined);
+        for (const row of fp.rows) {
+          const idx = next.findIndex((t) => t.relativePath === row.relativePath);
+          if (idx < 0) continue;
+          next[idx] = {
+            ...next[idx]!,
+            contentHash: row.contentHash ?? next[idx]!.contentHash,
+            chromaprint: row.chromaprint ?? next[idx]!.chromaprint,
+          };
+        }
+      }
+      setInventory(next);
+      await runDedupeCheck(next);
+      setMsg(
+        `Fingerprints: ${next.filter((t) => t.contentHash).length} hash · ` +
+          `${next.filter((t) => t.chromaprint).length} chromaprint.`,
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Falha nos fingerprints.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function assignInBibliotecaTracks(paths: string[]) {
+    setErr("");
+    if (paths.length === 0) return;
+    try {
+      const items = paths
+        .map((relativePath) => {
+          const dedupe = dedupeMap.get(relativePath);
+          const track = inventory.find((t) => t.relativePath === relativePath);
+          const hier = track ? hierarchyForTrack(track) : undefined;
+          if (!dedupe?.musicaId || !hier?.pastaId || !track) return null;
+          return {
+            relativePath,
+            musicaId: dedupe.musicaId,
+            pastaId: hier.pastaId,
+            pastaNome: track.pastaNome,
+            uploadTagNome: uploadTagForTrack(track),
+          };
+        })
+        .filter(Boolean);
+      if (items.length === 0) throw new Error("Nenhuma faixa válida para atribuir.");
+      setBusy(`Atribuindo ${items.length} faixa(s)…`);
+      const res = await fetch("/api/criacao/servidor-up/assign-biblioteca", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        assigned?: number;
+        skipped?: number;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Falha ao atribuir.");
+      setMsg(`Atribuídas à pasta: ${data.assigned ?? 0} faixa(s) (sem download).`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Falha ao atribuir.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function rodarInventario() {
     setErr("");
     setBusy("Inventário…");
@@ -440,7 +604,14 @@ export function ServidorUpPanel() {
       if (!localHealth?.ok) throw new Error("Servidor UP offline.");
       const inv = await scanLocalServidorUpInventory(rootPath.trim() || undefined);
       setInventory(inv.tracks);
-      setMsg(`Inventário: ${inv.tracks.length} faixa(s) · ffprobe ${inv.stats.ffprobe ? "OK" : "indisponível"}.`);
+      setBusy("Dedupe biblioteca…");
+      const ds = await runDedupeCheck(inv.tracks);
+      setMsg(
+        `Inventário: ${inv.tracks.length} faixa(s) · ffprobe ${inv.stats.ffprobe ? "OK" : "indisponível"}` +
+          (ds ?
+            ` · ${ds.inBiblioteca} já na biblioteca · ${ds.suggestMetadata} possível duplicata`
+          : ""),
+      );
       setActiveStep(1);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha no inventário.");
@@ -457,6 +628,8 @@ export function ServidorUpPanel() {
     try {
       if (inventory.length === 0) throw new Error("Rode o inventário primeiro.");
 
+      const toMatch = inventory.filter((t) => dedupeMap.get(t.relativePath)?.status !== "in_biblioteca");
+
       const CHUNK = 5;
       const mergedRows: ServidorUpMatchRow[] = [];
       const mergedStats = {
@@ -469,10 +642,10 @@ export function ServidorUpPanel() {
         apiErrors: 0,
       };
 
-      for (let i = 0; i < inventory.length; i += CHUNK) {
-        const end = Math.min(i + CHUNK, inventory.length);
-        setBusy(`Match Deezer… ${end}/${inventory.length}`);
-        const chunk = inventory.slice(i, end);
+      for (let i = 0; i < toMatch.length; i += CHUNK) {
+        const end = Math.min(i + CHUNK, toMatch.length);
+        setBusy(`Match Deezer… ${end}/${toMatch.length}`);
+        const chunk = toMatch.slice(i, end);
         const res = await fetch("/api/criacao/servidor-up/match-inventory", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -488,7 +661,7 @@ export function ServidorUpPanel() {
         mergedStats.notFound += data.stats.notFound;
         mergedStats.rejected += data.stats.rejected;
         mergedStats.apiErrors += data.stats.apiErrors ?? 0;
-        if (end < inventory.length) {
+        if (end < toMatch.length) {
           await new Promise((r) => setTimeout(r, 600));
         }
       }
@@ -520,6 +693,7 @@ export function ServidorUpPanel() {
     if (!matchResult) return [];
     const tracks: ServidorUpUploadTrack[] = [];
     for (const row of matchResult.rows) {
+      if (dedupeMap.get(row.relativePath)?.status === "in_biblioteca") continue;
       if (!matchApproved(row, matchPicks, skippedTracks)) continue;
       const url = matchDeezerUrl(row, matchPicks);
       if (!url) continue;
@@ -748,6 +922,7 @@ export function ServidorUpPanel() {
 
       const lines: string[] = [];
       for (const row of matchResult.rows) {
+        if (dedupeMap.get(row.relativePath)?.status === "in_biblioteca") continue;
         if (!matchApproved(row, matchPicks, skippedTracks)) continue;
         const url = matchDeezerUrl(row, matchPicks);
         if (url) lines.push(url);
@@ -831,6 +1006,9 @@ export function ServidorUpPanel() {
     ) ?? [];
   const approvedCount =
     matchResult?.rows.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length ?? 0;
+  const inBibliotecaTracks = inventory.filter(
+    (t) => dedupeMap.get(t.relativePath)?.status === "in_biblioteca",
+  );
 
   const deemixPending =
     deemixJobSnapshot != null ?
@@ -1096,6 +1274,9 @@ export function ServidorUpPanel() {
             {inventory.length > 0 ?
               `${inventory.length} faixa(s) lidas do disco.`
             : "Ainda não escaneado."}
+            {dedupeStats ?
+              ` · ${dedupeStats.inBiblioteca} já na biblioteca · ${dedupeStats.suggestMetadata} possível duplicata · ${dedupeStats.needsDeezer} precisa Deezer`
+            : ""}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -1107,16 +1288,47 @@ export function ServidorUpPanel() {
               {inventory.length ? "Re-escanear" : "Escanear MP3 + duração"}
             </button>
             {inventory.length > 0 ?
+              <>
+                <button
+                  type="button"
+                  disabled={!!busy || !localHealth?.ok}
+                  onClick={() => void rodarFingerprints()}
+                  className="rounded-lg border border-teal-700 px-4 py-2 text-sm font-semibold text-teal-900 disabled:opacity-50 dark:border-teal-600 dark:text-teal-200"
+                  title={localHealth?.fpcalc ? "Hash SHA256 + Chromaprint (fpcalc)" : "Instale fpcalc/chromaprint no Mac"}
+                >
+                  Fingerprints (hash + chromaprint)
+                </button>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => void rodarMatch()}
+                  className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Continuar → Match Deezer
+                </button>
+              </>
+            : null}
+          </div>
+          {inBibliotecaTracks.length > 0 ?
+            <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50/80 p-3 dark:border-teal-900 dark:bg-teal-950/40">
+              <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">
+                {inBibliotecaTracks.length} faixa(s) já na biblioteca — sem Deemix
+              </p>
+              <p className="mt-1 text-xs text-teal-800 dark:text-teal-300">
+                Atribui direto à pasta (assign-only). A fila de processamento continua deduplicando depois, se entrar por outro caminho.
+              </p>
               <button
                 type="button"
                 disabled={!!busy}
-                onClick={() => void rodarMatch()}
-                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                onClick={() =>
+                  void assignInBibliotecaTracks(inBibliotecaTracks.map((t) => t.relativePath))
+                }
+                className="mt-2 rounded-lg bg-teal-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                Continuar → Match Deezer
+                Atribuir todas à pasta
               </button>
-            : null}
-          </div>
+            </div>
+          : null}
         </div>
       : null}
 
@@ -1127,6 +1339,9 @@ export function ServidorUpPanel() {
             <p className="mt-1 text-xs text-slate-500">
               Aprovadas para download: {approvedCount} / {matchResult.rows.length}
               {skippedTracks.size > 0 ? ` · ${skippedTracks.size} pulada(s)` : ""}
+              {inBibliotecaTracks.length > 0 ?
+                ` · ${inBibliotecaTracks.length} já na biblioteca (fora do Deemix)`
+              : ""}
             </p>
             <p className="mt-1 text-xs text-slate-400">
               Na dúvida: use <strong>Check</strong> para comparar legado × Deemix (waveforms) — só quando
@@ -1140,6 +1355,7 @@ export function ServidorUpPanel() {
                 <tr>
                   <th className="px-3 py-2">Faixa legado</th>
                   <th className="px-3 py-2">Dur.</th>
+                  <th className="px-3 py-2">Biblioteca</th>
                   <th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Deezer</th>
                   <th className="px-3 py-2">Ações</th>
@@ -1170,6 +1386,28 @@ export function ServidorUpPanel() {
                       <div className="text-[10px] text-slate-500">{row.relativePath}</div>
                     </td>
                     <td className="px-3 py-2 tabular-nums">{formatDuration(row.legacyDurationSec)}</td>
+                    <td className="px-3 py-2">
+                      {(() => {
+                        const dedupe = dedupeMap.get(row.relativePath);
+                        if (!dedupe || dedupe.status === "needs_deezer") {
+                          return <span className="text-[11px] text-slate-400">Precisa Deezer</span>;
+                        }
+                        return (
+                          <div>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${DEDUPE_TONE[dedupe.status]}`}
+                            >
+                              {DEDUPE_LABEL[dedupe.status]}
+                            </span>
+                            {dedupe.musicaArtista && dedupe.musicaTitulo ?
+                              <div className="mt-0.5 text-[10px] text-slate-500">
+                                {dedupe.musicaArtista} — {dedupe.musicaTitulo}
+                              </div>
+                            : null}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="px-3 py-2">
                       <span
                         className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${MATCH_TONE[isSkipped ? "skipped" : row.verdict]}`}

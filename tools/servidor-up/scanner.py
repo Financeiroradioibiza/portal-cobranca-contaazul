@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -210,3 +211,72 @@ def list_mp3_paths(root: Path, *, max_files: int = 50_000) -> dict[str, Any]:
             continue
         files.append({"path": rel})
     return {"rootPath": str(root), "files": files, "stats": {"total": len(files), "skipped": skipped}}
+
+
+def fpcalc_available() -> bool:
+    try:
+        subprocess.run(["fpcalc", "-version"], check=False, capture_output=True, timeout=5)
+        return True
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def sha256_file(path: Path) -> str | None:
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 256), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def try_chromaprint(path: Path, *, length_sec: int = 120) -> str | None:
+    try:
+        proc = subprocess.run(
+            ["fpcalc", "-json", "-length", str(length_sec), str(path)],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        if proc.returncode != 0:
+            return None
+        data = json.loads(proc.stdout or "{}")
+        fp = str(data.get("fingerprint") or "").strip()
+        return fp if len(fp) > 20 else None
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
+        return None
+
+
+def scan_fingerprints(root: Path, relative_paths: list[str]) -> dict[str, Any]:
+    root = root.expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"pasta_inexistente: {root}")
+
+    rows: list[dict[str, Any]] = []
+    for rel in relative_paths:
+        rel = str(rel or "").strip().replace("\\", "/")
+        if not rel:
+            continue
+        file_path = (root / rel).resolve()
+        root_res = root.resolve()
+        if file_path != root_res and not str(file_path).startswith(str(root_res) + "/"):
+            rows.append({"relativePath": rel, "contentHash": None, "chromaprint": None, "error": "path_invalido"})
+            continue
+        if not file_path.is_file():
+            rows.append({"relativePath": rel, "contentHash": None, "chromaprint": None, "error": "arquivo_ausente"})
+            continue
+        rows.append(
+            {
+                "relativePath": rel,
+                "contentHash": sha256_file(file_path),
+                "chromaprint": try_chromaprint(file_path),
+            }
+        )
+
+    return {
+        "rootPath": str(root),
+        "rows": rows,
+        "stats": {"total": len(rows), "fpcalc": fpcalc_available()},
+    }
