@@ -85,23 +85,25 @@ function DeezerTrackPick({
   onConfirmed: () => void;
 }) {
   const [selected, setSelected] = useState(item.pickCandidates[0]?.url ?? "");
+  const [customUrl, setCustomUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function confirmPick() {
-    if (!selected) return;
+  async function confirmPick(trackUrl: string) {
+    const url = trackUrl.trim();
+    if (!url) return;
     setBusy(true);
     setErr(null);
     try {
       const res = await fetch(`/api/criacao/download/items/${item.id}/pick`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trackUrl: selected }),
+        body: JSON.stringify({ trackUrl: url }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string; processingError?: string | null };
       if (!res.ok) {
         setErr(
-          data.error === "url_invalida" ? "Link inválido."
+          data.error === "url_invalida" ? "Link inválido — use deezer.com/track/…"
           : data.error === "nao_precisa_escolha" ? "Esta faixa já foi confirmada."
           : "Não foi possível confirmar a escolha.",
         );
@@ -116,10 +118,30 @@ function DeezerTrackPick({
     }
   }
 
+  async function skipPick() {
+    const ok = window.confirm(
+      "Pular esta faixa? Ela não será baixada e o lote segue com as demais.",
+    );
+    if (!ok) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/criacao/download/items/${item.id}/skip`, { method: "POST" });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok) {
+        setErr(data.error === "nao_precisa_escolha" ? "Esta faixa já foi resolvida." : "Não foi possível pular.");
+        return;
+      }
+      onConfirmed();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/30">
       <p className="mb-2 text-[11px] font-semibold text-amber-900 dark:text-amber-200">
-        Várias versões no Deezer — escolha a faixa correta (o artista no Deezer pode ser diferente do informado):
+        Várias versões no Deezer — escolha a faixa correta, cole o link ou pule:
       </p>
       <ul className="max-h-36 space-y-1 overflow-auto">
         {item.pickCandidates.map((c: DeezerTrackCandidate) => (
@@ -128,8 +150,11 @@ function DeezerTrackPick({
               <input
                 type="radio"
                 name={`pick-${item.id}`}
-                checked={selected === c.url}
-                onChange={() => setSelected(c.url)}
+                checked={selected === c.url && !customUrl.trim()}
+                onChange={() => {
+                  setSelected(c.url);
+                  setCustomUrl("");
+                }}
                 className="mt-0.5 shrink-0"
               />
               <span className="min-w-0">
@@ -140,14 +165,34 @@ function DeezerTrackPick({
           </li>
         ))}
       </ul>
-      <button
-        type="button"
-        disabled={busy || !selected}
-        onClick={() => void confirmPick()}
-        className="mt-2 rounded bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
-      >
-        {busy ? "Confirmando…" : "Baixar esta faixa"}
-      </button>
+      <label className="mt-2 block text-[10px] font-semibold text-amber-900 dark:text-amber-200">
+        Ou cole o link correto (deezer.com/track/…)
+        <input
+          type="url"
+          value={customUrl}
+          onChange={(e) => setCustomUrl(e.target.value)}
+          placeholder="https://www.deezer.com/track/…"
+          className="mt-1 w-full rounded border border-amber-200 bg-white px-2 py-1.5 font-mono text-[11px] text-slate-800 dark:border-amber-900 dark:bg-slate-950 dark:text-slate-100"
+        />
+      </label>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy || (!customUrl.trim() && !selected)}
+          onClick={() => void confirmPick(customUrl.trim() || selected)}
+          className="rounded bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
+        >
+          {busy ? "Confirmando…" : customUrl.trim() ? "Baixar link colado" : "Baixar esta faixa"}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void skipPick()}
+          className="rounded border border-slate-400 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:border-slate-600 dark:text-slate-300"
+        >
+          Pular esta faixa
+        </button>
+      </div>
       {err ? <p className="mt-1 text-[10px] text-red-700 dark:text-red-300">{err}</p> : null}
     </div>
   );
@@ -300,6 +345,24 @@ export function DownloadLinkPanel() {
     const detail = await fetchJobDetail(openJobId);
     setJobDetail(detail);
     await load();
+  }
+
+  async function cancelJob(jobId: string) {
+    const ok = window.confirm(
+      "Cancelar este lote inteiro? Faixas pendentes não serão baixadas; as já concluídas permanecem no servidor.",
+    );
+    if (!ok) return;
+    const res = await fetch(`/api/criacao/download/${jobId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel" }),
+    });
+    if (!res.ok) {
+      setMsg("Não foi possível cancelar o lote.");
+      return;
+    }
+    await refreshOpenJob();
+    setMsg("Lote cancelado.");
   }
 
   function erroResumoJob(j: DownloadJobRow): string {
@@ -512,11 +575,28 @@ export function DownloadLinkPanel() {
                     </button>
                     {openJobId === j.id && jobDetail ?
                       <>
-                        <p className="mt-2 text-[10px] text-slate-500">
-                          ID para Servidor UP Passo 5:{" "}
-                          <code className="break-all font-mono text-slate-600 dark:text-slate-300">{j.id}</code>{" "}
-                          <CopyTextButton text={j.id} label="Copiar ID do job" size="compact" />
-                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <p className="text-[10px] text-slate-500">
+                            ID:{" "}
+                            <code className="break-all font-mono text-slate-600 dark:text-slate-300">{j.id}</code>{" "}
+                            <CopyTextButton text={j.id} label="Copiar ID do job" size="compact" />
+                          </p>
+                          {jobDetail.status === "aguardando" || jobDetail.status === "processando" ?
+                            <button
+                              type="button"
+                              onClick={() => void cancelJob(j.id)}
+                              className="rounded border border-red-300 px-2 py-0.5 text-[10px] font-semibold text-red-800 dark:border-red-800 dark:text-red-300"
+                            >
+                              Cancelar lote
+                            </button>
+                          : null}
+                        </div>
+                        {jobDetail.itens.some((it) => it.needsPick) ?
+                          <p className="mt-1 text-[10px] text-amber-800 dark:text-amber-200">
+                            Faixa(s) aguardando escolha — pule ou confirme para o lote concluir. Outros lotes
+                            continuam baixando em paralelo.
+                          </p>
+                        : null}
                         <ul className="mt-2 max-h-64 space-y-2 overflow-auto rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-950">
                         {jobDetail.itens.map((it) => (
                           <li key={it.id} className="flex flex-col gap-1 border-b border-slate-200/80 pb-2 last:border-0 dark:border-slate-800">

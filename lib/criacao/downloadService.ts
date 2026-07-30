@@ -338,6 +338,30 @@ export async function confirmDownloadItemPick(itemId: string, trackUrl: string):
   return item.jobId;
 }
 
+/** Escolha manual pendente — usuário desiste desta faixa (libera o lote). */
+export async function skipDownloadItemPick(itemId: string): Promise<string> {
+  const item = await prisma.downloadItem.findUnique({
+    where: { id: itemId },
+    select: { id: true, jobId: true, erroMsg: true, status: true },
+  });
+  if (!item) throw new Error("not_found");
+
+  const candidates = parsePickCandidates(item.erroMsg);
+  if (!candidates?.length) throw new Error("nao_precisa_escolha");
+  if (item.status !== "aguardando") throw new Error("item_nao_aguardando");
+
+  await prisma.downloadItem.update({
+    where: { id: itemId },
+    data: {
+      status: "erro",
+      erroMsg: "Pulado — nenhuma versão aceita no Deezer",
+    },
+  });
+
+  await refreshDownloadJobCounters(item.jobId);
+  return item.jobId;
+}
+
 export async function cancelDownloadJob(id: string): Promise<boolean> {
   const job = await prisma.downloadJob.findUnique({
     where: { id },
