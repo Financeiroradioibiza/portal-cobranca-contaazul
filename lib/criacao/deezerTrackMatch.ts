@@ -107,21 +107,28 @@ function normalizeSearchArtist(artista: string): string {
   return alt || trimmed;
 }
 
-/** Primeiro nome artístico — antes de & / feat (Djavan & Caetano → Djavan). */
+/** Primeiro artista do legado — antes de « e », « & » ou feat (sempre o nome principal). */
 export function primaryLegacyArtist(artista: string): string {
   let s = artista
     .trim()
     .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
     .replace(/\s+/g, " ")
     .trim();
-  const duet = s.match(/^(.+?)\s*&\s+/);
-  if (duet?.[1]?.trim()) s = duet[1].trim();
+
+  const ptDuet = s.match(/^(.+?)\s+e\s+(.+)$/i);
+  if (ptDuet?.[1]?.trim() && ptDuet[2]?.trim()) {
+    const leftWords = ptDuet[1].trim().split(/\s+/).filter(Boolean);
+    if (leftWords.length >= 2) s = ptDuet[1].trim();
+  }
+
+  const ampDuet = s.match(/^(.+?)\s*&\s+/);
+  if (ampDuet?.[1]?.trim()) s = ampDuet[1].trim();
+
   return s;
 }
 
 /**
- * Servidor UP / migração legado: artista principal do MP3 tem de ser o artista no Deezer.
- * Rejeita «mesmo título, artista diferente» (David Moraes ≠ Carmen Miranda, Djavan ≠ Djodje).
+ * Servidor UP: artista principal legado = artista no Deezer (nome completo do 1º artista).
  */
 export function strictPrimaryArtistMatch(legacyArtist: string, deezerArtist: string): boolean {
   const primary = primaryLegacyArtist(legacyArtist);
@@ -133,29 +140,30 @@ export function strictPrimaryArtistMatch(legacyArtist: string, deezerArtist: str
   if (!pKey || !gKey) return false;
 
   if (pKey === gKey) return true;
-  if (gKey.startsWith(`${pKey} `) || gKey.endsWith(` ${pKey}`) || gKey.includes(` ${pKey} `)) {
-    return true;
-  }
+  if (gKey.startsWith(`${pKey} `)) return true;
 
   const pParts = pKey.split(/\s+/).filter(Boolean);
   const gParts = gKey.split(/\s+/).filter(Boolean);
-  const pFirst = pParts[0] ?? "";
-  const gFirst = gParts[0] ?? "";
+  if (pParts.length === 0 || gParts.length === 0) return false;
 
+  const pFirst = pParts[0]!;
+  const gFirst = gParts[0]!;
   if (pFirst.length >= 3 && gFirst.length >= 3 && pFirst !== gFirst) {
     return false;
   }
 
-  if (pParts.length >= 2 && gParts.length >= 2) {
+  if (pParts.length >= 2) {
+    const gLead = gParts.slice(0, pParts.length).join(" ");
+    if (stringSimilarity(pKey, gLead) >= ARTIST_SIM_SERVIDOR_UP_MIN) return true;
+
     const pLast = pParts[pParts.length - 1]!;
     const gLast = gParts[gParts.length - 1]!;
     if (pLast.length >= 3 && gLast.length >= 3 && pLast !== gLast) {
-      const sim = artistSimilarity(primary, got);
-      if (sim < ARTIST_SIM_SERVIDOR_UP_MIN) return false;
+      return false;
     }
   }
 
-  return artistSimilarity(primary, got) >= ARTIST_SIM_SERVIDOR_UP_MIN;
+  return stringSimilarity(pKey, gKey) >= ARTIST_SIM_SERVIDOR_UP_MIN;
 }
 
 /** Artista principal — remove feat/ft; dupla «A & B» usa o primeiro nome quando há sobrenome. */
@@ -609,9 +617,13 @@ export async function resolveDeezerLegacyCandidates(
 
   const core = coreTitleForMatch(parsed.titulo);
   const artistaPrimary = primaryArtistForMatch(parsed.artista);
+  const searchParsed =
+    strictArtist ?
+      { ...parsed, artista: primaryLegacyArtist(parsed.artista) || parsed.artista }
+    : parsed;
 
   let apiFailures = 0;
-  const artistSearch = await searchDeezerTracks(parsed);
+  const artistSearch = await searchDeezerTracks(searchParsed);
   apiFailures += artistSearch.failures;
   let hits = artistSearch.hits;
   if (!strictArtist) {
