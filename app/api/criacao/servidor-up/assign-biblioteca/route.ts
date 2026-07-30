@@ -5,7 +5,7 @@ import {
   type ServidorUpAssignBibliotecaItem,
 } from "@/lib/criacao/servidorUpAssignBibliotecaService";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /** Assign-only: coloca faixa existente na pasta + tag (sem Deemix/fila). */
 export async function POST(request: Request) {
@@ -18,8 +18,8 @@ export async function POST(request: Request) {
     if (items.length === 0) {
       return NextResponse.json({ error: "items_vazios" }, { status: 400 });
     }
-    if (items.length > 200) {
-      return NextResponse.json({ error: "limite_200" }, { status: 400 });
+    if (items.length > 50) {
+      return NextResponse.json({ error: "limite_50" }, { status: 400 });
     }
 
     const result = await assignServidorUpBibliotecaTracks({

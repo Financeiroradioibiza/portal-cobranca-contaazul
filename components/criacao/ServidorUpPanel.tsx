@@ -36,6 +36,7 @@ import type {
   ServidorUpMatchVerdict,
 } from "@/lib/criacao/servidorUpMatchService";
 import {
+  clearServidorUpUploadSession,
   persistServidorUpUploadSession,
   readServidorUpUploadSession,
   setActiveDeemixJobId,
@@ -147,7 +148,7 @@ function dedupeBibliotecaStatus(status: ServidorUpDedupeStatus | undefined): boo
   return status === "in_biblioteca" || status === "suggest_metadata";
 }
 
-const ASSIGN_BIBLIOTECA_CHUNK = 200;
+const ASSIGN_BIBLIOTECA_CHUNK = 40;
 
 type AssignBibliotecaItem = {
   relativePath: string;
@@ -605,13 +606,13 @@ export function ServidorUpPanel() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items }),
     });
-    const data = (await res.json()) as {
+    const data = await readApiJson<{
       ok?: boolean;
       assigned?: number;
       skipped?: number;
       errors?: string[];
       error?: string;
-    };
+    }>(res);
     if (!res.ok) throw new Error(data.error ?? "Falha ao atribuir.");
     const assigned = data.assigned ?? 0;
     const skipped = data.skipped ?? 0;
@@ -653,6 +654,9 @@ export function ServidorUpPanel() {
       assigned += batch.assigned;
       skipped += batch.skipped;
       errors.push(...batch.errors);
+      if (end < items.length) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
 
     if (errors.length > 0 && assigned === 0) {
@@ -1250,6 +1254,29 @@ export function ServidorUpPanel() {
 
       {(msg || err || busy || downloadJobId) ?
         <div className="space-y-2 text-sm">
+          {downloadJobId && !matchResult ?
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+              <p className="font-semibold text-amber-950 dark:text-amber-100">
+                Job Deemix <code className="text-xs">{downloadJobId.slice(0, 12)}…</code> na sessão
+              </p>
+              <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">
+                Pode ser de migração anterior (ex. 29/7). Downloads no Download link podem ser desse job —
+                não confundir com o Continuar de hoje. Para fluxo novo, limpe antes de Match/Deemix.
+              </p>
+              <button
+                type="button"
+                disabled={!!busy}
+                onClick={() => {
+                  setDownloadJobId(null);
+                  setDeemixJobSnapshot(null);
+                  clearServidorUpUploadSession();
+                }}
+                className="mt-2 rounded-lg border border-amber-600 px-3 py-1.5 text-xs font-semibold text-amber-950 dark:border-amber-500 dark:text-amber-100"
+              >
+                Limpar job da sessão
+              </button>
+            </div>
+          : null}
           {busy ?
             <p className="text-violet-700">{busy}</p>
           : null}
