@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       uploaderEmail: session.email,
       uploaderDisplayName: session.displayName ?? session.email,
     });
-    return NextResponse.json({ ok: result.ok, ...result });
+    return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/servidor-up/assign-biblioteca POST]", e);

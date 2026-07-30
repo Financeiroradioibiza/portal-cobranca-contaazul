@@ -14,6 +14,7 @@ import {
   type ServidorUpUploadTrackInput,
 } from "@/lib/criacao/servidorUpUploadService";
 import { getServidorUpUploadSnapshot } from "@/lib/criacao/servidorUpUploadSnapshotService";
+import type { ServidorUpUploadSessionMeta } from "@/lib/criacao/servidorUpEnqueueFilaService";
 
 export type ServidorUpRecoverStagingResult = {
   ok: boolean;
@@ -75,7 +76,7 @@ export async function recoverServidorUpStagingForDownloadJob(
     processamentoJobIds?: string[];
   },
 ): Promise<ServidorUpRecoverStagingResult> {
-  const snapshot = await getServidorUpUploadSnapshot(downloadJobId);
+  const snapshot = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
   if (!snapshot?.tracks?.length || !snapshot.hierarchyRows?.length) {
     return {
       ok: false,

@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     if (!result.ok) {
       return NextResponse.json(result, { status: result.error === "hierarquia_incompleta" ? 409 : 502 });
     }
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[criacao/servidor-up/recover-missing POST]", e);

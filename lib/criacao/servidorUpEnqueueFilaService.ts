@@ -36,6 +36,7 @@ export type ServidorUpFilaEnqueueState = {
   tracksImported: number;
   startedAt?: number;
   finishedAt?: number;
+  lastError?: string | null;
   /** Relative paths já enfileirados (evita duplicata se staging falhar). */
   enqueuedRelativePaths?: string[];
 };

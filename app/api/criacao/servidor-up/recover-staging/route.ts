@@ -49,7 +49,7 @@ async function handle(request: Request) {
   if (!result.ok && result.imported === 0) {
     return NextResponse.json(result, { status: 502 });
   }
-  return NextResponse.json({ ok: true, ...result });
+  return NextResponse.json(result);
 }
 
 export async function POST(request: Request) {
