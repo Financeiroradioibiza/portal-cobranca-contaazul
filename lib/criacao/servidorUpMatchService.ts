@@ -1,12 +1,11 @@
 import {
-  artistSimilarity,
-  ARTIST_SIM_MATCH_MIN,
-  ARTIST_SIM_PICK_MIN,
   coreTitleForMatch,
   isAlternateVersionTitle,
   isLikelyTributeOrCoverArtist,
   normalizeLegacyFilenameForSearch,
+  primaryLegacyArtist,
   resolveDeezerLegacyCandidates,
+  strictPrimaryArtistMatch,
   type DeezerTrackCandidate,
 } from "@/lib/criacao/deezerTrackMatch";
 
@@ -142,17 +141,11 @@ function filterServidorUpCandidates(
   legacyTitle: string,
 ): ServidorUpMatchCandidate[] {
   const wantsAlt = legacyWantsAlternateVersion(legacyTitle);
-  const strict = enriched.filter((c) => {
-    if (!wantsAlt && isAlternateVersionTitle(c.title)) return false;
-    if (isLikelyTributeOrCoverArtist(c.artist)) return false;
-    if (artistSimilarity(legacyArtist, c.artist) < ARTIST_SIM_MATCH_MIN) return false;
-    return true;
-  });
-  if (strict.length > 0) return strict;
   return enriched.filter((c) => {
     if (!wantsAlt && isAlternateVersionTitle(c.title)) return false;
     if (isLikelyTributeOrCoverArtist(c.artist)) return false;
-    return artistSimilarity(legacyArtist, c.artist) >= ARTIST_SIM_PICK_MIN;
+    if (!strictPrimaryArtistMatch(legacyArtist, c.artist)) return false;
+    return true;
   });
 }
 
@@ -162,8 +155,8 @@ function compareServidorUpCandidates(
   legacyArtist: string,
   legacyTitle: string,
 ): number {
-  const aArtistOk = artistSimilarity(legacyArtist, a.artist) >= ARTIST_SIM_MATCH_MIN;
-  const bArtistOk = artistSimilarity(legacyArtist, b.artist) >= ARTIST_SIM_MATCH_MIN;
+  const aArtistOk = strictPrimaryArtistMatch(legacyArtist, a.artist);
+  const bArtistOk = strictPrimaryArtistMatch(legacyArtist, b.artist);
   if (aArtistOk !== bArtistOk) return aArtistOk ? -1 : 1;
 
   const scoreGap = b.score - a.score;
@@ -204,10 +197,11 @@ function pickByLegacyDuration(
 
   const pool = filterServidorUpCandidates(enriched, legacyArtist, legacyTitle);
   if (pool.length === 0) {
+    const primary = primaryLegacyArtist(legacyArtist);
     return {
       selected: null,
       verdict: "not_found",
-      reason: "Nenhuma faixa com o artista pedido (live/cover/tribute filtrados). Escolha manual ou pule.",
+      reason: `Nenhuma faixa no Deezer com artista «${primary}» — só título parecido não entra. Escolha manual ou pule.`,
     };
   }
 
@@ -215,7 +209,7 @@ function pickByLegacyDuration(
   const exactStudio = pool.find(
     (c) =>
       c.score >= 92 &&
-      artistSimilarity(legacyArtist, c.artist) >= ARTIST_SIM_MATCH_MIN &&
+      strictPrimaryArtistMatch(legacyArtist, c.artist) &&
       foldForTitle(coreTitleForMatch(c.title)) === wantCore &&
       versionSortPenalty(legacyTitle, c.title) === 0,
   );
@@ -331,7 +325,9 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
   let candidatesRaw: DeezerTrackCandidate[] = [];
   let apiFailures = 0;
   try {
-    const resolved = await resolveDeezerLegacyCandidates(normalizedSearchLine);
+    const resolved = await resolveDeezerLegacyCandidates(normalizedSearchLine, {
+      strictPrimaryArtist: true,
+    });
     candidatesRaw = resolved.candidates;
     apiFailures = resolved.apiFailures;
   } catch (e) {
@@ -362,8 +358,9 @@ async function matchOneTrack(track: ServidorUpInventoryTrack): Promise<ServidorU
 
   const enriched = await enrichCandidates(candidatesRaw, track.durationSec);
   const legacyArtist =
-    parseArtistFromSearch(normalizedSearchLine) ||
     track.artista.trim() ||
+    primaryLegacyArtist(parseArtistFromSearch(normalizedSearchLine)) ||
+    parseArtistFromSearch(normalizedSearchLine) ||
     parseArtistFromSearch(searchLine);
   const { selected, verdict, reason } = pickByLegacyDuration(
     enriched,

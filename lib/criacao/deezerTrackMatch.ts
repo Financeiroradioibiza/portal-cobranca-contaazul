@@ -13,6 +13,8 @@ const CANDIDATE_MIN_SCORE = 48;
 export const ARTIST_SIM_PICK_MIN = 0.42;
 /** Artista considerado “match” com typo leve (1–2 letras). */
 export const ARTIST_SIM_MATCH_MIN = 0.72;
+/** Servidor UP: artista principal legado tem de bater no Deezer (sem «mesmo título, artista errado»). */
+export const ARTIST_SIM_SERVIDOR_UP_MIN = 0.82;
 
 export type ParsedArtistTitle = { artista: string; titulo: string };
 
@@ -103,6 +105,57 @@ function normalizeSearchArtist(artista: string): string {
   const trimmed = artista.trim();
   const alt = trimmed.replace(/^the\s+/i, "").trim();
   return alt || trimmed;
+}
+
+/** Primeiro nome artístico — antes de & / feat (Djavan & Caetano → Djavan). */
+export function primaryLegacyArtist(artista: string): string {
+  let s = artista
+    .trim()
+    .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const duet = s.match(/^(.+?)\s*&\s+/);
+  if (duet?.[1]?.trim()) s = duet[1].trim();
+  return s;
+}
+
+/**
+ * Servidor UP / migração legado: artista principal do MP3 tem de ser o artista no Deezer.
+ * Rejeita «mesmo título, artista diferente» (David Moraes ≠ Carmen Miranda, Djavan ≠ Djodje).
+ */
+export function strictPrimaryArtistMatch(legacyArtist: string, deezerArtist: string): boolean {
+  const primary = primaryLegacyArtist(legacyArtist);
+  const got = deezerArtist.trim();
+  if (!primary || !got) return false;
+
+  const pKey = normalizeArtistKey(primary);
+  const gKey = normalizeArtistKey(got);
+  if (!pKey || !gKey) return false;
+
+  if (pKey === gKey) return true;
+  if (gKey.startsWith(`${pKey} `) || gKey.endsWith(` ${pKey}`) || gKey.includes(` ${pKey} `)) {
+    return true;
+  }
+
+  const pParts = pKey.split(/\s+/).filter(Boolean);
+  const gParts = gKey.split(/\s+/).filter(Boolean);
+  const pFirst = pParts[0] ?? "";
+  const gFirst = gParts[0] ?? "";
+
+  if (pFirst.length >= 3 && gFirst.length >= 3 && pFirst !== gFirst) {
+    return false;
+  }
+
+  if (pParts.length >= 2 && gParts.length >= 2) {
+    const pLast = pParts[pParts.length - 1]!;
+    const gLast = gParts[gParts.length - 1]!;
+    if (pLast.length >= 3 && gLast.length >= 3 && pLast !== gLast) {
+      const sim = artistSimilarity(primary, got);
+      if (sim < ARTIST_SIM_SERVIDOR_UP_MIN) return false;
+    }
+  }
+
+  return artistSimilarity(primary, got) >= ARTIST_SIM_SERVIDOR_UP_MIN;
 }
 
 /** Artista principal — remove feat/ft; dupla «A & B» usa o primeiro nome quando há sobrenome. */
@@ -539,11 +592,15 @@ function scoreLegacyHit(parsed: ParsedArtistTitle, hit: DeezerTrackHit): number 
  * Busca expandida para migração legado — sempre devolve vários candidatos com duração.
  * Não faz auto-pick único (evita escolher «Ao Vivo» quando o legado é estúdio).
  */
-export async function resolveDeezerLegacyCandidates(line: string): Promise<{
+export async function resolveDeezerLegacyCandidates(
+  line: string,
+  opts?: { strictPrimaryArtist?: boolean },
+): Promise<{
   parsed: ParsedArtistTitle;
   candidates: DeezerTrackCandidate[];
   apiFailures: number;
 }> {
+  const strictArtist = opts?.strictPrimaryArtist === true;
   const normalized = normalizeLegacyFilenameForSearch(line);
   const parsed = parseArtistTitleFromLine(normalized);
   if (!parsed) {
@@ -557,18 +614,25 @@ export async function resolveDeezerLegacyCandidates(line: string): Promise<{
   const artistSearch = await searchDeezerTracks(parsed);
   apiFailures += artistSearch.failures;
   let hits = artistSearch.hits;
-  if (hits.length < 4) {
-    const titleSearch = await searchDeezerByTitle(parsed);
-    apiFailures += titleSearch.failures;
-    hits = mergeDeezerHits([{ data: hits }, { data: titleSearch.hits }]);
-  }
-  if (hits.length < 4) {
-    const coreSearch = await dzFetch(`/search/track?q=${encodeURIComponent(core)}&limit=15`);
-    if (coreSearch == null || coreSearch.status != null) apiFailures += 1;
-    hits = mergeDeezerHits([{ data: hits }, coreSearch?.status == null ? coreSearch : null]);
-  }
-  if (hits.length < 4) {
-    const combo = `${artistaPrimary} ${core}`.trim();
+  if (!strictArtist) {
+    if (hits.length < 4) {
+      const titleSearch = await searchDeezerByTitle(parsed);
+      apiFailures += titleSearch.failures;
+      hits = mergeDeezerHits([{ data: hits }, { data: titleSearch.hits }]);
+    }
+    if (hits.length < 4) {
+      const coreSearch = await dzFetch(`/search/track?q=${encodeURIComponent(core)}&limit=15`);
+      if (coreSearch == null || coreSearch.status != null) apiFailures += 1;
+      hits = mergeDeezerHits([{ data: hits }, coreSearch?.status == null ? coreSearch : null]);
+    }
+    if (hits.length < 4) {
+      const combo = `${artistaPrimary} ${core}`.trim();
+      const comboSearch = await dzFetch(`/search/track?q=${encodeURIComponent(combo)}&limit=12`);
+      if (comboSearch == null || comboSearch.status != null) apiFailures += 1;
+      hits = mergeDeezerHits([{ data: hits }, comboSearch?.status == null ? comboSearch : null]);
+    }
+  } else if (hits.length < 4) {
+    const combo = `${primaryLegacyArtist(parsed.artista)} ${core}`.trim();
     const comboSearch = await dzFetch(`/search/track?q=${encodeURIComponent(combo)}&limit=12`);
     if (comboSearch == null || comboSearch.status != null) apiFailures += 1;
     hits = mergeDeezerHits([{ data: hits }, comboSearch?.status == null ? comboSearch : null]);
@@ -577,13 +641,20 @@ export async function resolveDeezerLegacyCandidates(line: string): Promise<{
   const byId = new Map<number, DeezerTrackCandidate>();
   const legacyWantsAlt = isAlternateVersionTitle(parsed.titulo);
   for (const hit of hits) {
+    const hitArtist = hit.artist?.name?.trim() ?? "";
+    if (strictArtist && hitArtist && !strictPrimaryArtistMatch(parsed.artista, hitArtist)) continue;
+
     const score = scoreLegacyHit(parsed, hit);
     if (score < LEGACY_CANDIDATE_MIN_SCORE) continue;
     const c = hitToCandidate(hit, score);
     if (!c) continue;
     if (isLikelyTributeOrCoverArtist(c.artist)) continue;
     if (!legacyWantsAlt && isAlternateVersionTitle(c.title)) continue;
-    if (artistSimilarity(parsed.artista, c.artist) < ARTIST_SIM_PICK_MIN) continue;
+    if (strictArtist) {
+      if (!strictPrimaryArtistMatch(parsed.artista, c.artist)) continue;
+    } else if (artistSimilarity(parsed.artista, c.artist) < ARTIST_SIM_PICK_MIN) {
+      continue;
+    }
     const prev = byId.get(c.trackId);
     if (!prev || c.score > prev.score) byId.set(c.trackId, c);
   }
