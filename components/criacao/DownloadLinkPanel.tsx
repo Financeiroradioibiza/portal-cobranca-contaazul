@@ -77,6 +77,23 @@ function formatBytes(b: number | null): string {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
 }
 
+/** Linhas por request — evita 504 Netlify ao resolver Deezer. */
+const DOWNLOAD_LINES_CHUNK = 4;
+
+function splitDownloadLines(text: string): string[] {
+  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}
+
+async function readDownloadApiJson<T>(res: Response): Promise<T> {
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    if (res.status === 504) throw new Error("504");
+    throw new Error(`invalid_json_${res.status}`);
+  }
+}
+
 function DeezerTrackPick({
   item,
   onConfirmed,
@@ -272,57 +289,135 @@ export function DownloadLinkPanel() {
 
   async function submit() {
     setMsg(null);
-    const combined = linhas.trim();
-    if (!combined) {
+    const allLines = splitDownloadLines(linhas);
+    if (allLines.length === 0) {
       setMsg("Cole links Deezer ou nomes das faixas (Artista - Música).");
       return;
     }
     setSubmitting(true);
     try {
-      const res = await fetch("/api/criacao/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: tab, titulo: titulo.trim() || undefined, linhas: combined }),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        message?: string;
-        totalItens?: number;
-        itensErro?: number;
-        itensPick?: number;
-        processingTriggered?: boolean;
-        processingError?: string | null;
-      };
-      if (!res.ok) {
-        setMsg(
-          data.error === "nenhuma_linha" ? "Nenhuma linha válida no texto."
-          : data.error === "invalid_provider" ? "Motor inválido."
-          : data.error === "expand_falhou" && data.message ? data.message
-          : data.message ? data.message
-          : data.error ? `Erro: ${data.error}`
-          : "Não foi possível criar o lote.",
-        );
-        return;
+      let jobId: string | undefined;
+      let totalItens = 0;
+      let itensErro = 0;
+      let itensPick = 0;
+      let processingTriggered = false;
+      let processingError: string | null = null;
+      const tituloTrim = titulo.trim() || undefined;
+
+      for (let i = 0; i < allLines.length; i += DOWNLOAD_LINES_CHUNK) {
+        const chunkLines = allLines.slice(i, i + DOWNLOAD_LINES_CHUNK);
+        const chunkText = chunkLines.join("\n");
+        const end = Math.min(i + DOWNLOAD_LINES_CHUNK, allLines.length);
+        setMsg(`Preparando lote… ${end}/${allLines.length} linha(s) (busca Deezer)`);
+
+        if (!jobId) {
+          const res = await fetch("/api/criacao/download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: tab, titulo: tituloTrim, linhas: chunkText }),
+          });
+          const data = await readDownloadApiJson<{
+            ok?: boolean;
+            error?: string;
+            message?: string;
+            jobId?: string;
+            totalItens?: number;
+            itensErro?: number;
+            itensPick?: number;
+            processingTriggered?: boolean;
+            processingError?: string | null;
+          }>(res);
+          if (!res.ok) {
+            setMsg(
+              res.status === 504 ?
+                "Portal demorou demais (504) — tente menos linhas de uma vez ou aguarde 1 min e repita."
+              : data.error === "nenhuma_linha" ? "Nenhuma linha válida no texto."
+              : data.error === "invalid_provider" ? "Motor inválido."
+              : data.error === "expand_falhou" && data.message ? data.message
+              : data.message ? data.message
+              : data.error ? `Erro: ${data.error}`
+              : "Não foi possível criar o lote.",
+            );
+            return;
+          }
+          jobId = data.jobId;
+          totalItens = data.totalItens ?? 0;
+          itensErro += data.itensErro ?? 0;
+          itensPick += data.itensPick ?? 0;
+          processingTriggered = data.processingTriggered ?? false;
+          processingError = data.processingError ?? null;
+        } else {
+          const res = await fetch(`/api/criacao/download/${jobId}/append`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ linhas: chunkText }),
+          });
+          const data = await readDownloadApiJson<{
+            ok?: boolean;
+            error?: string;
+            added?: number;
+            totalItens?: number;
+            itensErro?: number;
+            itensPick?: number;
+          }>(res);
+          if (!res.ok) {
+            setMsg(
+              res.status === 504 ?
+                `Timeout (504) após ${totalItens} faixa(s) — lote ${jobId.slice(0, 8)}… criado parcialmente; abra o lote e tente adicionar o restante.`
+              : data.error === "job_fechado" ? "Lote foi cancelado — crie outro."
+              : data.error ? `Erro ao acrescentar: ${data.error}`
+              : "Erro ao acrescentar faixas.",
+            );
+            await load();
+            return;
+          }
+          totalItens = data.totalItens ?? totalItens;
+          itensErro += data.itensErro ?? 0;
+          itensPick += data.itensPick ?? 0;
+        }
+
+        if (i + DOWNLOAD_LINES_CHUNK < allLines.length) {
+          await new Promise((r) => setTimeout(r, 300));
+        }
       }
+
+      if (jobId) {
+        const procRes = await fetch("/api/criacao/download/sync-pending", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: Math.min(50, totalItens + 5) }),
+        }).catch(() => null);
+        if (procRes?.ok) {
+          const proc = (await procRes.json()) as { triggered?: boolean; error?: string };
+          processingTriggered = proc.triggered ?? processingTriggered;
+          processingError = proc.error ?? processingError;
+        }
+      }
+
       setLinhas("");
       setTitulo("");
-      const parts = [`${data.totalItens ?? 0} faixa(s) no lote.`];
-      if ((data.itensPick ?? 0) > 0) {
-        parts.push(`${data.itensPick} aguardando escolha no Deezer — abra o lote.`);
+      const parts = [`${totalItens} faixa(s) no lote.`];
+      if (itensPick > 0) {
+        parts.push(`${itensPick} aguardando escolha no Deezer — abra o lote.`);
       }
-      if ((data.itensErro ?? 0) > 0) {
-        parts.push(`${data.itensErro} com erro — veja o detalhe do lote.`);
+      if (itensErro > 0) {
+        parts.push(`${itensErro} com erro — veja o detalhe do lote.`);
       }
       parts.push(
-        data.processingTriggered ?
+        processingTriggered ?
           "Download iniciado no servidor."
-        : data.processingError ?
-          `Worker cloud2: ${data.processingError}`
+        : processingError ?
+          `Worker cloud2: ${processingError}`
         : "Worker cloud2 ainda não configurado — falta CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL no Netlify.",
       );
       setMsg(parts.join(" "));
       await load();
+    } catch (e) {
+      setMsg(
+        e instanceof Error && e.message === "504" ?
+          "Portal demorou demais (504). O lote pode ter sido criado parcialmente — recarregue e veja «Lotes recentes»."
+        : "Falha ao criar lote — tente de novo com menos linhas.",
+      );
     } finally {
       setSubmitting(false);
     }
