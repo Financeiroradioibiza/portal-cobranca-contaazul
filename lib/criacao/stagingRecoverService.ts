@@ -5,13 +5,19 @@ import {
   type StagingIngestPair,
 } from "@/lib/criacao/ingestFromStaging";
 import type { ServidorUpHierarchyRow } from "@/lib/criacao/servidorUpHierarchyService";
-import { foldMatchKey } from "@/lib/criacao/servidorUpUploadReconcile";
+import {
+  buildTrackToDownloadIndexMap,
+  foldMatchKey,
+  arquivoNomeMatchKey,
+  legacyStemArtistTitle,
+} from "@/lib/criacao/servidorUpUploadReconcile";
 import {
   buildServidorUpUploadPlan,
   servidorUpHierarchyKey,
   type ServidorUpUploadTrackInput,
 } from "@/lib/criacao/servidorUpUploadService";
 import type { ServidorUpUploadSession } from "@/lib/criacao/servidorUpUploadSession";
+import { recoverServidorUpStagingForDownloadJob } from "@/lib/criacao/servidorUpRecoverStagingService";
 
 function parseArtistTitleFromArquivoNome(nome: string): { artista: string; titulo: string } | null {
   const base = nome.trim().replace(/\.mp3$/i, "").replace(/~\d+$/i, "").trim();
@@ -71,10 +77,10 @@ function trackMatchesArquivoNome(
   track: { artista: string; titulo: string; arquivoNome: string },
   arquivoNome: string,
 ): boolean {
-  const want = foldMatchKey(arquivoNome);
-  if (foldMatchKey(track.arquivoNome) === want) return true;
+  const want = arquivoNomeMatchKey(arquivoNome);
+  if (arquivoNomeMatchKey(track.arquivoNome) === want) return true;
   const synthetic = `${track.artista.trim()} - ${track.titulo.trim()}.mp3`;
-  return foldMatchKey(synthetic) === want;
+  return arquivoNomeMatchKey(synthetic) === want;
 }
 
 function findLoteInPlan(
@@ -179,6 +185,16 @@ export async function recoverStagingForJob(processamentoJobId: string): Promise<
   if (pending.length === 0) return { imported: 0, errors: [] };
 
   const snap = await findSnapshotForJob(job);
+  if (snap) {
+    const byDownloadJob = await recoverServidorUpStagingForDownloadJob(snap.downloadJobId, {
+      processamentoJobIds: [processamentoJobId],
+      maxItems: 500,
+    });
+    if (byDownloadJob.pairsAttempted > 0 || byDownloadJob.imported > 0) {
+      return { imported: byDownloadJob.imported, errors: byDownloadJob.errors };
+    }
+  }
+
   if (!snap) {
     return { imported: 0, errors: ["nenhum_par_staging_encontrado"] };
   }

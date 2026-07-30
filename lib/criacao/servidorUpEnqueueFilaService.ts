@@ -539,6 +539,22 @@ export async function runServidorUpNightWorker(opts?: {
           error: recovered.ok ? undefined : recovered.error,
         });
       }
+
+      const { recoverServidorUpStagingForDownloadJob } = await import(
+        "@/lib/criacao/servidorUpRecoverStagingService"
+      );
+      const staging = await recoverServidorUpStagingForDownloadJob(snap.downloadJobId, {
+        maxItems: 200,
+      }).catch(() => null);
+      if (staging?.imported) {
+        enqueues.push({
+          downloadJobId: snap.downloadJobId,
+          ok: staging.ok,
+          done: staging.pendingBefore <= staging.imported,
+          tracksImported: staging.imported,
+          error: staging.ok ? undefined : staging.errors[0],
+        });
+      }
       continue;
     }
 

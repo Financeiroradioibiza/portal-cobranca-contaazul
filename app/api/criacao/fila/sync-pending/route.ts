@@ -3,7 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import {
   autoFinishJobsReady,
   reconcileStuckProcessingJobs,
-  recoverStagingForActiveUploadJobs,
+  recoverServidorUpStagingAll,
   resetStaleProcessingItems,
 } from "@/lib/criacao/filaService";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
@@ -43,9 +43,9 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] reconcile", e);
         return 0;
       }),
-      recoverStagingForActiveUploadJobs(10).catch((e) => {
+      recoverServidorUpStagingAll({ maxItems: 300, maxJobs: 5 }).catch((e) => {
         console.error("[criacao/fila/sync-pending] staging", e);
-        return { imported: 0, errors: [String(e)] };
+        return { imported: 0, errors: [String(e)], results: [] };
       }),
     ]);
     return NextResponse.json({

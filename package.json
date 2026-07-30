@@ -16,6 +16,7 @@
     "rio:revert-sync": "esbuild scripts/rio-revert-sync.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.rio-revert-sync.run.cjs && node .rio-revert-sync.run.cjs",
     "producao:group-hering": "esbuild scripts/producao-layout-group-hering.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.producao-group-hering.run.cjs && node .producao-group-hering.run.cjs",
     "criacao:recover-staging": "esbuild scripts/criacao-recover-staging.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-recover-staging.run.cjs && node .criacao-recover-staging.run.cjs",
+    "criacao:recover-staging-servidor-up": "esbuild scripts/recover-servidor-up-staging.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-recover-staging-su.run.cjs && node .criacao-recover-staging-su.run.cjs",
     "criacao:audit-b2": "esbuild scripts/criacao-audit-b2.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-audit-b2.run.cjs && node .criacao-audit-b2.run.cjs",
     "criacao:list-musicas": "esbuild scripts/list-recent-biblioteca-musicas.ts --bundle --platform=node --packages=external --format=cjs --tsconfig=tsconfig.json --log-level=warning --outfile=.criacao-list-musicas.run.cjs && node .criacao-list-musicas.run.cjs"
   },

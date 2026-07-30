@@ -11,6 +11,10 @@ import {
 } from "@/lib/criacao/processamentoJobSchemaCompat";
 
 export { recoverStagingForJob, recoverStagingForPendingItems, recoverStagingForActiveUploadJobs } from "@/lib/criacao/stagingRecoverService";
+export {
+  recoverServidorUpStagingForDownloadJob,
+  recoverServidorUpStagingAll,
+} from "@/lib/criacao/servidorUpRecoverStagingService";
 
 export type UploadArquivo = {
   nome: string;

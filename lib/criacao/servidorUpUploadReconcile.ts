@@ -24,6 +24,12 @@ export function foldMatchKey(s: string): string {
     .trim();
 }
 
+/** Chave de pareamento para nomes MP3 (ignora sufixo legado ~N e extensão). */
+export function arquivoNomeMatchKey(nome: string): string {
+  const base = nome.replace(/\\/g, "/").split("/").pop() ?? nome;
+  return foldMatchKey(base.replace(/\.mp3$/i, "").replace(/~\d{1,2}$/i, ""));
+}
+
 function artistTitleKey(artista: string, titulo: string): string {
   return `${foldMatchKey(artista)}|${foldMatchKey(titulo)}`;
 }
