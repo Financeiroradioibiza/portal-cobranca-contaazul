@@ -1,6 +1,7 @@
 "use client";
 
 import { ETAPAS, ETAPA_LABEL, toKanbanItem, type FilaItemForKanban } from "@/lib/criacao/filaKanban";
+import { isRevisaoItemDescartada } from "@/lib/criacao/revisaoFaixasService";
 
 const STATUS_TONE: Record<string, string> = {
   aguardando: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
@@ -71,7 +72,11 @@ function KanbanCard({
         </div>
       : null}
       {item.erroMsg ?
-        <p className="mt-1 text-[10px] leading-snug text-red-600 dark:text-red-400">{item.erroMsg}</p>
+        isRevisaoItemDescartada(item.erroMsg) ?
+          <p className="mt-1 text-[10px] leading-snug text-emerald-700 dark:text-emerald-300">
+            Já na biblioteca — pasta atualizada
+          </p>
+        : <p className="mt-1 text-[10px] leading-snug text-red-600 dark:text-red-400">{item.erroMsg}</p>
       : null}
     </div>
   );

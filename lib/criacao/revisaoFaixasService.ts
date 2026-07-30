@@ -1,6 +1,10 @@
 /** Item descartado na revisão por duplicata confirmada — não exige mix/trim/tags de novo. */
 export const REVISAO_ITEM_DESCARTADA_PREFIX = "Descartada (duplicata confirmada)";
 
+export function isRevisaoItemDescartada(erroMsg: string | null | undefined): boolean {
+  return (erroMsg ?? "").trim().startsWith(REVISAO_ITEM_DESCARTADA_PREFIX);
+}
+
 export type RevisaoItemRef = {
   status: string;
   musicaId: string | null;

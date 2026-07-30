@@ -9,6 +9,7 @@ import {
   filaPhaseFromJobStatus,
 } from "@/components/criacao/FilaBrowserGuidance";
 import { ETAPA_LABEL } from "@/lib/criacao/filaKanban";
+import { isRevisaoItemDescartada } from "@/lib/criacao/revisaoFaixasService";
 
 type JobRow = {
   id: string;
@@ -512,7 +513,13 @@ export function FilaPanel() {
                                 </button>
                               </span>
                             : null}
-                            {it.erroMsg ? <span className="w-full text-[11px] text-red-500">{it.erroMsg}</span> : null}
+                            {it.erroMsg ?
+                              isRevisaoItemDescartada(it.erroMsg) ?
+                                <span className="w-full text-[11px] text-emerald-700 dark:text-emerald-300">
+                                  Já na biblioteca — atribuída à pasta (mesmo áudio no acervo)
+                                </span>
+                              : <span className="w-full text-[11px] text-red-500">{it.erroMsg}</span>
+                            : null}
                           </li>
                         ))}
                       </ul>

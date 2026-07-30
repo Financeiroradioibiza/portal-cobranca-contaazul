@@ -604,6 +604,45 @@ export function ServidorUpPanel() {
       .filter((x): x is AssignBibliotecaItem => x !== null);
   }
 
+  function buildAssignBibliotecaItemsWithMusicaIds(
+    rows: Array<{ relativePath: string; musicaId: string }>,
+  ): AssignBibliotecaItem[] {
+    return rows
+      .map(({ relativePath, musicaId }) => {
+        const track = inventory.find((t) => t.relativePath === relativePath);
+        const hier = track ? hierarchyForTrack(track) : undefined;
+        if (!hier?.pastaId || !track) return null;
+        return {
+          relativePath,
+          musicaId,
+          pastaId: hier.pastaId,
+          pastaNome: track.pastaNome,
+          uploadTagNome: uploadTagForTrack(track),
+        };
+      })
+      .filter((x): x is AssignBibliotecaItem => x !== null);
+  }
+
+  async function assignBibliotecaItemsDirect(
+    items: AssignBibliotecaItem[],
+    opts?: { keepBusy?: boolean },
+  ): Promise<AssignBibliotecaBatchResult> {
+    if (items.length === 0) return { assigned: 0, skipped: 0, errors: [] };
+    let assigned = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+    for (let i = 0; i < items.length; i += ASSIGN_BIBLIOTECA_CHUNK) {
+      const end = Math.min(i + ASSIGN_BIBLIOTECA_CHUNK, items.length);
+      setBusy(`Biblioteca → pasta… ${end}/${items.length}`);
+      const batch = await postAssignBibliotecaBatch(items.slice(i, end));
+      assigned += batch.assigned;
+      skipped += batch.skipped;
+      errors.push(...batch.errors);
+      if (end < items.length) await new Promise((r) => setTimeout(r, 400));
+    }
+    return { assigned, skipped, errors };
+  }
+
   async function postAssignBibliotecaBatch(items: AssignBibliotecaItem[]): Promise<AssignBibliotecaBatchResult> {
     const res = await fetch("/api/criacao/servidor-up/assign-biblioteca", {
       method: "POST",
@@ -771,12 +810,65 @@ export function ServidorUpPanel() {
         }
       }
 
-      const result: ServidorUpMatchBatchResult = { ok: true, rows: mergedRows, stats: mergedStats };
-      setMatchResult(result);
       const picks: Record<string, number> = {};
       for (const row of mergedRows) {
         if (row.selected) picks[row.relativePath] = row.selected.trackId;
       }
+
+      const postMatchInputs = mergedRows
+        .filter((row) => row.verdict !== "not_found")
+        .map((row) => {
+          const id = picks[row.relativePath] ?? row.selected?.trackId;
+          const c = id ? row.candidates.find((x) => x.trackId === id) ?? row.selected : row.selected;
+          if (!c?.artist?.trim() || !c?.title?.trim()) return null;
+          return {
+            relativePath: row.relativePath,
+            deezerArtista: c.artist.trim(),
+            deezerTitulo: c.title.trim(),
+            durationSec: c.durationSec ?? row.legacyDurationSec,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      let postMatchSummary: AssignBibliotecaBatchResult = { assigned: 0, skipped: 0, errors: [] };
+      if (postMatchInputs.length > 0) {
+        setBusy(`Match → biblioteca… 0/${postMatchInputs.length}`);
+        const pmRes = await fetch("/api/criacao/servidor-up/post-match-dedupe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tracks: postMatchInputs }),
+        });
+        const pmData = await readApiJson<{
+          ok?: boolean;
+          hits?: Array<{
+            relativePath: string;
+            musicaId: string;
+            musicaArtista: string;
+            musicaTitulo: string;
+          }>;
+        }>(pmRes);
+        if (pmRes.ok && pmData.hits?.length) {
+          setDedupeMap((prev) => {
+            const next = new Map(prev);
+            for (const h of pmData.hits!) {
+              next.set(h.relativePath, {
+                relativePath: h.relativePath,
+                status: "in_biblioteca",
+                via: "metadata",
+                musicaId: h.musicaId,
+                musicaArtista: h.musicaArtista,
+                musicaTitulo: h.musicaTitulo,
+              });
+            }
+            return next;
+          });
+          const assignItems = buildAssignBibliotecaItemsWithMusicaIds(pmData.hits);
+          postMatchSummary = await assignBibliotecaItemsDirect(assignItems, { keepBusy: true });
+        }
+      }
+
+      const result: ServidorUpMatchBatchResult = { ok: true, rows: mergedRows, stats: mergedStats };
+      setMatchResult(result);
       setMatchPicks(picks);
       const apiHint =
         mergedStats.apiErrors > 0 ?
@@ -784,9 +876,13 @@ export function ServidorUpPanel() {
         : "";
       const assignSkipHint =
         assignSummary.skipped > 0 ? ` · ${assignSummary.skipped} bib. já na programação` : "";
+      const postMatchHint =
+        postMatchSummary.assigned > 0 ?
+          ` · ${postMatchSummary.assigned} já no acervo (Deezer) → pasta, fora do Deemix`
+        : "";
       setMsg(
         `${assignPrefix}Match: ${mergedStats.auto} auto · ${mergedStats.review} revisar · ${mergedStats.pick} escolher · ` +
-          `${mergedStats.notFound} não achou · ${mergedStats.rejected} outra versão${apiHint}${assignSkipHint}.`,
+          `${mergedStats.notFound} não achou · ${mergedStats.rejected} outra versão${postMatchHint}${apiHint}${assignSkipHint}.`,
       );
       setActiveStep(2);
     } catch (e) {
