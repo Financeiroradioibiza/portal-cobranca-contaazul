@@ -24,6 +24,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  /** Workers/cron Criação (Servidor UP): Bearer cron, sem cookie de sessão. */
+  if (
+    pathname === "/api/criacao/servidor-up/night-worker" ||
+    pathname === "/api/criacao/servidor-up/recover-staging"
+  ) {
+    const auth = authorizeOcAutoDispatchCron(request);
+    if (!auth.ok) return auth.response;
+    return NextResponse.next();
+  }
+
   if (
     pathname.startsWith("/_next/static") ||
     pathname.startsWith("/_next/image") ||
