@@ -21,13 +21,18 @@ import type { ServidorUpUploadSession } from "@/lib/criacao/servidorUpUploadSess
 import { triggerDownloadProcessing } from "@/lib/criacao/downloadService";
 import { prisma } from "@/lib/prisma";
 
-/** Quantas pastas (lotes) por request — evita timeout Netlify em 500+ faixas. */
-export const SERVIDOR_UP_ENQUEUE_LOTE_CHUNK = 4;
+/** @deprecated Prefer track-based chunking — kept for API compat. */
+export const SERVIDOR_UP_ENQUEUE_LOTE_CHUNK = 1;
+/** Faixas por request Netlify (~26s). Pastas grandes (100+ fx) exigem isso. */
+export const SERVIDOR_UP_MAX_TRACKS_PER_CHUNK = 20;
 
 export type ServidorUpFilaEnqueueState = {
   jobIds: string[];
   lotesDone: number;
   lotesTotal: number;
+  /** Faixas já enfileiradas (retomada após 504). */
+  tracksDone?: number;
+  tracksTotal?: number;
   tracksImported: number;
   startedAt?: number;
   finishedAt?: number;
@@ -50,9 +55,12 @@ export type ServidorUpEnqueueChunkInput = {
   tracks: ServidorUpUploadTrackInput[];
   uploaderEmail: string;
   uploaderDisplayName: string;
-  /** Índice do primeiro lote neste chunk (0-based). */
+  /** Índice do primeiro lote neste chunk (legado). */
   loteOffset?: number;
   loteLimit?: number;
+  /** Índice da primeira faixa no plano achatado (preferido). */
+  trackOffset?: number;
+  maxTracks?: number;
 };
 
 export type ServidorUpEnqueueChunkResult = {
@@ -66,6 +74,9 @@ export type ServidorUpEnqueueChunkResult = {
   lotesProcessed: number;
   lotesRemaining: number;
   tracksImported: number;
+  tracksTotal: number;
+  tracksProcessed: number;
+  tracksRemaining: number;
   unmatched: string[];
   done: boolean;
 };
@@ -78,19 +89,30 @@ async function normalizeUploadArquivos(
     mixSegundosFromLegacy?: number;
   }>,
 ) {
+  const withIds = arquivos.filter((a) => a.downloadItemId);
+  const idList = withIds.map((a) => a.downloadItemId!);
+  const dlById = new Map<
+    string,
+    { id: string; arquivoNome: string; titulo: string; artista: string; sizeBytes: number | null }
+  >();
+  if (idList.length > 0) {
+    const rows = await prisma.downloadItem.findMany({
+      where: {
+        id: { in: idList },
+        status: "concluido",
+        storageKey: { not: null },
+        NOT: { providerRef: { startsWith: "import:" } },
+      },
+      select: { id: true, arquivoNome: true, titulo: true, artista: true, sizeBytes: true },
+    });
+    for (const dl of rows) dlById.set(dl.id, dl);
+  }
+
   const out: Array<{ nome: string; sizeBytes?: number; downloadItemId?: string }> = [];
   for (const a of arquivos) {
     if (!a.downloadItemId && !a.nome?.trim()) continue;
     if (a.downloadItemId) {
-      const dl = await prisma.downloadItem.findFirst({
-        where: {
-          id: a.downloadItemId,
-          status: "concluido",
-          storageKey: { not: null },
-          NOT: { providerRef: { startsWith: "import:" } },
-        },
-        select: { id: true, arquivoNome: true, titulo: true, artista: true, sizeBytes: true },
-      });
+      const dl = dlById.get(a.downloadItemId);
       if (!dl) throw new Error("staging_item_invalido");
       const artista = dl.artista.trim();
       const titulo = dl.titulo.trim();
@@ -108,6 +130,40 @@ async function normalizeUploadArquivos(
     out.push({ nome: a.nome!.trim().slice(0, 500), sizeBytes: a.sizeBytes });
   }
   return out;
+}
+
+type FlatTrackEntry = {
+  lote: UploadLoteInput;
+  arquivo: NonNullable<UploadLoteInput["arquivos"]>[number];
+};
+
+function flattenUploadLotes(rawLotes: UploadLoteInput[]): FlatTrackEntry[] {
+  const flat: FlatTrackEntry[] = [];
+  for (const lote of rawLotes) {
+    for (const arquivo of lote.arquivos ?? []) {
+      if (arquivo.downloadItemId || arquivo.nome?.trim()) {
+        flat.push({ lote, arquivo });
+      }
+    }
+  }
+  return flat;
+}
+
+function groupFlatTracksToLotes(entries: FlatTrackEntry[]): UploadLoteInput[] {
+  const byKey = new Map<string, UploadLoteInput>();
+  for (const { lote, arquivo } of entries) {
+    const key = `${lote.clienteRef ?? ""}:${lote.programacaoId ?? ""}:${lote.pastaId ?? ""}`;
+    const prev = byKey.get(key);
+    if (prev) {
+      prev.arquivos = [...(prev.arquivos ?? []), arquivo];
+      continue;
+    }
+    byKey.set(key, {
+      ...lote,
+      arquivos: [arquivo],
+    });
+  }
+  return [...byKey.values()];
 }
 
 function buildStagingPairs(
@@ -162,8 +218,14 @@ export function isFilaEnqueueComplete(session: ServidorUpUploadSessionMeta): boo
 export async function enqueueServidorUpFilaChunk(
   input: ServidorUpEnqueueChunkInput,
 ): Promise<ServidorUpEnqueueChunkResult> {
-  const loteOffset = Math.max(0, input.loteOffset ?? 0);
-  const loteLimit = Math.min(20, Math.max(1, input.loteLimit ?? SERVIDOR_UP_ENQUEUE_LOTE_CHUNK));
+  const maxTracks = Math.min(
+    50,
+    Math.max(1, input.maxTracks ?? SERVIDOR_UP_MAX_TRACKS_PER_CHUNK),
+  );
+  const trackOffset = Math.max(
+    0,
+    input.trackOffset ?? 0,
+  );
 
   const plan = await buildServidorUpUploadPlan({
     downloadJobId: input.downloadJobId,
@@ -184,6 +246,9 @@ export async function enqueueServidorUpFilaChunk(
       lotesProcessed: 0,
       lotesRemaining: 0,
       tracksImported: 0,
+      tracksTotal: 0,
+      tracksProcessed: 0,
+      tracksRemaining: 0,
       unmatched: plan.unmatchedTracks.slice(0, 30),
       done: false,
     };
@@ -205,6 +270,9 @@ export async function enqueueServidorUpFilaChunk(
       lotesProcessed: 0,
       lotesRemaining: plan.lotes.length,
       tracksImported: 0,
+      tracksTotal: 0,
+      tracksProcessed: trackOffset,
+      tracksRemaining: 0,
       unmatched: plan.unmatchedTracks.slice(0, 30),
       done: false,
     };
@@ -212,7 +280,10 @@ export async function enqueueServidorUpFilaChunk(
 
   const rawLotes = servidorUpPlanToUploadLotes(plan, input.titulo);
   const lotesTotal = rawLotes.length;
-  if (lotesTotal === 0) {
+  const flat = flattenUploadLotes(rawLotes);
+  const tracksTotal = flat.length;
+
+  if (tracksTotal === 0) {
     return {
       ok: false,
       error: "nenhuma_faixa_mapeada",
@@ -223,26 +294,34 @@ export async function enqueueServidorUpFilaChunk(
       lotesProcessed: 0,
       lotesRemaining: 0,
       tracksImported: 0,
+      tracksTotal: 0,
+      tracksProcessed: 0,
+      tracksRemaining: 0,
       unmatched: plan.unmatchedTracks.slice(0, 30),
       done: false,
     };
   }
 
-  const slice = rawLotes.slice(loteOffset, loteOffset + loteLimit);
-  if (slice.length === 0) {
+  if (trackOffset >= tracksTotal) {
     return {
       ok: true,
       jobIds: [],
       stagingImported: 0,
       stagingErrors: [],
       lotesTotal,
-      lotesProcessed: loteOffset,
+      lotesProcessed: lotesTotal,
       lotesRemaining: 0,
       tracksImported: 0,
+      tracksTotal,
+      tracksProcessed: tracksTotal,
+      tracksRemaining: 0,
       unmatched: plan.unmatchedTracks.slice(0, 30),
       done: true,
     };
   }
+
+  const flatSlice = flat.slice(trackOffset, trackOffset + maxTracks);
+  const slice = groupFlatTracksToLotes(flatSlice);
 
   const tagCriativoDefault = await resolveTagCriativoUser(undefined, input.uploaderEmail);
   const uploaderNome = input.uploaderDisplayName;
@@ -272,9 +351,12 @@ export async function enqueueServidorUpFilaChunk(
       stagingImported: 0,
       stagingErrors: [],
       lotesTotal,
-      lotesProcessed: loteOffset,
-      lotesRemaining: Math.max(0, lotesTotal - loteOffset),
+      lotesProcessed: 0,
+      lotesRemaining: lotesTotal,
       tracksImported: 0,
+      tracksTotal,
+      tracksProcessed: trackOffset,
+      tracksRemaining: Math.max(0, tracksTotal - trackOffset),
       unmatched: plan.unmatchedTracks.slice(0, 30),
       done: false,
     };
@@ -312,9 +394,12 @@ export async function enqueueServidorUpFilaChunk(
         stagingImported: 0,
         stagingErrors,
         lotesTotal,
-        lotesProcessed: loteOffset + slice.length,
-        lotesRemaining: Math.max(0, lotesTotal - loteOffset - slice.length),
+        lotesProcessed: 0,
+        lotesRemaining: lotesTotal,
         tracksImported: 0,
+        tracksTotal,
+        tracksProcessed: trackOffset,
+        tracksRemaining: Math.max(0, tracksTotal - trackOffset),
         unmatched: plan.unmatchedTracks.slice(0, 30),
         done: false,
       };
@@ -323,9 +408,9 @@ export async function enqueueServidorUpFilaChunk(
 
   await applyPendingUploadTags(80).catch(() => {});
 
-  const lotesProcessed = loteOffset + slice.length;
-  const lotesRemaining = Math.max(0, lotesTotal - lotesProcessed);
-  const done = lotesRemaining === 0;
+  const tracksProcessed = trackOffset + flatSlice.length;
+  const tracksRemaining = Math.max(0, tracksTotal - tracksProcessed);
+  const done = tracksRemaining === 0;
 
   return {
     ok: true,
@@ -333,9 +418,12 @@ export async function enqueueServidorUpFilaChunk(
     stagingImported,
     stagingErrors,
     lotesTotal,
-    lotesProcessed,
-    lotesRemaining,
+    lotesProcessed: lotesTotal,
+    lotesRemaining: 0,
     tracksImported: stagingImported,
+    tracksTotal,
+    tracksProcessed,
+    tracksRemaining,
     unmatched: plan.unmatchedTracks.slice(0, 30),
     done,
   };
@@ -362,7 +450,7 @@ export async function runAutoEnqueueForSnapshot(
 
   const uploaderEmail = snapshot.enqueuedByEmail?.trim() || "servidor-up@portal";
   const uploaderDisplayName = snapshot.enqueuedByDisplayName?.trim() || "Servidor UP";
-  const loteOffset = snapshot.filaEnqueue?.lotesDone ?? 0;
+  const trackOffset = snapshot.filaEnqueue?.tracksDone ?? 0;
 
   const result = await enqueueServidorUpFilaChunk({
     downloadJobId,
@@ -372,8 +460,7 @@ export async function runAutoEnqueueForSnapshot(
     tracks: snapshot.tracks,
     uploaderEmail,
     uploaderDisplayName,
-    loteOffset,
-    loteLimit: SERVIDOR_UP_ENQUEUE_LOTE_CHUNK,
+    trackOffset,
   });
 
   const prev = snapshot.filaEnqueue;
@@ -381,6 +468,8 @@ export async function runAutoEnqueueForSnapshot(
     jobIds: [...(prev?.jobIds ?? []), ...result.jobIds],
     lotesDone: result.lotesProcessed,
     lotesTotal: result.lotesTotal,
+    tracksDone: result.tracksProcessed,
+    tracksTotal: result.tracksTotal,
     tracksImported: (prev?.tracksImported ?? 0) + result.tracksImported,
     startedAt: prev?.startedAt ?? Date.now(),
     finishedAt: result.done && result.ok ? Date.now() : undefined,

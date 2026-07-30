@@ -77,11 +77,25 @@ type SessionsResponse = {
   error?: string;
 };
 
+type EnqueueChunkResponse = EnqueueResponse & {
+  done?: boolean;
+  tracksProcessed?: number;
+  tracksRemaining?: number;
+  tracksTotal?: number;
+  lotesTotal?: number;
+  stagingImported?: number;
+};
+
 async function readApiJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   try {
     return JSON.parse(text) as T;
   } catch {
+    if (res.status === 504) {
+      throw new Error(
+        "Portal HTTP 504 (timeout Netlify) — o envio continua em chunks menores; clique de novo ou aguarde alguns segundos. Progresso salvo no snapshot.",
+      );
+    }
     throw new Error(
       res.ok ?
         "Resposta inválida do portal (HTML em vez de JSON). Aguarde o deploy ou recarregue a página."
@@ -443,39 +457,55 @@ export function ServidorUpMultiUploadPanel() {
     setErr(null);
     setMsg(null);
     try {
-      let loteOffset = 0;
+      let trackOffset = 0;
       let totalTracks = 0;
-      let totalLotes = 0;
+      let totalLotes = plan.lotes.length;
       let jobIds: string[] = [];
       let done = false;
       let unmatched = 0;
       let loops = 0;
+      let tracksTotal = plan.lotes.reduce((n, l) => n + l.tracks.length, 0);
 
-      while (!done && loops < 200) {
+      while (!done && loops < 500) {
         loops += 1;
-        setMsg(`Enviando para fila… ${totalTracks > 0 ? `${totalTracks} faixa(s) · ` : ""}lote ${loteOffset + 1}…`);
-        const res = await fetch("/api/criacao/servidor-up/enqueue-upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            downloadJobId: session.downloadJobId,
-            titulo: session.titulo,
-            hierarchyRows: session.hierarchyRows,
-            drafts: session.drafts,
-            tracks: session.tracks,
-            loteOffset,
-            markAutoEnqueue: true,
-          }),
-        });
-        const data = await readApiJson<
-          EnqueueResponse & {
-            done?: boolean;
-            lotesProcessed?: number;
-            lotesRemaining?: number;
-            lotesTotal?: number;
+        setMsg(
+          `Enviando para fila… ${trackOffset}/${tracksTotal || "?"} faixa(s)${totalTracks > 0 ? ` · ${totalTracks} importada(s) nesta sessão` : ""}`,
+        );
+
+        let data: EnqueueChunkResponse | null = null;
+        let lastStatus = 0;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const res = await fetch("/api/criacao/servidor-up/enqueue-upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              downloadJobId: session.downloadJobId,
+              titulo: session.titulo,
+              hierarchyRows: session.hierarchyRows,
+              drafts: session.drafts,
+              tracks: session.tracks,
+              trackOffset,
+              markAutoEnqueue: true,
+            }),
+          });
+          lastStatus = res.status;
+          try {
+            data = await readApiJson<EnqueueChunkResponse>(res);
+            break;
+          } catch (e) {
+            if (res.status === 504 && attempt < 4) {
+              setMsg(`Timeout 504 — retentando chunk em ${3 + attempt}s… (${trackOffset}/${tracksTotal})`);
+              await new Promise((r) => setTimeout(r, (3 + attempt) * 1000));
+              continue;
+            }
+            throw e;
           }
-        >(res);
-        if (!res.ok || !data.ok) {
+        }
+
+        if (!data) throw new Error(`Portal HTTP ${lastStatus} — falha após retentativas.`);
+
+        if (!data.ok) {
           if (data.error === "hierarquia_incompleta") {
             throw new Error(data.messages?.join(" · ") ?? "Hierarquia incompleta no passo 0.");
           }
@@ -492,16 +522,25 @@ export function ServidorUpMultiUploadPanel() {
           }
           throw new Error(data.message ?? data.error ?? "Falha no multi-upload.");
         }
+
         totalTracks += data.stats?.tracks ?? data.stagingImported ?? 0;
         totalLotes = data.lotesTotal ?? totalLotes;
+        tracksTotal = data.tracksTotal ?? tracksTotal;
         unmatched = data.stats?.unmatched ?? unmatched;
         jobIds = [...jobIds, ...(data.jobIds ?? [])];
-        done = data.done ?? (data.lotesRemaining ?? 0) === 0;
-        const nextOffset = data.lotesProcessed;
-        if (nextOffset == null || nextOffset <= loteOffset) break;
-        loteOffset = nextOffset;
+        done = data.done ?? (data.tracksRemaining ?? 0) === 0;
+        const nextOffset = data.tracksProcessed;
+        if (nextOffset == null || nextOffset <= trackOffset) break;
+        trackOffset = nextOffset;
         if (done) break;
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+
+      if (!done) {
+        setMsg(
+          `Parcial: ${totalTracks} faixa(s) importada(s) · retome clicando «Enviar» (continua do chunk ${trackOffset}).`,
+        );
+        return;
       }
 
       clearServidorUpUploadSession();

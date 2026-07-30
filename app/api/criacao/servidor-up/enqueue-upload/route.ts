@@ -3,7 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { CRIACAO_INGEST_URL, ingestEnabled } from "@/lib/criacao/ingestTicket";
 import {
   enqueueServidorUpFilaChunk,
-  SERVIDOR_UP_ENQUEUE_LOTE_CHUNK,
+  SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
   type ServidorUpEnqueueChunkInput,
 } from "@/lib/criacao/servidorUpEnqueueFilaService";
 import type { ServidorUpHierarchyRow } from "@/lib/criacao/servidorUpHierarchyService";
@@ -32,6 +32,8 @@ export async function POST(request: Request) {
       tracks?: ServidorUpUploadTrackInput[];
       loteOffset?: number;
       loteLimit?: number;
+      trackOffset?: number;
+      maxTracks?: number;
       markAutoEnqueue?: boolean;
     };
 
@@ -47,6 +49,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "tracks_vazios" }, { status: 400 });
     }
 
+    const existingSnap = body.markAutoEnqueue !== false ?
+      ((await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null)
+    : null;
+    const resumeTrackOffset =
+      body.trackOffset ?? existingSnap?.filaEnqueue?.tracksDone ?? body.loteOffset ?? 0;
+
     const input: ServidorUpEnqueueChunkInput = {
       downloadJobId,
       titulo,
@@ -55,8 +63,8 @@ export async function POST(request: Request) {
       tracks,
       uploaderEmail: session.email,
       uploaderDisplayName: session.displayName ?? session.email,
-      loteOffset: body.loteOffset,
-      loteLimit: body.loteLimit ?? SERVIDOR_UP_ENQUEUE_LOTE_CHUNK,
+      trackOffset: resumeTrackOffset,
+      maxTracks: body.maxTracks ?? SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
     };
 
     const result = await enqueueServidorUpFilaChunk(input);
@@ -68,6 +76,8 @@ export async function POST(request: Request) {
         jobIds: [...(prev?.jobIds ?? []), ...result.jobIds],
         lotesDone: result.lotesProcessed,
         lotesTotal: result.lotesTotal,
+        tracksDone: result.tracksProcessed,
+        tracksTotal: result.tracksTotal,
         tracksImported: (prev?.tracksImported ?? 0) + result.tracksImported,
         startedAt: prev?.startedAt ?? Date.now(),
         finishedAt: result.done && result.ok ? Date.now() : prev?.finishedAt,
@@ -128,11 +138,17 @@ export async function POST(request: Request) {
       lotesTotal: result.lotesTotal,
       lotesProcessed: result.lotesProcessed,
       lotesRemaining: result.lotesRemaining,
+      tracksTotal: result.tracksTotal,
+      tracksProcessed: result.tracksProcessed,
+      tracksRemaining: result.tracksRemaining,
       stats: {
         lotes: result.lotesProcessed,
         lotesTotal: result.lotesTotal,
         lotesRemaining: result.lotesRemaining,
         tracks: result.tracksImported,
+        tracksTotal: result.tracksTotal,
+        tracksProcessed: result.tracksProcessed,
+        tracksRemaining: result.tracksRemaining,
         unmatched: result.unmatched.length,
       },
       unmatched: result.unmatched,

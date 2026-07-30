@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
   runAutoEnqueueForSnapshot,
-  SERVIDOR_UP_ENQUEUE_LOTE_CHUNK,
+  SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
 } from "@/lib/criacao/servidorUpEnqueueFilaService";
 
 export const maxDuration = 120;
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       totalTracks,
       lotesRemaining: last.lotesRemaining,
       lotesTotal: last.lotesTotal,
-      chunkSize: SERVIDOR_UP_ENQUEUE_LOTE_CHUNK,
+      chunkSize: SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
     });
   } catch (e) {
     if (e instanceof Response) return e;
