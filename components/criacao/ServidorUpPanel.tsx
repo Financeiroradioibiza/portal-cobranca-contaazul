@@ -890,29 +890,65 @@ export function ServidorUpPanel() {
 
   async function triggerAutoEnqueueFila(jobId: string) {
     try {
-      setBusy("Enviando para fila automaticamente…");
-      const res = await fetch("/api/criacao/servidor-up/auto-enqueue-fila", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ downloadJobId: jobId, maxChunks: 80 }),
-      });
-      const data = await readApiJson<{
-        ok?: boolean;
-        done?: boolean;
-        totalTracks?: number;
-        lotesRemaining?: number;
-        error?: string;
-        message?: string;
-      }>(res);
-      if (!res.ok || !data.ok) {
-        if (data.error === "nao_pronto") return;
-        setErr(data.message ?? data.error ?? "Fila automática não enfileirou — use Passo 5 ou aguarde o worker noturno.");
-        return;
+      let importedTotal = 0;
+      let done = false;
+      let lastTracksTotal = 0;
+      let lastTracksProcessed = 0;
+      const maxRounds = 200;
+
+      for (let round = 0; round < maxRounds; round++) {
+        const progress =
+          lastTracksTotal > 0 ?
+            `${lastTracksProcessed}/${lastTracksTotal}`
+          : round > 0 ?
+            `${importedTotal} importada(s)`
+          : "…";
+        setBusy(`Enviando para fila… ${progress}`);
+
+        const res = await fetch("/api/criacao/servidor-up/auto-enqueue-fila", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ downloadJobId: jobId, maxChunks: 1 }),
+        });
+        const data = await readApiJson<{
+          ok?: boolean;
+          done?: boolean;
+          totalTracks?: number;
+          tracksImported?: number;
+          tracksProcessed?: number;
+          tracksTotal?: number;
+          tracksRemaining?: number;
+          lotesRemaining?: number;
+          unmatched?: string[];
+          error?: string;
+          message?: string;
+        }>(res);
+
+        if (!res.ok || !data.ok) {
+          if (data.error === "nao_pronto") return;
+          if (importedTotal > 0) {
+            setErr(
+              `${data.message ?? data.error ?? "Fila parou no meio"} — ${importedTotal} faixa(s) já enfileirada(s); use Passo 5 para retomar.`,
+            );
+            return;
+          }
+          setErr(data.message ?? data.error ?? "Fila automática não enfileirou — use Passo 5 ou aguarde o worker noturno.");
+          return;
+        }
+
+        importedTotal += data.tracksImported ?? data.totalTracks ?? 0;
+        done = data.done ?? false;
+        lastTracksTotal = data.tracksTotal ?? lastTracksTotal;
+        lastTracksProcessed = data.tracksProcessed ?? lastTracksProcessed;
+
+        if (done) break;
+        await new Promise((r) => setTimeout(r, 350));
       }
+
       const filaMsg =
-        data.done ?
-          `${data.totalTracks ?? 0} faixa(s) na fila — processamento automático iniciado.`
-        : `${data.totalTracks ?? 0} faixa(s) enfileirada(s); ${data.lotesRemaining ?? 0} pasta(s) restante(s) — o worker noturno ou Passo 5 concluem.`;
+        done ?
+          `${lastTracksProcessed || importedTotal}/${lastTracksTotal || importedTotal} faixa(s) na fila — processamento automático iniciado.`
+        : `${importedTotal} faixa(s) enfileirada(s) nesta sessão — retome em Passo 5 ou aguarde o worker noturno.`;
       setMsg((m) => `${m}${m ? " · " : ""}${filaMsg}`);
     } catch (e) {
       setErr(

@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "download_job_obrigatorio" }, { status: 400 });
     }
 
-    const maxChunks = Math.min(20, Math.max(1, body.maxChunks ?? 12));
+    const maxChunks = Math.min(3, Math.max(1, body.maxChunks ?? 1));
     const chunks: Awaited<ReturnType<typeof runAutoEnqueueForSnapshot>>[] = [];
     let totalTracks = 0;
 
@@ -65,8 +65,13 @@ export async function POST(request: Request) {
       done: last.done,
       chunks: chunks.length,
       totalTracks,
+      tracksImported: last.tracksImported,
+      tracksProcessed: last.tracksProcessed,
+      tracksTotal: last.tracksTotal,
+      tracksRemaining: last.tracksRemaining,
       lotesRemaining: last.lotesRemaining,
       lotesTotal: last.lotesTotal,
+      unmatched: last.unmatched?.slice(0, 10),
       chunkSize: SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
     });
   } catch (e) {

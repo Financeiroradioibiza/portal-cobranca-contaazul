@@ -164,6 +164,8 @@ export function resolveDownloadItemForTrack(
       if (unavailable(item.id, opts)) continue;
       if (deezerTrackIdFromUrl(item.linhaOriginal) === deezerId) return item;
     }
+    // Com URL Deezer no snapshot, não cair em índice/nome — evita parear MP3 errado (duplicata na fila).
+    return undefined;
   }
 
   const indexed = opts?.indexMap?.get(track.relativePath);
