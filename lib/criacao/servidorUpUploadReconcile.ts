@@ -30,11 +30,24 @@ function artistTitleKey(artista: string, titulo: string): string {
 
 /** Artista/título a partir do nome do MP3 legado (`Artista - Faixa~7.mp3`). */
 export function legacyStemArtistTitle(relativePath: string): { artista: string; titulo: string } | null {
-  const base = relativePath.split("/").pop()?.replace(/\.mp3$/i, "") ?? "";
+  const base = legacyMp3Basename(relativePath);
   const stripped = base.replace(/~\d+$/i, "").trim();
   const sep = stripped.match(/^(.+?)\s*[-–—]\s*(.+)$/);
   if (!sep?.[1]?.trim() || !sep[2]?.trim()) return null;
   return { artista: sep[1].trim(), titulo: sep[2].trim() };
+}
+
+/** Nome do arquivo MP3 legado sem path (`Artista - Faixa~7.mp3`). */
+export function legacyMp3Basename(relativePath: string): string {
+  return relativePath.split("/").pop()?.replace(/\.mp3$/i, "") ?? "";
+}
+
+function legacyBasenameMatchKey(relativePath: string): string {
+  return foldMatchKey(legacyMp3Basename(relativePath).replace(/~\d+$/i, ""));
+}
+
+function downloadBasenameMatchKey(arquivoNome: string): string {
+  return foldMatchKey(arquivoNome.replace(/\.mp3$/i, "").replace(/~\d+$/i, ""));
 }
 
 function parseArtistTitleFromLine(line: string): { artista: string; titulo: string } | null {
@@ -90,10 +103,12 @@ function matchByArtistTitle(
   wantT: string,
   indexes: ItemMatchIndexes,
   usedDownloadIds: Set<string>,
+  opts?: { unavailableDownloadIds?: Set<string> },
+  items?: DownloadItemForMatch[],
 ): DownloadItemForMatch | undefined {
   const key = artistTitleKey(wantA, wantT);
   const exact = takeUnusedItem(indexes.byArtistTitle.get(key), usedDownloadIds);
-  if (exact) return exact;
+  if (exact && !unavailable(exact.id, opts)) return exact;
 
   const wantAF = foldMatchKey(wantA);
   const wantTF = foldMatchKey(wantT);
@@ -102,8 +117,24 @@ function matchByArtistTitle(
     if (ia !== wantAF) continue;
     if (it === wantTF || it.includes(wantTF) || wantTF.includes(it)) {
       const hit = takeUnusedItem(list, usedDownloadIds);
-      if (hit) return hit;
+      if (hit && !unavailable(hit.id, opts)) return hit;
     }
+  }
+  return undefined;
+}
+
+function matchByLegacyBasename(
+  track: ServidorUpUploadTrackInput,
+  items: DownloadItemForMatch[],
+  usedDownloadIds: Set<string>,
+  opts?: { unavailableDownloadIds?: Set<string> },
+): DownloadItemForMatch | undefined {
+  const want = legacyBasenameMatchKey(track.relativePath);
+  if (!want) return undefined;
+  for (const item of items) {
+    if (usedDownloadIds.has(item.id)) continue;
+    if (unavailable(item.id, opts)) continue;
+    if (downloadBasenameMatchKey(item.arquivoNome) === want) return item;
   }
   return undefined;
 }
@@ -113,6 +144,10 @@ export function resolveDownloadItemForTrack(
   indexes: ItemMatchIndexes,
   items: DownloadItemForMatch[],
   usedDownloadIds: Set<string>,
+  opts?: {
+    indexMap?: Map<string, DownloadItemForMatch>;
+    unavailableDownloadIds?: Set<string>;
+  },
 ): DownloadItemForMatch | undefined {
   const deezerId = deezerTrackIdFromUrl(track.deezerUrl);
   if (deezerId) {
@@ -120,43 +155,85 @@ export function resolveDownloadItemForTrack(
     if (hit) return hit;
     for (const item of items) {
       if (usedDownloadIds.has(item.id)) continue;
+      if (unavailable(item.id, opts)) continue;
       if (deezerTrackIdFromUrl(item.linhaOriginal) === deezerId) return item;
     }
   }
 
+  const indexed = opts?.indexMap?.get(track.relativePath);
+  if (indexed && !usedDownloadIds.has(indexed.id) && !unavailable(indexed.id, opts)) {
+    return indexed;
+  }
+
+  const byBasename = matchByLegacyBasename(track, items, usedDownloadIds, opts);
+  if (byBasename) return byBasename;
+
   const legacy = legacyStemArtistTitle(track.relativePath);
   if (legacy) {
-    const hit = matchByArtistTitle(legacy.artista, legacy.titulo, indexes, usedDownloadIds);
+    const hit = matchByArtistTitle(legacy.artista, legacy.titulo, indexes, usedDownloadIds, opts, items);
     if (hit) return hit;
   }
 
   const fromUrlLine = track.deezerUrl.trim();
   const parsedUrlLine = parseArtistTitleFromLine(fromUrlLine);
   if (parsedUrlLine) {
-    const hit = matchByArtistTitle(parsedUrlLine.artista, parsedUrlLine.titulo, indexes, usedDownloadIds);
+    const hit = matchByArtistTitle(parsedUrlLine.artista, parsedUrlLine.titulo, indexes, usedDownloadIds, opts, items);
     if (hit) return hit;
   }
 
   return undefined;
 }
 
-/** Quando URLs do snapshot divergem do job, alinha pela ordem de enfileiramento (mesmo lote legado). */
+function unavailable(
+  id: string,
+  opts?: { unavailableDownloadIds?: Set<string> },
+): boolean {
+  return opts?.unavailableDownloadIds?.has(id) ?? false;
+}
+
+/**
+ * Deemix é enfileirado na mesma ordem de `session.tracks` — pareia por índice global.
+ * Usa todos os itens concluídos do job (incl. já importados) para manter o alinhamento.
+ */
+export function buildTrackToDownloadIndexMap(
+  tracks: ServidorUpUploadTrackInput[],
+  allJobItems: DownloadItemForMatch[],
+): Map<string, DownloadItemForMatch> {
+  const sortedItems = [...allJobItems].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const out = new Map<string, DownloadItemForMatch>();
+  const limit = Math.min(tracks.length, sortedItems.length);
+  for (let i = 0; i < limit; i++) {
+    out.set(tracks[i]!.relativePath, sortedItems[i]!);
+  }
+  return out;
+}
+
+/** Fallback por índice global — só usa itens ainda disponíveis (não importados / não usados). */
+export function resolveByGlobalEnqueueIndex(
+  pendingTracks: ServidorUpUploadTrackInput[],
+  indexMap: Map<string, DownloadItemForMatch>,
+  usedDownloadIds: Set<string>,
+  unavailableDownloadIds?: Set<string>,
+): Map<string, DownloadItemForMatch> {
+  const out = new Map<string, DownloadItemForMatch>();
+  for (const track of pendingTracks) {
+    const indexed = indexMap.get(track.relativePath);
+    if (!indexed) continue;
+    if (usedDownloadIds.has(indexed.id)) continue;
+    if (unavailableDownloadIds?.has(indexed.id)) continue;
+    out.set(track.relativePath, indexed);
+  }
+  return out;
+}
+
+/** @deprecated Prefer resolveByGlobalEnqueueIndex — mantido para compat em testes legados. */
 export function resolveByEnqueueOrderFallback(
   pendingTracks: ServidorUpUploadTrackInput[],
   items: DownloadItemForMatch[],
   usedDownloadIds: Set<string>,
 ): Map<string, DownloadItemForMatch> {
-  const out = new Map<string, DownloadItemForMatch>();
-  const freeItems = items
-    .filter((i) => !usedDownloadIds.has(i.id))
-    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-
-  if (freeItems.length < pendingTracks.length * 0.85) return out;
-
-  for (let i = 0; i < pendingTracks.length && i < freeItems.length; i++) {
-    out.set(pendingTracks[i]!.relativePath, freeItems[i]!);
-  }
-  return out;
+  const indexMap = buildTrackToDownloadIndexMap(pendingTracks, items);
+  return resolveByGlobalEnqueueIndex(pendingTracks, indexMap, usedDownloadIds);
 }
 
 /** Atualiza deezerUrl das faixas a partir dos itens baixados (para snapshot desatualizado). */

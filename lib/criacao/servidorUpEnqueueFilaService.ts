@@ -36,7 +36,8 @@ export type ServidorUpFilaEnqueueState = {
   tracksImported: number;
   startedAt?: number;
   finishedAt?: number;
-  lastError?: string | null;
+  /** Relative paths já enfileirados (evita duplicata se staging falhar). */
+  enqueuedRelativePaths?: string[];
 };
 
 export type ServidorUpUploadSessionMeta = ServidorUpUploadSession & {
@@ -482,6 +483,15 @@ export async function runAutoEnqueueForSnapshot(
     savedAt: Date.now(),
   } as ServidorUpUploadSession);
 
+  if (result.done && result.ok) {
+    const { recoverServidorUpMissingTracksAll } = await import("@/lib/criacao/servidorUpRecoverMissingService");
+    await recoverServidorUpMissingTracksAll(downloadJobId, {
+      maxRounds: 25,
+      uploaderEmail,
+      uploaderDisplayName,
+    }).catch(() => null);
+  }
+
   return result;
 }
 
@@ -511,7 +521,26 @@ export async function runServidorUpNightWorker(opts?: {
 
   for (const snap of snapshots) {
     const full = (await getServidorUpUploadSnapshot(snap.downloadJobId)) as ServidorUpUploadSessionMeta | null;
-    if (!full || full.autoEnqueueFila === false || isFilaEnqueueComplete(full)) continue;
+    if (!full || full.autoEnqueueFila === false) continue;
+
+    if (isFilaEnqueueComplete(full)) {
+      const { recoverServidorUpMissingTracks } = await import("@/lib/criacao/servidorUpRecoverMissingService");
+      const recovered = await recoverServidorUpMissingTracks(snap.downloadJobId, {
+        maxTracks: SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
+        uploaderEmail: full.enqueuedByEmail,
+        uploaderDisplayName: full.enqueuedByDisplayName,
+      }).catch(() => null);
+      if (recovered?.enqueuedNow) {
+        enqueues.push({
+          downloadJobId: snap.downloadJobId,
+          ok: recovered.ok,
+          done: recovered.missingBefore <= recovered.enqueuedNow,
+          tracksImported: recovered.stagingImported,
+          error: recovered.ok ? undefined : recovered.error,
+        });
+      }
+      continue;
+    }
 
     let loops = 0;
     while (loops < 8) {

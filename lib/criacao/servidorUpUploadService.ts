@@ -5,9 +5,9 @@ import type { UploadLoteInput } from "@/lib/criacao/filaService";
 import { mixSegundosFromRelativePath } from "@/lib/criacao/legacyMixFilename";
 import {
   buildDownloadItemMatchIndexes,
+  buildTrackToDownloadIndexMap,
   deezerTrackIdFromUrl,
   legacyStemArtistTitle,
-  resolveByEnqueueOrderFallback,
   resolveDownloadItemForTrack,
   type DownloadItemForMatch,
 } from "@/lib/criacao/servidorUpUploadReconcile";
@@ -215,31 +215,46 @@ export async function buildServidorUpUploadPlan(input: {
   const hierarchyByKey = new Map(input.hierarchyRows.map((r) => [r.key, r]));
   const drafts = input.drafts ?? {};
 
-  const downloadItems = await prisma.downloadItem.findMany({
+  const downloadItemSelect = {
+    id: true,
+    linhaOriginal: true,
+    titulo: true,
+    artista: true,
+    arquivoNome: true,
+    sizeBytes: true,
+    createdAt: true,
+    providerRef: true,
+  } as const;
+
+  const allJobItems = await prisma.downloadItem.findMany({
     where: {
       jobId: input.downloadJobId,
       status: "concluido",
       storageKey: { not: null },
-      NOT: { providerRef: { startsWith: "import:" } },
     },
-    select: {
-      id: true,
-      linhaOriginal: true,
-      titulo: true,
-      artista: true,
-      arquivoNome: true,
-      sizeBytes: true,
-      createdAt: true,
-    },
+    select: downloadItemSelect,
     orderBy: { createdAt: "asc" },
   });
+
+  const importedDownloadIds = new Set(
+    allJobItems.filter((i) => i.providerRef.startsWith("import:")).map((i) => i.id),
+  );
+
+  const downloadItems: DownloadItemForMatch[] = allJobItems
+    .filter((i) => !i.providerRef.startsWith("import:"))
+    .map(({ providerRef: _pr, ...rest }) => rest);
+
+  const globalIndexMap = buildTrackToDownloadIndexMap(input.tracks, allJobItems);
 
   const indexes = buildDownloadItemMatchIndexes(downloadItems);
   const loteMap = new Map<string, ServidorUpUploadLotePreview>();
   const unmatchedTracks: string[] = [];
   const hierarchyErrors: string[] = [];
   const usedDownloadIds = new Set<string>();
-  const pendingForOrder: ServidorUpUploadTrackInput[] = [];
+  const matchOpts = {
+    indexMap: globalIndexMap,
+    unavailableDownloadIds: importedDownloadIds,
+  };
 
   for (const track of input.tracks) {
     const hierarchy = findHierarchyRow(track, hierarchyByKey, input.hierarchyRows);
@@ -255,36 +270,8 @@ export async function buildServidorUpUploadPlan(input: {
     }
 
     const key = hierarchy.key || servidorUpHierarchyKey(track);
-    const dl = resolveDownloadItemForTrack(track, indexes, downloadItems, usedDownloadIds);
+    const dl = resolveDownloadItemForTrack(track, indexes, downloadItems, usedDownloadIds, matchOpts);
     if (!dl) {
-      pendingForOrder.push(track);
-      continue;
-    }
-    usedDownloadIds.add(dl.id);
-    pushTrackToLote(loteMap, hierarchy, key, track, dl, drafts);
-  }
-
-  if (pendingForOrder.length > 0) {
-    const orderMap = resolveByEnqueueOrderFallback(pendingForOrder, downloadItems, usedDownloadIds);
-    const stillPending: ServidorUpUploadTrackInput[] = [];
-
-    for (const track of pendingForOrder) {
-      const hierarchy = findHierarchyRow(track, hierarchyByKey, input.hierarchyRows);
-      if (!hierarchy?.clienteRef || !hierarchy.programacaoId || !hierarchy.pastaId) {
-        stillPending.push(track);
-        continue;
-      }
-      const key = hierarchy.key || servidorUpHierarchyKey(track);
-      const dl = orderMap.get(track.relativePath);
-      if (!dl || usedDownloadIds.has(dl.id)) {
-        stillPending.push(track);
-        continue;
-      }
-      usedDownloadIds.add(dl.id);
-      pushTrackToLote(loteMap, hierarchy, key, track, dl, drafts);
-    }
-
-    for (const track of stillPending) {
       const legacy = legacyStemArtistTitle(track.relativePath);
       const hint =
         legacy ?
@@ -293,7 +280,10 @@ export async function buildServidorUpUploadPlan(input: {
       unmatchedTracks.push(
         `${track.relativePath} (${hint} — sem MP3 pareado neste job; confira se o snapshot é deste download)`,
       );
+      continue;
     }
+    usedDownloadIds.add(dl.id);
+    pushTrackToLote(loteMap, hierarchy, key, track, dl, drafts);
   }
 
   const orphanDownloadItems = downloadItems.filter((i) => !usedDownloadIds.has(i.id)).length;
@@ -362,12 +352,32 @@ export function filterServidorUpPlanApproved(
   approvedDownloadItemIds: string[],
 ): ServidorUpUploadPlan {
   const allowed = new Set(approvedDownloadItemIds);
+  return filterServidorUpPlanTracks(plan, {
+    includeDownloadItemIds: allowed,
+  });
+}
+
+/** Filtra lotes por relativePath ou downloadItemId. */
+export function filterServidorUpPlanTracks(
+  plan: ServidorUpUploadPlan,
+  filter: {
+    includeRelativePaths?: Set<string>;
+    excludeRelativePaths?: Set<string>;
+    includeDownloadItemIds?: Set<string>;
+  },
+): ServidorUpUploadPlan {
+  const { includeRelativePaths, excludeRelativePaths, includeDownloadItemIds } = filter;
   return {
     ...plan,
     lotes: plan.lotes
       .map((lote) => ({
         ...lote,
-        tracks: lote.tracks.filter((t) => allowed.has(t.downloadItemId)),
+        tracks: lote.tracks.filter((t) => {
+          if (excludeRelativePaths?.has(t.relativePath)) return false;
+          if (includeRelativePaths && !includeRelativePaths.has(t.relativePath)) return false;
+          if (includeDownloadItemIds && !includeDownloadItemIds.has(t.downloadItemId)) return false;
+          return true;
+        }),
       }))
       .filter((lote) => lote.tracks.length > 0),
   };
