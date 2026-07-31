@@ -1,6 +1,7 @@
 /**
- * Fase C — URLs assinadas cloud3 para entrega .rib (Player 5 v2).
- * Default **on** (`PLAYER5_ENTREGA_CF` ausente = cloud3). Rollback consciente: `=0`.
+ * Entrega Player 5 — músicas ambiente via cloud3 (B2 .rib); vinhetas VP/VA via get_musica (disco cloud2).
+ * Contrato permanente: ver docs/CLOUD2-ENV-OBRIGATORIO.md § Vinhetas.
+ * Default **on** (`PLAYER5_ENTREGA_CF` ausente = cloud3 para músicas). Rollback consciente: `=0`.
  */
 import crypto from 'node:crypto';
 import { criacaoConfig } from './config.js';

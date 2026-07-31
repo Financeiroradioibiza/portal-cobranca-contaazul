@@ -36,6 +36,10 @@ Origem do MP3 (browser, deemix, staging) **não altera** esse fluxo; todos passa
 
 **Proibido** em produção: gravar master só em `master-local/` sem falha explícita quando B2 deveria estar ativo (`CRIACAO_ALLOW_LOCAL_MASTER=1` só homologação local).
 
+## Vinhetas (VP/VA) — separado da fila musical
+
+**Contrato permanente (jul/2026):** vinhetas ficam no **disco cloud2** (`vinheta/`, `vinheta-trilha/`); entrega no player via **`get_musica`**. **Músicas ambiente** → B2 + **cloud3** (`PLAYER5_ENTREGA_CF=1`). Vinhetas **não** migram para B2/cloud3 sem OK explícito. Ver `docs/CLOUD2-ENV-OBRIGATORIO.md` § Vinhetas.
+
 ## Antes de mudar cloud2 / `.env` Envyron
 
 1. Documentar em `docs/` o que muda e o rollback.  

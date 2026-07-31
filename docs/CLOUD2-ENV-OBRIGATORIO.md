@@ -92,6 +92,25 @@ Worker `cloudflare/audio-b2/` — ver **`docs/FASE-A-CF-AUDIO-SETUP.md`**.
 
 Com `PLAYER5_ENTREGA_CF=1`, **todo PDV no webservice cloud2** recebe `url_musica` em `cloud3` (Player 4 permanece em `cloud.radioibiza.com.br`). Rollback: `PLAYER5_ENTREGA_CF=0`.
 
+## Vinhetas (VP/VA) — contrato permanente (jul/2026, OK Rafael)
+
+**Decisão:** vinhetas **não** migram para B2/cloud3. Ficam no **disco cloud2** para sempre; só **músicas ambiente** usam B2 + cloud3.
+
+| Tipo | Armazenamento | `storage_key` (Neon / gateway) | URL no Player 5 |
+|------|---------------|--------------------------------|-----------------|
+| **Música ambiente** (pastas tipo N) | B2 `uso/` (`.rib`) | `b2:…` ou `uso:…` legado | **cloud3** assinada (`PLAYER5_ENTREGA_CF=1`) |
+| **Vinheta MP3** (upload portal) | Disco cloud2 `vinheta/{id}.mp3` | `vinheta:{id}.mp3` | **`GET /api/get_musica/`** no cloud2 |
+| **Trilha vinheta IA** | Disco cloud2 `vinheta-trilha/` | `vinheta-trilha:{id}.mp3` | idem (mix local) |
+
+Regras:
+
+1. **Proibido** tratar vinheta como faixa B2 (não passa fila dedupe/LUFS/`.rib`/B2 uso).
+2. Upload: `POST /criacao/vinheta-ingest` → grava disco + Neon; sync gateway via `/criacao/sync-vinheta` ou publicação.
+3. Código: `cfAudioUrl.ts` — playlists **VP/VA** e chaves `vinheta:` **sempre** `get_musica`, nunca cloud3.
+4. Mudar vinhetas para B2 no futuro exige **OK explícito** + plano de migração (não é roadmap atual).
+
+Código: `.cloud2-stage/vinheta.ts`, `.cloud2-stage/publishCronogramas.ts`, `.cloud2-stage/criacao/cfAudioUrl.ts`.
+
 ## Aplicar B2 a partir do Mac (sem colar secrets no chat)
 
 1. Crie arquivo local **gitignored**: `.cloud2-secrets/b2.env` (veja `.cloud2-secrets/b2.env.example`).

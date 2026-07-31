@@ -153,13 +153,11 @@ export async function downloadDeezerTrackToFile(opts: {
   if (primaryBitrate !== 1) bitrates.push(1);
 
   const allWarnings: string[] = [];
-  let lastResult: DeemixRunResult | null = null;
 
   for (const bitrate of bitrates) {
     const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'deemix-dl-'));
     try {
       const result = await runDeemixOnce(dz, trackUrl, workDir, bitrate);
-      lastResult = result;
       allWarnings.push(...result.warnings);
 
       if (result.mp3s.length === 0) continue;
