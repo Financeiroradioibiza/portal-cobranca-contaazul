@@ -4,7 +4,7 @@ import type pg from 'pg';
 import { getPool } from '../../db/pool.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { criacaoConfig } from '../../criacao/config.js';
-import { publishCronogramasAndVinhetas, syncPastasSelecionavelFlags, neonSelecionavelAtivo } from './publishCronogramas.js';
+import { publishCronogramasAndVinhetas, syncPastasSelecionavelFlags, syncSingleVinhetaToGateway, neonSelecionavelAtivo } from './publishCronogramas.js';
 import { pulseAtualizacaoPendente } from './atualizacaoPendentePulse.js';
 
 function authorized(req: { headers: Record<string, unknown> }): boolean {
@@ -383,4 +383,21 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
       }
     },
   );
+
+  /** Atualiza uma vinheta no gateway após upload MP3/IA (storage_key + pulse PDV). */
+  app.post<{ Body: { vinhetaId?: string } }>(`${prefix}/sync-vinheta`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+    const vinhetaId = String(req.body?.vinhetaId ?? '').trim();
+    if (!vinhetaId) return reply.code(400).send({ ok: false, error: 'vinheta_id_obrigatorio' });
+    try {
+      const musicaId = await syncSingleVinhetaToGateway(vinhetaId);
+      if (musicaId == null) {
+        return reply.code(404).send({ ok: false, error: 'vinheta_ou_programa_nao_encontrado' });
+      }
+      return reply.send({ ok: true, musicaId });
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      return reply.code(500).send({ ok: false, error: 'sync_vinheta_falhou', detail });
+    }
+  });
 }

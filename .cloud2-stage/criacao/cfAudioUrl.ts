@@ -76,6 +76,11 @@ export function isVinhetaOrigemMusicaId(origemMusicaId: string | null | undefine
   return o.startsWith('vinheta:');
 }
 
+export function isVinhetaPlaylistTipo(playlistTipo: string | null | undefined): boolean {
+  const t = String(playlistTipo ?? '').trim().toUpperCase();
+  return t === 'VP' || t === 'VA';
+}
+
 /** Key S3/B2 (`uso/musicas/...`) a partir de storage_key gateway ou musica_id. */
 export function b2ObjectKeyForMusica(
   storageKey: string | null | undefined,
@@ -141,12 +146,14 @@ export function buildPlaylistUrlMusica(params: {
   playlistId: number;
   storageKey: string | null;
   origemMusicaId?: string | null;
+  playlistTipo?: string | null;
   useCf: boolean;
 }): string {
   if (
     !params.useCf ||
     isVinhetaStorageKey(params.storageKey) ||
-    isVinhetaOrigemMusicaId(params.origemMusicaId)
+    isVinhetaOrigemMusicaId(params.origemMusicaId) ||
+    isVinhetaPlaylistTipo(params.playlistTipo)
   ) {
     return buildLegacyGetMusicaUrl(params);
   }

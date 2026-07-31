@@ -99,6 +99,7 @@ export async function registerPlaylistRoutes(app, prefix) {
             playlistId: pl.id,
             storageKey: m.storage_key,
             origemMusicaId: m.origem_musica_id,
+            playlistTipo: pl.tipo,
             useCf,
           }),
         })),

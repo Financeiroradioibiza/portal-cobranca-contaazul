@@ -7,6 +7,7 @@ import { verifyVinhetaStreamAccess, verifyVinhetaToken } from '../../criacao/ing
 import { portalQuery } from '../../criacao/portalDb.js';
 import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
 import { ensureStorageDirs, vinhetaPath, vinhetaStorageKey, vinhetaTrilhaPath, vinhetaTrilhaStorageKey } from '../../criacao/storage.js';
+import { syncSingleVinhetaToGateway } from './publishCronogramas.js';
 
 const MAX_VINHETA_BYTES = Number(process.env.CRIACAO_MAX_VINHETA_BYTES ?? String(20 * 1024 * 1024));
 
@@ -79,6 +80,9 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
       { vinhetaId: parsed.vinhetaId, fileName, bytes: fileBuffer.length, tipo: vinheta.tipo },
       '[vinheta-ingest] ok',
     );
+    void syncSingleVinhetaToGateway(parsed.vinhetaId).catch((err) => {
+      app.log.error({ err, vinhetaId: parsed.vinhetaId }, '[vinheta-ingest] sync gateway falhou');
+    });
     return reply.send({ ok: true, vinhetaId: parsed.vinhetaId, bytes: fileBuffer.length, storageKey: key });
   });
 
@@ -261,6 +265,9 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
       `UPDATE vinheta SET storage_key = $2, updated_at = now() WHERE id = $1`,
       [parsed.vinhetaId, key],
     );
+    void syncSingleVinhetaToGateway(parsed.vinhetaId).catch((err) => {
+      app.log.error({ err, vinhetaId: parsed.vinhetaId }, '[vinheta-ia-mix] sync gateway falhou');
+    });
     return reply.send({ ok: true, vinhetaId: parsed.vinhetaId, storageKey: key });
   });
 
@@ -296,6 +303,9 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
         `UPDATE vinheta SET storage_key = $2, updated_at = now() WHERE id = $1`,
         [targetVinhetaId, key],
       );
+      void syncSingleVinhetaToGateway(targetVinhetaId).catch((err) => {
+        app.log.error({ err, vinhetaId: targetVinhetaId }, '[vinheta-clone] sync gateway falhou');
+      });
       return reply.send({ ok: true, targetVinhetaId, storageKey: key });
     },
   );

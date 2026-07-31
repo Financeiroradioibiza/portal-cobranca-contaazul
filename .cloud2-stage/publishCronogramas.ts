@@ -1,5 +1,7 @@
 import type pg from 'pg';
+import { getPool } from '../../db/pool.js';
 import { portalQuery } from '../../criacao/portalDb.js';
+import { pulseAtualizacaoPendente } from './atualizacaoPendentePulse.js';
 
 type GwClient = pg.PoolClient;
 
@@ -73,6 +75,42 @@ async function upsertVinhetaMusica(
     [v.nome || 'Vinheta', `${v.nome || 'vinheta'}.mp3`, v.storage_key, `vinheta:${v.id}`],
   );
   return mg.rows[0]?.id ?? null;
+}
+
+/** Após upload/replace de áudio — atualiza `musicas.storage_key` no gateway e avisa PDVs. */
+export async function syncSingleVinhetaToGateway(vinhetaId: string): Promise<number | null> {
+  const id = vinhetaId.trim();
+  if (!id) return null;
+
+  const vinRes = await portalQuery<{ id: string; nome: string; storage_key: string | null; programacao_id: string | null }>(
+    `SELECT id, nome, storage_key, programacao_id::text AS programacao_id
+       FROM vinheta WHERE id = $1 LIMIT 1`,
+    [id],
+  );
+  const vin = vinRes.rows[0];
+  if (!vin?.storage_key?.trim() || !vin.programacao_id) return null;
+
+  const pool = getPool();
+  const gw = await pool.connect();
+  try {
+    const progGw = await gw.query<{ id: number; cliente_id: number }>(
+      `SELECT id, cliente_id FROM programas WHERE origem_programacao_id = $1 LIMIT 1`,
+      [vin.programacao_id],
+    );
+    if (!progGw.rowCount) return null;
+
+    const musicaId = await upsertVinhetaMusica(gw, {
+      id: vin.id,
+      nome: vin.nome,
+      storage_key: vin.storage_key,
+    });
+    if (musicaId != null) {
+      await pulseAtualizacaoPendente(gw, { clienteId: progGw.rows[0].cliente_id });
+    }
+    return musicaId;
+  } finally {
+    gw.release();
+  }
 }
 
 /** Publica cronogramas (pastas) e vinhetas VP/VA no gateway — consumidos por /agendas/ e /vinhetas_*. */

@@ -56,6 +56,7 @@ export async function registerVinhetasAgendadasRoutes(app, prefix) {
             playlistId: pl.id,
             storageKey: m.storage_key,
             origemMusicaId: m.origem_musica_id,
+            playlistTipo: 'VA',
             useCf,
           }),
         })),
