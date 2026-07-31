@@ -38,7 +38,7 @@ export async function registerVinhetasProgramadasRoutes(app, prefix) {
 
       const musRows = await pool.query(
         `SELECT pm.id AS pm_id, m.id AS musica_id, m.titulo, m.nome_arquivo,
-                m.tamanho_bytes::text, m.duracao, m.corte_seg, m.storage_key
+                m.tamanho_bytes::text, m.duracao, m.corte_seg, m.storage_key, m.origem_musica_id
            FROM playlist_musicas pm
            JOIN musicas m ON m.id = pm.musica_id
           WHERE pm.playlist_id = $1 ORDER BY pm.ordem, pm.id`,
@@ -71,6 +71,7 @@ export async function registerVinhetasProgramadasRoutes(app, prefix) {
             musicaId: m.musica_id,
             playlistId: pl.id,
             storageKey: m.storage_key,
+            origemMusicaId: m.origem_musica_id,
             useCf,
           }),
         })),

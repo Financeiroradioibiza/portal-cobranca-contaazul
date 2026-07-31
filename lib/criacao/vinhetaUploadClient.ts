@@ -7,6 +7,8 @@ const VINHETA_UPLOAD_ERRORS: Record<string, string> = {
   formato_invalido: "Use arquivo MP3.",
   vinheta_nao_encontrada: "Vinheta não encontrada.",
   upload_falhou: "Falha ao enviar o áudio.",
+  sync_gateway_falhou:
+    "Áudio enviado ao cloud2, mas não foi possível atualizar o player — republica a programação ou tente de novo.",
 };
 
 export function vinhetaUploadErrorMessage(code: string): string {
@@ -30,4 +32,12 @@ export async function uploadVinhetaAudio(vinhetaId: string, file: File): Promise
   const up = await fetch(ticket.ingestUrl ?? "", { method: "POST", body: fd });
   const body = (await up.json().catch(() => ({}))) as { error?: string };
   if (!up.ok) throw new Error(body.error ?? "upload_falhou");
+
+  const sync = await fetch(`/api/criacao/vinhetas/${encodeURIComponent(vinhetaId)}/sync-gateway`, {
+    method: "POST",
+  });
+  if (!sync.ok) {
+    const syncBody = (await sync.json().catch(() => ({}))) as { error?: string };
+    throw new Error(syncBody.error ?? "sync_gateway_falhou");
+  }
 }

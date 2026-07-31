@@ -65,6 +65,17 @@ export async function pdvUsaEntregaCf(
   return true;
 }
 
+/** Vinhetas (normal + IA/trilha) continuam no disco cloud2 — não migradas pro B2. */
+export function isVinhetaStorageKey(storageKey: string | null | undefined): boolean {
+  const key = String(storageKey ?? '').trim();
+  return key.startsWith('vinheta:') || key.startsWith('vinheta-trilha:');
+}
+
+export function isVinhetaOrigemMusicaId(origemMusicaId: string | null | undefined): boolean {
+  const o = String(origemMusicaId ?? '').trim();
+  return o.startsWith('vinheta:');
+}
+
 /** Key S3/B2 (`uso/musicas/...`) a partir de storage_key gateway ou musica_id. */
 export function b2ObjectKeyForMusica(
   storageKey: string | null | undefined,
@@ -72,6 +83,7 @@ export function b2ObjectKeyForMusica(
 ): string | null {
   const key = String(storageKey ?? '').trim();
   if (key) {
+    if (isVinhetaStorageKey(key)) return null;
     const b2 = s3KeyFromVersaoStorageKey(key);
     if (b2) return b2;
     if (key.startsWith('uso:')) {
@@ -79,6 +91,7 @@ export function b2ObjectKeyForMusica(
       const prefix = criacaoConfig.b2.usoPrefix.replace(/\/?$/, '/');
       return `${prefix}${rel}`;
     }
+    return null;
   }
   const id = musicaId.trim();
   if (!id) return null;
@@ -120,12 +133,6 @@ export function buildLegacyGetMusicaUrl(params: {
   return `${params.baseUrl}/api/get_musica/?token=${encodeURIComponent(params.token)}&id_musica=${params.musicaId}&playlist_id=${params.playlistId}`;
 }
 
-/** Vinhetas (normal + IA/trilha) continuam no disco cloud2 — não migradas pro B2. */
-export function isVinhetaStorageKey(storageKey: string | null | undefined): boolean {
-  const key = String(storageKey ?? '').trim();
-  return key.startsWith('vinheta:') || key.startsWith('vinheta-trilha:');
-}
-
 /** url_musica na playlist — cloud3 assinada se useCf; get_musica só com PLAYER5_ENTREGA_CF=0. */
 export function buildPlaylistUrlMusica(params: {
   baseUrl: string;
@@ -133,9 +140,14 @@ export function buildPlaylistUrlMusica(params: {
   musicaId: number;
   playlistId: number;
   storageKey: string | null;
+  origemMusicaId?: string | null;
   useCf: boolean;
 }): string {
-  if (!params.useCf || isVinhetaStorageKey(params.storageKey)) {
+  if (
+    !params.useCf ||
+    isVinhetaStorageKey(params.storageKey) ||
+    isVinhetaOrigemMusicaId(params.origemMusicaId)
+  ) {
     return buildLegacyGetMusicaUrl(params);
   }
 

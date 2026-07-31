@@ -43,6 +43,7 @@ export async function registerPlaylistRoutes(app, prefix) {
          pl.id AS playlist_id, pm.id AS pm_id,
          m.titulo, m.nome_arquivo, m.tamanho_bytes::text, m.duracao, m.corte_seg,
          m.storage_key,
+         m.origem_musica_id,
          COALESCE(pm.downloaded, 'N') AS downloaded,
          a.id AS artista_id, a.nome AS artista_nome, m.id AS musica_id
        FROM playlists pl
@@ -97,6 +98,7 @@ export async function registerPlaylistRoutes(app, prefix) {
             musicaId: m.musica_id,
             playlistId: pl.id,
             storageKey: m.storage_key,
+            origemMusicaId: m.origem_musica_id,
             useCf,
           }),
         })),
