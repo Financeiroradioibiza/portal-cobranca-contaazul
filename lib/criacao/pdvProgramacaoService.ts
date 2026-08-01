@@ -150,6 +150,9 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
   };
 }
 
+/** Upserts em transação — evita 504 ao vincular dezenas/centenas de PDVs de uma vez. */
+const ASSIGN_PDV_DB_BATCH = 40;
+
 /** Vincula PDVs sem `programacao_id` à programação (ex.: primeira do cliente). */
 export async function assignUnassignedPdvsToProgramacao(
   clienteRef: string,
@@ -158,6 +161,13 @@ export async function assignUnassignedPdvsToProgramacao(
   const { bucket } = await findBucketForClienteRef(clienteRef);
   if (!bucket) return 0;
 
+  const prog = await prisma.programacao.findUnique({
+    where: { id: programacaoId },
+    select: { id: true, nome: true, clienteRef: true },
+  });
+  if (!prog || prog.clienteRef !== bucket.key) throw new Error("programacao_invalida");
+
+  const programacaoMusical = prog.nome.trim() || "Padrão";
   const rioKeys = bucket.pdvs.map((p) => p.rioPdvId);
   const cadastros = await prisma.producaoPdvCadastro.findMany({
     where: { rioPdvKey: { in: rioKeys } },
@@ -165,13 +175,31 @@ export async function assignUnassignedPdvsToProgramacao(
   });
   const cadByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
 
-  let assigned = 0;
-  for (const pdv of bucket.pdvs) {
-    if (cadByKey.get(pdv.rioPdvId)?.programacaoId) continue;
-    await savePdvProgramacaoAssignment(clienteRef, pdv.rioPdvId, programacaoId);
-    assigned++;
+  const toAssign = bucket.pdvs.filter((pdv) => !cadByKey.get(pdv.rioPdvId)?.programacaoId);
+  if (toAssign.length === 0) return 0;
+
+  for (let i = 0; i < toAssign.length; i += ASSIGN_PDV_DB_BATCH) {
+    const chunk = toAssign.slice(i, i + ASSIGN_PDV_DB_BATCH);
+    await prisma.$transaction(
+      chunk.map((pdv) =>
+        prisma.producaoPdvCadastro.upsert({
+          where: { rioPdvKey: pdv.rioPdvId },
+          create: {
+            rioPdvKey: pdv.rioPdvId,
+            nome: pdv.nome.trim(),
+            programacaoId,
+            programacaoMusical,
+          },
+          update: {
+            programacaoId,
+            programacaoMusical,
+          },
+        }),
+      ),
+    );
   }
-  return assigned;
+
+  return toAssign.length;
 }
 
 export async function savePdvProgramacaoAssignment(

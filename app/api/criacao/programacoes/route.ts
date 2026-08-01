@@ -4,6 +4,8 @@ import { resolveRequiredDonoUser } from "@/lib/criacao/criativoUserService";
 import { createProgramacao, listProgramacoes } from "@/lib/criacao/programacaoService";
 
 export const runtime = "nodejs";
+/** Primeira programação do cliente auto-vincula todos os PDVs (ex.: 128 lojas). */
+export const maxDuration = 120;
 
 export async function GET(request: Request) {
   try {
