@@ -36,6 +36,7 @@ import {
 import { normalizeRioOrigemCliente } from "@/lib/rio/rioOrigemCliente";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 import { caFetch } from "@/lib/contaazul/caHttp";
+import { enrichRioLinhasPrimeiroPing } from "@/lib/rio/enrichRioLinhasPrimeiroPing";
 
 function asRecord(o: unknown): Record<string, unknown> | null {
   return typeof o === "object" && o !== null && !Array.isArray(o)
@@ -267,7 +268,12 @@ export async function getRioCompMonthWithLinhas(yearMonth: number): Promise<{
   grupos: RioCompGrupoDto[];
   linhas: RioCompLinhaOut[];
 } | null> {
-  return hydrateMonthBundle(yearMonth);
+  const bundle = await hydrateMonthBundle(yearMonth);
+  if (!bundle) return null;
+  return {
+    ...bundle,
+    linhas: await enrichRioLinhasPrimeiroPing(bundle.linhas),
+  };
 }
 
 export async function listRioCompMonths(): Promise<

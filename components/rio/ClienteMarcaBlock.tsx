@@ -34,6 +34,7 @@ import {
 import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { rioTagCobrancaSuffix, rioTagCobrancaRowBgClass, rioTagCobrancaTextClass } from "@/lib/rio/rioTagCobranca";
 import { RioTagCobrancaNome, RioTagCobrancaSelect } from "@/components/rio/RioTagCobrancaNome";
+import { formatRioPrimeiroPing } from "@/lib/rio/enrichRioLinhasPrimeiroPing";
 import {
   DndContext,
   type DragEndEvent,
@@ -62,6 +63,8 @@ export type RioPdvCb = {
   sortOrder: number;
   movimento?: "estavel" | "entrada" | "saida";
   tagCobranca?: RioTagCobranca;
+  /** ISO — espelho do cadastro Primeiro ping (somente leitura). */
+  primeiroPingEm?: string | null;
 };
 
 export type RioGrupoCb = {
@@ -524,7 +527,8 @@ function SortClientRow(props: {
                   <span className="w-6 shrink-0 text-right">#</span>
                   <span className="min-w-[12rem] flex-1">PDV</span>
                   <span className="w-[11rem] shrink-0">CNPJ do PDV</span>
-                  <span className="w-[9.5rem] shrink-0">Status</span>
+                  <span className="w-[8.5rem] shrink-0">1º ping</span>
+                  <span className="w-[9.5rem] shrink-0">Cobrando</span>
                   <span className="w-[3.5rem] shrink-0" />
                 </li>
               : null}
@@ -663,6 +667,12 @@ function PdvMini(props: {
           if (next !== prev) void props.patchPdv(props.p.id, { documento: next });
         }}
       />
+      <span
+        className="w-[8.5rem] shrink-0 truncate tabular-nums text-[10px] text-slate-700 dark:text-slate-300"
+        title={props.p.primeiroPingEm ?? undefined}
+      >
+        {formatRioPrimeiroPing(props.p.primeiroPingEm)}
+      </span>
       <RioTagCobrancaSelect
         className="w-[9.5rem] shrink-0"
         value={pdvTag}
