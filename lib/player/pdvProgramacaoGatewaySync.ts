@@ -127,10 +127,17 @@ export async function syncProgramacaoPdvsToGateway(options: {
   const sync = await syncPlayerGatewayRegistryForPdvIds(ids);
   if (sync.pdvs === 0) throw new Error("sync_nenhum_pdv");
 
-  const statuses = await fetchPdvGatewayProgramacaoStatus(ids);
-  const mismatches = statuses
-    .filter((s) => s.origemProgramacaoId !== options.programacaoPortalId)
-    .map((s) => s.portalPdvId);
+  const mismatches: number[] = [];
+  const { SYNC_PDV_BATCH_SIZE } = await import("@/lib/player/playerGatewaySync");
+  for (let i = 0; i < ids.length; i += SYNC_PDV_BATCH_SIZE) {
+    const batch = ids.slice(i, i + SYNC_PDV_BATCH_SIZE);
+    const statuses = await fetchPdvGatewayProgramacaoStatus(batch);
+    mismatches.push(
+      ...statuses
+        .filter((s) => s.origemProgramacaoId !== options.programacaoPortalId)
+        .map((s) => s.portalPdvId),
+    );
+  }
   if (mismatches.length > 0) {
     throw new Error(`programa_gateway_desalinhado:${mismatches.join(",")}`);
   }

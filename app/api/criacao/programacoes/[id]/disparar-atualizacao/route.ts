@@ -4,7 +4,7 @@ import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 import { dispararAtualizacao } from "@/lib/criacao/atualizacaoService";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -28,6 +28,8 @@ function disparoErrorResponse(msg: string): NextResponse {
     msg === "cliente_gateway_inexistente" ||
     msg === "gateway_clientes_falhou" ||
     msg === "publicar_timeout" ||
+    msg === "link_pdv_rota_ausente" ||
+    msg.startsWith("link_pdv") ||
     msg.startsWith("sync_registry") ||
     msg.startsWith("cloud2_")
   ) {

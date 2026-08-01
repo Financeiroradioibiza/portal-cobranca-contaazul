@@ -1,5 +1,6 @@
 import { getPortalPdvIdsForProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 import { syncProgramacaoPdvsToGateway } from "@/lib/player/pdvProgramacaoGatewaySync";
+import { SYNC_PDV_BATCH_SIZE } from "@/lib/player/playerGatewaySync";
 import { prisma } from "@/lib/prisma";
 import {
   cloud2Enabled,
@@ -7,6 +8,9 @@ import {
   cloud2FetchWithTimeout,
   parseCloud2Json,
 } from "@/lib/criacao/cloud2Client";
+
+/** Lotes de PDV na amarração pós-publicar (evita timeout Netlify/cloud2). */
+export const PUBLICAR_PDV_BATCH_SIZE = SYNC_PDV_BATCH_SIZE;
 
 export type GatewayCliente = { id: number; nome: string; pdvs: number };
 
@@ -28,9 +32,57 @@ export type PublicarResultado = {
   clienteGatewayNome: string;
 };
 
+function chunkPdvIds(ids: number[], size = PUBLICAR_PDV_BATCH_SIZE): number[][] {
+  const unique = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
+  const chunks: number[][] = [];
+  for (let i = 0; i < unique.length; i += size) {
+    chunks.push(unique.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function linkProgramacaoPdvsBatch(
+  programacaoId: string,
+  clienteIdGateway: number,
+  pdvIds: number[],
+): Promise<number> {
+  const res = await cloud2FetchWithTimeout(
+    "/publicar/link-pdvs",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        programacaoId,
+        clienteIdGateway,
+        pdvIds,
+      }),
+    },
+    45_000,
+  );
+  const data = await parseCloud2Json<{
+    ok?: boolean;
+    error?: string;
+    detail?: string;
+    pdvsLinked?: number;
+  }>(res, "publicar_link_pdvs");
+  if (!res?.ok || !data.ok) {
+    if (res?.status === 404) {
+      throw new Error("link_pdv_rota_ausente: atualize o cloud2 (rota /publicar/link-pdvs)");
+    }
+    const detail = data.detail?.trim();
+    throw new Error(
+      detail ?
+        `${data.error ?? "link_pdv_falhou"}: ${detail}`
+      : (data.error ?? "link_pdv_falhou"),
+    );
+  }
+  return data.pdvsLinked ?? pdvIds.length;
+}
+
 /**
  * Publica a programação no gateway do Player 5 (cloud2) e marca como publicada no Neon.
  * O áudio continua sendo servido direto pelo cloud2 — nada passa pelo Netlify.
+ *
+ * PDVs: publica faixas/cronograma uma vez; amarra lojas em lotes de {@link PUBLICAR_PDV_BATCH_SIZE}.
  */
 export async function publicarProgramacao(
   programacaoId: string,
@@ -45,6 +97,16 @@ export async function publicarProgramacao(
   });
   if (!prog) throw new Error("programacao_nao_encontrada");
 
+  let portalPdvIdsToSync = pdvIds?.filter((id) => Number.isFinite(id) && id > 0) ?? [];
+  if (portalPdvIdsToSync.length === 0) {
+    try {
+      const linked = await getPortalPdvIdsForProgramacao(programacaoId);
+      portalPdvIdsToSync = linked.portalPdvIds;
+    } catch {
+      portalPdvIdsToSync = [];
+    }
+  }
+
   const res = await cloud2FetchWithTimeout(
     "/publicar",
     {
@@ -52,7 +114,6 @@ export async function publicarProgramacao(
       body: JSON.stringify({
         programacaoId,
         clienteIdGateway,
-        pdvIds: pdvIds?.length ? pdvIds : undefined,
       }),
     },
     120_000,
@@ -65,7 +126,6 @@ export async function publicarProgramacao(
     musicas?: number;
     semArquivo?: number;
     vinhetasSemAudio?: number;
-    pdvsLinked?: number;
   }>(res, "publicar");
   if (!res?.ok || !data.ok) {
     const detail = data.detail?.trim();
@@ -74,41 +134,32 @@ export async function publicarProgramacao(
     );
   }
 
-  const pdvIdsEnviados = pdvIds?.filter((id) => Number.isFinite(id) && id > 0) ?? [];
-  if (pdvIdsEnviados.length > 0) {
-    const linked = data.pdvsLinked ?? 0;
-    if (linked < pdvIdsEnviados.length) {
-      throw new Error(
-        `pdv_programa_nao_amarrado: esperados ${pdvIdsEnviados.length}, amarrados ${linked}`,
-      );
-    }
+  let totalLinked = 0;
+  const batches = chunkPdvIds(portalPdvIdsToSync);
+  for (const batch of batches) {
+    totalLinked += await linkProgramacaoPdvsBatch(programacaoId, clienteIdGateway, batch);
+    await syncProgramacaoPdvsToGateway({
+      portalClienteId: clienteIdGateway,
+      portalPdvIds: batch,
+      programacaoPortalId: programacaoId,
+    });
+  }
+
+  if (portalPdvIdsToSync.length > 0 && totalLinked < portalPdvIdsToSync.length) {
+    throw new Error(
+      `pdv_programa_nao_amarrado: esperados ${portalPdvIdsToSync.length}, amarrados ${totalLinked}`,
+    );
+  }
+
+  if (portalPdvIdsToSync.length === 0) {
+    const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
+    await signalPlayerProgramacaoUpdate(clienteIdGateway);
   }
 
   await prisma.programacao.update({
     where: { id: programacaoId },
     data: { publicada: true, publishedAt: new Date() },
   });
-
-  let portalPdvIdsToSync = pdvIds?.filter((id) => Number.isFinite(id) && id > 0) ?? [];
-  if (portalPdvIdsToSync.length === 0) {
-    try {
-      const linked = await getPortalPdvIdsForProgramacao(programacaoId);
-      portalPdvIdsToSync = linked.portalPdvIds;
-    } catch {
-      portalPdvIdsToSync = [];
-    }
-  }
-
-  if (portalPdvIdsToSync.length > 0) {
-    await syncProgramacaoPdvsToGateway({
-      portalClienteId: clienteIdGateway,
-      portalPdvIds: portalPdvIdsToSync,
-      programacaoPortalId: programacaoId,
-    });
-  } else {
-    const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
-    await signalPlayerProgramacaoUpdate(clienteIdGateway);
-  }
 
   const gw = await listGatewayClientes().catch(() => [] as GatewayCliente[]);
   const cli = gw.find((c) => c.id === clienteIdGateway);

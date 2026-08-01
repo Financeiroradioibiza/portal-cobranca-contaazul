@@ -127,6 +127,31 @@ interface NeonMusica {
   size_bytes: number | null;
 }
 
+/** Amarra PDVs ao programa já publicado e marca atualização pendente no player. */
+async function linkPdvsToPrograma(
+  gw: GwClient,
+  programaId: number,
+  clienteId: number,
+  pdvIds: number[],
+): Promise<number> {
+  if (pdvIds.length === 0) return 0;
+  const linkRes = await gw.query(
+    `UPDATE pdvs
+        SET programa_id = $1
+      WHERE id = ANY($2::int[]) AND cliente_id = $3
+      RETURNING id`,
+    [programaId, pdvIds, clienteId],
+  );
+  const pdvsLinked = linkRes.rowCount ?? 0;
+  if (pdvsLinked < pdvIds.length) {
+    throw new Error(
+      `pdv_programa_nao_amarrado: esperados ${pdvIds.length}, amarrados ${pdvsLinked}`,
+    );
+  }
+  await pulseAtualizacaoPendente(gw, { pdvIds });
+  return pdvsLinked;
+}
+
 export async function registerPublicarRoutes(app: FastifyInstance, prefix: string): Promise<void> {
   // Lista clientes do gateway (para o Portal escolher o destino da publicação)
   app.get(`${prefix}/gateway-clientes`, async (req, reply) => {
@@ -291,23 +316,20 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         vinhetasSemAudio = cron.vinhetasSemAudio;
 
         if (pdvIds.length > 0) {
-          const linkRes = await gw.query(
-            `UPDATE pdvs
-                SET programa_id = $1
-              WHERE id = ANY($2::int[]) AND cliente_id = $3
-              RETURNING id`,
-            [programaId, pdvIds, clienteId],
-          );
-          pdvsLinked = linkRes.rowCount ?? 0;
-          if (pdvsLinked < pdvIds.length) {
+          try {
+            pdvsLinked = await linkPdvsToPrograma(gw, programaId, clienteId, pdvIds);
+          } catch (linkErr) {
             await gw.query('ROLLBACK');
-            return reply.code(409).send({
-              ok: false,
-              error: 'pdv_programa_nao_amarrado',
-              detail: `Esperados ${pdvIds.length} PDV(s), amarrados ${pdvsLinked}`,
-            });
+            const detail = linkErr instanceof Error ? linkErr.message : String(linkErr);
+            if (detail.startsWith('pdv_programa_nao_amarrado')) {
+              return reply.code(409).send({
+                ok: false,
+                error: 'pdv_programa_nao_amarrado',
+                detail,
+              });
+            }
+            throw linkErr;
           }
-          await pulseAtualizacaoPendente(gw, { pdvIds });
         }
 
         await gw.query('COMMIT');
@@ -330,6 +352,51 @@ export async function registerPublicarRoutes(app: FastifyInstance, prefix: strin
         vinhetasSemAudio,
         pdvsLinked,
       });
+    },
+  );
+
+  /** Amarra lote de PDVs a programação já publicada (portal envia de 10 em 10). */
+  app.post<{ Body: { programacaoId?: string; clienteIdGateway?: number; pdvIds?: number[] } }>(
+    `${prefix}/publicar/link-pdvs`,
+    async (req, reply) => {
+      if (!authorized(req)) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+      const programacaoId = String(req.body?.programacaoId ?? '').trim();
+      const clienteId = Number(req.body?.clienteIdGateway);
+      const pdvIdsRaw = Array.isArray(req.body?.pdvIds) ? req.body.pdvIds : [];
+      const pdvIds = pdvIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0);
+      if (!programacaoId || !Number.isFinite(clienteId) || clienteId <= 0 || pdvIds.length === 0) {
+        return reply.code(400).send({ ok: false, error: 'parametros_invalidos' });
+      }
+
+      const pool = getPool();
+      const gw = await pool.connect();
+      let pdvsLinked = 0;
+      try {
+        await gw.query('BEGIN');
+        await ensurePublicarGatewaySchema(gw);
+        const progGw = await gw.query<{ id: number }>(
+          `SELECT id FROM programas WHERE origem_programacao_id = $1 AND cliente_id = $2 LIMIT 1`,
+          [programacaoId, clienteId],
+        );
+        if (progGw.rowCount === 0) {
+          await gw.query('ROLLBACK');
+          return reply.code(404).send({ ok: false, error: 'programa_nao_encontrado' });
+        }
+        pdvsLinked = await linkPdvsToPrograma(gw, progGw.rows[0].id, clienteId, pdvIds);
+        await gw.query('COMMIT');
+      } catch (e) {
+        await gw.query('ROLLBACK').catch(() => {});
+        const detail = e instanceof Error ? e.message : String(e);
+        if (detail.startsWith('pdv_programa_nao_amarrado')) {
+          return reply.code(409).send({ ok: false, error: 'pdv_programa_nao_amarrado', detail });
+        }
+        app.log.error({ err: e, detail }, '[publicar/link-pdvs] falhou');
+        return reply.code(500).send({ ok: false, error: 'falha_link_pdv', detail });
+      } finally {
+        gw.release();
+      }
+
+      return reply.send({ ok: true, pdvsLinked });
     },
   );
 
