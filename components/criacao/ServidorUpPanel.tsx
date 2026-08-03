@@ -671,14 +671,56 @@ export function ServidorUpPanel() {
     return { assigned, skipped, errors: data.errors ?? [] };
   }
 
+  function diagnoseAssignSkip(paths: string[]): string {
+    let semDedupe = 0;
+    let semMusicaId = 0;
+    let semHierarquia = 0;
+    let semPastaId = 0;
+    for (const relativePath of paths) {
+      const track = inventory.find((t) => t.relativePath === relativePath);
+      const dedupe = dedupeMap.get(relativePath);
+      if (!track) {
+        semDedupe += 1;
+        continue;
+      }
+      if (!dedupe?.musicaId) {
+        semMusicaId += 1;
+        continue;
+      }
+      const hier = hierarchyForTrack(track);
+      if (!hier) {
+        semHierarquia += 1;
+        continue;
+      }
+      if (!hier.pastaId) semPastaId += 1;
+    }
+    const parts: string[] = [];
+    if (semHierarquia) parts.push(`${semHierarquia} sem pasta no passo 0`);
+    if (semPastaId) parts.push(`${semPastaId} pasta ainda não criada no portal`);
+    if (semMusicaId) parts.push(`${semMusicaId} sem id na biblioteca`);
+    return parts.length > 0 ? parts.join(" · ") : "hierarquia/dedupe incompletos";
+  }
+
   async function assignInBibliotecaTracks(
     paths: string[],
-    opts?: { keepBusy?: boolean },
+    opts?: { keepBusy?: boolean; allowEmpty?: boolean },
   ): Promise<AssignBibliotecaBatchResult> {
     if (paths.length === 0) return { assigned: 0, skipped: 0, errors: [] };
     const items = buildAssignBibliotecaItems(paths);
     if (items.length === 0) {
-      throw new Error("Nenhuma faixa válida para atribuir (confira hierarquia e dedupe).");
+      const why = diagnoseAssignSkip(paths);
+      if (opts?.allowEmpty) {
+        return {
+          assigned: 0,
+          skipped: 0,
+          errors: [
+            `${paths.length} dedup não entraram na pasta (${why}). Match Deezer segue com as demais.`,
+          ],
+        };
+      }
+      throw new Error(
+        `Nenhuma faixa válida para atribuir (${why}). Volte ao passo 0 e confirme hierarquia/pastas.`,
+      );
     }
 
     let assigned = 0;
@@ -747,7 +789,11 @@ export function ServidorUpPanel() {
 
       let assignSummary: AssignBibliotecaBatchResult = { assigned: 0, skipped: 0, errors: [] };
       if (bibliotecaPaths.length > 0) {
-        assignSummary = await assignInBibliotecaTracks(bibliotecaPaths, { keepBusy: true });
+        // allowEmpty: não bloqueia Match se hierarquia do passo 0 não casar com as dedup
+        assignSummary = await assignInBibliotecaTracks(bibliotecaPaths, {
+          keepBusy: true,
+          allowEmpty: true,
+        });
       }
 
       const toMatch = inventory.filter((t) =>
@@ -755,6 +801,9 @@ export function ServidorUpPanel() {
       );
 
       if (toMatch.length === 0) {
+        if (assignSummary.assigned === 0 && assignSummary.errors.length > 0) {
+          throw new Error(assignSummary.errors[0]);
+        }
         const skipHint =
           assignSummary.skipped > 0 ? ` · ${assignSummary.skipped} já estavam na programação` : "";
         setMsg(
@@ -764,10 +813,14 @@ export function ServidorUpPanel() {
         return;
       }
 
+      const assignWarn =
+        assignSummary.errors.length > 0 && assignSummary.assigned === 0 ?
+          `⚠ ${assignSummary.errors[0]} · `
+        : "";
       const assignPrefix =
         assignSummary.assigned > 0 ?
           `${assignSummary.assigned} biblioteca → pasta · `
-        : "";
+        : assignWarn;
 
       const CHUNK = 5;
       const mergedRows: ServidorUpMatchRow[] = [];

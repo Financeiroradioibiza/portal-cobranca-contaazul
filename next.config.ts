@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
+import { enviosManuaisFrameOrigin } from "./lib/portal/enviosManuaisUrl";
 
 function securityHeaders(): { key: string; value: string }[] {
+  const enviosManuaisOrigin = enviosManuaisFrameOrigin();
   const h: { key: string; value: string }[] = [
     { key: "X-DNS-Prefetch-Control", value: "on" },
     { key: "X-Frame-Options", value: "SAMEORIGIN" },
@@ -29,6 +31,7 @@ function securityHeaders(): { key: string; value: string }[] {
         "font-src 'self' data:",
         "connect-src 'self' https:",
         "media-src 'self' https://cloud2.radioibiza.app.br https:",
+        `frame-src 'self' ${enviosManuaisOrigin}`,
         "frame-ancestors 'self'",
         "base-uri 'self'",
         "form-action 'self'",

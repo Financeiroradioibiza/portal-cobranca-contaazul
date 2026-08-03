@@ -5,6 +5,8 @@ import { probeDurationMs } from './ffmpeg.js';
 
 /** Tolerância de duração para auto-descartar chromaprint (mesmo critério Servidor UP). */
 const CHROMAPRINT_AUTO_DURATION_MS = 4000;
+/** Duração quase idêntica + mesmo título → auto (chromaprint já bateu). */
+const CHROMAPRINT_EXACT_DURATION_MS = 500;
 
 export type DedupeResult =
   | { kind: 'nova' }
@@ -32,6 +34,46 @@ export function normalizeTitleForDedupe(s: string): string {
   return t.trim();
 }
 
+/** Artista — trata e / & / and como equivalentes; remove feat. */
+export function normalizeArtistaForDedupe(s: string): string {
+  let a = normalizeMetaForDedupe(s);
+  a = a.replace(/\b(feat|ft|featuring|with|vs|x)\b.+$/i, '').trim();
+  a = a.replace(/\b(and|e|y|et)\b/g, ' ');
+  return a.replace(/\s+/g, ' ').trim();
+}
+
+function artistaTokensForDedupe(s: string): string[] {
+  return normalizeArtistaForDedupe(s)
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+}
+
+export function tituloMatchesForDedupe(a: string, b: string): boolean {
+  return normalizeTitleForDedupe(a) === normalizeTitleForDedupe(b);
+}
+
+export function artistaMatchesForDedupe(a: string, b: string): boolean {
+  const na = normalizeArtistaForDedupe(a);
+  const nb = normalizeArtistaForDedupe(b);
+  if (na.length < 2 || nb.length < 2) return false;
+  if (na === nb) return true;
+  const ta = new Set(artistaTokensForDedupe(a));
+  const tb = new Set(artistaTokensForDedupe(b));
+  if (ta.size < 2 || tb.size < 2) return false;
+  if (ta.size !== tb.size) return false;
+  return [...ta].every((t) => tb.has(t));
+}
+
+export function metadataMatchesForDedupe(
+  uploadArtista: string,
+  uploadTitulo: string,
+  existArtista: string,
+  existTitulo: string,
+): boolean {
+  if (!tituloMatchesForDedupe(uploadTitulo, existTitulo)) return false;
+  return artistaMatchesForDedupe(uploadArtista, existArtista);
+}
+
 async function findDuplicateByIsrc(isrc: string): Promise<{ id: string } | null> {
   const rows = await portalQuery<{ id: string }>(
     `SELECT id FROM musica_biblioteca
@@ -47,9 +89,8 @@ async function findDuplicateByMetadata(
   artista: string,
   titulo: string,
 ): Promise<{ id: string } | null> {
-  const na = normalizeMetaForDedupe(artista);
   const nt = normalizeTitleForDedupe(titulo);
-  if (na.length < 2 || nt.length < 2) return null;
+  if (normalizeArtistaForDedupe(artista).length < 2 || nt.length < 2) return null;
 
   const rows = await portalQuery<{ id: string; artista: string; titulo: string }>(
     `SELECT id, artista, titulo FROM musica_biblioteca
@@ -60,10 +101,7 @@ async function findDuplicateByMetadata(
      LIMIT 8000`,
   );
   for (const row of rows.rows) {
-    if (
-      normalizeMetaForDedupe(row.artista) === na &&
-      normalizeTitleForDedupe(row.titulo) === nt
-    ) {
+    if (metadataMatchesForDedupe(artista, titulo, row.artista, row.titulo)) {
       return { id: row.id };
     }
   }
@@ -177,7 +215,8 @@ export async function findDuplicate(
 }
 
 /**
- * Chromaprint sozinho exige revisão — salvo artista+título normalizados iguais e duração ±4s.
+ * Chromaprint + duração ±4s e metadados equivalentes (e/&/and, apóstrofo) → auto-descarte.
+ * Chromaprint + duração ≤0,5s + mesmo título → auto (mesmo áudio, artista escrito diferente).
  */
 export async function shouldAutoConfirmChromaprintDuplicate(
   existenteId: string,
@@ -192,12 +231,6 @@ export async function shouldAutoConfirmChromaprintDuplicate(
   const ex = rows.rows[0];
   if (!ex) return false;
 
-  const na = normalizeMetaForDedupe(uploadArtista);
-  const nt = normalizeTitleForDedupe(uploadTitulo);
-  const ea = normalizeMetaForDedupe(ex.artista);
-  const et = normalizeTitleForDedupe(ex.titulo);
-  if (na.length < 2 || nt.length < 2 || na !== ea || nt !== et) return false;
-
   const existMs = ex.duration_ms ?? 0;
   if (existMs <= 0) return false;
 
@@ -209,5 +242,15 @@ export async function shouldAutoConfirmChromaprintDuplicate(
   }
   if (uploadMs <= 0) return false;
 
-  return Math.abs(uploadMs - existMs) <= CHROMAPRINT_AUTO_DURATION_MS;
+  const deltaMs = Math.abs(uploadMs - existMs);
+  if (deltaMs > CHROMAPRINT_AUTO_DURATION_MS) return false;
+
+  if (metadataMatchesForDedupe(uploadArtista, uploadTitulo, ex.artista, ex.titulo)) {
+    return true;
+  }
+
+  return (
+    deltaMs <= CHROMAPRINT_EXACT_DURATION_MS &&
+    tituloMatchesForDedupe(uploadTitulo, ex.titulo)
+  );
 }

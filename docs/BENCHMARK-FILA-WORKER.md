@@ -124,9 +124,17 @@ T4 vs T1: **~53%** mais rápido. T4 vs T3 (normalizado 46 fx ≈ 11:36): **~15%*
 
 **Decisão:** voltar para **6** — melhor equilíbrio (rápido sem saturar CPU). RAM não é gargalo.
 
+**Ago/2026:** CPU sustentada ~134% com fila ATL CRICA + 568 fx → **`5`** (`bash scripts/set-cloud2-worker-concurrency.sh 5`).
+
 ---
 
-## Produção (jul/2026)
+## Produção (ago/2026)
+
+| `CRIACAO_WORKER_CONCURRENCY` | **5** |
+
+---
+
+## Produção (jul/2026 — histórico)
 
 | `CRIACAO_WORKER_CONCURRENCY` | **6** |
 
