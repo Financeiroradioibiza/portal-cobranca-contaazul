@@ -185,6 +185,33 @@ export function FilaPanel() {
     return () => clearInterval(t);
   }, [autoRefresh, openId, load, loadItems, syncPending]);
 
+  const autoAppliedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const j of jobs) {
+      if (j.status === "cancelado" || j.totalItens <= 0) continue;
+      if (j.itensFeitos < j.totalItens) continue;
+      const key = `${j.id}:${j.itensFeitos}:${j.status}`;
+      if (autoAppliedRef.current.has(key)) continue;
+      autoAppliedRef.current.add(key);
+      void (async () => {
+        if (j.status === "processando" || j.status === "aguardando" || j.status === "erro" || j.status === "revisao") {
+          await fetch(`/api/criacao/fila/${j.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "finish" }),
+          }).catch(() => null);
+        }
+        await fetch(`/api/criacao/fila/${j.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "apply_pasta" }),
+        }).catch(() => null);
+        lastSyncPendingAt.current = 0;
+      })();
+    }
+  }, [jobs]);
+
   useEffect(() => {
     for (const j of jobs) {
       if (j.status === "revisao" && j.duplicatas === 0 && j.erros === 0) {
@@ -193,7 +220,7 @@ export function FilaPanel() {
       if (
         j.totalItens > 0 &&
         j.itensFeitos >= j.totalItens &&
-        (j.status === "processando" || j.status === "aguardando")
+        (j.status === "processando" || j.status === "aguardando" || j.status === "erro")
       ) {
         void finishJobIfReady(j.id);
       }

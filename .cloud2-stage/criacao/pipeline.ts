@@ -217,7 +217,7 @@ async function maybeFinishJob(jobId: string): Promise<void> {
       WHERE id = $1`,
     [jobId, status],
   );
-  if (dupes === 0 && concluidos > 0 && row?.tipo === 'upload_pasta') {
+  if (concluidos > 0 && row?.tipo === 'upload_pasta') {
     await applyPastaUploadsForJob(jobId);
   }
 }
@@ -242,7 +242,7 @@ async function applyPastaUploadsForJob(jobId: string): Promise<void> {
         AND NOT EXISTS (
           SELECT 1 FROM processamento_item pi2
            WHERE pi2.job_id = j.id
-             AND pi2.status IN ('aguardando', 'processando', 'duplicata')
+             AND pi2.status IN ('aguardando', 'processando')
         )
         AND NOT EXISTS (
           SELECT 1 FROM pasta_musica pm

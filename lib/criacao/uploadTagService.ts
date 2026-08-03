@@ -28,7 +28,7 @@ export async function applyPendingUploadTags(limit = 80): Promise<number> {
        AND NOT EXISTS (
          SELECT 1 FROM processamento_item pi2
           WHERE pi2.job_id = j.id
-            AND pi2.status IN ('aguardando', 'processando', 'duplicata')
+            AND pi2.status IN ('aguardando', 'processando')
        )
        AND EXISTS (
          SELECT 1 FROM musica_biblioteca mb WHERE mb.id = pi.musica_id
@@ -91,11 +91,6 @@ export async function applyPendingUploadTagsForJob(jobId: string): Promise<numbe
          AND pi.status = 'concluido'
          AND pi.musica_id IS NOT NULL
          AND j.upload_tag_nome <> ''
-         AND NOT EXISTS (
-           SELECT 1 FROM processamento_item pi2
-            WHERE pi2.job_id = j.id
-              AND pi2.status IN ('aguardando', 'processando', 'duplicata')
-         )
          AND EXISTS (
            SELECT 1 FROM musica_biblioteca mb WHERE mb.id = pi.musica_id
          )

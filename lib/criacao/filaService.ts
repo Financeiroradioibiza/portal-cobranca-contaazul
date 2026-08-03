@@ -344,6 +344,9 @@ export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status
 
   if (nextStatus === "concluido" && concluidos > 0) {
     await applyPostFinishForJob(jobId);
+  } else if (concluidos > 0 && pending === 0) {
+    /** Erros/duplicatas pendentes — faixas ok ainda vão para a pasta. */
+    await applyPostFinishForJob(jobId).catch(() => {});
   }
 
   return { ok: nextStatus === "concluido", status: nextStatus };
@@ -383,7 +386,7 @@ export async function reconcilePartialErroredJobs(limit = 40): Promise<number> {
 /**
  * Jobs já `concluido` mas com faixas ainda fora da pasta — recupera ATL CRICA parcial.
  */
-export async function reconcileUnappliedPastaJobs(jobLimit = 30): Promise<number> {
+export async function reconcileUnappliedPastaJobs(jobLimit = 50): Promise<number> {
   const rows = await prisma.$queryRaw<Array<{ jobId: string }>>`
     SELECT DISTINCT j.id AS "jobId"
       FROM processamento_job j
@@ -394,7 +397,7 @@ export async function reconcileUnappliedPastaJobs(jobLimit = 30): Promise<number
        AND NOT EXISTS (
          SELECT 1 FROM processamento_item pi2
           WHERE pi2.job_id = j.id
-            AND pi2.status IN ('aguardando', 'processando', 'duplicata')
+            AND pi2.status IN ('aguardando', 'processando')
        )
        AND NOT EXISTS (
          SELECT 1 FROM pasta_musica pm
@@ -402,19 +405,32 @@ export async function reconcileUnappliedPastaJobs(jobLimit = 30): Promise<number
             AND pm.musica_id = pi.musica_id
        )
      ORDER BY j.updated_at DESC
-     LIMIT ${Math.min(80, Math.max(1, jobLimit))}
+     LIMIT ${Math.min(100, Math.max(1, jobLimit))}
   `;
 
   let applied = 0;
   for (const { jobId } of rows) {
+    await tryFinishJob(jobId).catch(() => {});
     await applyPendingUploadTagsForJob(jobId).catch(() => {});
     applied += await applyPendingPastaUploadsForJob(jobId).catch(() => 0);
   }
   return applied;
 }
 
+/** Varre todos os jobs com faixas pendentes na pasta (várias rodadas). */
+export async function reconcileAllUnappliedPastaJobs(): Promise<number> {
+  let total = 0;
+  for (let round = 0; round < 15; round += 1) {
+    const n = await reconcileUnappliedPastaJobs(60);
+    total += n;
+    if (n === 0) break;
+  }
+  return total;
+}
+
 /** Reaplica pasta + tag de um job (botão manual na fila). */
 export async function applyJobPastaAndTags(jobId: string): Promise<{ tags: number; pastas: number }> {
+  await tryFinishJob(jobId).catch(() => {});
   const tags = await applyPendingUploadTagsForJob(jobId).catch(() => 0);
   const pastas = await applyPendingPastaUploadsForJob(jobId).catch(() => 0);
   return { tags, pastas };
@@ -439,12 +455,12 @@ export async function autoFinishJobsReady(): Promise<number> {
   return finished;
 }
 
-/** Jobs com barra cheia mas status ainda processando/aguardando — fecha e aplica tag/pasta. */
+/** Jobs com barra cheia mas status ainda processando/aguardando/erro — fecha e aplica tag/pasta. */
 export async function reconcileStuckProcessingJobs(): Promise<number> {
   const jobs = await prisma.processamentoJob.findMany({
-    where: { status: { in: ["processando", "aguardando"] } },
+    where: { status: { in: ["processando", "aguardando", "erro"] } },
     select: { id: true },
-    take: 40,
+    take: 60,
     orderBy: { updatedAt: "asc" },
   });
   let n = 0;

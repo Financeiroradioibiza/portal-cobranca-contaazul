@@ -3,7 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import {
   autoFinishJobsReady,
   reconcilePartialErroredJobs,
-  reconcileUnappliedPastaJobs,
+  reconcileAllUnappliedPastaJobs,
   reconcileStuckProcessingJobs,
   recoverServidorUpStagingAll,
   resetStaleProcessingItems,
@@ -19,7 +19,7 @@ export const maxDuration = 120;
 export async function POST() {
   try {
     requirePortalSession(await getPortalSession());
-    const [tags, pastas, pastasEspeciais, jobsFinished, staleReset, jobsReconciled, partialErrored, unappliedPasta, staging] =
+    const [tags, pastas, pastasEspeciais, jobsFinished, staleReset, jobsReconciled, partialErrored, unappliedPastaAll, staging] =
       await Promise.all([
       applyAllPendingUploadTags(8000).catch((e) => {
         console.error("[criacao/fila/sync-pending] tags", e);
@@ -49,8 +49,8 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] partialErrored", e);
         return 0;
       }),
-      reconcileUnappliedPastaJobs(40).catch((e) => {
-        console.error("[criacao/fila/sync-pending] unappliedPasta", e);
+      reconcileAllUnappliedPastaJobs().catch((e) => {
+        console.error("[criacao/fila/sync-pending] unappliedPastaAll", e);
         return 0;
       }),
       recoverServidorUpStagingAll({ maxItems: 300, maxJobs: 5 }).catch((e) => {
@@ -67,7 +67,7 @@ export async function POST() {
       staleReset,
       jobsReconciled,
       partialErrored,
-      unappliedPasta,
+      unappliedPastaAll,
       stagingImported: staging.imported,
       stagingErrors: staging.errors?.slice(0, 5),
     });

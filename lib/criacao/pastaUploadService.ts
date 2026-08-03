@@ -20,7 +20,7 @@ export async function applyPendingPastaUploads(limit = 80): Promise<number> {
        AND NOT EXISTS (
          SELECT 1 FROM processamento_item pi2
           WHERE pi2.job_id = j.id
-            AND pi2.status IN ('aguardando', 'processando', 'duplicata')
+            AND pi2.status IN ('aguardando', 'processando')
        )
        AND EXISTS (
          SELECT 1 FROM musica_biblioteca mb WHERE mb.id = pi.musica_id
@@ -36,7 +36,7 @@ export async function applyPendingPastaUploads(limit = 80): Promise<number> {
   return applyPastaUploadItems(items);
 }
 
-/** Aplica **todas** as faixas pendentes de um job na pasta (ATL CRICA / upload_pasta). */
+/** Aplica **todas** as faixas concluídas do job na pasta — não espera resolver duplicatas. */
 export async function applyPendingPastaUploadsForJob(jobId: string): Promise<number> {
   const job = await prisma.processamentoJob.findUnique({
     where: { id: jobId },
@@ -56,11 +56,6 @@ export async function applyPendingPastaUploadsForJob(jobId: string): Promise<num
          AND pi.status = 'concluido'
          AND pi.musica_id IS NOT NULL
          AND j.pasta_id IS NOT NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM processamento_item pi2
-            WHERE pi2.job_id = j.id
-              AND pi2.status IN ('aguardando', 'processando', 'duplicata')
-         )
          AND EXISTS (
            SELECT 1 FROM musica_biblioteca mb WHERE mb.id = pi.musica_id
          )
