@@ -174,15 +174,9 @@ async function finishItemErro(item: ClaimedItem, msg: string): Promise<void> {
   );
   await portalQuery(
     `UPDATE processamento_job j
-        SET status = CASE
-              WHEN (SELECT count(*) FROM processamento_item WHERE job_id = j.id AND status = 'erro') > 0
-              THEN 'erro'
-              ELSE j.status
-            END,
-            erro_msg = $2,
-            updated_at = now()
+        SET updated_at = now()
       WHERE j.id = $1`,
-    [item.job_id, msg.slice(0, 2000)],
+    [item.job_id],
   );
   await maybeFinishJob(item.job_id);
 }
@@ -192,12 +186,14 @@ async function maybeFinishJob(jobId: string): Promise<void> {
     pending: number;
     erros: number;
     duplicatas: number;
+    concluidos: number;
     tipo: string;
   }>(
     `SELECT
        count(*) FILTER (WHERE status IN ('aguardando', 'processando'))::int AS pending,
        count(*) FILTER (WHERE status = 'erro')::int AS erros,
        count(*) FILTER (WHERE status = 'duplicata')::int AS duplicatas,
+       count(*) FILTER (WHERE status = 'concluido')::int AS concluidos,
        (SELECT tipo::text FROM processamento_job WHERE id = $1) AS tipo
        FROM processamento_item
       WHERE job_id = $1`,
@@ -205,9 +201,13 @@ async function maybeFinishJob(jobId: string): Promise<void> {
   );
   const row = r.rows[0];
   if ((row?.pending ?? 0) > 0) return;
+  const dupes = row?.duplicatas ?? 0;
+  const concluidos = row?.concluidos ?? 0;
+  const erros = row?.erros ?? 0;
   const status =
-    (row?.erros ?? 0) > 0 ? 'erro'
-    : (row?.duplicatas ?? 0) > 0 ? 'revisao'
+    dupes > 0 ? 'revisao'
+    : concluidos > 0 ? 'concluido'
+    : erros > 0 ? 'erro'
     : 'concluido';
   await portalQuery(
     `UPDATE processamento_job
@@ -217,7 +217,7 @@ async function maybeFinishJob(jobId: string): Promise<void> {
       WHERE id = $1`,
     [jobId, status],
   );
-  if (status === 'concluido' && row?.tipo === 'upload_pasta') {
+  if (dupes === 0 && concluidos > 0 && row?.tipo === 'upload_pasta') {
     await applyPastaUploadsForJob(jobId);
   }
 }
@@ -239,7 +239,11 @@ async function applyPastaUploadsForJob(jobId: string): Promise<void> {
         AND pi.status = 'concluido'
         AND pi.musica_id IS NOT NULL
         AND j.pasta_id IS NOT NULL
-        AND j.status = 'concluido'
+        AND NOT EXISTS (
+          SELECT 1 FROM processamento_item pi2
+           WHERE pi2.job_id = j.id
+             AND pi2.status IN ('aguardando', 'processando', 'duplicata')
+        )
         AND NOT EXISTS (
           SELECT 1 FROM pasta_musica pm
             JOIN pasta pa ON pa.id = pm.pasta_id

@@ -422,9 +422,19 @@ export function FilaPanel() {
                       <p className="mb-3 text-sm text-emerald-700 dark:text-emerald-300">
                         Processamento concluído — finalizando lote automaticamente…
                       </p>
-                    : j.status === "erro" || j.erros > 0 ?
-                      <p className="mb-3 text-sm text-red-600">
-                        {j.erros} faixa(s) com erro — confira os itens abaixo e reenvie se necessário.
+                    : j.erros > 0 ?
+                      <p
+                        className={
+                          "mb-3 text-sm " +
+                          (j.status === "concluido" ?
+                            "text-amber-800 dark:text-amber-200"
+                          : "text-red-600")
+                        }
+                      >
+                        {j.erros} faixa(s) com erro
+                        {j.status === "concluido" ?
+                          " — as demais já foram para a biblioteca e a programação. Reenvie só as que falharam."
+                        : " — confira os itens abaixo e reenvie se necessário."}
                       </p>
                     : null}
                     <>

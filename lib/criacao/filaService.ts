@@ -271,6 +271,32 @@ export async function cancelJob(id: string): Promise<boolean> {
   return true;
 }
 
+/** Job terminou: aplica tag + pasta quando há faixas ok (mesmo com erros parciais). */
+async function applyPostFinishSideEffects(): Promise<void> {
+  await applyPendingUploadTags(200).catch(() => {});
+  await applyPendingPastaUploads(200).catch(() => {});
+  if (await hasProcessamentoPastaEspecialColumn()) {
+    await applyPendingPastaEspecialUploads(200).catch(() => {});
+  }
+}
+
+/**
+ * Status final do job quando não há itens pendentes.
+ * Erros parciais → concluido (faixas ok vão para biblioteca/pasta); só `erro` se todas falharam.
+ */
+export function computeFinishedJobStatus(counts: {
+  pending: number;
+  dupes: number;
+  erros: number;
+  concluidos: number;
+}): "processando" | "revisao" | "concluido" | "erro" {
+  if (counts.pending > 0) return "processando";
+  if (counts.dupes > 0) return "revisao";
+  if (counts.concluidos > 0) return "concluido";
+  if (counts.erros > 0) return "erro";
+  return "concluido";
+}
+
 /** Recalcula status do job quando itens terminam (espelha maybeFinishJob do cloud2). */
 export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status: string }> {
   const job = await prisma.processamentoJob.findUnique({
@@ -279,17 +305,19 @@ export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status
   });
   if (!job) return { ok: false, status: "not_found" };
 
-  const [dupes, pending, erros] = await Promise.all([
+  const [dupes, pending, erros, concluidos] = await Promise.all([
     prisma.processamentoItem.count({ where: { jobId, status: "duplicata" } }),
     prisma.processamentoItem.count({
       where: { jobId, status: { in: ["aguardando", "processando"] } },
     }),
     prisma.processamentoItem.count({ where: { jobId, status: "erro" } }),
+    prisma.processamentoItem.count({ where: { jobId, status: "concluido" } }),
   ]);
 
   if (pending > 0) return { ok: false, status: job.status };
 
-  const nextStatus = erros > 0 ? "erro" : dupes > 0 ? "revisao" : "concluido";
+  const nextStatus = computeFinishedJobStatus({ pending, dupes, erros, concluidos });
+  const terminal = nextStatus === "concluido" || nextStatus === "erro";
 
   if (job.status !== nextStatus) {
     await prisma.processamentoJob.update({
@@ -297,20 +325,47 @@ export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status
       data: {
         status: nextStatus,
         etapaAtual: "armazenamento",
-        finishedAt: nextStatus === "concluido" || nextStatus === "erro" ? new Date() : null,
+        finishedAt: terminal ? new Date() : null,
       },
     });
   }
 
-  if (nextStatus === "concluido") {
-    await applyPendingUploadTags(200).catch(() => {});
-    await applyPendingPastaUploads(200).catch(() => {});
-    if (await hasProcessamentoPastaEspecialColumn()) {
-      await applyPendingPastaEspecialUploads(200).catch(() => {});
-    }
+  if (nextStatus === "concluido" && concluidos > 0) {
+    await applyPostFinishSideEffects();
   }
 
   return { ok: nextStatus === "concluido", status: nextStatus };
+}
+
+/**
+ * Jobs marcados `erro` só por falhas parciais — reabre como concluido e aplica pasta/tag.
+ * Recupera lotes ATL CRICA já processados (ex.: Farm 244/247).
+ */
+export async function reconcilePartialErroredJobs(limit = 40): Promise<number> {
+  const jobs = await prisma.processamentoJob.findMany({
+    where: { status: "erro" },
+    select: { id: true },
+    take: limit,
+    orderBy: { updatedAt: "desc" },
+  });
+  let n = 0;
+  for (const j of jobs) {
+    const [pending, dupes, concluidos] = await Promise.all([
+      prisma.processamentoItem.count({
+        where: { jobId: j.id, status: { in: ["aguardando", "processando"] } },
+      }),
+      prisma.processamentoItem.count({ where: { jobId: j.id, status: "duplicata" } }),
+      prisma.processamentoItem.count({ where: { jobId: j.id, status: "concluido" } }),
+    ]);
+    if (pending > 0 || dupes > 0 || concluidos === 0) continue;
+    await prisma.processamentoJob.update({
+      where: { id: j.id },
+      data: { status: "concluido", etapaAtual: "armazenamento", finishedAt: new Date() },
+    });
+    n += 1;
+  }
+  if (n > 0) await applyPostFinishSideEffects();
+  return n;
 }
 
 /** Jobs em revisão sem duplicatas pendentes → concluído automaticamente. */

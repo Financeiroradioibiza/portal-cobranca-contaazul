@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
   autoFinishJobsReady,
+  reconcilePartialErroredJobs,
   reconcileStuckProcessingJobs,
   recoverServidorUpStagingAll,
   resetStaleProcessingItems,
@@ -17,7 +18,7 @@ export const maxDuration = 120;
 export async function POST() {
   try {
     requirePortalSession(await getPortalSession());
-    const [tags, pastas, pastasEspeciais, jobsFinished, staleReset, jobsReconciled, staging] =
+    const [tags, pastas, pastasEspeciais, jobsFinished, staleReset, jobsReconciled, partialErrored, staging] =
       await Promise.all([
       applyPendingUploadTags(20).catch((e) => {
         console.error("[criacao/fila/sync-pending] tags", e);
@@ -43,6 +44,10 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] reconcile", e);
         return 0;
       }),
+      reconcilePartialErroredJobs().catch((e) => {
+        console.error("[criacao/fila/sync-pending] partialErrored", e);
+        return 0;
+      }),
       recoverServidorUpStagingAll({ maxItems: 300, maxJobs: 5 }).catch((e) => {
         console.error("[criacao/fila/sync-pending] staging", e);
         return { imported: 0, errors: [String(e)], results: [] };
@@ -56,6 +61,7 @@ export async function POST() {
       jobsFinished,
       staleReset,
       jobsReconciled,
+      partialErrored,
       stagingImported: staging.imported,
       stagingErrors: staging.errors?.slice(0, 5),
     });
