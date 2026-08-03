@@ -3,13 +3,14 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import {
   autoFinishJobsReady,
   reconcilePartialErroredJobs,
+  reconcileUnappliedPastaJobs,
   reconcileStuckProcessingJobs,
   recoverServidorUpStagingAll,
   resetStaleProcessingItems,
 } from "@/lib/criacao/filaService";
-import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import { applyAllPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
-import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
+import { applyAllPendingUploadTags } from "@/lib/criacao/uploadTagService";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -18,13 +19,13 @@ export const maxDuration = 120;
 export async function POST() {
   try {
     requirePortalSession(await getPortalSession());
-    const [tags, pastas, pastasEspeciais, jobsFinished, staleReset, jobsReconciled, partialErrored, staging] =
+    const [tags, pastas, pastasEspeciais, jobsFinished, staleReset, jobsReconciled, partialErrored, unappliedPasta, staging] =
       await Promise.all([
-      applyPendingUploadTags(20).catch((e) => {
+      applyAllPendingUploadTags(8000).catch((e) => {
         console.error("[criacao/fila/sync-pending] tags", e);
         return 0;
       }),
-      applyPendingPastaUploads(20).catch((e) => {
+      applyAllPendingPastaUploads(8000).catch((e) => {
         console.error("[criacao/fila/sync-pending] pastas", e);
         return 0;
       }),
@@ -48,6 +49,10 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] partialErrored", e);
         return 0;
       }),
+      reconcileUnappliedPastaJobs(40).catch((e) => {
+        console.error("[criacao/fila/sync-pending] unappliedPasta", e);
+        return 0;
+      }),
       recoverServidorUpStagingAll({ maxItems: 300, maxJobs: 5 }).catch((e) => {
         console.error("[criacao/fila/sync-pending] staging", e);
         return { imported: 0, errors: [String(e)], results: [] };
@@ -62,6 +67,7 @@ export async function POST() {
       staleReset,
       jobsReconciled,
       partialErrored,
+      unappliedPasta,
       stagingImported: staging.imported,
       stagingErrors: staging.errors?.slice(0, 5),
     });

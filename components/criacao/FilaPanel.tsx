@@ -218,6 +218,18 @@ export function FilaPanel() {
     }
   }
 
+  async function applyPastaToJob(jobId: string) {
+    await fetch(`/api/criacao/fila/${jobId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "apply_pasta" }),
+    });
+    lastSyncPendingAt.current = 0;
+    await syncPending(true);
+    await load();
+    if (openId === jobId) await loadItems(jobId);
+  }
+
   async function cancel(id: string) {
     if (!window.confirm("Cancelar este job?")) return;
     await fetch(`/api/criacao/fila/${id}`, {
@@ -345,6 +357,16 @@ export function FilaPanel() {
                     </span>
                   </div>
 
+                  {j.status === "concluido" || j.status === "erro" ?
+                    <button
+                      type="button"
+                      onClick={() => void applyPastaToJob(j.id)}
+                      className="shrink-0 rounded border border-violet-400 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200"
+                      title="Coloca faixas processadas na pasta da programação (recuperação ATL CRICA)"
+                    >
+                      Aplicar na programação
+                    </button>
+                  : null}
                   {ativo ?
                     <>
                       {j.totalItens > 0 &&

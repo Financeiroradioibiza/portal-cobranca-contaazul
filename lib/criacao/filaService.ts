@@ -1,9 +1,15 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
-import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
+import {
+  applyAllPendingPastaUploads,
+  applyPendingPastaUploadsForJob,
+} from "@/lib/criacao/pastaUploadService";
 import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
-import { applyPendingUploadTags } from "@/lib/criacao/uploadTagService";
+import {
+  applyAllPendingUploadTags,
+  applyPendingUploadTagsForJob,
+} from "@/lib/criacao/uploadTagService";
 import { cloud2Enabled, cloud2FetchWithTimeout } from "@/lib/criacao/cloud2Client";
 import {
   ensureProcessamentoPastaEspecialColumn,
@@ -271,10 +277,16 @@ export async function cancelJob(id: string): Promise<boolean> {
   return true;
 }
 
-/** Job terminou: aplica tag + pasta quando há faixas ok (mesmo com erros parciais). */
+/** Job terminou: tag + pasta desse job (sem limite global de 20/200). */
+async function applyPostFinishForJob(jobId: string): Promise<void> {
+  await applyPendingUploadTagsForJob(jobId).catch(() => {});
+  await applyPendingPastaUploadsForJob(jobId).catch(() => {});
+}
+
+/** Job terminou: aplica tag + pasta quando há faixas ok (sync global). */
 async function applyPostFinishSideEffects(): Promise<void> {
-  await applyPendingUploadTags(200).catch(() => {});
-  await applyPendingPastaUploads(200).catch(() => {});
+  await applyAllPendingUploadTags().catch(() => {});
+  await applyAllPendingPastaUploads().catch(() => {});
   if (await hasProcessamentoPastaEspecialColumn()) {
     await applyPendingPastaEspecialUploads(200).catch(() => {});
   }
@@ -331,7 +343,7 @@ export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status
   }
 
   if (nextStatus === "concluido" && concluidos > 0) {
-    await applyPostFinishSideEffects();
+    await applyPostFinishForJob(jobId);
   }
 
   return { ok: nextStatus === "concluido", status: nextStatus };
@@ -362,10 +374,50 @@ export async function reconcilePartialErroredJobs(limit = 40): Promise<number> {
       where: { id: j.id },
       data: { status: "concluido", etapaAtual: "armazenamento", finishedAt: new Date() },
     });
+    await applyPostFinishForJob(j.id).catch(() => {});
     n += 1;
   }
-  if (n > 0) await applyPostFinishSideEffects();
   return n;
+}
+
+/**
+ * Jobs já `concluido` mas com faixas ainda fora da pasta — recupera ATL CRICA parcial.
+ */
+export async function reconcileUnappliedPastaJobs(jobLimit = 30): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ jobId: string }>>`
+    SELECT DISTINCT j.id AS "jobId"
+      FROM processamento_job j
+      JOIN processamento_item pi ON pi.job_id = j.id
+     WHERE j.pasta_id IS NOT NULL
+       AND pi.status = 'concluido'
+       AND pi.musica_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM processamento_item pi2
+          WHERE pi2.job_id = j.id
+            AND pi2.status IN ('aguardando', 'processando', 'duplicata')
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM pasta_musica pm
+          WHERE pm.pasta_id = j.pasta_id
+            AND pm.musica_id = pi.musica_id
+       )
+     ORDER BY j.updated_at DESC
+     LIMIT ${Math.min(80, Math.max(1, jobLimit))}
+  `;
+
+  let applied = 0;
+  for (const { jobId } of rows) {
+    await applyPendingUploadTagsForJob(jobId).catch(() => {});
+    applied += await applyPendingPastaUploadsForJob(jobId).catch(() => 0);
+  }
+  return applied;
+}
+
+/** Reaplica pasta + tag de um job (botão manual na fila). */
+export async function applyJobPastaAndTags(jobId: string): Promise<{ tags: number; pastas: number }> {
+  const tags = await applyPendingUploadTagsForJob(jobId).catch(() => 0);
+  const pastas = await applyPendingPastaUploadsForJob(jobId).catch(() => 0);
+  return { tags, pastas };
 }
 
 /** Jobs em revisão sem duplicatas pendentes → concluído automaticamente. */

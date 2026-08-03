@@ -66,6 +66,83 @@ export async function applyPendingUploadTags(limit = 80): Promise<number> {
   return applied;
 }
 
+/** Tags pendentes de um job (ATL CRICA). */
+export async function applyPendingUploadTagsForJob(jobId: string): Promise<number> {
+  let total = 0;
+  const BATCH = 120;
+  while (true) {
+    const items = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        musicaId: string;
+        uploadTagNome: string;
+        criativoUserId: string | null;
+        criativoNome: string;
+      }>
+    >`
+      SELECT pi.id,
+             pi.musica_id AS "musicaId",
+             j.upload_tag_nome AS "uploadTagNome",
+             j.criativo_user_id AS "criativoUserId",
+             j.criativo_nome AS "criativoNome"
+        FROM processamento_item pi
+        JOIN processamento_job j ON j.id = pi.job_id
+       WHERE j.id = ${jobId}
+         AND pi.status = 'concluido'
+         AND pi.musica_id IS NOT NULL
+         AND j.upload_tag_nome <> ''
+         AND NOT EXISTS (
+           SELECT 1 FROM processamento_item pi2
+            WHERE pi2.job_id = j.id
+              AND pi2.status IN ('aguardando', 'processando', 'duplicata')
+         )
+         AND EXISTS (
+           SELECT 1 FROM musica_biblioteca mb WHERE mb.id = pi.musica_id
+         )
+         AND NOT EXISTS (
+           SELECT 1
+             FROM musica_tag_manual mtm
+             JOIN tag_criativo tc ON tc.id = mtm.tag_id
+            WHERE mtm.musica_id = pi.musica_id
+              AND tc.nome = j.upload_tag_nome
+              AND COALESCE(tc.criativo_user_id, '') = COALESCE(j.criativo_user_id, '')
+         )
+       ORDER BY pi.created_at ASC
+       LIMIT ${BATCH}
+    `;
+    if (items.length === 0) break;
+    for (const item of items) {
+      try {
+        const ok = await applyUploadTagForMusica({
+          musicaId: item.musicaId,
+          tagNome: item.uploadTagNome,
+          criativoUserId: item.criativoUserId,
+          criativoNome: item.criativoNome,
+        });
+        if (ok) total += 1;
+      } catch (e) {
+        console.warn("[uploadTagService] falha ao aplicar tag (job)", {
+          jobId,
+          musicaId: item.musicaId,
+          err: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+    if (items.length < BATCH) break;
+  }
+  return total;
+}
+
+export async function applyAllPendingUploadTags(maxTotal = 8000): Promise<number> {
+  let total = 0;
+  while (total < maxTotal) {
+    const n = await applyPendingUploadTags(120);
+    if (n === 0) break;
+    total += n;
+  }
+  return total;
+}
+
 export async function applyUploadTagForMusica(input: {
   musicaId: string;
   tagNome: string;
