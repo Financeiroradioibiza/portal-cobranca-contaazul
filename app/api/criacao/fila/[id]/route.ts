@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { approveJob, applyJobPastaAndTags, cancelJob, getJobDetail, resolveDuplicatasBulk, tryFinishJob } from "@/lib/criacao/filaService";
+import { approveJob, cancelJob, getJobDetail, resolveDuplicatasBulk, tryFinishJob } from "@/lib/criacao/filaService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -46,10 +46,6 @@ export async function PATCH(request: Request, ctx: Ctx) {
     if (body.action === "finish") {
       const result = await tryFinishJob(id);
       return NextResponse.json({ ok: result.ok, status: result.status });
-    }
-    if (body.action === "apply_pasta") {
-      const r = await applyJobPastaAndTags(id);
-      return NextResponse.json({ ok: true, ...r });
     }
     if (body.action === "recover_staging") {
       const { recoverStagingForJob } = await import("@/lib/criacao/stagingRecoverService");

@@ -185,33 +185,6 @@ export function FilaPanel() {
     return () => clearInterval(t);
   }, [autoRefresh, openId, load, loadItems, syncPending]);
 
-  const autoAppliedRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    for (const j of jobs) {
-      if (j.status === "cancelado" || j.totalItens <= 0) continue;
-      if (j.itensFeitos < j.totalItens) continue;
-      const key = `${j.id}:${j.itensFeitos}:${j.status}`;
-      if (autoAppliedRef.current.has(key)) continue;
-      autoAppliedRef.current.add(key);
-      void (async () => {
-        if (j.status === "processando" || j.status === "aguardando" || j.status === "erro" || j.status === "revisao") {
-          await fetch(`/api/criacao/fila/${j.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "finish" }),
-          }).catch(() => null);
-        }
-        await fetch(`/api/criacao/fila/${j.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "apply_pasta" }),
-        }).catch(() => null);
-        lastSyncPendingAt.current = 0;
-      })();
-    }
-  }, [jobs]);
-
   useEffect(() => {
     for (const j of jobs) {
       if (j.status === "revisao" && j.duplicatas === 0 && j.erros === 0) {
@@ -243,18 +216,6 @@ export function FilaPanel() {
       setOpenId(id);
       if (!items[id]) void loadItems(id);
     }
-  }
-
-  async function applyPastaToJob(jobId: string) {
-    await fetch(`/api/criacao/fila/${jobId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "apply_pasta" }),
-    });
-    lastSyncPendingAt.current = 0;
-    await syncPending(true);
-    await load();
-    if (openId === jobId) await loadItems(jobId);
   }
 
   async function cancel(id: string) {
@@ -384,16 +345,6 @@ export function FilaPanel() {
                     </span>
                   </div>
 
-                  {j.status === "concluido" || j.status === "erro" ?
-                    <button
-                      type="button"
-                      onClick={() => void applyPastaToJob(j.id)}
-                      className="shrink-0 rounded border border-violet-400 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200"
-                      title="Coloca faixas processadas na pasta da programação (recuperação ATL CRICA)"
-                    >
-                      Aplicar na programação
-                    </button>
-                  : null}
                   {ativo ?
                     <>
                       {j.totalItens > 0 &&
