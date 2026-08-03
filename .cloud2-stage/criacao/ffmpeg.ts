@@ -95,7 +95,7 @@ async function measureLoudnorm(inputPath: string): Promise<LoudnormMeasured> {
   });
 }
 
-async function probeDurationMs(inputPath: string): Promise<number> {
+export async function probeDurationMs(inputPath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       'ffprobe',

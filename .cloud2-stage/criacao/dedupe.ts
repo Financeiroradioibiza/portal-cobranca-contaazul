@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process';
 import { portalQuery } from './portalDb.js';
 import { sha256File } from './hash.js';
+import { probeDurationMs } from './ffmpeg.js';
+
+/** Tolerância de duração para auto-descartar chromaprint (mesmo critério Servidor UP). */
+const CHROMAPRINT_AUTO_DURATION_MS = 4000;
 
 export type DedupeResult =
   | { kind: 'nova' }
@@ -170,4 +174,40 @@ export async function findDuplicate(
   }
 
   return { kind: 'nova', contentHash, chromaprint };
+}
+
+/**
+ * Chromaprint sozinho exige revisão — salvo artista+título normalizados iguais e duração ±4s.
+ */
+export async function shouldAutoConfirmChromaprintDuplicate(
+  existenteId: string,
+  uploadArtista: string,
+  uploadTitulo: string,
+  inputPath: string,
+): Promise<boolean> {
+  const rows = await portalQuery<{ artista: string; titulo: string; duration_ms: number | null }>(
+    `SELECT artista, titulo, duration_ms FROM musica_biblioteca WHERE id = $1 LIMIT 1`,
+    [existenteId],
+  );
+  const ex = rows.rows[0];
+  if (!ex) return false;
+
+  const na = normalizeMetaForDedupe(uploadArtista);
+  const nt = normalizeTitleForDedupe(uploadTitulo);
+  const ea = normalizeMetaForDedupe(ex.artista);
+  const et = normalizeTitleForDedupe(ex.titulo);
+  if (na.length < 2 || nt.length < 2 || na !== ea || nt !== et) return false;
+
+  const existMs = ex.duration_ms ?? 0;
+  if (existMs <= 0) return false;
+
+  let uploadMs = 0;
+  try {
+    uploadMs = await probeDurationMs(inputPath);
+  } catch {
+    return false;
+  }
+  if (uploadMs <= 0) return false;
+
+  return Math.abs(uploadMs - existMs) <= CHROMAPRINT_AUTO_DURATION_MS;
 }

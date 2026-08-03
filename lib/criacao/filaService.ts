@@ -381,14 +381,17 @@ export async function approveJob(id: string): Promise<{ ok: boolean; reason?: st
 /** Remove upload/work no cloud2 após item terminalizado (duplicata descartada, etc.). */
 async function cloud2CleanupScratch(itemIds: string[]): Promise<void> {
   if (!cloud2Enabled() || itemIds.length === 0) return;
-  await cloud2FetchWithTimeout(
-    "/cleanup/scratch",
-    {
-      method: "POST",
-      body: JSON.stringify({ itemIds }),
-    },
-    12_000,
-  ).catch(() => null);
+  const BATCH = 25;
+  for (let i = 0; i < itemIds.length; i += BATCH) {
+    await cloud2FetchWithTimeout(
+      "/cleanup/scratch",
+      {
+        method: "POST",
+        body: JSON.stringify({ itemIds: itemIds.slice(i, i + BATCH) }),
+      },
+      12_000,
+    ).catch(() => null);
+  }
 }
 
 /** Resolução manual de duplicata: "nova" mantém como faixa nova; "existente" descarta o item. */

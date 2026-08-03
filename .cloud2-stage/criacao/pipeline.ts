@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import { uploadMasterToB2 } from './b2.js';
 import { criacaoConfig } from './config.js';
-import { findDuplicate } from './dedupe.js';
+import { findDuplicate, shouldAutoConfirmChromaprintDuplicate } from './dedupe.js';
 import { analyzeAudio } from './analyze.js';
 import { produceMasterAndUso, probeArtistTitleFromFile, probeBpmFromFile, probeIsrcFromFile } from './ffmpeg.js';
 import { persistMixTrimForMusica, persistLegacyMixPreset, resolveMixTrim } from './mixTrimApply.js';
@@ -302,6 +302,13 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
     if (dup.kind === 'duplicata') {
       pipelineLog(ctx, 'duplicata', { via: dup.via, existenteId: dup.existenteId });
       if (dup.via === 'content_hash' || dup.via === 'metadata' || dup.via === 'isrc') {
+        await refreshMixOrProduceOnDuplicate(item, dup.existenteId, inputPath);
+        await finishItemDuplicataAutoConfirmada(item, dup.existenteId);
+      } else if (
+        dup.via === 'chromaprint' &&
+        (await shouldAutoConfirmChromaprintDuplicate(dup.existenteId, artista, titulo, inputPath))
+      ) {
+        pipelineLog(ctx, 'duplicata_auto_chromaprint', { existenteId: dup.existenteId });
         await refreshMixOrProduceOnDuplicate(item, dup.existenteId, inputPath);
         await finishItemDuplicataAutoConfirmada(item, dup.existenteId);
       } else {

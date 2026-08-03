@@ -4,6 +4,9 @@ import { approveJob, cancelJob, getJobDetail, resolveDuplicatasBulk, tryFinishJo
 
 type Ctx = { params: Promise<{ id: string }> };
 
+export const runtime = "nodejs";
+export const maxDuration = 120;
+
 export async function GET(_request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());

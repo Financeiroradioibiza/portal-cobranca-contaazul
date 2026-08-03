@@ -4,6 +4,9 @@ import { resolveDuplicata } from "@/lib/criacao/filaService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function PATCH(request: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());

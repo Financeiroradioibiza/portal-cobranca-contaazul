@@ -301,6 +301,11 @@ export function FilaPanel() {
             const open = openId === j.id;
             const pct = j.totalItens > 0 ? Math.round((j.itensFeitos / j.totalItens) * 100) : 0;
             const ativo = j.status === "aguardando" || j.status === "processando" || j.status === "revisao";
+            const jobItems = items[j.id];
+            const pendingDupes = jobItems?.filter((i) => i.status === "duplicata").length ?? 0;
+            const showDupeReview = pendingDupes > 0 && !!jobItems && !!jobMeta[j.id];
+            const pipelineItems =
+              showDupeReview ? jobItems!.filter((i) => i.status !== "duplicata") : (jobItems ?? []);
             return (
               <li
                 key={j.id}
@@ -388,16 +393,16 @@ export function FilaPanel() {
                     <div className="mb-3">
                       <FilaBrowserGuidance
                         phase={
-                          j.status === "revisao" && j.duplicatas > 0 ?
+                          showDupeReview ?
                             "fila-revisao"
                           : filaPhaseFromJobStatus(j.status)
                         }
                       />
                     </div>
-                    {j.status === "revisao" && j.duplicatas > 0 && items[j.id] && jobMeta[j.id] ?
+                    {showDupeReview ?
                       <FilaRevisaoWorkflow
                         jobId={j.id}
-                        items={items[j.id]!}
+                        items={jobItems!}
                         jobMeta={jobMeta[j.id]!}
                         onResolveDuplicata={async (itemId, decision) => {
                           await resolve(j.id, itemId, decision);
@@ -413,7 +418,7 @@ export function FilaPanel() {
                           void loadItems(j.id);
                         }}
                       />
-                    : j.status === "revisao" && j.duplicatas === 0 && j.erros === 0 ?
+                    : j.status === "revisao" && pendingDupes === 0 && j.erros === 0 ?
                       <p className="mb-3 text-sm text-emerald-700 dark:text-emerald-300">
                         Processamento concluído — finalizando lote automaticamente…
                       </p>
@@ -422,8 +427,7 @@ export function FilaPanel() {
                         {j.erros} faixa(s) com erro — confira os itens abaixo e reenvie se necessário.
                       </p>
                     : null}
-                    {!(j.status === "revisao" && j.duplicatas > 0 && items[j.id] && jobMeta[j.id]) ?
-                      <>
+                    <>
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap gap-1.5">
                         {Object.entries(ETAPA_LABEL_UI).map(([key, label]) => (
@@ -477,19 +481,23 @@ export function FilaPanel() {
                       : null}
                     </div>
 
-                    {!items[j.id] ?
+                    {!jobItems ?
                       <div className="text-xs text-slate-400">Carregando itens…</div>
-                    : items[j.id]!.length === 0 ?
+                    : pipelineItems.length === 0 && showDupeReview ?
+                      <div className="text-xs text-slate-400">
+                        Demais faixas ainda na fila — duplicatas em revisão acima.
+                      </div>
+                    : pipelineItems.length === 0 ?
                       <div className="text-xs text-slate-400">Sem itens.</div>
                     : itemView === "kanban" ?
                       <FilaJobKanban
                         jobId={j.id}
                         jobEtapaAtual={j.etapaAtual}
-                        items={items[j.id]!}
+                        items={pipelineItems}
                         onResolveDuplicata={(itemId, decision) => void resolve(j.id, itemId, decision)}
                       />
                     : <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {items[j.id]!.map((it) => (
+                        {pipelineItems.map((it) => (
                           <li key={it.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
                             <span className="min-w-0 flex-1 truncate">{it.arquivoNome}</span>
                             <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase ${STATUS_TONE[it.status] ?? ""}`}>
@@ -524,8 +532,7 @@ export function FilaPanel() {
                         ))}
                       </ul>
                     }
-                      </>
-                    : null}
+                    </>
                   </div>
                 : null}
               </li>
