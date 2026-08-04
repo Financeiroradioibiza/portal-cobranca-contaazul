@@ -585,15 +585,29 @@ export async function runServidorUpNightWorker(opts?: {
   download: { triggered: boolean; processed?: number; error?: string };
   enqueues: Array<{ downloadJobId: string; ok: boolean; done?: boolean; tracksImported?: number; error?: string }>;
 }> {
-  const download = await triggerDownloadProcessing(
-    Math.min(30, Math.max(1, opts?.downloadLimit ?? 12)),
-    { timeoutMs: 50_000 },
-  ).catch((e: unknown) => ({
-    triggered: false,
-    error: e instanceof Error ? e.message : "erro_download",
-  }));
+  const limit = Math.min(40, Math.max(1, opts?.downloadLimit ?? 20));
+  let download: { triggered: boolean; processed?: number; error?: string } =
+    await triggerDownloadProcessing(limit, { timeoutMs: 50_000 }).catch((e: unknown) => ({
+      triggered: false,
+      processed: 0,
+      error: e instanceof Error ? e.message : "erro_download",
+    }));
 
-  const snapshots = await listServidorUpUploadSnapshots(opts?.maxSnapshots ?? 15);
+  /** Segunda passagem se o primeiro lote avançou — acelera Deemix sem depender do browser. */
+  if (download.triggered && (download.processed ?? 0) > 0) {
+    const second = await triggerDownloadProcessing(limit, { timeoutMs: 50_000 }).catch(
+      () => null,
+    );
+    if (second?.triggered) {
+      download = {
+        triggered: true,
+        processed: (download.processed ?? 0) + (second.processed ?? 0),
+        error: second.error ?? download.error,
+      };
+    }
+  }
+
+  const snapshots = await listServidorUpUploadSnapshots(opts?.maxSnapshots ?? 20);
   const enqueues: Array<{
     downloadJobId: string;
     ok: boolean;

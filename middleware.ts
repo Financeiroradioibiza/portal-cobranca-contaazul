@@ -24,14 +24,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  /** Workers/cron Criação (Servidor UP): Bearer cron, sem cookie de sessão. */
+  /** Workers/cron Criação (Servidor UP): Bearer cron OU sessão do portal (rota valida). */
   if (
     pathname === "/api/criacao/servidor-up/night-worker" ||
     pathname === "/api/criacao/servidor-up/recover-staging"
   ) {
-    const auth = authorizeOcAutoDispatchCron(request);
-    if (!auth.ok) return auth.response;
-    return NextResponse.next();
+    const authHeader = (request.headers.get("authorization") ?? "").trim();
+    if (authHeader.toLowerCase().startsWith("bearer ")) {
+      const auth = authorizeOcAutoDispatchCron(request);
+      if (!auth.ok) return auth.response;
+      return NextResponse.next();
+    }
+    /* sem Bearer → segue fluxo de cookie/sessão abaixo */
   }
 
   if (

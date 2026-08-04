@@ -24,7 +24,7 @@ async function handle(request: Request) {
   }
 
   const url = new URL(request.url);
-  const downloadLimit = Number(url.searchParams.get("downloadLimit") ?? "12") || 12;
+  const downloadLimit = Number(url.searchParams.get("downloadLimit") ?? "20") || 20;
 
   const result = await runServidorUpNightWorker({ downloadLimit, maxSnapshots: 20 });
 

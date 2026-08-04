@@ -168,7 +168,7 @@ const STEPS = [
   { n: 0, title: "Hierarquia", desc: "Pastas legado × portal" },
   { n: 1, title: "Inventário", desc: "Scan + dedupe" },
   { n: 2, title: "Match", desc: "Conferir Deezer + revisão" },
-  { n: 3, title: "Entrega", desc: "Download e fila automáticos" },
+  { n: 3, title: "Entrega", desc: "Segundo plano (fecha a aba)" },
 ] as const;
 
 function rowNeedsAction(row: ServidorUpHierarchyRow, draft: RowDraft | undefined): boolean {
@@ -224,6 +224,41 @@ function matchDeemixLabel(row: ServidorUpMatchRow, picks: Record<string, number>
   return row.searchLine;
 }
 
+/** Menor = aparece primeiro na tabela (revisão / escolha antes das auto). */
+function matchRowSortPriority(
+  verdict: ServidorUpMatchVerdict,
+  skipped: boolean,
+): number {
+  if (skipped) return 90;
+  switch (verdict) {
+    case "review":
+      return 0;
+    case "pick":
+      return 1;
+    case "rejected":
+      return 2;
+    case "not_found":
+      return 3;
+    case "auto":
+      return 50;
+    default:
+      return 40;
+  }
+}
+
+function matchRowNeedsManualAction(
+  row: ServidorUpMatchRow,
+  skipped: boolean,
+): boolean {
+  if (skipped) return false;
+  return (
+    row.verdict === "pick" ||
+    row.verdict === "review" ||
+    row.verdict === "rejected" ||
+    row.verdict === "not_found"
+  );
+}
+
 export function ServidorUpPanel() {
   const [localHealth, setLocalHealth] = useState<{
     ok: boolean;
@@ -254,6 +289,8 @@ export function ServidorUpPanel() {
   const [busy, setBusy] = useState("");
   const [comparePath, setComparePath] = useState<string | null>(null);
   const [previewJobId, setPreviewJobId] = useState<string | null>(null);
+  /** Passo 2: mostrar só faixas que pedem escolha / check / pular. */
+  const [matchOnlyManual, setMatchOnlyManual] = useState(true);
   const folderRef = useRef<HTMLInputElement>(null);
 
   const checkLocal = useCallback(async () => {
@@ -1036,132 +1073,48 @@ export function ServidorUpPanel() {
     void persistServidorUpUploadSession(payload);
   }
 
-  async function triggerAutoEnqueueFila(jobId: string) {
+  /**
+   * Após o Match: cria o job Deemix no portal e entrega o resto ao night-worker
+   * (Deemix + fila + staging). Não precisa manter a aba aberta.
+   */
+  async function handOffBackgroundDelivery(
+    jobId: string,
+    totalItens: number,
+    opts?: { quiet?: boolean },
+  ) {
+    setDownloadJobId(jobId);
+    setActiveDeemixJobId(jobId);
+    persistUploadSession(jobId);
+    setActiveStep(3);
+
+    if (!opts?.quiet) setBusy("Iniciando entrega em segundo plano…");
     try {
-      let importedTotal = 0;
-      let done = false;
-      let lastTracksTotal = 0;
-      let lastTracksProcessed = 0;
-      const maxRounds = 200;
-
-      for (let round = 0; round < maxRounds; round++) {
-        const progress =
-          lastTracksTotal > 0 ?
-            `${lastTracksProcessed}/${lastTracksTotal}`
-          : round > 0 ?
-            `${importedTotal} importada(s)`
-          : "…";
-        setBusy(`Enviando para fila… ${progress}`);
-
-        const res = await fetch("/api/criacao/servidor-up/auto-enqueue-fila", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ downloadJobId: jobId, maxChunks: 1 }),
-        });
-        const data = await readApiJson<{
-          ok?: boolean;
-          done?: boolean;
-          totalTracks?: number;
-          tracksImported?: number;
-          tracksProcessed?: number;
-          tracksTotal?: number;
-          tracksRemaining?: number;
-          lotesRemaining?: number;
-          unmatched?: string[];
-          error?: string;
-          message?: string;
-        }>(res);
-
-        if (!res.ok || !data.ok) {
-          if (data.error === "nao_pronto") return;
-          if (importedTotal > 0) {
-            setErr(
-              `${data.message ?? data.error ?? "Fila parou no meio"} — ${importedTotal} faixa(s) já enfileirada(s); recarregue a página para retomar.`,
-            );
-            return;
-          }
-          setErr(data.message ?? data.error ?? "Fila automática não enfileirou — recarregue a página.");
-          return;
-        }
-
-        importedTotal += data.tracksImported ?? data.totalTracks ?? 0;
-        done = data.done ?? false;
-        lastTracksTotal = data.tracksTotal ?? lastTracksTotal;
-        lastTracksProcessed = data.tracksProcessed ?? lastTracksProcessed;
-
-        if (done) break;
-        await new Promise((r) => setTimeout(r, 350));
-      }
-
-      const filaMsg =
-        done ?
-          `${lastTracksProcessed || importedTotal}/${lastTracksTotal || importedTotal} faixa(s) na fila — processamento automático iniciado.`
-        : `${importedTotal} faixa(s) enfileirada(s) — processamento continua automaticamente.`;
-      setMsg((m) => `${m}${m ? " · " : ""}${filaMsg}`);
-    } catch (e) {
-      setErr(
-        e instanceof Error ?
-          e.message
-        : "Fila automática: resposta inválida — confira a Fila; o worker noturno pode concluir.",
-      );
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function pollDeemixJob(jobId: string, lineCount: number, totalItens: number) {
-    const PROCESS_LIMIT = 5;
-    const maxRounds = Math.ceil(lineCount / PROCESS_LIMIT) * 4 + 4;
-    let processErrors = 0;
-    for (let round = 0; round < maxRounds; round++) {
-      const snap = await fetchDeemixJobSnapshot(jobId);
-      if (!snap) break;
-      setDeemixJobSnapshot(snap);
-      const pending = snap.pending + snap.processing;
-      if (pending === 0) break;
-
-      setBusy(
-        `Baixando Deemix… ${snap.ok}/${snap.totalItens || totalItens} (${pending} pendente(s))`,
-      );
-
-      const syncRes = await fetch("/api/criacao/download/sync-pending", {
+      await fetch("/api/criacao/servidor-up/night-worker?downloadLimit=20", {
+        method: "POST",
+      }).catch(() => null);
+      await fetch("/api/criacao/download/sync-pending", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ limit: PROCESS_LIMIT, timeoutMs: 45_000 }),
-      });
-      const syncData = await readApiJson<{
-        triggered?: boolean;
-        processed?: number;
-        error?: string;
-      }>(syncRes).catch(() => ({ error: "sync_parse" }));
-      if (!syncRes.ok || syncData.error) processErrors += 1;
-      await new Promise((r) => setTimeout(r, 800));
-    }
+        body: JSON.stringify({ limit: 10, timeoutMs: 45_000 }),
+      }).catch(() => null);
 
-    const finalSnap = (await fetchDeemixJobSnapshot(jobId)) ?? deemixJobSnapshot;
-    if (finalSnap) setDeemixJobSnapshot(finalSnap);
+      const snap = await fetchDeemixJobSnapshot(jobId);
+      if (snap) setDeemixJobSnapshot(snap);
 
-    const okCount = finalSnap?.ok ?? 0;
-    const errCount = finalSnap?.err ?? 0;
-    const pendingCount = (finalSnap?.pending ?? 0) + (finalSnap?.processing ?? 0);
-    const total = finalSnap?.totalItens ?? totalItens;
-
-    const parts = [`Deemix: ${okCount}/${total} baixada(s)`, `Job ${jobId.slice(0, 8)}…`];
-    if (errCount > 0) parts.push(`${errCount} erro(s)`);
-    if (pendingCount > 0) {
-      parts.push(`${pendingCount} ainda baixando — continua automaticamente`);
+      const ok = snap?.ok ?? 0;
+      const pending = (snap?.pending ?? 0) + (snap?.processing ?? 0);
+      const total = snap?.totalItens ?? totalItens;
+      setMsg(
+        [
+          `Entrega em segundo plano · Job ${jobId.slice(0, 8)}…`,
+          `${ok}/${total} baixada(s)`,
+          pending > 0 ? `${pending} na fila Deemix` : "Deemix ok — fila/pastas no worker",
+          "Pode fechar a aba; o cron night-worker continua.",
+        ].join(" · "),
+      );
+    } finally {
+      if (!opts?.quiet) setBusy("");
     }
-    if (processErrors > 0 && pendingCount > 0) {
-      parts.push("(algum lote demorou — retomando…)");
-    }
-    setMsg(parts.join(" · "));
-    setDownloadJobId(jobId);
-    persistUploadSession(jobId);
-    if (pendingCount === 0) {
-      setActiveStep(3);
-      void triggerAutoEnqueueFila(jobId);
-    }
-    return { okCount, pendingCount, processErrors };
   }
 
   async function continuarDownloadDeemix() {
@@ -1170,17 +1123,9 @@ export function ServidorUpPanel() {
     try {
       const snap = await refreshDeemixJobSnapshot(downloadJobId);
       if (!snap) throw new Error("Job de download não encontrado.");
-      const pending = snap.pending + snap.processing;
-      setActiveStep(3);
-      if (pending === 0) {
-        setMsg(`Download concluído: ${snap.ok}/${snap.totalItens}`);
-        persistUploadSession(downloadJobId);
-        void triggerAutoEnqueueFila(downloadJobId);
-        return;
-      }
-      await pollDeemixJob(downloadJobId, snap.pending + snap.ok, snap.totalItens);
+      await handOffBackgroundDelivery(downloadJobId, snap.totalItens);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Falha ao retomar download.");
+      setErr(e instanceof Error ? e.message : "Falha ao retomar entrega.");
     } finally {
       setBusy("");
     }
@@ -1194,12 +1139,7 @@ export function ServidorUpPanel() {
         const snap = await refreshDeemixJobSnapshot(downloadJobId);
         const pending = (snap?.pending ?? 0) + (snap?.processing ?? 0);
         if (snap && (pending > 0 || snap.ok > 0)) {
-          setActiveStep(3);
-          if (pending === 0) {
-            await pollDeemixJob(downloadJobId, snap.ok, snap.totalItens);
-          } else {
-            await pollDeemixJob(downloadJobId, snap.pending + snap.ok, snap.totalItens);
-          }
+          await handOffBackgroundDelivery(downloadJobId, snap.totalItens);
           return;
         }
       }
@@ -1258,14 +1198,14 @@ export function ServidorUpPanel() {
       }
 
       if (!jobId) throw new Error("Job Deemix não criado.");
+      const notes: string[] = [];
       if (itensPick > 0) {
-        setMsg(`Job ${jobId.slice(0, 8)}… · ${itensPick} faixa(s) aguardando escolha manual na fila Deemix`);
+        notes.push(`${itensPick} faixa(s) aguardando escolha manual na fila Deemix`);
       }
-      if (itensErro > 0) {
-        setMsg((m) => `${m}${m ? " · " : ""}${itensErro} erro(s) ao enfileirar`);
-      }
+      if (itensErro > 0) notes.push(`${itensErro} erro(s) ao enfileirar`);
+      if (notes.length) setMsg(notes.join(" · "));
 
-      await pollDeemixJob(jobId, lines.length, totalItens);
+      await handOffBackgroundDelivery(jobId, totalItens);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Falha ao enfileirar.");
     } finally {
@@ -1279,6 +1219,21 @@ export function ServidorUpPanel() {
     matchResult?.rows.filter(
       (r) => !skippedTracks.has(r.relativePath) && (r.verdict === "pick" || r.verdict === "review" || r.verdict === "rejected"),
     ) ?? [];
+  const manualActionRows =
+    matchResult?.rows.filter((r) =>
+      matchRowNeedsManualAction(r, skippedTracks.has(r.relativePath)),
+    ) ?? [];
+  const sortedMatchRows = [...(matchResult?.rows ?? [])].sort((a, b) => {
+    const pa = matchRowSortPriority(a.verdict, skippedTracks.has(a.relativePath));
+    const pb = matchRowSortPriority(b.verdict, skippedTracks.has(b.relativePath));
+    if (pa !== pb) return pa - pb;
+    return a.searchLine.localeCompare(b.searchLine, "pt-BR");
+  });
+  const visibleMatchRows = matchOnlyManual ?
+      sortedMatchRows.filter((r) =>
+        matchRowNeedsManualAction(r, skippedTracks.has(r.relativePath)),
+      )
+    : sortedMatchRows;
   const approvedCount =
     matchResult?.rows.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length ?? 0;
   const inBibliotecaTracks = inventory.filter(
@@ -1303,18 +1258,37 @@ export function ServidorUpPanel() {
   const hasDeemixJob = Boolean(downloadJobId && deemixJobSnapshot && deemixJobSnapshot.totalItens > 0);
   const deemixInProgress = hasDeemixJob && (deemixPending ?? 0) > 0;
   const canStartFreshDeemix = !deemixInProgress && !busy;
-  const entregaAutoStartedRef = useRef<string | null>(null);
+  const entregaHandoffRef = useRef<string | null>(null);
 
+  /** Ao reabrir com job pendente: um kick no worker (não fica polling horas na aba). */
   useEffect(() => {
     if (!downloadJobId || !matchResult || busy) return;
     const pending = (deemixJobSnapshot?.pending ?? 0) + (deemixJobSnapshot?.processing ?? 0);
-    if (pending <= 0) return;
-    const key = `dl:${downloadJobId}`;
-    if (entregaAutoStartedRef.current === key) return;
-    entregaAutoStartedRef.current = key;
-    void continuarDownloadDeemix();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- retoma download pendente ao reabrir a aba
+    const hasProgress = (deemixJobSnapshot?.ok ?? 0) > 0 || pending > 0;
+    if (!hasProgress) return;
+    const key = `bg:${downloadJobId}`;
+    if (entregaHandoffRef.current === key) return;
+    entregaHandoffRef.current = key;
+    void handOffBackgroundDelivery(downloadJobId, deemixJobSnapshot?.totalItens ?? 0, {
+      quiet: true,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handoff único ao restaurar sessão
   }, [downloadJobId, matchResult, deemixJobSnapshot?.pending, deemixJobSnapshot?.processing, busy]);
+
+  /** Contadores na UI + kick leve; o cron cobrir se a aba fechar / sessão expirar. */
+  useEffect(() => {
+    if (!downloadJobId || !hasDeemixJob) return;
+    const pending = (deemixJobSnapshot?.pending ?? 0) + (deemixJobSnapshot?.processing ?? 0);
+    if (pending <= 0 && (deemixJobSnapshot?.ok ?? 0) <= 0) return;
+    const t = setInterval(() => {
+      void refreshDeemixJobSnapshot(downloadJobId);
+      void fetch("/api/criacao/servidor-up/night-worker?downloadLimit=12", {
+        method: "POST",
+      }).catch(() => null);
+    }, 45_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- poll leve enquanto a aba estiver aberta
+  }, [downloadJobId, hasDeemixJob, deemixJobSnapshot?.pending, deemixJobSnapshot?.processing]);
 
   useEffect(() => {
     if (downloadJobId && preview && matchResult) {
@@ -1331,8 +1305,8 @@ export function ServidorUpPanel() {
       <div>
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Servidor UP</div>
         <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
-          Suba o legado para as pastas dos clientes: hierarquia → inventário → conferir Match Deezer → entrega
-          automática (download + fila + pasta). Ajuste só o que for ambíguo; o resto o sistema faz sozinho.
+          Suba o legado: hierarquia → inventário → Match Deezer (sua revisão) → entrega em segundo plano
+          (Deemix + fila + pasta). Depois do Entregar pode fechar a aba.
         </p>
       </div>
 
@@ -1602,6 +1576,20 @@ export function ServidorUpPanel() {
               Na dúvida: use <strong>Check</strong> para comparar legado × Deemix (waveforms) — só quando
               precisar. Ou abra o Deezer, escolha na lista, ou <strong>Pular</strong>.
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={matchOnlyManual}
+                  onChange={(e) => setMatchOnlyManual(e.target.checked)}
+                  className="rounded border-slate-400"
+                />
+                Só as que precisam revisão ({manualActionRows.length})
+              </label>
+              <span className="text-[11px] text-slate-400">
+                Ordenação: revisão → escolher → rejeitada → não achou → auto
+              </span>
+            </div>
           </div>
 
           <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-200 dark:border-slate-800">
@@ -1617,7 +1605,16 @@ export function ServidorUpPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {matchResult.rows.map((row) => {
+                {visibleMatchRows.length === 0 ?
+                  <tr>
+                    <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+                      {matchOnlyManual ?
+                        "Nenhuma faixa pedindo revisão — desmarque o filtro para ver as auto-aprovadas."
+                      : "Sem faixas no Match."}
+                    </td>
+                  </tr>
+                : null}
+                {visibleMatchRows.map((row) => {
                   const isSkipped = skippedTracks.has(row.relativePath);
                   const showPicker =
                     !isSkipped &&
@@ -1784,16 +1781,17 @@ export function ServidorUpPanel() {
             {deemixInProgress ?
               <p className="mt-2 text-sm text-violet-900 dark:text-violet-100">
                 {busy ||
-                  `Baixando ${deemixJobSnapshot!.ok}/${deemixJobSnapshot!.totalItens} — aguarde, continua automaticamente.`}
+                  `Segundo plano: ${deemixJobSnapshot!.ok}/${deemixJobSnapshot!.totalItens} baixada(s). Pode fechar a aba.`}
               </p>
             : hasDeemixJob && (deemixJobSnapshot!.ok > 0) ?
               <p className="mt-2 text-sm text-emerald-900 dark:text-emerald-100">
                 {busy ||
-                  `${deemixJobSnapshot!.ok} faixa(s) baixada(s) — fila e pastas em andamento (automático).`}
+                  `${deemixJobSnapshot!.ok} faixa(s) baixada(s) — fila e pastas no night-worker (pode fechar a aba).`}
               </p>
             : <>
                 <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-200/90">
-                  Conferiu o Match? Clique uma vez: o sistema baixa no Deemix e entrega nas pastas do passo 0.
+                  Conferiu o Match? Clique uma vez: enfileira no Deemix e o resto roda em segundo plano
+                  (não precisa deixar o PC/aba abertos). Seu papel é só revisar o Match.
                 </p>
                 <button
                   type="button"
@@ -1814,14 +1812,24 @@ export function ServidorUpPanel() {
 
       {activeStep >= 3 && matchResult ?
         <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-          <p className="text-sm font-semibold">Passo 3 — Entrega</p>
+          <p className="text-sm font-semibold">Passo 3 — Entrega (segundo plano)</p>
           <p className="mt-1 text-xs text-slate-500">
             {deemixInProgress ?
-              `Download em andamento… ${deemixJobSnapshot?.ok ?? 0}/${deemixJobSnapshot?.totalItens ?? "?"}.`
+              `Deemix ${deemixJobSnapshot?.ok ?? 0}/${deemixJobSnapshot?.totalItens ?? "?"} — worker continua sem a aba.`
             : hasDeemixJob ?
-              `${deemixJobSnapshot?.ok ?? 0} baixada(s) — processamento na fila até aparecer nas pastas.`
+              `${deemixJobSnapshot?.ok ?? 0} baixada(s) — fila/pastas no night-worker até aparecerem na programação.`
             : "Aguardando início da entrega no passo Match."}
           </p>
+          {hasDeemixJob ?
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={() => void continuarDownloadDeemix()}
+              className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium dark:border-slate-600"
+            >
+              Acelerar agora (kick no worker)
+            </button>
+          : null}
         </div>
       : null}
     </div>
