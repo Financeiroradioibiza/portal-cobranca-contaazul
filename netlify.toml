@@ -13,6 +13,14 @@
   PRISMA_MIGRATE_CONTINUE_ON_FAIL = "1"
   PRISMA_MIGRATE_ATTEMPTS = "3"
 
+[functions]
+  node_bundler = "esbuild"
+  directory = "netlify/functions"
+
+# Servidor UP — entrega em segundo plano (Deemix + fila). Ver docs/SERVIDOR-UP-BACKGROUND.md
+[functions."servidor-up-night-worker"]
+  schedule = "*/5 * * * *"
+
 # Timeout de função Netlify (~10s Free, ~26s Pro). `maxDuration` no route ajuda no Vercel/pro.
 # Planilha Rio: deixe `RIO_SYNC_*_DEFAULT` comentados para sync rápido (/contratos ou /pessoas?ids só se marcar no painel).
 # RIO_SYNC_CONTRACTS_DEFAULT="1"
