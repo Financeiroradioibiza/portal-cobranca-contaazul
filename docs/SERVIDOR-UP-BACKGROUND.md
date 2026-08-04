@@ -17,14 +17,24 @@ Depois de **Entregar N faixa(s)**, o portal só cria o job Deemix, grava o snaps
 Endpoint: `POST|GET /api/criacao/servidor-up/night-worker?downloadLimit=20`  
 Auth: `Authorization: Bearer <CRON_SECRET>` (ou `OC_EMAIL_CRON_SECRET`, ≥16 chars). Também aceita cookie de sessão do portal.
 
-Workflow GitHub Actions: `.github/workflows/servidor-up-night-worker.yml` (a cada 5 min).
+Intervalo sugerido: **a cada 5 minutos**.
 
-Secrets do repositório:
+### Opção A — curl / cron-job.org / EasyCron
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer $CRON_SECRET" \
+  "https://SEU_PORTAL/api/criacao/servidor-up/night-worker?downloadLimit=20"
+```
+
+### Opção B — GitHub Actions
+
+Arquivo pronto em `.github/workflows/servidor-up-night-worker.yml` (pode estar só local se o token Git sem scope `workflow`). Secrets do repo:
 
 - `PORTAL_BASE_URL` — URL pública do portal (sem barra final)
 - `CRON_SECRET` — igual ao Netlify
 
-Sem esses secrets o workflow falha no `workflow_dispatch` / schedule; configure uma vez.
+Push do workflow exige PAT com scope **workflow**.
 
 ## O que o night-worker faz
 
