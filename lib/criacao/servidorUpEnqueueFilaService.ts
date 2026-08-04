@@ -581,6 +581,8 @@ export async function runAutoEnqueueForSnapshot(
 export async function runServidorUpNightWorker(opts?: {
   downloadLimit?: number;
   maxSnapshots?: number;
+  /** Só estes jobs Deemix (ex.: Boteco+Iraja). Evita reprocessar snapshots LegadoTeste antigos. */
+  downloadJobIds?: string[];
 }): Promise<{
   download: { triggered: boolean; processed?: number; error?: string };
   enqueues: Array<{ downloadJobId: string; ok: boolean; done?: boolean; tracksImported?: number; error?: string }>;
@@ -608,6 +610,8 @@ export async function runServidorUpNightWorker(opts?: {
   }
 
   const snapshots = await listServidorUpUploadSnapshots(opts?.maxSnapshots ?? 20);
+  const allowIds =
+    opts?.downloadJobIds?.map((id) => id.trim()).filter(Boolean) ?? [];
   const enqueues: Array<{
     downloadJobId: string;
     ok: boolean;
@@ -617,6 +621,7 @@ export async function runServidorUpNightWorker(opts?: {
   }> = [];
 
   for (const snap of snapshots) {
+    if (allowIds.length > 0 && !allowIds.includes(snap.downloadJobId)) continue;
     const full = (await getServidorUpUploadSnapshot(snap.downloadJobId)) as ServidorUpUploadSessionMeta | null;
     if (!full || full.autoEnqueueFila === false) continue;
 

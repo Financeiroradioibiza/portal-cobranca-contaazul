@@ -21,6 +21,8 @@ Ela chama internamente `POST /api/criacao/servidor-up/night-worker` com Bearer �
 - `OC_EMAIL_CRON_SECRET` (se já usa o cron de e-mail OC), ou
 - `CRON_SECRET`
 
+**Importante:** defina também `SERVIDOR_UP_NIGHT_WORKER_JOB_ID=cmsdve8ho000080d41l1pbvzd` (job Boteco Princesa + Iraja) para o cron **não** reprocessar snapshots LegadoTeste antigos de outros clientes.
+
 No painel Netlify: **Site → Environment variables**. Depois do próximo deploy, em **Functions** deve aparecer `servidor-up-night-worker` com badge **Scheduled** e botão **Run now** para testar.
 
 ### Manual (alternativa)

@@ -25,8 +25,15 @@ async function handle(request: Request) {
 
   const url = new URL(request.url);
   const downloadLimit = Number(url.searchParams.get("downloadLimit") ?? "20") || 20;
+  const downloadJobId = (url.searchParams.get("downloadJobId") ?? "").trim();
+  const envJobId = (process.env.SERVIDOR_UP_NIGHT_WORKER_JOB_ID ?? "").trim();
+  const jobFilter = downloadJobId || envJobId;
 
-  const result = await runServidorUpNightWorker({ downloadLimit, maxSnapshots: 20 });
+  const result = await runServidorUpNightWorker({
+    downloadLimit,
+    maxSnapshots: 20,
+    downloadJobIds: jobFilter ? [jobFilter] : undefined,
+  });
 
   return NextResponse.json({ ok: true, ...result });
 }
