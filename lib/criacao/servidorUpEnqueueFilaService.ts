@@ -217,6 +217,26 @@ export function isFilaEnqueueComplete(session: ServidorUpUploadSessionMeta): boo
   return Boolean(session.filaEnqueue?.finishedAt);
 }
 
+/**
+ * `finishedAt` sozinho mentia quando o Deemix ainda tinha MP3 em staging
+ * (ex.: auto-enqueue fechou com 582 e sobraram ~393). Só considera completo
+ * se não houver faixas do snapshot ainda fora da fila.
+ */
+export async function isFilaEnqueueFullyComplete(
+  downloadJobId: string,
+  session: ServidorUpUploadSessionMeta,
+): Promise<boolean> {
+  if (!isFilaEnqueueComplete(session)) return false;
+  const { recoverServidorUpMissingTracks } = await import(
+    "@/lib/criacao/servidorUpRecoverMissingService"
+  );
+  const dry = await recoverServidorUpMissingTracks(downloadJobId, { dryRun: true }).catch(
+    () => null,
+  );
+  if (!dry) return false;
+  return dry.missingBefore === 0;
+}
+
 export async function enqueueServidorUpFilaChunk(
   input: ServidorUpEnqueueChunkInput,
 ): Promise<ServidorUpEnqueueChunkResult> {
@@ -438,7 +458,41 @@ export async function runAutoEnqueueForSnapshot(
   const snapshot = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
   if (!snapshot) return null;
   if (snapshot.autoEnqueueFila === false) return null;
-  if (isFilaEnqueueComplete(snapshot) && !opts?.force) return null;
+
+  const uploaderEmail = snapshot.enqueuedByEmail?.trim() || "servidor-up@portal";
+  const uploaderDisplayName = snapshot.enqueuedByDisplayName?.trim() || "Servidor UP";
+
+  /** Já «fechado», mas ainda há staging fora da fila → recupera em vez de ignorar. */
+  if (isFilaEnqueueComplete(snapshot) && !opts?.force) {
+    const fullyDone = await isFilaEnqueueFullyComplete(downloadJobId, snapshot);
+    if (fullyDone) return null;
+    const { recoverServidorUpMissingTracksAll } = await import(
+      "@/lib/criacao/servidorUpRecoverMissingService"
+    );
+    const recovered = await recoverServidorUpMissingTracksAll(downloadJobId, {
+      maxRounds: 40,
+      uploaderEmail,
+      uploaderDisplayName,
+    }).catch(() => null);
+    if (!recovered) return null;
+    return {
+      ok: recovered.ok,
+      error: recovered.error,
+      messages: recovered.messages,
+      jobIds: recovered.jobIds,
+      stagingImported: recovered.stagingImported,
+      stagingErrors: recovered.stagingErrors,
+      lotesTotal: recovered.byPasta.length,
+      lotesProcessed: recovered.byPasta.length,
+      lotesRemaining: 0,
+      tracksImported: recovered.stagingImported,
+      tracksTotal: recovered.planMatched,
+      tracksProcessed: recovered.alreadyEnqueued + recovered.enqueuedNow,
+      tracksRemaining: recovered.missingBefore,
+      unmatched: [],
+      done: recovered.missingBefore === 0,
+    };
+  }
 
   const dl = await countDownloadJobPending(downloadJobId);
   const stillDownloading = dl.pending + dl.processing > 0;
@@ -450,8 +504,6 @@ export async function runAutoEnqueueForSnapshot(
     return null;
   }
 
-  const uploaderEmail = snapshot.enqueuedByEmail?.trim() || "servidor-up@portal";
-  const uploaderDisplayName = snapshot.enqueuedByDisplayName?.trim() || "Servidor UP";
   const trackOffset = snapshot.filaEnqueue?.tracksDone ?? 0;
 
   const result = await enqueueServidorUpFilaChunk({
@@ -466,7 +518,7 @@ export async function runAutoEnqueueForSnapshot(
   });
 
   const prev = snapshot.filaEnqueue;
-  const nextState: ServidorUpFilaEnqueueState = {
+  let nextState: ServidorUpFilaEnqueueState = {
     jobIds: [...(prev?.jobIds ?? []), ...result.jobIds],
     lotesDone: result.lotesProcessed,
     lotesTotal: result.lotesTotal,
@@ -474,8 +526,10 @@ export async function runAutoEnqueueForSnapshot(
     tracksTotal: result.tracksTotal,
     tracksImported: (prev?.tracksImported ?? 0) + result.tracksImported,
     startedAt: prev?.startedAt ?? Date.now(),
-    finishedAt: result.done && result.ok ? Date.now() : undefined,
+    /** Só marca finished após recover confirmar zero pendentes. */
+    finishedAt: undefined,
     lastError: result.ok ? null : result.error ?? result.messages?.[0] ?? "erro",
+    enqueuedRelativePaths: prev?.enqueuedRelativePaths,
   };
 
   await saveServidorUpUploadSnapshot(downloadJobId, {
@@ -486,14 +540,42 @@ export async function runAutoEnqueueForSnapshot(
 
   if (result.done && result.ok) {
     const { recoverServidorUpMissingTracksAll } = await import("@/lib/criacao/servidorUpRecoverMissingService");
-    await recoverServidorUpMissingTracksAll(downloadJobId, {
-      maxRounds: 25,
+    const recovered = await recoverServidorUpMissingTracksAll(downloadJobId, {
+      maxRounds: 40,
       uploaderEmail,
       uploaderDisplayName,
     }).catch(() => null);
+
+    const stillMissing = recovered?.missingBefore ?? 0;
+    nextState = {
+      ...nextState,
+      jobIds: [...nextState.jobIds, ...(recovered?.jobIds ?? [])],
+      tracksImported: nextState.tracksImported + (recovered?.stagingImported ?? 0),
+      finishedAt: stillMissing === 0 ? Date.now() : undefined,
+      lastError:
+        stillMissing > 0 ?
+          `fila_parcial: ${stillMissing} faixa(s) ainda fora da fila`
+        : nextState.lastError,
+    };
+    await saveServidorUpUploadSnapshot(downloadJobId, {
+      ...snapshot,
+      filaEnqueue: nextState,
+      savedAt: Date.now(),
+    } as ServidorUpUploadSession);
+
+    const { recoverServidorUpStagingForDownloadJob } = await import(
+      "@/lib/criacao/servidorUpRecoverStagingService"
+    );
+    await recoverServidorUpStagingForDownloadJob(downloadJobId, { maxItems: 200 }).catch(
+      () => null,
+    );
   }
 
-  return result;
+  return {
+    ...result,
+    done: Boolean(nextState.finishedAt),
+    tracksRemaining: nextState.finishedAt ? 0 : result.tracksRemaining,
+  };
 }
 
 export async function runServidorUpNightWorker(opts?: {
@@ -525,9 +607,11 @@ export async function runServidorUpNightWorker(opts?: {
     if (!full || full.autoEnqueueFila === false) continue;
 
     if (isFilaEnqueueComplete(full)) {
-      const { recoverServidorUpMissingTracks } = await import("@/lib/criacao/servidorUpRecoverMissingService");
-      const recovered = await recoverServidorUpMissingTracks(snap.downloadJobId, {
-        maxTracks: SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
+      const { recoverServidorUpMissingTracksAll } = await import(
+        "@/lib/criacao/servidorUpRecoverMissingService"
+      );
+      const recovered = await recoverServidorUpMissingTracksAll(snap.downloadJobId, {
+        maxRounds: 15,
         uploaderEmail: full.enqueuedByEmail,
         uploaderDisplayName: full.enqueuedByDisplayName,
       }).catch(() => null);
@@ -535,7 +619,7 @@ export async function runServidorUpNightWorker(opts?: {
         enqueues.push({
           downloadJobId: snap.downloadJobId,
           ok: recovered.ok,
-          done: recovered.missingBefore <= recovered.enqueuedNow,
+          done: recovered.missingBefore === 0,
           tracksImported: recovered.stagingImported,
           error: recovered.ok ? undefined : recovered.error,
         });
@@ -544,16 +628,21 @@ export async function runServidorUpNightWorker(opts?: {
       const { recoverServidorUpStagingForDownloadJob } = await import(
         "@/lib/criacao/servidorUpRecoverStagingService"
       );
-      const staging = await recoverServidorUpStagingForDownloadJob(snap.downloadJobId, {
-        maxItems: 200,
-      }).catch(() => null);
-      if (staging?.imported) {
+      let stagingImported = 0;
+      for (let sRound = 0; sRound < 8; sRound++) {
+        const staging = await recoverServidorUpStagingForDownloadJob(snap.downloadJobId, {
+          maxItems: 200,
+        }).catch(() => null);
+        if (!staging?.imported) break;
+        stagingImported += staging.imported;
+        if (staging.pendingBefore <= staging.imported) break;
+      }
+      if (stagingImported > 0) {
         enqueues.push({
           downloadJobId: snap.downloadJobId,
-          ok: staging.ok,
-          done: staging.pendingBefore <= staging.imported,
-          tracksImported: staging.imported,
-          error: staging.ok ? undefined : staging.errors[0],
+          ok: true,
+          done: false,
+          tracksImported: stagingImported,
         });
       }
       continue;

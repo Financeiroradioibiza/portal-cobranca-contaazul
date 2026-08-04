@@ -20,7 +20,10 @@ export function getDownloadServiceConfig(): DownloadServiceConfig {
     youtubeDlApiKey: trimEnv(process.env.CRIACAO_YOUTUBE_DL_API_KEY),
     stagingDir: trimEnv(process.env.CRIACAO_DOWNLOAD_STAGING_DIR),
     cloud2ProcessUrl: trimEnv(process.env.CRIACAO_CLOUD2_DOWNLOAD_PROCESS_URL),
-    cloud2ProcessSecret: trimEnv(process.env.CRIACAO_CLOUD2_DOWNLOAD_SECRET),
+    /** Prefer download secret; fallback ingest (homolog / .env.local). */
+    cloud2ProcessSecret:
+      trimEnv(process.env.CRIACAO_CLOUD2_DOWNLOAD_SECRET) ??
+      trimEnv(process.env.CRIACAO_INGEST_SECRET),
   };
 }
 

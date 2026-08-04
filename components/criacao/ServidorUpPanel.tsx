@@ -42,6 +42,7 @@ import {
   type ServidorUpUploadTrack,
 } from "@/lib/criacao/servidorUpUploadSession";
 import { canonicalDeemixTrackUrl } from "@/lib/criacao/deezerCanonical";
+import { pathSegmentLooseKey } from "@/lib/criacao/pathSanitize";
 
 type DeemixJobSnapshot = {
   totalItens: number;
@@ -543,11 +544,15 @@ export function ServidorUpPanel() {
 
   function hierarchyForTrack(track: LocalServidorUpTrack): ServidorUpHierarchyRow | undefined {
     if (!preview) return undefined;
+    /** Mesma chave do plano de upload — evita órfãos quando disco é «BOTECO PRINCESA» e portal «Boteco Princesa». */
+    const looseCliente = pathSegmentLooseKey(track.clienteNome);
+    const looseProg = pathSegmentLooseKey(track.programacaoNome);
+    const loosePasta = pathSegmentLooseKey(track.pastaNome);
     return preview.rows.find(
       (r) =>
-        r.clienteNome === track.clienteNome &&
-        r.programacaoNome === track.programacaoNome &&
-        r.pastaNome === track.pastaNome,
+        pathSegmentLooseKey(r.clienteNome) === looseCliente &&
+        pathSegmentLooseKey(r.programacaoNome) === looseProg &&
+        pathSegmentLooseKey(r.pastaNome) === loosePasta,
     );
   }
 
@@ -788,17 +793,46 @@ export function ServidorUpPanel() {
         .map((t) => t.relativePath);
 
       let assignSummary: AssignBibliotecaBatchResult = { assigned: 0, skipped: 0, errors: [] };
+      /** Dedups que não deram para atribuir → entram no Deemix (nunca órfãs). */
+      const orphanDedupPaths = new Set<string>();
       if (bibliotecaPaths.length > 0) {
+        const assignableBefore = new Set(
+          buildAssignBibliotecaItems(bibliotecaPaths).map((i) => i.relativePath),
+        );
+        for (const p of bibliotecaPaths) {
+          if (!assignableBefore.has(p)) orphanDedupPaths.add(p);
+        }
+
         // allowEmpty: não bloqueia Match se hierarquia do passo 0 não casar com as dedup
         assignSummary = await assignInBibliotecaTracks(bibliotecaPaths, {
           keepBusy: true,
           allowEmpty: true,
         });
+
+        if (orphanDedupPaths.size > 0) {
+          setDedupeMap((prev) => {
+            const next = new Map(prev);
+            for (const p of orphanDedupPaths) {
+              const row = next.get(p);
+              if (!row) continue;
+              next.set(p, { ...row, status: "needs_deezer", via: undefined });
+            }
+            return next;
+          });
+          assignSummary = {
+            ...assignSummary,
+            errors: [
+              ...assignSummary.errors,
+              `${orphanDedupPaths.size} dedup sem pasta no passo 0 → voltam ao Match/Deemix (não ficam órfãs).`,
+            ],
+          };
+        }
       }
 
-      const toMatch = inventory.filter((t) =>
-        deemixEligible(dedupeMap.get(t.relativePath)?.status),
-      );
+      const toMatch = inventory.filter((t) => {
+        if (orphanDedupPaths.has(t.relativePath)) return true;
+        return deemixEligible(dedupeMap.get(t.relativePath)?.status);
+      });
 
       if (toMatch.length === 0) {
         if (assignSummary.assigned === 0 && assignSummary.errors.length > 0) {

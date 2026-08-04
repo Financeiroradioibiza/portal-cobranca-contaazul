@@ -422,7 +422,8 @@ export async function recoverServidorUpMissingTracksAll(
     const r = await recoverServidorUpMissingTracks(downloadJobId, {
       uploaderEmail: opts?.uploaderEmail,
       uploaderDisplayName: opts?.uploaderDisplayName,
-      maxTracks: SERVIDOR_UP_MAX_TRACKS_PER_CHUNK,
+      /** Chunks maiores que o Netlify UI — recuperação em lote não compete com timeout de página. */
+      maxTracks: Math.min(80, Math.max(SERVIDOR_UP_MAX_TRACKS_PER_CHUNK, 40)),
     });
     last = r;
     if (r.missingBefore === 0 || r.enqueuedNow === 0) break;
