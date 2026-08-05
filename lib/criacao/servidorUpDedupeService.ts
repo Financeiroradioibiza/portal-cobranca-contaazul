@@ -1,4 +1,9 @@
-import { metadataDedupeKey, normalizeMetaForDedupe, normalizeTitleForDedupe } from "@/lib/criacao/dedupeNormalize";
+import { normalizeMetaForDedupe, normalizeTitleForDedupe } from "@/lib/criacao/dedupeNormalize";
+import {
+  buildBibliotecaMetadataIndex,
+  findBibliotecaMetadataHit,
+  findBibliotecaMetadataSuggest,
+} from "@/lib/criacao/servidorUpMetadataDedupe";
 import { prisma } from "@/lib/prisma";
 
 export type ServidorUpDedupeTrackInput = {
@@ -46,16 +51,11 @@ type BibRow = {
   durationMs: number | null;
 };
 
-function durationClose(aSec: number | null | undefined, bMs: number | null, toleranceSec = 4): boolean {
-  if (aSec == null || bMs == null) return true;
-  return Math.abs(aSec - bMs / 1000) <= toleranceSec;
-}
-
 async function loadBibliotecaIndex(): Promise<{
   byHash: Map<string, BibRow>;
   byChromaprint: Map<string, BibRow>;
   byIsrc: Map<string, BibRow>;
-  byMetadata: Map<string, BibRow>;
+  metadataIndex: ReturnType<typeof buildBibliotecaMetadataIndex>;
 }> {
   const rows = await prisma.musicaBiblioteca.findMany({
     where: { status: { in: [...ACTIVE_STATUSES] } },
@@ -69,13 +69,11 @@ async function loadBibliotecaIndex(): Promise<{
       durationMs: true,
     },
     orderBy: { updatedAt: "desc" },
-    take: 12_000,
   });
 
   const byHash = new Map<string, BibRow>();
   const byChromaprint = new Map<string, BibRow>();
   const byIsrc = new Map<string, BibRow>();
-  const byMetadata = new Map<string, BibRow>();
 
   for (const row of rows) {
     const hash = row.contentHash?.trim();
@@ -86,12 +84,14 @@ async function loadBibliotecaIndex(): Promise<{
 
     const isrc = row.isrc?.trim().toUpperCase();
     if (isrc && !byIsrc.has(isrc)) byIsrc.set(isrc, row);
-
-    const key = metadataDedupeKey(row.artista, row.titulo);
-    if (key.length > 3 && !byMetadata.has(key)) byMetadata.set(key, row);
   }
 
-  return { byHash, byChromaprint, byIsrc, byMetadata };
+  return {
+    byHash,
+    byChromaprint,
+    byIsrc,
+    metadataIndex: buildBibliotecaMetadataIndex(rows),
+  };
 }
 
 function rowFromBib(
@@ -110,7 +110,7 @@ function rowFromBib(
   };
 }
 
-/** Lookup em lote — hash/chromaprint/isrc = forte; metadata = só sugestão. */
+/** Lookup em lote — hash/chromaprint/isrc = forte; metadata = fuzzy (cloud2). */
 export async function batchServidorUpDedupeCheck(
   tracks: ServidorUpDedupeTrackInput[],
 ): Promise<ServidorUpDedupeBatchResult> {
@@ -151,14 +151,28 @@ export async function batchServidorUpDedupeCheck(
       }
     }
 
-    const metaKey = metadataDedupeKey(track.artista, track.titulo);
-    if (metaKey.length > 3) {
-      const hit = index.byMetadata.get(metaKey);
-      if (hit && durationClose(track.durationSec, hit.durationMs)) {
-        rows.push(rowFromBib(track, hit, "suggest_metadata", "metadata"));
-        suggestMetadata++;
-        continue;
-      }
+    const metaHit = findBibliotecaMetadataHit(
+      track.artista,
+      track.titulo,
+      track.durationSec,
+      index.metadataIndex,
+    );
+    if (metaHit) {
+      rows.push(rowFromBib(track, metaHit, "in_biblioteca", "metadata"));
+      inBiblioteca++;
+      continue;
+    }
+
+    const suggest = findBibliotecaMetadataSuggest(
+      track.artista,
+      track.titulo,
+      track.durationSec,
+      index.metadataIndex,
+    );
+    if (suggest) {
+      rows.push(rowFromBib(track, suggest, "suggest_metadata", "metadata"));
+      suggestMetadata++;
+      continue;
     }
 
     rows.push({ relativePath: track.relativePath, status: "needs_deezer" });
@@ -172,4 +186,4 @@ export async function batchServidorUpDedupeCheck(
 }
 
 /** Export para testes / logs. */
-export { normalizeMetaForDedupe, normalizeTitleForDedupe, metadataDedupeKey };
+export { normalizeMetaForDedupe, normalizeTitleForDedupe };

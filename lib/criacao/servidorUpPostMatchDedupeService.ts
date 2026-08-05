@@ -1,4 +1,7 @@
-import { metadataDedupeKey } from "@/lib/criacao/dedupeNormalize";
+import {
+  buildBibliotecaMetadataIndex,
+  findBibliotecaMetadataHit,
+} from "@/lib/criacao/servidorUpMetadataDedupe";
 import { prisma } from "@/lib/prisma";
 
 export type PostMatchTrackInput = {
@@ -16,11 +19,6 @@ export type PostMatchBibliotecaHit = {
   via: "metadata";
 };
 
-function durationClose(aSec: number | null | undefined, bMs: number | null, toleranceSec = 4): boolean {
-  if (aSec == null || bMs == null) return true;
-  return Math.abs(aSec - bMs / 1000) <= toleranceSec;
-}
-
 /**
  * Mesma regra de metadata do cloud2 (fila dedupe) — evita Deemix+upload de faixa que já está no acervo.
  * Usa artista/título do match Deezer, não do nome legado no disco.
@@ -34,25 +32,21 @@ export async function batchPostMatchBibliotecaCheck(
     where: { status: { in: ["pronta", "processando"] } },
     select: { id: true, artista: true, titulo: true, durationMs: true },
     orderBy: { updatedAt: "desc" },
-    take: 8000,
   });
 
-  const byMeta = new Map<string, (typeof rows)[0]>();
-  for (const row of rows) {
-    const key = metadataDedupeKey(row.artista, row.titulo);
-    if (key.length > 3 && !byMeta.has(key)) byMeta.set(key, row);
-  }
-
+  const metadataIndex = buildBibliotecaMetadataIndex(rows);
   const hits: PostMatchBibliotecaHit[] = [];
   const seenPaths = new Set<string>();
 
   for (const track of tracks) {
     if (seenPaths.has(track.relativePath)) continue;
-    const key = metadataDedupeKey(track.deezerArtista, track.deezerTitulo);
-    if (key.length <= 3) continue;
-    const hit = byMeta.get(key);
+    const hit = findBibliotecaMetadataHit(
+      track.deezerArtista,
+      track.deezerTitulo,
+      track.durationSec,
+      metadataIndex,
+    );
     if (!hit) continue;
-    if (!durationClose(track.durationSec, hit.durationMs)) continue;
     seenPaths.add(track.relativePath);
     hits.push({
       relativePath: track.relativePath,

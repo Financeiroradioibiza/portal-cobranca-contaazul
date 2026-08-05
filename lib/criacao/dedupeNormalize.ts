@@ -32,16 +32,43 @@ function artistaTokensForDedupe(s: string): string[] {
     .filter((t) => t.length > 1);
 }
 
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const row = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j += 1) row[j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    let prev = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const tmp = row[j]!;
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, prev + cost);
+      prev = tmp;
+    }
+  }
+  return row[b.length]!;
+}
+
+function stringSimilarityRatio(a: string, b: string): number {
+  if (a === b) return 1;
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshteinDistance(a, b) / maxLen;
+}
+
 export function tituloMatchesForDedupe(a: string, b: string): boolean {
   return normalizeTitleForDedupe(a) === normalizeTitleForDedupe(b);
 }
 
-/** Mesmo artista com e/&/and ou ordem de tokens equivalente. */
+/** Mesmo artista com e/&/and ou ordem de tokens equivalente (+ typo leve, ex. Mendez/Mendes). */
 export function artistaMatchesForDedupe(a: string, b: string): boolean {
   const na = normalizeArtistaForDedupe(a);
   const nb = normalizeArtistaForDedupe(b);
   if (na.length < 2 || nb.length < 2) return false;
   if (na === nb) return true;
+  if (stringSimilarityRatio(na, nb) >= 0.88) return true;
   const ta = new Set(artistaTokensForDedupe(a));
   const tb = new Set(artistaTokensForDedupe(b));
   if (ta.size < 2 || tb.size < 2) return false;

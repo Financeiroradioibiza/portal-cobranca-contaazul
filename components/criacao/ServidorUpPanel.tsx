@@ -143,6 +143,13 @@ function deemixEligible(status: ServidorUpDedupeStatus | undefined): boolean {
   return !status || status === "needs_deezer";
 }
 
+function matchRowExcludedFromReview(
+  relativePath: string,
+  dedupeMap: Map<string, ServidorUpDedupeRow>,
+): boolean {
+  return dedupeMap.get(relativePath)?.status === "in_biblioteca";
+}
+
 /** Hash/ISRC ou nome parecido — assign direto à pasta no Continuar (sem Deemix). */
 function dedupeBibliotecaStatus(status: ServidorUpDedupeStatus | undefined): boolean {
   return status === "in_biblioteca" || status === "suggest_metadata";
@@ -950,6 +957,7 @@ export function ServidorUpPanel() {
         .filter((x): x is NonNullable<typeof x> => x !== null);
 
       let postMatchSummary: AssignBibliotecaBatchResult = { assigned: 0, skipped: 0, errors: [] };
+      const postMatchBibliotecaPaths = new Set<string>();
       if (postMatchInputs.length > 0) {
         setBusy(`Match → biblioteca… 0/${postMatchInputs.length}`);
         const pmRes = await fetch("/api/criacao/servidor-up/post-match-dedupe", {
@@ -967,6 +975,7 @@ export function ServidorUpPanel() {
           }>;
         }>(pmRes);
         if (pmRes.ok && pmData.hits?.length) {
+          for (const h of pmData.hits) postMatchBibliotecaPaths.add(h.relativePath);
           setDedupeMap((prev) => {
             const next = new Map(prev);
             for (const h of pmData.hits!) {
@@ -986,7 +995,15 @@ export function ServidorUpPanel() {
         }
       }
 
-      const result: ServidorUpMatchBatchResult = { ok: true, rows: mergedRows, stats: mergedStats };
+      const rowsForReview = mergedRows.filter((r) => !postMatchBibliotecaPaths.has(r.relativePath));
+      const result: ServidorUpMatchBatchResult = {
+        ok: true,
+        rows: rowsForReview,
+        stats: {
+          ...mergedStats,
+          total: rowsForReview.length,
+        },
+      };
       setMatchResult(result);
       setMatchPicks(picks);
       const apiHint =
@@ -1215,15 +1232,16 @@ export function ServidorUpPanel() {
 
   const pendingCount = preview?.rows.filter((r) => rowNeedsAction(r, drafts[r.key])).length ?? 0;
   const step0Ready = preview !== null && pendingCount === 0;
+  const matchRowsForUi =
+    matchResult?.rows.filter((r) => !matchRowExcludedFromReview(r.relativePath, dedupeMap)) ?? [];
   const reviewRows =
-    matchResult?.rows.filter(
+    matchRowsForUi.filter(
       (r) => !skippedTracks.has(r.relativePath) && (r.verdict === "pick" || r.verdict === "review" || r.verdict === "rejected"),
-    ) ?? [];
-  const manualActionRows =
-    matchResult?.rows.filter((r) =>
-      matchRowNeedsManualAction(r, skippedTracks.has(r.relativePath)),
-    ) ?? [];
-  const sortedMatchRows = [...(matchResult?.rows ?? [])].sort((a, b) => {
+    );
+  const manualActionRows = matchRowsForUi.filter((r) =>
+    matchRowNeedsManualAction(r, skippedTracks.has(r.relativePath)),
+  );
+  const sortedMatchRows = [...matchRowsForUi].sort((a, b) => {
     const pa = matchRowSortPriority(a.verdict, skippedTracks.has(a.relativePath));
     const pb = matchRowSortPriority(b.verdict, skippedTracks.has(b.relativePath));
     if (pa !== pb) return pa - pb;
@@ -1235,7 +1253,7 @@ export function ServidorUpPanel() {
       )
     : sortedMatchRows;
   const approvedCount =
-    matchResult?.rows.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length ?? 0;
+    matchRowsForUi.filter((r) => matchApproved(r, matchPicks, skippedTracks)).length;
   const inBibliotecaTracks = inventory.filter(
     (t) => dedupeMap.get(t.relativePath)?.status === "in_biblioteca",
   );
@@ -1563,10 +1581,10 @@ export function ServidorUpPanel() {
           <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
             <p className="text-sm font-semibold">Passo 2 — Match e revisão</p>
             <p className="mt-1 text-xs text-slate-500">
-              Aprovadas para download: {approvedCount} / {matchResult.rows.length}
+              Aprovadas para download: {approvedCount} / {matchRowsForUi.length}
               {skippedTracks.size > 0 ? ` · ${skippedTracks.size} pulada(s)` : ""}
               {inBibliotecaTracks.length > 0 ?
-                ` · ${inBibliotecaTracks.length} já na biblioteca (fora do Deemix)`
+                ` · ${inBibliotecaTracks.length} já na biblioteca (atribuídas à pasta, fora desta lista)`
               : ""}
               {suggestMetadataTracks.length > 0 ?
                 ` · ${suggestMetadataTracks.length} possível duplicata → pasta no Continuar`

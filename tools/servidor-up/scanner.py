@@ -33,12 +33,17 @@ def normalize_search_line(name: str) -> str:
 
 def parse_artist_title(filename: str) -> tuple[str, str]:
     base = normalize_search_line(filename)
+    # «01 - Artista - Título» ou «01. Artista - Título»
+    base = re.sub(r"^\d{1,3}[\s.\-_]+", "", base).strip()
     m = re.match(r"^(.+?)\s*[-–—]\s*(.+)$", base)
     if not m:
         stem = Path(filename).stem
+        stem = re.sub(r"^\d{1,3}[\s.\-_]+", "", stem).strip()
         return ("", stem.strip())
     artista = m.group(1).strip()
     titulo = m.group(2).strip()
+    # «Artista - Título - Remix» mantém remix no título; só remove prefixo numérico residual
+    artista = re.sub(r"^\d{1,3}[\s.\-_]+", "", artista).strip()
     return (artista, titulo)
 
 
