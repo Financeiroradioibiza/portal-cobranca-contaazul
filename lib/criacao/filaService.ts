@@ -309,6 +309,61 @@ export function computeFinishedJobStatus(counts: {
   return "concluido";
 }
 
+const UPLOAD_NAO_CONCLUIDO = "upload_nao_concluido";
+
+/**
+ * Faixas que nunca receberam MP3 (upload falhou ou browser fechou) não devem
+ * bloquear o lote quando o restante já terminou — marca como erro terminal.
+ */
+export async function releaseMissingUploadItemsForJob(jobId: string): Promise<number> {
+  const pendingNoUpload = await prisma.processamentoItem.count({
+    where: { jobId, status: "aguardando", rawStorageKey: null },
+  });
+  if (pendingNoUpload === 0) return 0;
+
+  const pendingReal = await prisma.processamentoItem.count({
+    where: {
+      jobId,
+      OR: [{ status: "processando" }, { status: "aguardando", rawStorageKey: { not: null } }],
+    },
+  });
+  if (pendingReal > 0) return 0;
+
+  const concluidos = await prisma.processamentoItem.count({
+    where: { jobId, status: "concluido" },
+  });
+
+  const cutoff = new Date(Date.now() - 20 * 60 * 1000);
+  const where =
+    concluidos > 0 ?
+      { jobId, status: "aguardando" as const, rawStorageKey: null }
+    : { jobId, status: "aguardando" as const, rawStorageKey: null, updatedAt: { lt: cutoff } };
+
+  const r = await prisma.processamentoItem.updateMany({
+    where,
+    data: { status: "erro", etapaAtual: "upload", erroMsg: UPLOAD_NAO_CONCLUIDO },
+  });
+  return r.count;
+}
+
+/** Varre jobs processando cujo único bloqueio são uploads ausentes. */
+export async function releaseBlockedJobsWithMissingUploads(limit = 40): Promise<number> {
+  const jobs = await prisma.processamentoJob.findMany({
+    where: { status: { in: ["processando", "aguardando"] } },
+    select: { id: true },
+    take: limit,
+    orderBy: { updatedAt: "asc" },
+  });
+  let n = 0;
+  for (const j of jobs) {
+    const released = await releaseMissingUploadItemsForJob(j.id);
+    if (released === 0) continue;
+    const r = await tryFinishJob(j.id);
+    if (r.status === "concluido" || r.status === "erro" || r.status === "revisao") n += 1;
+  }
+  return n;
+}
+
 /** Recalcula status do job quando itens terminam (espelha maybeFinishJob do cloud2). */
 export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status: string }> {
   const job = await prisma.processamentoJob.findUnique({
@@ -316,6 +371,8 @@ export async function tryFinishJob(jobId: string): Promise<{ ok: boolean; status
     select: { status: true, tipo: true },
   });
   if (!job) return { ok: false, status: "not_found" };
+
+  await releaseMissingUploadItemsForJob(jobId);
 
   const [dupes, pending, erros, concluidos] = await Promise.all([
     prisma.processamentoItem.count({ where: { jobId, status: "duplicata" } }),
@@ -465,6 +522,7 @@ export async function reconcileStuckProcessingJobs(): Promise<number> {
   });
   let n = 0;
   for (const j of jobs) {
+    await releaseMissingUploadItemsForJob(j.id);
     const pending = await prisma.processamentoItem.count({
       where: { jobId: j.id, status: { in: ["aguardando", "processando"] } },
     });
