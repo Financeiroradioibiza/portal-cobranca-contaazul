@@ -55,12 +55,15 @@ export function normalizeLegacyFilenameForSearch(line: string): string {
   let s = normalizeDownloadSearchLine(line);
   const fixes: Array<[RegExp, string]> = [
     [/\bDon t\b/gi, "Don't"],
+    [/\bDont\b/gi, "Don't"],
     [/\bIm Good\b/gi, "I'm Good"],
     [/\bCant\b/gi, "Can't"],
     [/\bWont\b/gi, "Won't"],
     [/\bI ve\b/gi, "I've"],
     [/\bS cara\b/gi, "Sócara"],
     [/\bAqui Ali\b/gi, "Aqui, Ali"],
+    [/\bSuingue\b/gi, "Swingue"],
+    [/\bNao E\b/gi, "Não É"],
   ];
   for (const [re, rep] of fixes) s = s.replace(re, rep);
   s = s.replace(/\sft\s/gi, " feat. ");
@@ -101,9 +104,47 @@ function normalizeSearchTitle(titulo: string): string {
     .trim();
 }
 
+/** Variantes com acento PT comum — legado MP3 costuma omitir (Fe → Fé, Nao → Não). */
+function portugueseAccentSearchVariants(text: string): string[] {
+  const base = text.trim();
+  if (!base) return [];
+  const out = new Set<string>([base]);
+  const rules: Array<[RegExp, string]> = [
+    [/\bNao\b/gi, "Não"],
+    [/\bVoce\b/gi, "Você"],
+    [/\bFe\b/g, "Fé"],
+  ];
+  for (const [re, rep] of rules) {
+    const v = base.replace(re, rep);
+    if (v !== base) out.add(v);
+  }
+  return [...out];
+}
+
+/** Remove sufixos de versão do arquivo legado (EDIT / REDUX…) antes de buscar ou comparar. */
+export function stripLegacyProductionSuffixes(titulo: string): string {
+  let t = titulo.trim();
+  for (let i = 0; i < 6; i++) {
+    const prev = t;
+    t = t.replace(/\s*[-–—]\s*(?:edit|redux(?:\s+up)?|radio edit|mix|remaster(?:ed)?)\s*$/gi, "");
+    t = t.replace(/\s*\(\s*(?:edit|redux(?:\s+up)?|radio edit)\s*\)\s*$/gi, "");
+    if (t === prev) break;
+  }
+  return t.replace(/\s+/g, " ").trim();
+}
+
+function normalizeTitleKey(t: string): string {
+  return foldAccents(t)
+    .replace(/[''`´]/g, "")
+    .replace(/[,;:.!?]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Título base para busca — remove sufixos de versão entre parênteses ou após hífen. */
 export function coreTitleForMatch(titulo: string): string {
-  let t = titulo.trim();
+  let t = stripLegacyProductionSuffixes(titulo.trim());
   t = t.replace(/\s*\([^)]*\)\s*$/g, " ");
   t = t.replace(/\s*[-–—]\s*(?:acoustic|acústic[ao]|live|remix|cover|edit|version|ver\.?|radio edit|bossa[^)]*)\s*$/gi, "");
   t = normalizeSearchTitle(t);
@@ -124,6 +165,7 @@ export function legacyArtistParts(artista: string): string[] {
   let s = artista
     .trim()
     .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
+    .replace(/\s+com\s+.*/i, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!s) return [];
@@ -164,6 +206,7 @@ export function primaryLegacyArtist(artista: string): string {
   let s = artista
     .trim()
     .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
+    .replace(/\s+com\s+.*/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -201,7 +244,7 @@ function strictPrimaryArtistMatchOne(legacyArtist: string, deezerArtist: string)
   const pFirst = pParts[0]!;
   const gFirst = gParts[0]!;
   if (pFirst.length >= 3 && gFirst.length >= 3 && pFirst !== gFirst) {
-    return false;
+    if (stringSimilarity(pFirst, gFirst) < 0.83) return false;
   }
 
   if (pParts.length >= 2) {
@@ -397,15 +440,17 @@ function titleMatches(want: string, got: string): { ok: boolean; ratio: number }
   return { ok, ratio };
 }
 
-/** Servidor UP: título Deezer deve começar com o título legado (versão só se vier no arquivo). */
+/** Servidor UP: título Deezer deve bater com o legado (tolerância a acento, vírgula, typo leve). */
 export function legacyTitleStartsWithMatch(wantTitulo: string, gotTitulo: string): boolean {
-  const wantCore = foldAccents(coreTitleForMatch(wantTitulo));
+  const wantCore = normalizeTitleKey(coreTitleForMatch(wantTitulo));
   if (wantCore.length < 2) return false;
-  const gotCore = foldAccents(coreTitleForMatch(gotTitulo));
-  const gotRaw = foldAccents(gotTitulo.trim());
-  if (gotCore.startsWith(wantCore)) return true;
-  if (gotRaw.startsWith(`${wantCore} `) || gotRaw.startsWith(`${wantCore}(`)) return true;
-  return false;
+  const gotCore = normalizeTitleKey(coreTitleForMatch(gotTitulo));
+  const gotRaw = normalizeTitleKey(gotTitulo.trim());
+  if (gotCore.startsWith(wantCore) || gotRaw.startsWith(`${wantCore} `)) return true;
+  if (wantCore.startsWith(gotCore) && gotCore.length >= 4) return true;
+  if (stringSimilarity(wantCore, gotCore) >= 0.82) return true;
+  const { ok, ratio } = titleMatches(wantTitulo, gotTitulo);
+  return ok && ratio >= 0.72;
 }
 
 export function scoreDeezerHit(input: ParsedArtistTitle, hit: DeezerTrackHit): number {
@@ -510,6 +555,7 @@ async function searchDeezerTracks(
   input: ParsedArtistTitle,
 ): Promise<{ hits: DeezerTrackHit[]; failures: number }> {
   const core = coreTitleForMatch(input.titulo);
+  const titleVariants = [...new Set([core, ...portugueseAccentSearchVariants(core)])];
   const artista = input.artista.trim();
   const artistaPrimary = primaryArtistForMatch(artista);
   const artistaAlt = normalizeSearchArtist(artistaPrimary);
@@ -519,20 +565,24 @@ async function searchDeezerTracks(
   const words = titleWords(input.titulo);
   const shortQuery = words.slice(0, 5).join(" ");
 
-  // Combo «artista título» primeiro — mesmo comportamento da busca web do Deezer.
-  const queries = [
-    `${artistaPrimary} ${core}`,
-    `${artista} ${core}`,
-    collabQuery ? `${collabQuery} ${core}` : null,
-    artistaPlain !== artistaPrimary ? `${artistaPlain} ${core}` : null,
-    shortQuery && shortQuery !== core ? `${artistaPrimary} ${shortQuery}` : null,
-    collabQuery && shortQuery ? `${collabQuery} ${shortQuery}` : null,
-    `artist:"${artista}" track:"${core}"`,
-    artistaPrimary !== artista ? `artist:"${artistaPrimary}" track:"${core}"` : null,
-    artistaAlt !== artistaPrimary ? `${artistaAlt} ${core}` : null,
-  ].filter((q): q is string => Boolean(q?.trim()));
+  const queries: string[] = [];
+  for (const tv of titleVariants) {
+    queries.push(
+      `${artistaPrimary} ${tv}`,
+      `${artista} ${tv}`,
+      `${tv} ${artistaPrimary}`,
+      shortQuery && shortQuery !== tv ? `${artistaPrimary} ${shortQuery}` : "",
+      collabQuery && shortQuery ? `${collabQuery} ${shortQuery}` : "",
+      collabQuery ? `${collabQuery} ${tv}` : "",
+      artistaPlain !== artistaPrimary ? `${artistaPlain} ${tv}` : "",
+      `artist:"${artista}" track:"${tv}"`,
+      artistaPrimary !== artista ? `artist:"${artistaPrimary}" track:"${tv}"` : "",
+      artistaAlt !== artistaPrimary ? `${artistaAlt} ${tv}` : "",
+    );
+  }
+  const uniqueQueries = [...new Set(queries.filter((q): q is string => Boolean(q?.trim())))];
 
-  const paths = queries.map((q) => {
+  const paths = uniqueQueries.map((q) => {
     const structured = q.includes('"') || q.includes("track:") || q.includes("artist:");
     return structured
       ? `/search?q=${encodeURIComponent(q)}&limit=10`
@@ -853,7 +903,18 @@ export async function resolveDeezerLegacyCandidates(
     if (!prev || c.score > prev.score) byId.set(c.trackId, c);
   }
 
-  const candidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 10);
+  let candidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 10);
+
+  if (candidates.length === 0 && hits.length > 0) {
+    const relaxed = rankTitleFallbackCandidates(parsed, hits).filter((c) => {
+      if (strictArtist && !strictPrimaryArtistMatch(parsed.artista, c.artist)) return false;
+      if (isLikelyTributeOrCoverArtist(c.artist)) return false;
+      if (!legacyWantsAlt && isAlternateVersionTitle(c.title)) return false;
+      return c.score >= LEGACY_CANDIDATE_MIN_SCORE;
+    });
+    candidates = relaxed.slice(0, 10);
+  }
+
   return { parsed, candidates, apiFailures };
 }
 
