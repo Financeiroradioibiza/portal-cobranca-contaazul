@@ -31,7 +31,8 @@ async function handle(request: Request) {
 
   const result = await runServidorUpNightWorker({
     downloadLimit,
-    maxSnapshots: 20,
+    maxSnapshots: 10,
+    /** Com downloadJobId na URL (browser) usa o job atual; env opcional; senão todos pendentes. */
     downloadJobIds: jobFilter ? [jobFilter] : undefined,
   });
 

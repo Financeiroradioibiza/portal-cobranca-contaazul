@@ -1106,9 +1106,8 @@ export function ServidorUpPanel() {
 
     if (!opts?.quiet) setBusy("Iniciando entrega em segundo plano…");
     try {
-      await fetch("/api/criacao/servidor-up/night-worker?downloadLimit=20", {
-        method: "POST",
-      }).catch(() => null);
+      const nw = `/api/criacao/servidor-up/night-worker?downloadLimit=8&downloadJobId=${encodeURIComponent(jobId)}`;
+      await fetch(nw, { method: "POST" }).catch(() => null);
       await fetch("/api/criacao/download/sync-pending", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1300,9 +1299,10 @@ export function ServidorUpPanel() {
     if (pending <= 0 && (deemixJobSnapshot?.ok ?? 0) <= 0) return;
     const t = setInterval(() => {
       void refreshDeemixJobSnapshot(downloadJobId);
-      void fetch("/api/criacao/servidor-up/night-worker?downloadLimit=12", {
-        method: "POST",
-      }).catch(() => null);
+      void fetch(
+        `/api/criacao/servidor-up/night-worker?downloadLimit=8&downloadJobId=${encodeURIComponent(downloadJobId)}`,
+        { method: "POST" },
+      ).catch(() => null);
     }, 45_000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- poll leve enquanto a aba estiver aberta

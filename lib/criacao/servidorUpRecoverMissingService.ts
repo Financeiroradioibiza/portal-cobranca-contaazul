@@ -368,7 +368,7 @@ export async function recoverServidorUpMissingTracks(
     tracksTotal: planMatched,
     tracksImported: (prev?.tracksImported ?? 0) + stagingImported,
     startedAt: prev?.startedAt ?? Date.now(),
-    finishedAt: enqueuedNow >= missingBefore ? Date.now() : undefined,
+    finishedAt: undefined,
     lastError: stagingErrors.length > 0 ? stagingErrors[0] ?? null : null,
     enqueuedRelativePaths: [...(prev?.enqueuedRelativePaths ?? []), ...newRelativePaths],
   };
@@ -410,7 +410,12 @@ export async function recoverServidorUpMissingTracks(
 /** Recupera em chunks (Netlify-safe) até esgotar pendentes ou atingir maxRounds. */
 export async function recoverServidorUpMissingTracksAll(
   downloadJobId: string,
-  opts?: { maxRounds?: number; uploaderEmail?: string; uploaderDisplayName?: string },
+  opts?: {
+    maxRounds?: number;
+    maxTracksPerRound?: number;
+    uploaderEmail?: string;
+    uploaderDisplayName?: string;
+  },
 ): Promise<ServidorUpRecoverMissingResult> {
   const maxRounds = Math.min(50, Math.max(1, opts?.maxRounds ?? 30));
   let last: ServidorUpRecoverMissingResult | null = null;
@@ -422,8 +427,7 @@ export async function recoverServidorUpMissingTracksAll(
     const r = await recoverServidorUpMissingTracks(downloadJobId, {
       uploaderEmail: opts?.uploaderEmail,
       uploaderDisplayName: opts?.uploaderDisplayName,
-      /** Chunks maiores que o Netlify UI — recuperação em lote não compete com timeout de página. */
-      maxTracks: Math.min(80, Math.max(SERVIDOR_UP_MAX_TRACKS_PER_CHUNK, 40)),
+      maxTracks: Math.min(80, Math.max(SERVIDOR_UP_MAX_TRACKS_PER_CHUNK, opts?.maxTracksPerRound ?? 12)),
     });
     last = r;
     if (r.missingBefore === 0 || r.enqueuedNow === 0) break;

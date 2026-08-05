@@ -11,11 +11,8 @@ export default async (request: Request) => {
     return;
   }
 
-  const jobId = (process.env.SERVIDOR_UP_NIGHT_WORKER_JOB_ID ?? "").trim();
-  const jobQuery = jobId ? `&downloadJobId=${encodeURIComponent(jobId)}` : "";
-
   const url = new URL(
-    `/api/criacao/servidor-up/night-worker?downloadLimit=15${jobQuery}`,
+    `/api/criacao/servidor-up/night-worker?downloadLimit=8`,
     request.url,
   );
 

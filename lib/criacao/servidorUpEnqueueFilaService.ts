@@ -25,6 +25,10 @@ import { prisma } from "@/lib/prisma";
 export const SERVIDOR_UP_ENQUEUE_LOTE_CHUNK = 1;
 /** Faixas por request Netlify (~26s). Pastas grandes (100+ fx) exigem isso. */
 export const SERVIDOR_UP_MAX_TRACKS_PER_CHUNK = 20;
+/** Night-worker / cron — bloco curto para caber em ~90s (evita 504). */
+export const SERVIDOR_UP_NIGHT_WORKER_MAX_TRACKS = 12;
+export const SERVIDOR_UP_NIGHT_WORKER_DOWNLOAD_LIMIT = 8;
+export const SERVIDOR_UP_NIGHT_WORKER_STAGING_BATCH = 24;
 
 export type ServidorUpFilaEnqueueState = {
   jobIds: string[];
@@ -60,9 +64,11 @@ export type ServidorUpEnqueueChunkInput = {
   /** Índice do primeiro lote neste chunk (legado). */
   loteOffset?: number;
   loteLimit?: number;
-  /** Índice da primeira faixa no plano achatado (preferido). */
+  /** Índice da primeira faixa no plano achatado (legado — preferir excludeRelativePaths). */
   trackOffset?: number;
   maxTracks?: number;
+  /** Faixas já enfileiradas — evita reprocessar após 504 (substitui trackOffset). */
+  excludeRelativePaths?: string[];
 };
 
 export type ServidorUpEnqueueChunkResult = {
@@ -81,6 +87,8 @@ export type ServidorUpEnqueueChunkResult = {
   tracksRemaining: number;
   unmatched: string[];
   done: boolean;
+  /** Paths enfileirados neste chunk (para retomada após 504). */
+  enqueuedRelativePaths?: string[];
 };
 
 async function normalizeUploadArquivos(
@@ -135,16 +143,43 @@ async function normalizeUploadArquivos(
 }
 
 type FlatTrackEntry = {
+  relativePath: string;
   lote: UploadLoteInput;
   arquivo: NonNullable<UploadLoteInput["arquivos"]>[number];
 };
+
+function flattenPlanTracks(
+  plan: Awaited<ReturnType<typeof buildServidorUpUploadPlan>>,
+  titulo: string,
+): FlatTrackEntry[] {
+  const rawLotes = servidorUpPlanToUploadLotes(plan, titulo);
+  const flat: FlatTrackEntry[] = [];
+  let rawIdx = 0;
+  for (const lote of plan.lotes) {
+    if (lote.tracks.length === 0) continue;
+    const uploadLote = rawLotes[rawIdx];
+    rawIdx += 1;
+    if (!uploadLote) continue;
+    const arquivos = uploadLote.arquivos ?? [];
+    for (let i = 0; i < lote.tracks.length; i++) {
+      const arquivo = arquivos[i];
+      if (!arquivo?.downloadItemId && !arquivo?.nome?.trim()) continue;
+      flat.push({
+        relativePath: lote.tracks[i]!.relativePath,
+        lote: uploadLote,
+        arquivo,
+      });
+    }
+  }
+  return flat;
+}
 
 function flattenUploadLotes(rawLotes: UploadLoteInput[]): FlatTrackEntry[] {
   const flat: FlatTrackEntry[] = [];
   for (const lote of rawLotes) {
     for (const arquivo of lote.arquivos ?? []) {
       if (arquivo.downloadItemId || arquivo.nome?.trim()) {
-        flat.push({ lote, arquivo });
+        flat.push({ relativePath: "", lote, arquivo });
       }
     }
   }
@@ -188,6 +223,7 @@ export async function countDownloadJobPending(downloadJobId: string): Promise<{
   pending: number;
   processing: number;
   ok: number;
+  erro: number;
   total: number;
   jobStatus: string;
 }> {
@@ -204,13 +240,49 @@ export async function countDownloadJobPending(downloadJobId: string): Promise<{
   const pending = map.get("aguardando") ?? 0;
   const processing = map.get("processando") ?? 0;
   const ok = map.get("concluido") ?? 0;
+  const erro = map.get("erro") ?? 0;
   return {
     pending,
     processing,
     ok,
-    total: job?.totalItens ?? pending + processing + ok,
+    erro,
+    total: job?.totalItens ?? pending + processing + ok + erro,
     jobStatus: job?.status ?? "desconhecido",
   };
+}
+
+/** Deemix terminou — nada aguardando/processando e todos os itens em estado terminal. */
+export function isDeemixJobSettled(dl: Awaited<ReturnType<typeof countDownloadJobPending>>): boolean {
+  if (dl.pending + dl.processing > 0) return false;
+  if (dl.total <= 0) return false;
+  return dl.ok + dl.erro >= dl.total || dl.jobStatus === "concluido";
+}
+
+async function persistFilaEnqueueState(
+  downloadJobId: string,
+  snapshot: ServidorUpUploadSessionMeta,
+  patch: Partial<ServidorUpFilaEnqueueState>,
+): Promise<ServidorUpFilaEnqueueState> {
+  const prev = snapshot.filaEnqueue;
+  const next: ServidorUpFilaEnqueueState = {
+    jobIds: prev?.jobIds ?? [],
+    lotesDone: prev?.lotesDone ?? 0,
+    lotesTotal: prev?.lotesTotal ?? 0,
+    tracksDone: prev?.tracksDone ?? 0,
+    tracksTotal: prev?.tracksTotal ?? snapshot.tracks?.length ?? 0,
+    tracksImported: prev?.tracksImported ?? 0,
+    startedAt: prev?.startedAt ?? Date.now(),
+    finishedAt: undefined,
+    lastError: prev?.lastError ?? null,
+    enqueuedRelativePaths: prev?.enqueuedRelativePaths,
+    ...patch,
+  };
+  await saveServidorUpUploadSnapshot(downloadJobId, {
+    ...snapshot,
+    filaEnqueue: next,
+    savedAt: Date.now(),
+  } as ServidorUpUploadSession);
+  return next;
 }
 
 export function isFilaEnqueueComplete(session: ServidorUpUploadSessionMeta): boolean {
@@ -224,9 +296,8 @@ export function isFilaEnqueueComplete(session: ServidorUpUploadSessionMeta): boo
  */
 export async function isFilaEnqueueFullyComplete(
   downloadJobId: string,
-  session: ServidorUpUploadSessionMeta,
+  _session: ServidorUpUploadSessionMeta,
 ): Promise<boolean> {
-  if (!isFilaEnqueueComplete(session)) return false;
   const { recoverServidorUpMissingTracks } = await import(
     "@/lib/criacao/servidorUpRecoverMissingService"
   );
@@ -244,10 +315,7 @@ export async function enqueueServidorUpFilaChunk(
     50,
     Math.max(1, input.maxTracks ?? SERVIDOR_UP_MAX_TRACKS_PER_CHUNK),
   );
-  const trackOffset = Math.max(
-    0,
-    input.trackOffset ?? 0,
-  );
+  const exclude = new Set(input.excludeRelativePaths ?? []);
 
   const plan = await buildServidorUpUploadPlan({
     downloadJobId: input.downloadJobId,
@@ -293,7 +361,7 @@ export async function enqueueServidorUpFilaChunk(
       lotesRemaining: plan.lotes.length,
       tracksImported: 0,
       tracksTotal: 0,
-      tracksProcessed: trackOffset,
+      tracksProcessed: exclude.size,
       tracksRemaining: 0,
       unmatched: plan.unmatchedTracks.slice(0, 30),
       done: false,
@@ -302,8 +370,9 @@ export async function enqueueServidorUpFilaChunk(
 
   const rawLotes = servidorUpPlanToUploadLotes(plan, input.titulo);
   const lotesTotal = rawLotes.length;
-  const flat = flattenUploadLotes(rawLotes);
-  const tracksTotal = flat.length;
+  const flatAll = flattenPlanTracks(plan, input.titulo);
+  const flat = flatAll.filter((e) => !exclude.has(e.relativePath));
+  const tracksTotal = flatAll.length;
 
   if (tracksTotal === 0) {
     return {
@@ -324,7 +393,7 @@ export async function enqueueServidorUpFilaChunk(
     };
   }
 
-  if (trackOffset >= tracksTotal) {
+  if (flat.length === 0) {
     return {
       ok: true,
       jobIds: [],
@@ -335,14 +404,14 @@ export async function enqueueServidorUpFilaChunk(
       lotesRemaining: 0,
       tracksImported: 0,
       tracksTotal,
-      tracksProcessed: tracksTotal,
+      tracksProcessed: exclude.size,
       tracksRemaining: 0,
       unmatched: plan.unmatchedTracks.slice(0, 30),
-      done: true,
+      done: exclude.size >= tracksTotal,
     };
   }
 
-  const flatSlice = flat.slice(trackOffset, trackOffset + maxTracks);
+  const flatSlice = flat.slice(0, maxTracks);
   const slice = groupFlatTracksToLotes(flatSlice);
 
   const tagCriativoDefault = await resolveTagCriativoUser(undefined, input.uploaderEmail);
@@ -377,12 +446,14 @@ export async function enqueueServidorUpFilaChunk(
       lotesRemaining: lotesTotal,
       tracksImported: 0,
       tracksTotal,
-      tracksProcessed: trackOffset,
-      tracksRemaining: Math.max(0, tracksTotal - trackOffset),
+      tracksProcessed: exclude.size,
+      tracksRemaining: Math.max(0, flat.length),
       unmatched: plan.unmatchedTracks.slice(0, 30),
       done: false,
     };
   }
+
+  const newPaths = flatSlice.map((e) => e.relativePath);
 
   const jobs = await createUploadJobsBatch(lotes, {
     criativoNome: uploaderNome,
@@ -420,8 +491,8 @@ export async function enqueueServidorUpFilaChunk(
         lotesRemaining: lotesTotal,
         tracksImported: 0,
         tracksTotal,
-        tracksProcessed: trackOffset,
-        tracksRemaining: Math.max(0, tracksTotal - trackOffset),
+        tracksProcessed: exclude.size,
+        tracksRemaining: Math.max(0, flat.length),
         unmatched: plan.unmatchedTracks.slice(0, 30),
         done: false,
       };
@@ -430,8 +501,8 @@ export async function enqueueServidorUpFilaChunk(
 
   await applyPendingUploadTags(80).catch(() => {});
 
-  const tracksProcessed = trackOffset + flatSlice.length;
-  const tracksRemaining = Math.max(0, tracksTotal - tracksProcessed);
+  const tracksProcessed = exclude.size + flatSlice.length;
+  const tracksRemaining = Math.max(0, flat.length - flatSlice.length);
   const done = tracksRemaining === 0;
 
   return {
@@ -448,65 +519,42 @@ export async function enqueueServidorUpFilaChunk(
     tracksRemaining,
     unmatched: plan.unmatchedTracks.slice(0, 30),
     done,
+    enqueuedRelativePaths: newPaths,
   };
 }
 
 export async function runAutoEnqueueForSnapshot(
   downloadJobId: string,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; maxTracks?: number },
 ): Promise<ServidorUpEnqueueChunkResult | null> {
-  const snapshot = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
+  let snapshot = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
   if (!snapshot) return null;
   if (snapshot.autoEnqueueFila === false) return null;
 
+  const maxTracks = Math.min(
+    50,
+    Math.max(1, opts?.maxTracks ?? SERVIDOR_UP_MAX_TRACKS_PER_CHUNK),
+  );
   const uploaderEmail = snapshot.enqueuedByEmail?.trim() || "servidor-up@portal";
   const uploaderDisplayName = snapshot.enqueuedByDisplayName?.trim() || "Servidor UP";
 
-  /** Já «fechado», mas ainda há staging fora da fila → recupera em vez de ignorar. */
+  /** `finishedAt` prematuro (504) — limpa e retoma. */
   if (isFilaEnqueueComplete(snapshot) && !opts?.force) {
     const fullyDone = await isFilaEnqueueFullyComplete(downloadJobId, snapshot);
     if (fullyDone) return null;
-    const { recoverServidorUpMissingTracksAll } = await import(
-      "@/lib/criacao/servidorUpRecoverMissingService"
-    );
-    const recovered = await recoverServidorUpMissingTracksAll(downloadJobId, {
-      maxRounds: 40,
-      uploaderEmail,
-      uploaderDisplayName,
-    }).catch(() => null);
-    if (!recovered) return null;
-    return {
-      ok: recovered.ok,
-      error: recovered.error,
-      messages: recovered.messages,
-      jobIds: recovered.jobIds,
-      stagingImported: recovered.stagingImported,
-      stagingErrors: recovered.stagingErrors,
-      lotesTotal: recovered.byPasta.length,
-      lotesProcessed: recovered.byPasta.length,
-      lotesRemaining: 0,
-      tracksImported: recovered.stagingImported,
-      tracksTotal: recovered.planMatched,
-      tracksProcessed: recovered.alreadyEnqueued + recovered.enqueuedNow,
-      tracksRemaining: recovered.missingBefore,
-      unmatched: [],
-      done: recovered.missingBefore === 0,
-    };
+    await persistFilaEnqueueState(downloadJobId, snapshot, { finishedAt: undefined });
+    snapshot = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
+    if (!snapshot) return null;
   }
 
   const dl = await countDownloadJobPending(downloadJobId);
-  const stillDownloading = dl.pending + dl.processing > 0;
-  if (stillDownloading) return null;
-
-  const planned = snapshot.tracks?.length ?? 0;
+  if (!isDeemixJobSettled(dl)) return null;
   if (dl.ok <= 0) return null;
-  if (planned > 0 && dl.ok < Math.min(planned, dl.total) * 0.85) {
-    return null;
-  }
 
-  const trackOffset = snapshot.filaEnqueue?.tracksDone ?? 0;
+  const excludePaths = [...(snapshot.filaEnqueue?.enqueuedRelativePaths ?? [])];
+  const prev = snapshot.filaEnqueue;
 
-  const result = await enqueueServidorUpFilaChunk({
+  let result = await enqueueServidorUpFilaChunk({
     downloadJobId,
     titulo: snapshot.titulo,
     hierarchyRows: snapshot.hierarchyRows,
@@ -514,62 +562,98 @@ export async function runAutoEnqueueForSnapshot(
     tracks: snapshot.tracks,
     uploaderEmail,
     uploaderDisplayName,
-    trackOffset,
+    excludeRelativePaths: excludePaths,
+    maxTracks,
   });
 
-  const prev = snapshot.filaEnqueue;
-  let nextState: ServidorUpFilaEnqueueState = {
-    jobIds: [...(prev?.jobIds ?? []), ...result.jobIds],
-    lotesDone: result.lotesProcessed,
-    lotesTotal: result.lotesTotal,
-    tracksDone: result.tracksProcessed,
-    tracksTotal: result.tracksTotal,
-    tracksImported: (prev?.tracksImported ?? 0) + result.tracksImported,
-    startedAt: prev?.startedAt ?? Date.now(),
-    /** Só marca finished após recover confirmar zero pendentes. */
-    finishedAt: undefined,
-    lastError: result.ok ? null : result.error ?? result.messages?.[0] ?? "erro",
-    enqueuedRelativePaths: prev?.enqueuedRelativePaths,
-  };
+  let mergedPaths = [...new Set([...excludePaths, ...(result.enqueuedRelativePaths ?? [])])];
+  let jobIds = [...(prev?.jobIds ?? []), ...result.jobIds];
+  let tracksImported = (prev?.tracksImported ?? 0) + result.tracksImported;
 
-  await saveServidorUpUploadSnapshot(downloadJobId, {
-    ...snapshot,
-    filaEnqueue: nextState,
-    savedAt: Date.now(),
-  } as ServidorUpUploadSession);
-
-  if (result.done && result.ok) {
-    const { recoverServidorUpMissingTracksAll } = await import("@/lib/criacao/servidorUpRecoverMissingService");
-    const recovered = await recoverServidorUpMissingTracksAll(downloadJobId, {
-      maxRounds: 40,
+  /** Plano vazio mas recover ainda vê pendentes → um chunk de recover. */
+  if (result.ok && result.tracksTotal === 0 && mergedPaths.length < (snapshot.tracks?.length ?? 0)) {
+    const { recoverServidorUpMissingTracks } = await import(
+      "@/lib/criacao/servidorUpRecoverMissingService"
+    );
+    const recovered = await recoverServidorUpMissingTracks(downloadJobId, {
+      maxTracks,
       uploaderEmail,
       uploaderDisplayName,
     }).catch(() => null);
-
-    const stillMissing = recovered?.missingBefore ?? 0;
-    nextState = {
-      ...nextState,
-      jobIds: [...nextState.jobIds, ...(recovered?.jobIds ?? [])],
-      tracksImported: nextState.tracksImported + (recovered?.stagingImported ?? 0),
-      finishedAt: stillMissing === 0 ? Date.now() : undefined,
-      lastError:
-        stillMissing > 0 ?
-          `fila_parcial: ${stillMissing} faixa(s) ainda fora da fila`
-        : nextState.lastError,
-    };
-    await saveServidorUpUploadSnapshot(downloadJobId, {
-      ...snapshot,
-      filaEnqueue: nextState,
-      savedAt: Date.now(),
-    } as ServidorUpUploadSession);
-
-    const { recoverServidorUpStagingForDownloadJob } = await import(
-      "@/lib/criacao/servidorUpRecoverStagingService"
+    if (recovered && recovered.enqueuedNow > 0) {
+      jobIds = [...jobIds, ...recovered.jobIds];
+      tracksImported += recovered.stagingImported;
+      result = {
+        ok: recovered.ok,
+        error: recovered.error,
+        messages: recovered.messages,
+        jobIds: recovered.jobIds,
+        stagingImported: recovered.stagingImported,
+        stagingErrors: recovered.stagingErrors,
+        lotesTotal: recovered.byPasta.length,
+        lotesProcessed: recovered.byPasta.length,
+        lotesRemaining: 0,
+        tracksImported: recovered.stagingImported,
+        tracksTotal: recovered.planMatched,
+        tracksProcessed: recovered.alreadyEnqueued + recovered.enqueuedNow,
+        tracksRemaining: recovered.missingBefore,
+        unmatched: [],
+        done: recovered.missingBefore === 0,
+      };
+      snapshot = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
+      mergedPaths = [...(snapshot?.filaEnqueue?.enqueuedRelativePaths ?? mergedPaths)];
+    }
+  } else if (result.ok && result.done) {
+    const { recoverServidorUpMissingTracks } = await import(
+      "@/lib/criacao/servidorUpRecoverMissingService"
     );
-    await recoverServidorUpStagingForDownloadJob(downloadJobId, { maxItems: 200 }).catch(
-      () => null,
-    );
+    const recovered = await recoverServidorUpMissingTracks(downloadJobId, {
+      maxTracks,
+      uploaderEmail,
+      uploaderDisplayName,
+    }).catch(() => null);
+    if (recovered && recovered.enqueuedNow > 0) {
+      jobIds = [...jobIds, ...recovered.jobIds];
+      tracksImported += recovered.stagingImported;
+      result = {
+        ...result,
+        tracksRemaining: recovered.missingBefore,
+        done: recovered.missingBefore === 0,
+      };
+      snapshot = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
+      mergedPaths = [...(snapshot?.filaEnqueue?.enqueuedRelativePaths ?? mergedPaths)];
+    }
   }
+
+  const fullyDone = snapshot ? await isFilaEnqueueFullyComplete(downloadJobId, snapshot) : false;
+
+  if (!snapshot) return null;
+
+  const fresh = (await getServidorUpUploadSnapshot(downloadJobId)) as ServidorUpUploadSessionMeta | null;
+  if (fresh) {
+    snapshot = fresh;
+    mergedPaths = [...(fresh.filaEnqueue?.enqueuedRelativePaths ?? mergedPaths)];
+    jobIds = [...new Set([...(fresh.filaEnqueue?.jobIds ?? []), ...jobIds])];
+    tracksImported = fresh.filaEnqueue?.tracksImported ?? tracksImported;
+  }
+
+  const nextState = await persistFilaEnqueueState(downloadJobId, snapshot, {
+    jobIds,
+    lotesDone: result.lotesProcessed,
+    lotesTotal: result.lotesTotal,
+    tracksDone: mergedPaths.length,
+    tracksTotal: snapshot.tracks?.length ?? result.tracksTotal,
+    tracksImported,
+    finishedAt: fullyDone ? Date.now() : undefined,
+    lastError:
+      fullyDone ? null
+      : result.ok ?
+        result.tracksRemaining > 0 ?
+          `fila_parcial: ${result.tracksRemaining} faixa(s) neste plano`
+        : null
+      : result.error ?? result.messages?.[0] ?? "erro",
+    enqueuedRelativePaths: mergedPaths,
+  });
 
   return {
     ...result,
@@ -581,35 +665,24 @@ export async function runAutoEnqueueForSnapshot(
 export async function runServidorUpNightWorker(opts?: {
   downloadLimit?: number;
   maxSnapshots?: number;
-  /** Só estes jobs Deemix (ex.: Boteco+Iraja). Evita reprocessar snapshots LegadoTeste antigos. */
+  /** Só estes jobs Deemix (query param / env). Sem filtro → snapshots com autoEnqueue pendentes. */
   downloadJobIds?: string[];
 }): Promise<{
   download: { triggered: boolean; processed?: number; error?: string };
   enqueues: Array<{ downloadJobId: string; ok: boolean; done?: boolean; tracksImported?: number; error?: string }>;
 }> {
-  const limit = Math.min(40, Math.max(1, opts?.downloadLimit ?? 20));
+  const limit = Math.min(
+    20,
+    Math.max(1, opts?.downloadLimit ?? SERVIDOR_UP_NIGHT_WORKER_DOWNLOAD_LIMIT),
+  );
   let download: { triggered: boolean; processed?: number; error?: string } =
-    await triggerDownloadProcessing(limit, { timeoutMs: 50_000 }).catch((e: unknown) => ({
+    await triggerDownloadProcessing(limit, { timeoutMs: 28_000 }).catch((e: unknown) => ({
       triggered: false,
       processed: 0,
       error: e instanceof Error ? e.message : "erro_download",
     }));
 
-  /** Segunda passagem se o primeiro lote avançou — acelera Deemix sem depender do browser. */
-  if (download.triggered && (download.processed ?? 0) > 0) {
-    const second = await triggerDownloadProcessing(limit, { timeoutMs: 50_000 }).catch(
-      () => null,
-    );
-    if (second?.triggered) {
-      download = {
-        triggered: true,
-        processed: (download.processed ?? 0) + (second.processed ?? 0),
-        error: second.error ?? download.error,
-      };
-    }
-  }
-
-  const snapshots = await listServidorUpUploadSnapshots(opts?.maxSnapshots ?? 20);
+  const snapshots = await listServidorUpUploadSnapshots(opts?.maxSnapshots ?? 10);
   const allowIds =
     opts?.downloadJobIds?.map((id) => id.trim()).filter(Boolean) ?? [];
   const enqueues: Array<{
@@ -625,62 +698,30 @@ export async function runServidorUpNightWorker(opts?: {
     const full = (await getServidorUpUploadSnapshot(snap.downloadJobId)) as ServidorUpUploadSessionMeta | null;
     if (!full || full.autoEnqueueFila === false) continue;
 
-    if (isFilaEnqueueComplete(full)) {
-      const { recoverServidorUpMissingTracksAll } = await import(
-        "@/lib/criacao/servidorUpRecoverMissingService"
-      );
-      const recovered = await recoverServidorUpMissingTracksAll(snap.downloadJobId, {
-        maxRounds: 15,
-        uploaderEmail: full.enqueuedByEmail,
-        uploaderDisplayName: full.enqueuedByDisplayName,
-      }).catch(() => null);
-      if (recovered?.enqueuedNow) {
-        enqueues.push({
-          downloadJobId: snap.downloadJobId,
-          ok: recovered.ok,
-          done: recovered.missingBefore === 0,
-          tracksImported: recovered.stagingImported,
-          error: recovered.ok ? undefined : recovered.error,
-        });
-      }
+    const fullyDone = await isFilaEnqueueFullyComplete(snap.downloadJobId, full);
+    if (fullyDone) continue;
 
-      const { recoverServidorUpStagingForDownloadJob } = await import(
-        "@/lib/criacao/servidorUpRecoverStagingService"
-      );
-      let stagingImported = 0;
-      for (let sRound = 0; sRound < 8; sRound++) {
-        const staging = await recoverServidorUpStagingForDownloadJob(snap.downloadJobId, {
-          maxItems: 200,
-        }).catch(() => null);
-        if (!staging?.imported) break;
-        stagingImported += staging.imported;
-        if (staging.pendingBefore <= staging.imported) break;
-      }
-      if (stagingImported > 0) {
-        enqueues.push({
-          downloadJobId: snap.downloadJobId,
-          ok: true,
-          done: false,
-          tracksImported: stagingImported,
-        });
-      }
-      continue;
-    }
+    const { ensureDeemixItemsForSnapshot } = await import("@/lib/criacao/servidorUpDeemixSyncService");
+    await ensureDeemixItemsForSnapshot(snap.downloadJobId).catch(() => null);
 
-    let loops = 0;
-    while (loops < 8) {
-      loops += 1;
-      const r = await runAutoEnqueueForSnapshot(snap.downloadJobId);
-      if (!r) break;
-      enqueues.push({
-        downloadJobId: snap.downloadJobId,
-        ok: r.ok,
-        done: r.done,
-        tracksImported: r.tracksImported,
-        error: r.ok ? undefined : r.error,
-      });
-      if (!r.ok || r.done) break;
-    }
+    const r = await runAutoEnqueueForSnapshot(snap.downloadJobId, {
+      maxTracks: SERVIDOR_UP_NIGHT_WORKER_MAX_TRACKS,
+    });
+    if (!r) continue;
+    enqueues.push({
+      downloadJobId: snap.downloadJobId,
+      ok: r.ok,
+      done: r.done,
+      tracksImported: r.tracksImported,
+      error: r.ok ? undefined : r.error,
+    });
+
+    const { recoverServidorUpStagingForDownloadJob } = await import(
+      "@/lib/criacao/servidorUpRecoverStagingService"
+    );
+    await recoverServidorUpStagingForDownloadJob(snap.downloadJobId, {
+      maxItems: SERVIDOR_UP_NIGHT_WORKER_STAGING_BATCH,
+    }).catch(() => null);
   }
 
   return { download, enqueues };

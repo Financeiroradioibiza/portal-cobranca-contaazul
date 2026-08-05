@@ -155,6 +155,12 @@ export function resolveDownloadItemForTrack(
     unavailableDownloadIds?: Set<string>;
   },
 ): DownloadItemForMatch | undefined {
+  /** Servidor UP enfileira Deemix na ordem do snapshot — índice positional primeiro. */
+  const indexed = opts?.indexMap?.get(track.relativePath);
+  if (indexed && !usedDownloadIds.has(indexed.id) && !unavailable(indexed.id, opts)) {
+    return indexed;
+  }
+
   const deezerId = deezerTrackIdFromUrl(track.deezerUrl);
   if (deezerId) {
     const hit = takeUnusedItem(indexes.byDeezerId.get(deezerId), usedDownloadIds);
@@ -164,13 +170,6 @@ export function resolveDownloadItemForTrack(
       if (unavailable(item.id, opts)) continue;
       if (deezerTrackIdFromUrl(item.linhaOriginal) === deezerId) return item;
     }
-    // Com URL Deezer no snapshot, não cair em índice/nome — evita parear MP3 errado (duplicata na fila).
-    return undefined;
-  }
-
-  const indexed = opts?.indexMap?.get(track.relativePath);
-  if (indexed && !usedDownloadIds.has(indexed.id) && !unavailable(indexed.id, opts)) {
-    return indexed;
   }
 
   const byBasename = matchByLegacyBasename(track, items, usedDownloadIds, opts);
