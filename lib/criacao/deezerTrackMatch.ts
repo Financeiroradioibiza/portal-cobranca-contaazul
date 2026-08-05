@@ -116,8 +116,51 @@ function normalizeSearchArtist(artista: string): string {
   return alt || trimmed;
 }
 
-/** Primeiro artista do legado — antes de « e », « & » ou feat (sempre o nome principal). */
+/**
+ * Artistas creditados no legado — vírgula (Deezer web), « & », « e » ou feat.
+ * Ex.: «Akatu, Belo», «Beck, Phoenix», «ANAVITÓRIA, Vitor Kley».
+ */
+export function legacyArtistParts(artista: string): string[] {
+  let s = artista
+    .trim()
+    .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return [];
+
+  const out: string[] = [];
+  for (const chunk of s.split(/\s*,\s*/)) {
+    const piece = chunk.trim();
+    if (!piece) continue;
+
+    const ptDuet = piece.match(/^(.+?)\s+e\s+(.+)$/i);
+    if (ptDuet?.[1]?.trim() && ptDuet[2]?.trim()) {
+      const leftWords = ptDuet[1].trim().split(/\s+/).filter(Boolean);
+      if (leftWords.length >= 2) {
+        out.push(ptDuet[1].trim(), ptDuet[2].trim());
+        continue;
+      }
+    }
+
+    if (piece.includes("&")) {
+      for (const sub of piece.split(/\s*&\s*/)) {
+        const t = sub.trim();
+        if (t.length >= 2) out.push(t);
+      }
+      continue;
+    }
+
+    out.push(piece);
+  }
+
+  return [...new Set(out.filter((p) => p.length >= 2))];
+}
+
+/** Primeiro artista do legado — antes de « e », « & », vírgula ou feat. */
 export function primaryLegacyArtist(artista: string): string {
+  const parts = legacyArtistParts(artista);
+  if (parts.length > 0) return parts[0]!;
+
   let s = artista
     .trim()
     .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
@@ -136,11 +179,9 @@ export function primaryLegacyArtist(artista: string): string {
   return s;
 }
 
-/**
- * Servidor UP: artista principal legado = artista no Deezer (nome completo do 1º artista).
- */
-export function strictPrimaryArtistMatch(legacyArtist: string, deezerArtist: string): boolean {
-  const primary = primaryLegacyArtist(legacyArtist);
+/** Um nome de artista vs crédito Deezer (sem expandir duplas). */
+function strictPrimaryArtistMatchOne(legacyArtist: string, deezerArtist: string): boolean {
+  const primary = legacyArtist.trim();
   const got = deezerArtist.trim();
   if (!primary || !got) return false;
 
@@ -150,6 +191,7 @@ export function strictPrimaryArtistMatch(legacyArtist: string, deezerArtist: str
 
   if (pKey === gKey) return true;
   if (gKey.startsWith(`${pKey} `)) return true;
+  if (pKey.startsWith(`${gKey} `)) return true;
 
   const pParts = pKey.split(/\s+/).filter(Boolean);
   const gParts = gKey.split(/\s+/).filter(Boolean);
@@ -175,8 +217,26 @@ export function strictPrimaryArtistMatch(legacyArtist: string, deezerArtist: str
   return stringSimilarity(pKey, gKey) >= ARTIST_SIM_SERVIDOR_UP_MIN;
 }
 
-/** Artista principal — remove feat/ft; dupla «A & B» usa o primeiro nome quando há sobrenome. */
+/**
+ * Servidor UP: bate se qualquer crédito legado (ou o string inteiro) casa com o Deezer.
+ * API costuma devolver só o 1º artista («Akatu») mesmo quando o site mostra «Akatu, Belo».
+ */
+export function strictPrimaryArtistMatch(legacyArtist: string, deezerArtist: string): boolean {
+  if (strictPrimaryArtistMatchOne(legacyArtist, deezerArtist)) return true;
+
+  const parts = legacyArtistParts(legacyArtist);
+  if (parts.length <= 1) return false;
+
+  if (strictPrimaryArtistMatchOne(parts.join(" "), deezerArtist)) return true;
+
+  return parts.some((part) => strictPrimaryArtistMatchOne(part, deezerArtist));
+}
+
+/** Artista principal — remove feat/ft; dupla usa o primeiro nome quando há sobrenome. */
 export function primaryArtistForMatch(artista: string): string {
+  const parts = legacyArtistParts(artista);
+  if (parts.length > 0) return parts[0]!;
+
   let s = artista
     .replace(/\s+(?:ft\.?|feat\.?|featuring)\s+.*/i, "")
     .replace(/\s+/g, " ")
@@ -241,6 +301,7 @@ export function artistSimilarity(want: string, got: string): number {
     primaryArtistForMatch(want),
     normalizeSearchArtist(want),
     normalizeSearchArtist(primaryArtistForMatch(want)),
+    ...legacyArtistParts(want),
   ].filter((v, i, a) => v.trim() && a.indexOf(v) === i);
 
   let best = 0;
@@ -446,6 +507,8 @@ async function searchDeezerTracks(
   const artistaPrimary = primaryArtistForMatch(artista);
   const artistaAlt = normalizeSearchArtist(artistaPrimary);
   const artistaPlain = accentStripForSearch(artistaPrimary);
+  const collabParts = legacyArtistParts(artista);
+  const collabQuery = collabParts.length > 1 ? collabParts.join(" ") : null;
   const words = titleWords(input.titulo);
   const shortQuery = words.slice(0, 5).join(" ");
 
@@ -453,8 +516,10 @@ async function searchDeezerTracks(
   const queries = [
     `${artistaPrimary} ${core}`,
     `${artista} ${core}`,
+    collabQuery ? `${collabQuery} ${core}` : null,
     artistaPlain !== artistaPrimary ? `${artistaPlain} ${core}` : null,
     shortQuery && shortQuery !== core ? `${artistaPrimary} ${shortQuery}` : null,
+    collabQuery && shortQuery ? `${collabQuery} ${shortQuery}` : null,
     `artist:"${artista}" track:"${core}"`,
     artistaPrimary !== artista ? `artist:"${artistaPrimary}" track:"${core}"` : null,
     artistaAlt !== artistaPrimary ? `${artistaAlt} ${core}` : null,
@@ -758,6 +823,7 @@ export async function resolveDeezerLegacyCandidates(
   const { hits, failures: apiFailures } = await collectDeezerSearchHits(parsed, searchArtist);
 
   const byId = new Map<number, DeezerTrackCandidate>();
+  const altById = new Map<number, DeezerTrackCandidate>();
   const legacyWantsAlt = isAlternateVersionTitle(parsed.titulo);
   for (const hit of hits) {
     const hitArtist = hit.artist?.name?.trim() ?? "";
@@ -768,17 +834,20 @@ export async function resolveDeezerLegacyCandidates(
     const c = hitToCandidate(hit, score);
     if (!c) continue;
     if (isLikelyTributeOrCoverArtist(c.artist)) continue;
-    if (!legacyWantsAlt && isAlternateVersionTitle(c.title)) continue;
     if (strictArtist) {
       if (!strictPrimaryArtistMatch(parsed.artista, c.artist)) continue;
     } else if (artistSimilarity(parsed.artista, c.artist) < ARTIST_SIM_PICK_MIN) {
       continue;
     }
-    const prev = byId.get(c.trackId);
-    if (!prev || c.score > prev.score) byId.set(c.trackId, c);
+
+    const isAlt = !legacyWantsAlt && isAlternateVersionTitle(c.title);
+    const bucket = isAlt ? altById : byId;
+    const prev = bucket.get(c.trackId);
+    if (!prev || c.score > prev.score) bucket.set(c.trackId, c);
   }
 
-  const candidates = [...byId.values()].sort((a, b) => b.score - a.score).slice(0, 10);
+  const merged = byId.size > 0 ? byId : altById;
+  const candidates = [...merged.values()].sort((a, b) => b.score - a.score).slice(0, 10);
   return { parsed, candidates, apiFailures };
 }
 

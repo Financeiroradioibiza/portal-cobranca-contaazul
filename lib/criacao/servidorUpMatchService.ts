@@ -141,12 +141,14 @@ function filterServidorUpCandidates(
   legacyTitle: string,
 ): ServidorUpMatchCandidate[] {
   const wantsAlt = legacyWantsAlternateVersion(legacyTitle);
-  return enriched.filter((c) => {
-    if (!wantsAlt && isAlternateVersionTitle(c.title)) return false;
+  const matched = enriched.filter((c) => {
     if (isLikelyTributeOrCoverArtist(c.artist)) return false;
     if (!strictPrimaryArtistMatch(legacyArtist, c.artist)) return false;
     return true;
   });
+  if (wantsAlt) return matched;
+  const studio = matched.filter((c) => !isAlternateVersionTitle(c.title));
+  return studio.length > 0 ? studio : matched;
 }
 
 function compareServidorUpCandidates(
