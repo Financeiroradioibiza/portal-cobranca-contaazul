@@ -25,6 +25,7 @@ type JobRow = {
   erros: number;
   erroMsg: string;
   createdAt: string;
+  filaOrdem?: number | null;
 };
 
 type JobItem = {
@@ -315,7 +316,14 @@ export function FilaPanel() {
                   <button type="button" onClick={() => toggle(j.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                     <span className="text-slate-400">{open ? "▲" : "▼"}</span>
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold">{j.titulo}</span>
+                      <span className="block truncate text-sm font-semibold">
+                        {j.filaOrdem != null ?
+                          <span className="mr-1.5 font-mono text-[11px] font-bold text-sky-700 dark:text-sky-300">
+                            #{j.filaOrdem}
+                          </span>
+                        : null}
+                        {j.titulo}
+                      </span>
                       <span className="block truncate text-xs text-slate-500">
                         {j.clienteNome || "sem cliente"} · {j.criativoNome || "—"} · {formatWhen(j.createdAt)}
                       </span>

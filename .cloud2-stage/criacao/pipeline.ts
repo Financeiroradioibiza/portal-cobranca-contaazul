@@ -42,10 +42,12 @@ export async function claimNextItem(): Promise<ClaimedItem | null> {
     `UPDATE processamento_item
         SET status = 'processando', updated_at = now()
       WHERE id = (
-        SELECT id FROM processamento_item
-         WHERE status = 'aguardando'
-           AND raw_storage_key IS NOT NULL
-         ORDER BY created_at ASC
+        SELECT pi.id
+          FROM processamento_item pi
+          JOIN processamento_job pj ON pj.id = pi.job_id
+         WHERE pi.status = 'aguardando'
+           AND pi.raw_storage_key IS NOT NULL
+         ORDER BY COALESCE(pj.fila_ordem, 0) DESC, pi.created_at ASC
          FOR UPDATE SKIP LOCKED
          LIMIT 1
       )

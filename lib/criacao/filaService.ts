@@ -15,6 +15,7 @@ import {
   ensureProcessamentoPastaEspecialColumn,
   hasProcessamentoPastaEspecialColumn,
 } from "@/lib/criacao/processamentoJobSchemaCompat";
+import { allocateFilaOrdemForBatch, allocateNextFilaOrdem } from "@/lib/criacao/filaOrdemService";
 
 export { recoverStagingForJob, recoverStagingForPendingItems, recoverStagingForActiveUploadJobs } from "@/lib/criacao/stagingRecoverService";
 export {
@@ -41,6 +42,8 @@ export type CreateUploadJobInput = {
   pastaId?: string;
   pastaEspecialId?: string;
   arquivos: UploadArquivo[];
+  /** Reservado para batch; senão aloca automaticamente. */
+  filaOrdem?: number;
 };
 
 /** Um lote = um job na fila (pasta de programação, pasta especial ou tag de biblioteca). */
@@ -71,6 +74,7 @@ export async function createUploadJob(input: CreateUploadJobInput) {
   }
 
   const pastaEspecialId = input.pastaEspecialId?.trim();
+  const filaOrdem = input.filaOrdem ?? (await allocateNextFilaOrdem());
 
   const job = await prisma.processamentoJob.create({
     data: {
@@ -86,6 +90,7 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       programacaoId: input.programacaoId || null,
       pastaId: input.pastaId || null,
       ...(pastaEspecialId ? { pastaEspecialId } : {}),
+      filaOrdem,
       totalItens: arquivos.length,
       itensFeitos: 0,
       itens: {
@@ -106,14 +111,19 @@ export async function createUploadJobsBatch(
   lotes: UploadLoteInput[],
   defaults: { criativoNome?: string; criativoUserId?: string },
 ) {
+  const valid = lotes.filter((l) => (l.arquivos?.length ?? 0) > 0);
+  const ordens = await allocateFilaOrdemForBatch(valid.length);
   const jobs: Awaited<ReturnType<typeof createUploadJob>>[] = [];
+  let ordemIdx = 0;
   for (const lote of lotes) {
     if (!lote.arquivos?.length) continue;
     const job = await createUploadJob({
       ...lote,
       criativoNome: lote.criativoNome ?? defaults.criativoNome,
       criativoUserId: lote.criativoUserId ?? defaults.criativoUserId,
+      filaOrdem: ordens[ordemIdx],
     });
+    ordemIdx += 1;
     jobs.push(job);
   }
   return jobs;
@@ -132,6 +142,7 @@ export type JobListRow = {
   duplicatas: number;
   erros: number;
   erroMsg: string;
+  filaOrdem: number | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -145,7 +156,7 @@ export async function listJobs(opts: { status?: string; limit?: number }): Promi
 
   const jobs = await prisma.processamentoJob.findMany({
     where,
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ filaOrdem: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     take: Math.min(200, Math.max(1, opts.limit ?? 100)),
     select: {
       id: true,
@@ -158,6 +169,7 @@ export async function listJobs(opts: { status?: string; limit?: number }): Promi
       totalItens: true,
       itensFeitos: true,
       erroMsg: true,
+      filaOrdem: true,
       createdAt: true,
       startedAt: true,
       finishedAt: true,
@@ -197,6 +209,7 @@ export async function listJobs(opts: { status?: string; limit?: number }): Promi
       duplicatas,
       erros,
       erroMsg: j.erroMsg,
+      filaOrdem: j.filaOrdem,
       createdAt: j.createdAt.toISOString(),
       startedAt: j.startedAt?.toISOString() ?? null,
       finishedAt: j.finishedAt?.toISOString() ?? null,

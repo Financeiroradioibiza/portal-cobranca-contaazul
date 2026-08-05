@@ -1302,6 +1302,8 @@ model ProcessamentoJob {
   pastaEspecialId String? @map("pasta_especial_id")
   totalItens   Int       @default(0) @map("total_itens")
   itensFeitos  Int       @default(0) @map("itens_feitos")
+  /// Ordem na fila de processamento (maior = processa antes). De 5 em 5; gaps para inserção manual.
+  filaOrdem    Int?      @map("fila_ordem")
   erroMsg      String    @default("") @map("erro_msg") @db.Text
   startedAt    DateTime? @map("started_at")
   finishedAt   DateTime? @map("finished_at")
@@ -1311,6 +1313,7 @@ model ProcessamentoJob {
   itens ProcessamentoItem[]
 
   @@index([status, createdAt])
+  @@index([status, filaOrdem])
   @@map("processamento_job")
 }
 
