@@ -6,6 +6,7 @@ import {
   primaryLegacyArtist,
   resolveDeezerLegacyCandidates,
   strictPrimaryArtistMatch,
+  legacyTitleStartsWithMatch,
   type DeezerTrackCandidate,
 } from "@/lib/criacao/deezerTrackMatch";
 
@@ -141,14 +142,13 @@ function filterServidorUpCandidates(
   legacyTitle: string,
 ): ServidorUpMatchCandidate[] {
   const wantsAlt = legacyWantsAlternateVersion(legacyTitle);
-  const matched = enriched.filter((c) => {
+  return enriched.filter((c) => {
+    if (!wantsAlt && isAlternateVersionTitle(c.title)) return false;
     if (isLikelyTributeOrCoverArtist(c.artist)) return false;
     if (!strictPrimaryArtistMatch(legacyArtist, c.artist)) return false;
+    if (!legacyTitleStartsWithMatch(legacyTitle, c.title)) return false;
     return true;
   });
-  if (wantsAlt) return matched;
-  const studio = matched.filter((c) => !isAlternateVersionTitle(c.title));
-  return studio.length > 0 ? studio : matched;
 }
 
 function compareServidorUpCandidates(
