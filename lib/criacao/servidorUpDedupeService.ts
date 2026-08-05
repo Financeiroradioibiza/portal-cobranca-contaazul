@@ -96,7 +96,7 @@ async function loadBibliotecaIndex(): Promise<{
 
 function rowFromBib(
   track: ServidorUpDedupeTrackInput,
-  bib: BibRow,
+  bib: Pick<BibRow, "id" | "artista" | "titulo">,
   status: ServidorUpDedupeStatus,
   via: ServidorUpDedupeVia,
 ): ServidorUpDedupeRow {
