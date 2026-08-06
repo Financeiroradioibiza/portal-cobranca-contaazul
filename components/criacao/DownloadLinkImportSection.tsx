@@ -21,7 +21,7 @@ type Props = {
   highlightOnMount?: boolean;
 };
 
-/** Importação opcional de MP3 do Download link — só no upload comum; não usa Servidor UP. */
+/** Importação opcional de MP3 do Download link — só no upload comum. */
 export function DownloadLinkImportSection({
   lotes,
   excludedDownloadItemIds,
@@ -93,7 +93,7 @@ export function DownloadLinkImportSection({
       </div>
       <p className="mb-3 text-xs text-violet-900/80 dark:text-violet-200/80">
         Faixas já baixadas no servidor (cloud2). Escolha o lote, importe, defina pasta/tag e use «Subir para a
-        fila». Não altera o fluxo Servidor UP nem o arraste de MP3 do PC.
+        fila».
       </p>
       {loading ?
         <p className="text-xs text-violet-800 dark:text-violet-300">Carregando faixas do servidor…</p>

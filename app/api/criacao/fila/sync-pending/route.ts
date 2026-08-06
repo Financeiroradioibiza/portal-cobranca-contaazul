@@ -6,7 +6,7 @@ import {
   reconcileAllUnappliedPastaJobs,
   reconcileStuckProcessingJobs,
   releaseBlockedJobsWithMissingUploads,
-  recoverServidorUpStagingAll,
+  recoverStagingForPendingItems,
   resetStaleProcessingItems,
 } from "@/lib/criacao/filaService";
 import { applyAllPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
@@ -58,9 +58,9 @@ export async function POST() {
         console.error("[criacao/fila/sync-pending] missingUploadReleased", e);
         return 0;
       }),
-      recoverServidorUpStagingAll({ maxItems: 300, maxJobs: 5 }).catch((e) => {
+      recoverStagingForPendingItems(120).catch((e) => {
         console.error("[criacao/fila/sync-pending] staging", e);
-        return { imported: 0, errors: [String(e)], results: [] };
+        return { imported: 0, errors: [String(e)] };
       }),
     ]);
     return NextResponse.json({

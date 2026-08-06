@@ -4,14 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CriativoTagSelect, formatTagChipPreview } from "@/components/criacao/CriativoTagSelect";
 import { DownloadLinkImportSection } from "@/components/criacao/DownloadLinkImportSection";
-import { ServidorUpMultiUploadPanel } from "@/components/criacao/ServidorUpMultiUploadPanel";
 import { defaultUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import {
   isInvalidStagingMp3,
   type StagingJobGroup,
 } from "@/lib/criacao/downloadService";
 import Link from "next/link";
-import { readServidorUpUploadSession } from "@/lib/criacao/servidorUpUploadSession";
 
 import {
   CriacaoClienteNomeComTag,
@@ -89,7 +87,6 @@ function loteLabel(l: UploadLote, pastasEspeciais: PastaEspecialOpt[] = []): str
 export function UploadPanel() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const servidorUpMode = searchParams.get("servidorUp") === "1";
   const [titulo, setTitulo] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [lotes, setLotes] = useState<UploadLote[]>(() => [newLote()]);
@@ -149,13 +146,6 @@ export function UploadPanel() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (servidorUpMode) return;
-    if (readServidorUpUploadSession()) {
-      router.replace("/criacao/upload?servidorUp=1");
-    }
-  }, [servidorUpMode, router]);
 
   const updateLote = useCallback((id: string, patch: Partial<UploadLote>) => {
     setLotes((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -456,52 +446,10 @@ export function UploadPanel() {
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Upload</div>
         <h1 className="text-2xl font-bold tracking-tight">Upload de músicas 192k</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          {servidorUpMode ?
-            "Fluxo Servidor UP: importe lotes do Download link e distribua cada faixa na pasta correta do cliente."
-          : "Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um clique."}
+          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um clique.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => router.push("/criacao/upload")}
-            className={
-              "rounded-lg px-4 py-2 text-sm font-semibold " +
-              (!servidorUpMode ?
-                "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-              : "border-2 border-slate-300 dark:border-slate-600")
-            }
-          >
-            Upload comum
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push("/criacao/upload?servidorUp=1")}
-            className={
-              "rounded-lg px-4 py-2 text-sm font-semibold " +
-              (servidorUpMode ?
-                "bg-violet-900 text-white ring-2 ring-violet-400"
-              : "border-2 border-violet-400 bg-violet-100 text-violet-950 dark:border-violet-600 dark:bg-violet-950 dark:text-violet-100")
-            }
-          >
-            Multi-Upload (Servidor UP)
-          </button>
-          {servidorUpMode ?
-            <Link
-              href="/criacao/multi-upload-legado"
-              className="rounded-lg border-2 border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-900 dark:border-emerald-600 dark:text-emerald-100"
-            >
-              Página Multi-Upload legado →
-            </Link>
-          : null}
-        </div>
       </div>
 
-      {servidorUpMode ?
-        <ServidorUpMultiUploadPanel />
-      : null}
-
-      {!servidorUpMode ?
-        <>
       <DownloadLinkImportSection
         lotes={loteOptions}
         excludedDownloadItemIds={stagingIdsInLotes}
@@ -576,8 +524,6 @@ export function UploadPanel() {
           {lotes.filter((l) => l.files.length > 0).length} lote(s) · {totalFiles} MP3
         </span>
       </div>
-        </>
-      : null}
     </div>
   );
 }

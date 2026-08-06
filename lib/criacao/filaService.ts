@@ -18,17 +18,11 @@ import {
 import { allocateFilaOrdemForBatch, allocateNextFilaOrdem } from "@/lib/criacao/filaOrdemService";
 
 export { recoverStagingForJob, recoverStagingForPendingItems, recoverStagingForActiveUploadJobs } from "@/lib/criacao/stagingRecoverService";
-export {
-  recoverServidorUpStagingForDownloadJob,
-  recoverServidorUpStagingAll,
-} from "@/lib/criacao/servidorUpRecoverStagingService";
 
 export type UploadArquivo = {
   nome: string;
   sizeBytes?: number;
   downloadItemId?: string;
-  /** Servidor UP: ponto de mix do MP3 legado (~N no nome original). */
-  mixSegundosFromLegacy?: number;
 };
 
 export type CreateUploadJobInput = {
