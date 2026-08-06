@@ -321,27 +321,33 @@ export function UploadPanel() {
       });
       if (!res.ok) {
         const errData = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
-        setMsg(
-          errData?.error === "staging_item_invalido" ?
-            "Uma ou mais faixas do servidor já foram importadas ou não existem mais."
-          : errData?.error === "staging_import_falhou" && errData.message ?
-            `Importação do servidor falhou: ${errData.message}`
-          : errData?.error === "ingest_desabilitado" ?
-            "Upload indisponível — configure CRIACAO_INGEST_SECRET no Netlify."
-          : errData?.error === "migration_pendente" && errData.message ?
-            errData.message
-          : errData?.message ?
-            errData.message
-          : "Não foi possível criar os jobs de processamento.",
-        );
+        if (res.status === 504) {
+          setMsg(
+            "Portal demorou demais (504). Os jobs podem ter sido criados — abra a Fila antes de enviar de novo.",
+          );
+        } else {
+          setMsg(
+            errData?.error === "staging_item_invalido" ?
+              "Uma ou mais faixas do servidor já foram importadas ou não existem mais."
+            : errData?.error === "staging_import_falhou" && errData.message ?
+              `Importação do servidor falhou: ${errData.message}`
+            : errData?.error === "ingest_desabilitado" ?
+              "Upload indisponível — configure CRIACAO_INGEST_SECRET no Netlify."
+            : errData?.error === "migration_pendente" && errData.message ?
+              errData.message
+            : errData?.message ?
+              errData.message
+            : "Não foi possível criar os jobs de processamento.",
+          );
+        }
         setSubmitting(false);
         setProgress(null);
         return;
       }
       const data = (await res.json()) as {
         ingestUrl: string;
-        stagingImported?: number;
-        stagingErrors?: string[];
+        stagingIngest?: "background";
+        stagingPending?: number;
         jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
       };
 
@@ -410,9 +416,9 @@ export function UploadPanel() {
         setProgress(null);
         return;
       }
-      if ((data.stagingErrors?.length ?? 0) > 0) {
-        setMsg(
-          `${data.stagingImported ?? 0} faixa(s) importadas do servidor. Avisos: ${data.stagingErrors!.slice(0, 3).join(" · ")}`,
+      if (data.stagingIngest === "background" && (data.stagingPending ?? 0) > 0) {
+        setOkMsg(
+          `${data.stagingPending} faixa(s) do Download link entram na fila em segundo plano (1–2 min no servidor).`,
         );
       }
       if (pastasByProg.size === 1) {
@@ -422,7 +428,9 @@ export function UploadPanel() {
         router.push("/criacao/fila");
       }
     } catch {
-      setMsg("Não foi possível criar os jobs de processamento.");
+      setMsg(
+        "Falha de rede ao criar os jobs. Se veio do Download link, confira a Fila — o envio pode ter sido criado mesmo assim.",
+      );
       setSubmitting(false);
       setProgress(null);
     }

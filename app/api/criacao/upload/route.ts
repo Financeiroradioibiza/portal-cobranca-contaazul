@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { resolveTagCriativoUser } from "@/lib/criacao/criativoUserService";
 import {
@@ -30,19 +30,33 @@ function stagingProcessamentoNome(dl: {
 }
 
 async function normalizeUploadArquivos(arquivos: UploadArquivo[]): Promise<UploadArquivo[]> {
+  const stagingIds = [
+    ...new Set(
+      arquivos.map((a) => a.downloadItemId?.trim()).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const dlById = new Map<
+    string,
+    { id: string; arquivoNome: string; titulo: string; artista: string; sizeBytes: number | null }
+  >();
+  if (stagingIds.length > 0) {
+    const rows = await prisma.downloadItem.findMany({
+      where: {
+        id: { in: stagingIds },
+        status: "concluido",
+        storageKey: { not: null },
+        NOT: { providerRef: { startsWith: "import:" } },
+      },
+      select: { id: true, arquivoNome: true, titulo: true, artista: true, sizeBytes: true },
+    });
+    for (const row of rows) dlById.set(row.id, row);
+  }
+
   const out: UploadArquivo[] = [];
   for (const a of arquivos) {
     if (!a?.nome?.trim() && !a.downloadItemId) continue;
     if (a.downloadItemId) {
-      const dl = await prisma.downloadItem.findFirst({
-        where: {
-          id: a.downloadItemId,
-          status: "concluido",
-          storageKey: { not: null },
-          NOT: { providerRef: { startsWith: "import:" } },
-        },
-        select: { id: true, arquivoNome: true, titulo: true, artista: true, sizeBytes: true },
-      });
+      const dl = dlById.get(a.downloadItemId);
       if (!dl) throw new Error("staging_item_invalido");
       const nome = stagingProcessamentoNome(dl);
       out.push({
@@ -181,25 +195,27 @@ export async function POST(request: Request) {
       }
 
       const stagingPairs = buildStagingPairs(jobs, lotes);
-      let stagingImported = 0;
-      let stagingErrors: string[] = [];
       if (stagingPairs.length > 0) {
-        const stagingResult = await ingestFromStagingOnCloud2(stagingPairs);
-        stagingImported = stagingResult.imported;
-        stagingErrors = stagingResult.errors;
-        if (!stagingResult.ok && stagingImported === 0) {
-          return NextResponse.json(
-            { error: "staging_import_falhou", message: stagingErrors.join(" · ") },
-            { status: 502 },
-          );
-        }
+        /** Evita 504 Netlify (~26s): copia staging → upload no cloud2 após responder ao browser. */
+        after(async () => {
+          try {
+            const stagingResult = await ingestFromStagingOnCloud2(stagingPairs);
+            if (!stagingResult.ok && stagingResult.imported === 0) {
+              console.error("[criacao/upload] staging ingest background falhou:", stagingResult.errors);
+            } else if (stagingResult.errors.length > 0) {
+              console.warn("[criacao/upload] staging ingest background avisos:", stagingResult.errors);
+            }
+          } catch (e) {
+            console.error("[criacao/upload] staging ingest background", e);
+          }
+        });
       }
 
       return NextResponse.json({
         ok: true,
         ingestUrl: CRIACAO_INGEST_URL,
-        stagingImported,
-        stagingErrors,
+        stagingIngest: stagingPairs.length > 0 ? "background" : undefined,
+        stagingPending: stagingPairs.length,
         jobs: jobs.map((job, idx) => ({
           jobId: job.id,
           titulo: job.titulo,
