@@ -589,6 +589,10 @@ function sortedNonProxyPdvs(bucket: ProducaoPlayerBucket) {
   );
 }
 
+function rioPdvKeyActiveInBuckets(rioPdvKey: string, buckets: ProducaoPlayerBucket[]): boolean {
+  return buckets.some((b) => b.pdvs.some((p) => p.rioPdvId === rioPdvKey));
+}
+
 /** Atribui ID Player a PDV(s) da produção musical (catálogo operacional — não altera Planilha Rio). */
 export async function assignPortalPlayerIdsForRioPdvKeys(
   rioPdvKeys: string[],
@@ -648,7 +652,12 @@ export async function assignPortalPlayerIdsForRioPdvKeys(
 
       const owner = Object.entries(pdvIds).find(([, id]) => id === portalPdvId);
       if (owner && owner[0] !== rioPdvKey) {
-        throw new Error("seq_player_ocupado");
+        if (rioPdvKeyActiveInBuckets(owner[0], ctx.buckets)) {
+          throw new Error("seq_player_ocupado");
+        }
+        // PDV/linha apagado no Rio — libera o número para o cadastro novo.
+        delete pdvIds[owner[0]];
+        pdvPortalIds.delete(owner[0]);
       }
 
       pdvIds[rioPdvKey] = portalPdvId;
