@@ -105,6 +105,7 @@ export function BibliotecaSidebar({
   const [loading, setLoading] = useState(true);
   const [progOpen, setProgOpen] = useState<Record<string, boolean>>({});
   const [criando, setCriando] = useState(false);
+  const [apagandoVazias, setApagandoVazias] = useState(false);
   const [novoNome, setNovoNome] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -160,6 +161,39 @@ export function BibliotecaSidebar({
       window.alert("Não foi possível criar a pasta.");
     } finally {
       setCriando(false);
+    }
+  }
+
+  async function apagarPastasVazias() {
+    const vazias = (tree?.pastasCustom ?? []).filter((p) => p.musicaCount === 0).length;
+    if (vazias === 0) {
+      window.alert("Nenhuma pasta custom vazia para apagar.");
+      return;
+    }
+    const ok = window.confirm(
+      `Apagar ${vazias} pasta${vazias === 1 ? "" : "s"} custom sem faixas? Pastas com músicas não são alteradas.`,
+    );
+    if (!ok) return;
+    setApagandoVazias(true);
+    try {
+      const res = await fetch("/api/criacao/biblioteca/pastas/prune-empty", { method: "POST" });
+      if (!res.ok) throw new Error();
+      const data = (await res.json()) as { deleted?: number; deletedIds?: string[] };
+      if (
+        active.kind === "custom" &&
+        data.deletedIds?.includes(active.id)
+      ) {
+        onSelect({ kind: "all", label: "Biblioteca" });
+      }
+      await load();
+      onPastasChange?.();
+      if ((data.deleted ?? 0) > 0) {
+        window.alert(`${data.deleted} pasta${data.deleted === 1 ? "" : "s"} vazia${data.deleted === 1 ? "" : "s"} removida${data.deleted === 1 ? "" : "s"}.`);
+      }
+    } catch {
+      window.alert("Não foi possível apagar as pastas vazias.");
+    } finally {
+      setApagandoVazias(false);
     }
   }
 
@@ -278,14 +312,19 @@ export function BibliotecaSidebar({
           />
         ))}
 
-        <SectionTitle>Pastas custom</SectionTitle>
-        {(tree?.pastasCustom ?? [])
-          .filter(
-            (p) =>
-              p.musicaCount > 0 ||
-              (active.kind === "custom" && active.id === p.id),
-          )
-          .map((p) => (
+        <div className="flex items-center justify-between gap-1 px-2 pb-1 pt-3">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pastas custom</div>
+          <button
+            type="button"
+            disabled={apagandoVazias}
+            onClick={() => void apagarPastasVazias()}
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-200 hover:text-slate-800 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            title="Remove pastas custom que não têm nenhuma faixa"
+          >
+            {apagandoVazias ? "…" : "Apagar vazias"}
+          </button>
+        </div>
+        {(tree?.pastasCustom ?? []).map((p) => (
           <SidebarItem
             key={p.id}
             active={isActive({

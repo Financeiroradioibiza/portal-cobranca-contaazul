@@ -146,12 +146,16 @@ export async function deleteBibliotecaPasta(id: string): Promise<void> {
   await prisma.bibliotecaPasta.delete({ where: { id } });
 }
 
-/** Apaga pasta custom se ficou sem faixas (não deixa lixo na biblioteca). */
-export async function deleteBibliotecaPastaIfEmpty(pastaId: string): Promise<boolean> {
-  const n = await prisma.bibliotecaPastaMusica.count({ where: { pastaId } });
-  if (n > 0) return false;
-  await prisma.bibliotecaPasta.delete({ where: { id: pastaId } }).catch(() => {});
-  return true;
+/** Apaga todas as pastas custom sem faixas (ação manual na Biblioteca). */
+export async function deleteEmptyBibliotecaPastas(): Promise<{ deleted: number; deletedIds: string[] }> {
+  const empty = await prisma.bibliotecaPasta.findMany({
+    where: { musicas: { none: {} } },
+    select: { id: true },
+  });
+  if (empty.length === 0) return { deleted: 0, deletedIds: [] };
+  const deletedIds = empty.map((e) => e.id);
+  await prisma.bibliotecaPasta.deleteMany({ where: { id: { in: deletedIds } } });
+  return { deleted: deletedIds.length, deletedIds };
 }
 
 async function ensureFolderTag(pasta: {
@@ -241,7 +245,6 @@ export async function removeMusicasFromBibliotecaPasta(
   const res = await prisma.bibliotecaPastaMusica.deleteMany({
     where: { pastaId, musicaId: { in: ids } },
   });
-  await deleteBibliotecaPastaIfEmpty(pastaId);
   return res.count;
 }
 
@@ -262,9 +265,6 @@ export async function moveMusicasEntreBibliotecaPastas(input: {
     }
     const r = await addMusicasToBibliotecaPasta(input.paraPastaId, chunk);
     added += r.added;
-  }
-  if (input.dePastaId && input.dePastaId !== input.paraPastaId) {
-    await deleteBibliotecaPastaIfEmpty(input.dePastaId);
   }
   return { added };
 }

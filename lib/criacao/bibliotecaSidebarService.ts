@@ -52,23 +52,7 @@ export type BibliotecaSidebarTree = {
   programacoesArquivadas: BibliotecaSidebarProgramacaoArquivada[];
 };
 
-/** Remove pastas custom vazias (com grace) e tags sem faixa — sidebar mais limpa. */
-async function pruneEmptyBibliotecaSidebarClutter(): Promise<void> {
-  const grace = new Date(Date.now() - 2 * 60 * 1000);
-  await prisma.bibliotecaPasta.deleteMany({
-    where: {
-      musicas: { none: {} },
-      createdAt: { lt: grace },
-    },
-  });
-  await prisma.tagCriativo.deleteMany({
-    where: { musicas: { none: {} } },
-  });
-}
-
 export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree> {
-  await pruneEmptyBibliotecaSidebarClutter();
-
   const [tags, pastasCustom, especiais, progs, offIndex] = await Promise.all([
     listTags(),
     listBibliotecaPastas(),
