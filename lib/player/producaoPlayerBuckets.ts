@@ -218,13 +218,15 @@ function isLegacySingleProxyBucket(bucket: Pick<ProducaoPlayerBucket, "pdvs">): 
   return bucketRealPdvs(bucket).length === 0 && bucketProxyPdvs(bucket).length === 1;
 }
 
-/** Proxy agrupado com lojas reais — ID Player ok, mas não entra no disparo/fechar. */
+/** Proxy agrupado com lojas reais — dispara só com ID Player gravado (Ativar ID). */
 export function pdvElegivelParaDisparo(
-  pdv: Pick<ProducaoPdvRef, "isLinhaProxy">,
+  pdv: Pick<ProducaoPdvRef, "rioPdvId" | "isLinhaProxy">,
   bucket: Pick<ProducaoPlayerBucket, "pdvs">,
+  pdvPortalIds?: Map<string, number>,
 ): boolean {
   if (!pdv.isLinhaProxy) return true;
-  return isLegacySingleProxyBucket(bucket);
+  if (isLegacySingleProxyBucket(bucket)) return true;
+  return pdvPortalIds?.has(pdv.rioPdvId) ?? false;
 }
 
 /**

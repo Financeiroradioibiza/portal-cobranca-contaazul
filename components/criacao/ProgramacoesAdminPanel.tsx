@@ -929,7 +929,7 @@ function PdvProgramacaoColumn({
                   <button
                     type="button"
                     disabled={savingKey === pdv.rioPdvKey || proxySemDisparo}
-                    title={proxySemDisparo ? "Cliente Rio sem loja — vincule na Planilha Rio antes de amarrar programação" : undefined}
+                    title={proxySemDisparo ? "Cliente Rio sem ID Player — ative o ID na produção antes de amarrar" : undefined}
                     onClick={() => void assign(pdv.rioPdvKey, null)}
                     className={
                       "rounded border px-2 py-1 text-[10px] font-semibold transition " +
@@ -951,7 +951,7 @@ function PdvProgramacaoColumn({
                         key={prog.id}
                         type="button"
                         disabled={savingKey === pdv.rioPdvKey || proxySemDisparo}
-                        title={proxySemDisparo ? "Cliente Rio sem loja — não entra no disparo ao fechar" : undefined}
+                        title={proxySemDisparo ? "Cliente Rio sem ID Player — ative o ID na produção antes de amarrar" : undefined}
                         onClick={() => void assign(pdv.rioPdvKey, prog.id)}
                         className={
                           "rounded border px-2 py-1 text-[10px] font-semibold transition " +
@@ -1301,7 +1301,7 @@ export const DISPARO_ERROR: Record<string, string> = {
   nenhum_pdv_amarrado:
     "Nenhum PDV de loja amarrado a esta programação. «Cliente = PDV» agrupado com outras lojas não recebe disparo — escolha as lojas reais na coluna PDVs.",
   pdv_proxy_nao_dispara:
-    "Este cliente Rio ainda não virou loja (cliente = PDV agrupado). Vincule na Planilha Rio ou escolha uma loja real.",
+    "Cliente Rio sem ID Player — use «Ativar ID» na produção antes de amarrar programação.",
   cliente_gateway_nao_configurado:
     "Cliente ainda sem ID no Player. Configure o login/ID do cliente na produção antes de disparar.",
   cloud2_desabilitado: "Cloud2 desabilitado — publicação indisponível.",

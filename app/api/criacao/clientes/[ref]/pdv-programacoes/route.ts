@@ -126,7 +126,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const msg = e instanceof Error ? e.message : "server_error";
     if (msg === "pdv_proxy_nao_dispara") {
       return NextResponse.json(
-        { error: msg, hint: "Cliente Rio sem loja filha — não recebe disparo. Vincule na Planilha Rio ou escolha loja real." },
+        { error: msg, hint: "Cliente Rio sem ID Player — use «Ativar ID» na produção antes de amarrar programação." },
         { status: 400 },
       );
     }

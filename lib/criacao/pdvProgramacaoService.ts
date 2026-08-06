@@ -15,7 +15,7 @@ export type PdvProgramacaoRow = {
   programacaoId: string | null;
   programacaoNome: string | null;
   isLinhaProxy: boolean;
-  /** false = «cliente = PDV» agrupado com lojas reais — não recebe disparo. */
+  /** false = «cliente = PDV» agrupado sem ID Player — não recebe disparo. */
   disparoElegivel: boolean;
   tagCobranca: RioTagCobranca;
 };
@@ -139,7 +139,7 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
       programacaoId,
       programacaoNome,
       isLinhaProxy: !!p.isLinhaProxy,
-      disparoElegivel: pdvElegivelParaDisparo(p, bucket),
+      disparoElegivel: pdvElegivelParaDisparo(p, bucket, ctx.pdvPortalIds),
       tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
     };
   });
@@ -161,7 +161,7 @@ export async function assignUnassignedPdvsToProgramacao(
   clienteRef: string,
   programacaoId: string,
 ): Promise<number> {
-  const { bucket } = await findBucketForClienteRef(clienteRef);
+  const { ctx, bucket } = await findBucketForClienteRef(clienteRef);
   if (!bucket) return 0;
 
   const prog = await prisma.programacao.findUnique({
@@ -179,7 +179,7 @@ export async function assignUnassignedPdvsToProgramacao(
   const cadByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
 
   const toAssign = bucket.pdvs.filter(
-    (pdv) => pdvElegivelParaDisparo(pdv, bucket) && !cadByKey.get(pdv.rioPdvId)?.programacaoId,
+    (pdv) => pdvElegivelParaDisparo(pdv, bucket, ctx.pdvPortalIds) && !cadByKey.get(pdv.rioPdvId)?.programacaoId,
   );
   if (toAssign.length === 0) return 0;
 
@@ -212,12 +212,12 @@ export async function savePdvProgramacaoAssignment(
   rioPdvKey: string,
   programacaoId: string | null,
 ): Promise<void> {
-  const { bucket } = await findBucketForClienteRef(clienteRef);
+  const { ctx, bucket } = await findBucketForClienteRef(clienteRef);
   if (!bucket) throw new Error("cliente_nao_encontrado");
 
   const pdv = bucket.pdvs.find((p) => p.rioPdvId === rioPdvKey);
   if (!pdv) throw new Error("pdv_nao_encontrado");
-  if (programacaoId && !pdvElegivelParaDisparo(pdv, bucket)) {
+  if (programacaoId && !pdvElegivelParaDisparo(pdv, bucket, ctx.pdvPortalIds)) {
     throw new Error("pdv_proxy_nao_dispara");
   }
 
