@@ -126,6 +126,8 @@ function ProgramacaoEditor({
     { kind: "new-pasta" } | { kind: "add-to-pasta"; pasta: PastaView } | null
   >(null);
   const [selectedByPasta, setSelectedByPasta] = useState<Record<string, Set<string>>>({});
+  const [anchorByPasta, setAnchorByPasta] = useState<Record<string, string | null>>({});
+  const activePastaIdRef = useRef<string | null>(null);
   /** Faixas adicionadas nesta sessão do editor — destaque até fechar a programação. */
   const [sessionAddedIds, setSessionAddedIds] = useState<Set<string>>(() => new Set());
   /** Pastas expandidas — persistidas enquanto a atualização estiver aberta. */
@@ -424,17 +426,47 @@ function ProgramacaoEditor({
     await load();
   }
 
-  function toggleMusicaSelected(pastaId: string, musicaId: string, checked: boolean) {
+  function toggleMusicaSelected(
+    pastaId: string,
+    musicaId: string,
+    opts: { shiftKey?: boolean; metaKey?: boolean } = {},
+  ) {
+    const { shiftKey = false, metaKey = false } = opts;
+    activePastaIdRef.current = pastaId;
+    const pasta = prog?.pastas.find((p) => p.id === pastaId);
+    if (!pasta) return;
+    const order = sortedMusicas(pasta).map((m) => m.id);
+    const anchor = anchorByPasta[pastaId] ?? null;
+
     setSelectedByPasta((prev) => {
-      const next = new Set(prev[pastaId] ?? []);
-      if (checked) next.add(musicaId);
-      else next.delete(musicaId);
-      return { ...prev, [pastaId]: next };
+      if (shiftKey && anchor && order.length > 0) {
+        const a = order.indexOf(anchor);
+        const b = order.indexOf(musicaId);
+        if (a >= 0 && b >= 0) {
+          const next = metaKey ? new Set(prev[pastaId] ?? []) : new Set<string>();
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          for (let i = lo; i <= hi; i++) next.add(order[i]!);
+          return { ...prev, [pastaId]: next };
+        }
+      }
+      if (metaKey) {
+        const next = new Set(prev[pastaId] ?? []);
+        if (next.has(musicaId)) next.delete(musicaId);
+        else next.add(musicaId);
+        return { ...prev, [pastaId]: next };
+      }
+      const current = prev[pastaId] ?? new Set<string>();
+      if (current.size === 1 && current.has(musicaId)) {
+        return { ...prev, [pastaId]: new Set() };
+      }
+      return { ...prev, [pastaId]: new Set([musicaId]) };
     });
+    setAnchorByPasta((prev) => ({ ...prev, [pastaId]: musicaId }));
   }
 
   function toggleSelectAllPasta(pasta: PastaView) {
-    const allIds = pasta.musicas.map((m) => m.id);
+    activePastaIdRef.current = pasta.id;
+    const allIds = sortedMusicas(pasta).map((m) => m.id);
     setSelectedByPasta((prev) => {
       const current = prev[pasta.id] ?? new Set<string>();
       const allSelected = allIds.length > 0 && allIds.every((mid) => current.has(mid));
@@ -476,6 +508,27 @@ function ProgramacaoEditor({
       return 0;
     });
   }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("input, textarea, select")) return;
+        const pastaId = activePastaIdRef.current;
+        if (!pastaId) return;
+        const pasta = prog?.pastas.find((p) => p.id === pastaId);
+        if (!pasta || pasta.musicas.length === 0) return;
+        e.preventDefault();
+        setSelectedByPasta((prev) => ({
+          ...prev,
+          [pastaId]: new Set(sortedMusicas(pasta).map((m) => m.id)),
+        }));
+      }
+      if (e.key === "Escape") setSelectedByPasta({});
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [prog, sortByPasta]);
 
   function togglePastaExpand(pastaId: string) {
     setExpandedPastas((prev) => {
@@ -668,6 +721,8 @@ function ProgramacaoEditor({
                     {pasta.musicas.length} faixa{pasta.musicas.length === 1 ? "" : "s"}
                     {isOpen && selectedCount > 0 ?
                       ` · ${selectedCount} selecionada${selectedCount === 1 ? "" : "s"}`
+                    : isOpen && pasta.musicas.length > 1 ?
+                      " · Shift+clique intervalo"
                     : null}
                   </span>
                 </div>
@@ -756,8 +811,17 @@ function ProgramacaoEditor({
                     return (
                     <li
                       key={m.id}
-                      className={`flex items-center gap-3 px-4 py-2 text-sm ${
-                        isNova ?
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest("button, input, a, label")) return;
+                        toggleMusicaSelected(pasta.id, m.id, {
+                          shiftKey: e.shiftKey,
+                          metaKey: e.metaKey || e.ctrlKey,
+                        });
+                      }}
+                      className={`flex cursor-pointer select-none items-center gap-3 px-4 py-2 text-sm ${
+                        selected.has(m.id) ?
+                          "bg-violet-50 dark:bg-violet-950/30"
+                        : isNova ?
                           "border-l-2 border-emerald-500 bg-emerald-50/70 dark:border-emerald-400 dark:bg-emerald-950/25"
                         : ""
                       }`}
@@ -765,8 +829,15 @@ function ProgramacaoEditor({
                       <input
                         type="checkbox"
                         checked={selected.has(m.id)}
-                        onChange={(e) => toggleMusicaSelected(pasta.id, m.id, e.target.checked)}
-                        className="h-4 w-4 shrink-0 rounded border-slate-300 text-slate-900 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-950"
+                        readOnly
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleMusicaSelected(pasta.id, m.id, {
+                            shiftKey: e.shiftKey,
+                            metaKey: true,
+                          });
+                        }}
+                        className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-slate-900 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-950"
                         aria-label={`Selecionar ${m.titulo}`}
                       />
                       {m.previewUrl ?
@@ -1163,7 +1234,9 @@ function ImportVinhetaBibliotecaModal({
 
 const CRONOGRAMA_HORARIO_PRESETS = [
   { label: "Dia todo", hIni: "00:00", hFim: "23:59" },
+  { label: "00:00 – 06:00", hIni: "00:00", hFim: "06:00" },
   { label: "00:00 – 12:00", hIni: "00:00", hFim: "12:00" },
+  { label: "06:00 – 18:00", hIni: "06:00", hFim: "18:00" },
   { label: "12:00 – 18:00", hIni: "12:00", hFim: "18:00" },
   { label: "18:00 – 23:59", hIni: "18:00", hFim: "23:59" },
 ] as const;
