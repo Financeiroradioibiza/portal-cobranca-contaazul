@@ -78,7 +78,7 @@ export type FecharAtualizacaoInfo = {
 async function pdvsLogForProgramacao(programacaoId: string, clienteRef: string): Promise<string> {
   const payload = await getClientePdvProgramacoes(clienteRef);
   const nomes = payload.pdvs
-    .filter((p) => p.programacaoId === programacaoId)
+    .filter((p) => p.disparoElegivel && p.programacaoId === programacaoId)
     .map((p) => p.nome.trim() || p.codigoDisplay)
     .filter(Boolean);
   return nomes.join(", ");
@@ -87,7 +87,7 @@ async function pdvsLogForProgramacao(programacaoId: string, clienteRef: string):
 async function pdvsNomesForProgramacao(programacaoId: string, clienteRef: string): Promise<string[]> {
   const payload = await getClientePdvProgramacoes(clienteRef);
   return payload.pdvs
-    .filter((p) => p.programacaoId === programacaoId)
+    .filter((p) => p.disparoElegivel && p.programacaoId === programacaoId)
     .map((p) => p.nome.trim() || p.codigoDisplay)
     .filter(Boolean);
 }

@@ -218,6 +218,15 @@ function isLegacySingleProxyBucket(bucket: Pick<ProducaoPlayerBucket, "pdvs">): 
   return bucketRealPdvs(bucket).length === 0 && bucketProxyPdvs(bucket).length === 1;
 }
 
+/** Proxy agrupado com lojas reais — ID Player ok, mas não entra no disparo/fechar. */
+export function pdvElegivelParaDisparo(
+  pdv: Pick<ProducaoPdvRef, "isLinhaProxy">,
+  bucket: Pick<ProducaoPlayerBucket, "pdvs">,
+): boolean {
+  if (!pdv.isLinhaProxy) return true;
+  return isLegacySingleProxyBucket(bucket);
+}
+
 /**
  * ID Player para exibição/sync — evita duplicar .001 quando o bucket já tem PDVs reais.
  * Proxies agrupados com lojas reais precisam de ID persistido (Ativar ID).

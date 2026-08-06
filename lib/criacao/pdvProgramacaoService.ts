@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
-import { loadMergedProducaoPlayerContext, resolvePortalPdvIdForPdv } from "@/lib/player/producaoPlayerBuckets";
+import { loadMergedProducaoPlayerContext, pdvElegivelParaDisparo, resolvePortalPdvIdForPdv } from "@/lib/player/producaoPlayerBuckets";
 import { syncPdvProgramacaoToGateway, type SyncPdvProgramacaoResult } from "@/lib/player/pdvProgramacaoGatewaySync";
 import { effectiveRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
@@ -15,6 +15,8 @@ export type PdvProgramacaoRow = {
   programacaoId: string | null;
   programacaoNome: string | null;
   isLinhaProxy: boolean;
+  /** false = «cliente = PDV» agrupado com lojas reais — não recebe disparo. */
+  disparoElegivel: boolean;
   tagCobranca: RioTagCobranca;
 };
 
@@ -137,6 +139,7 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
       programacaoId,
       programacaoNome,
       isLinhaProxy: !!p.isLinhaProxy,
+      disparoElegivel: pdvElegivelParaDisparo(p, bucket),
       tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
     };
   });
@@ -175,7 +178,9 @@ export async function assignUnassignedPdvsToProgramacao(
   });
   const cadByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
 
-  const toAssign = bucket.pdvs.filter((pdv) => !cadByKey.get(pdv.rioPdvId)?.programacaoId);
+  const toAssign = bucket.pdvs.filter(
+    (pdv) => pdvElegivelParaDisparo(pdv, bucket) && !cadByKey.get(pdv.rioPdvId)?.programacaoId,
+  );
   if (toAssign.length === 0) return 0;
 
   for (let i = 0; i < toAssign.length; i += ASSIGN_PDV_DB_BATCH) {
@@ -212,6 +217,9 @@ export async function savePdvProgramacaoAssignment(
 
   const pdv = bucket.pdvs.find((p) => p.rioPdvId === rioPdvKey);
   if (!pdv) throw new Error("pdv_nao_encontrado");
+  if (programacaoId && !pdvElegivelParaDisparo(pdv, bucket)) {
+    throw new Error("pdv_proxy_nao_dispara");
+  }
 
   let programacaoMusical = "Padrão";
   if (programacaoId) {
@@ -249,7 +257,12 @@ export async function getPortalPdvIdsForProgramacao(
 
   const payload = await getClientePdvProgramacoes(prog.clienteRef);
   const portalPdvIds = payload.pdvs
-    .filter((p) => p.programacaoId === programacaoId && p.portalPdvId != null)
+    .filter(
+      (p) =>
+        p.disparoElegivel &&
+        p.programacaoId === programacaoId &&
+        p.portalPdvId != null,
+    )
     .map((p) => p.portalPdvId!);
 
   if (payload.portalClienteId == null) {

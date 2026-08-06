@@ -69,6 +69,7 @@ type PdvProgramacaoRow = {
   programacaoId: string | null;
   programacaoNome: string | null;
   isLinhaProxy: boolean;
+  disparoElegivel: boolean;
   tagCobranca: RioTagCobranca;
 };
 
@@ -874,12 +875,14 @@ function PdvProgramacaoColumn({
         : <ul className="space-y-2">
             {pdvs.map((pdv) => {
               const pdvTagBg = rioTagCobrancaRowBgClass(pdv.tagCobranca);
+              const proxySemDisparo = !pdv.disparoElegivel;
               return (
               <li
                 key={pdv.rioPdvKey}
                 className={
                   "rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 dark:border-slate-700 dark:bg-slate-950/40 " +
-                  (pdvTagBg ?? "")
+                  (pdvTagBg ?? "") +
+                  (proxySemDisparo ? " opacity-75" : "")
                 }
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
@@ -889,7 +892,11 @@ function PdvProgramacaoColumn({
                     </div>
                     <div className="text-[10px] text-slate-400">
                       {pdv.codigoDisplay}
-                      {pdv.isLinhaProxy ? " · proxy linha" : ""}
+                      {pdv.isLinhaProxy ?
+                        proxySemDisparo ?
+                          " · cliente = PDV · não dispara"
+                        : " · cliente = PDV"
+                      : ""}
                     </div>
                   </div>
                   {savingKey === pdv.rioPdvKey ?
@@ -921,11 +928,14 @@ function PdvProgramacaoColumn({
                 <div className="flex flex-wrap gap-1">
                   <button
                     type="button"
-                    disabled={savingKey === pdv.rioPdvKey}
+                    disabled={savingKey === pdv.rioPdvKey || proxySemDisparo}
+                    title={proxySemDisparo ? "Cliente Rio sem loja — vincule na Planilha Rio antes de amarrar programação" : undefined}
                     onClick={() => void assign(pdv.rioPdvKey, null)}
                     className={
                       "rounded border px-2 py-1 text-[10px] font-semibold transition " +
-                      (!pdv.programacaoId ?
+                      (proxySemDisparo ?
+                        "cursor-not-allowed border-slate-200 text-slate-300 dark:border-slate-700 dark:text-slate-600"
+                      : !pdv.programacaoId ?
                         "border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900"
                       : "border-slate-300 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:text-slate-400")
                     }
@@ -940,7 +950,8 @@ function PdvProgramacaoColumn({
                       <button
                         key={prog.id}
                         type="button"
-                        disabled={savingKey === pdv.rioPdvKey}
+                        disabled={savingKey === pdv.rioPdvKey || proxySemDisparo}
+                        title={proxySemDisparo ? "Cliente Rio sem loja — não entra no disparo ao fechar" : undefined}
                         onClick={() => void assign(pdv.rioPdvKey, prog.id)}
                         className={
                           "rounded border px-2 py-1 text-[10px] font-semibold transition " +
@@ -1287,7 +1298,10 @@ export type AtualizacaoDiffUi = {
 };
 
 export const DISPARO_ERROR: Record<string, string> = {
-  nenhum_pdv_amarrado: "Nenhum PDV amarrado a esta programação. Escolha os PDVs na coluna do meio.",
+  nenhum_pdv_amarrado:
+    "Nenhum PDV de loja amarrado a esta programação. «Cliente = PDV» agrupado com outras lojas não recebe disparo — escolha as lojas reais na coluna PDVs.",
+  pdv_proxy_nao_dispara:
+    "Este cliente Rio ainda não virou loja (cliente = PDV agrupado). Vincule na Planilha Rio ou escolha uma loja real.",
   cliente_gateway_nao_configurado:
     "Cliente ainda sem ID no Player. Configure o login/ID do cliente na produção antes de disparar.",
   cloud2_desabilitado: "Cloud2 desabilitado — publicação indisponível.",
@@ -1436,7 +1450,8 @@ export function FecharAtualizacaoModal({
       const code = e instanceof Error ? e.message : "disparo_falhou";
       setError(
         DISPARO_ERROR[code] ??
-          (code.startsWith("cronograma_lacunas_semana") ?
+          (code === "pdv_proxy_nao_dispara" ? DISPARO_ERROR.pdv_proxy_nao_dispara
+          : code.startsWith("cronograma_lacunas_semana") ?
             `${DISPARO_ERROR.cronograma_lacunas_semana} Dias: ${code.replace(/^cronograma_lacunas_semana:?/, "")}`
           : code.startsWith("sync_registry") ? DISPARO_ERROR.sync_registry_falhou
           : code.startsWith("falha_publicacao") || code.startsWith("publicar_falhou") ?

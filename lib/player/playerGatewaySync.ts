@@ -164,7 +164,7 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
           clienteId: portalClienteId,
           nome: p.nome.trim() || nome,
           codigoDisplay: formatPortalPdvIdDisplay(virtualId),
-          origemRioPdvId: null,
+          origemRioPdvId: p.rioPdvId,
           origemRioLinhaId: p.rioLinhaId,
           instalacaoToken: cad?.playerInstalacaoToken?.trim() || null,
           instaladoPlayer: instaladoPlayerFor(rioKeyForToken(p)),
@@ -268,12 +268,15 @@ function appendOrphanPortalPdvsToSyncPayload(params: {
 }): void {
   const { ctx, clientes, pdvs, loginByClienteId, cadastroByKey, logoForSync, rioTagByKey } = params;
   const syncedRioKeys = new Set(
-    pdvs.map((p) => p.origemRioPdvId).filter((k): k is string => Boolean(k)),
+    pdvs.flatMap((p) => [p.origemRioPdvId, p.origemRioLinhaId ? `linha:${p.origemRioLinhaId}` : null]).filter(
+      (k): k is string => Boolean(k),
+    ),
   );
+  const syncedPortalIds = new Set(pdvs.map((p) => p.id));
   const syncedClienteIds = new Set(clientes.map((c) => c.id));
 
   for (const [rioKey, portalPdvId] of ctx.pdvPortalIds) {
-    if (syncedRioKeys.has(rioKey)) continue;
+    if (syncedRioKeys.has(rioKey) || syncedPortalIds.has(portalPdvId)) continue;
 
     const portalClienteId = portalClienteIdFromPdvId(portalPdvId);
     const bucketMeta = bucketMetaForPortalClienteId(ctx.layout, portalClienteId);

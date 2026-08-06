@@ -124,6 +124,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
+    if (msg === "pdv_proxy_nao_dispara") {
+      return NextResponse.json(
+        { error: msg, hint: "Cliente Rio sem loja filha — não recebe disparo. Vincule na Planilha Rio ou escolha loja real." },
+        { status: 400 },
+      );
+    }
     if (
       msg === "cliente_nao_encontrado" ||
       msg === "pdv_nao_encontrado" ||
