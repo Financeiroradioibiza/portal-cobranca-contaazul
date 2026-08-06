@@ -271,19 +271,44 @@ export async function getDownloadJobDetail(id: string) {
   };
 }
 
+const STAGING_ITEM_READY = {
+  status: "concluido" as const,
+  storageKey: { not: null },
+  NOT: { providerRef: { startsWith: "import:" } },
+};
+
 export async function listStagingFiles(opts: {
   provider?: DownloadProviderId;
-  limit?: number;
+  /** Máx. jobs recentes; cada job retorna todas as faixas prontas (sem cap por job). */
+  jobLimit?: number;
+  jobId?: string;
 }): Promise<StagingFileRow[]> {
+  const jobLimit = Math.min(50, Math.max(1, opts.jobLimit ?? 25));
+
+  const jobIds =
+    opts.jobId ?
+      [opts.jobId]
+    : (
+        await prisma.downloadJob.findMany({
+          where: {
+            ...(opts.provider ? { provider: opts.provider as DownloadProvider } : {}),
+            itens: { some: STAGING_ITEM_READY },
+          },
+          orderBy: [{ finishedAt: "desc" }, { updatedAt: "desc" }],
+          take: jobLimit,
+          select: { id: true },
+        })
+      ).map((j) => j.id);
+
+  if (jobIds.length === 0) return [];
+
   const items = await prisma.downloadItem.findMany({
     where: {
-      status: "concluido",
-      storageKey: { not: null },
-      NOT: { providerRef: { startsWith: "import:" } },
+      ...STAGING_ITEM_READY,
+      jobId: { in: jobIds },
       ...(opts.provider ? { job: { provider: opts.provider as DownloadProvider } } : {}),
     },
-    orderBy: { updatedAt: "desc" },
-    take: Math.min(200, Math.max(1, opts.limit ?? 80)),
+    orderBy: [{ jobId: "asc" }, { updatedAt: "asc" }],
     include: {
       job: { select: { provider: true, titulo: true, finishedAt: true } },
     },

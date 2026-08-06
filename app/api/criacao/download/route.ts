@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const view = url.searchParams.get("view");
 
     if (view === "staging") {
-      const staging = await listStagingFiles({ provider, limit: 100 });
+      const staging = await listStagingFiles({ provider, jobLimit: 25 });
       return NextResponse.json({ staging });
     }
 
