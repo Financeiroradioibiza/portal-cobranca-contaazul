@@ -9,6 +9,7 @@ import {
   mergeProducaoLayout,
   type ProducaoClienteBucket,
   type ProducaoLayoutState,
+  type ProducaoPdvRef,
 } from "@/lib/cadastros/producaoHierarchy";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { loadRioLinhasForProducao } from "@/lib/cadastros/producaoMovimento";
@@ -111,14 +112,7 @@ export function buildPlayerIdMapFromBuckets(
   for (const bucket of buckets) {
     if (bucket.portalClienteId == null) continue;
     for (const p of bucket.pdvs) {
-      if (p.isLinhaProxy) {
-        map.set(p.rioPdvId, {
-          portalClienteId: bucket.portalClienteId,
-          portalPdvId: proxyPortalPdvId(bucket.portalClienteId),
-        });
-        continue;
-      }
-      const portalPdvId = pdvPortalIds.get(p.rioPdvId);
+      const portalPdvId = resolvePortalPdvIdForPdv(p, bucket, pdvPortalIds);
       if (portalPdvId != null) {
         map.set(p.rioPdvId, {
           portalClienteId: bucket.portalClienteId,
@@ -202,7 +196,6 @@ function maxSeqForBucket(
 ): number {
   let max = 0;
   for (const p of bucket.pdvs) {
-    if (p.isLinhaProxy) continue;
     const existing = pdvPortalIds.get(p.rioPdvId);
     if (existing == null) continue;
     if (portalClienteIdFromPdvId(existing) === portalClienteId) {
@@ -210,6 +203,52 @@ function maxSeqForBucket(
     }
   }
   return max;
+}
+
+function bucketProxyPdvs(bucket: Pick<ProducaoPlayerBucket, "pdvs">): ProducaoPdvRef[] {
+  return bucket.pdvs.filter((p) => p.isLinhaProxy);
+}
+
+function bucketRealPdvs(bucket: Pick<ProducaoPlayerBucket, "pdvs">): ProducaoPdvRef[] {
+  return bucket.pdvs.filter((p) => !p.isLinhaProxy);
+}
+
+/** Legado: bucket com um único proxy (cliente = PDV) e sem filhos Rio → 229.001. */
+function isLegacySingleProxyBucket(bucket: Pick<ProducaoPlayerBucket, "pdvs">): boolean {
+  return bucketRealPdvs(bucket).length === 0 && bucketProxyPdvs(bucket).length === 1;
+}
+
+/**
+ * ID Player para exibição/sync — evita duplicar .001 quando o bucket já tem PDVs reais.
+ * Proxies agrupados com lojas reais precisam de ID persistido (Ativar ID).
+ */
+export function resolvePortalPdvIdForPdv(
+  pdv: Pick<ProducaoPdvRef, "rioPdvId" | "isLinhaProxy">,
+  bucket: Pick<ProducaoPlayerBucket, "portalClienteId" | "pdvs">,
+  pdvPortalIds: Map<string, number>,
+): number | null {
+  const portalClienteId = bucket.portalClienteId;
+  if (portalClienteId == null) return null;
+
+  const stored = pdvPortalIds.get(pdv.rioPdvId);
+  if (stored != null) return stored;
+
+  if (!pdv.isLinhaProxy) return null;
+  if (isLegacySingleProxyBucket(bucket)) return proxyPortalPdvId(portalClienteId);
+  return null;
+}
+
+function nextPortalPdvIdForAssignment(
+  pdv: Pick<ProducaoPdvRef, "rioPdvId" | "isLinhaProxy">,
+  bucket: ProducaoPlayerBucket,
+  portalClienteId: number,
+  pdvPortalIds: Map<string, number>,
+): number {
+  if (pdv.isLinhaProxy && isLegacySingleProxyBucket(bucket)) {
+    return proxyPortalPdvId(portalClienteId);
+  }
+  const seq = maxSeqForBucket(bucket, portalClienteId, pdvPortalIds) + 1;
+  return buildPortalPdvId(portalClienteId, seq);
 }
 
 export const PLAYER_ID_REALIGN_BATCH_SIZE = 10;
@@ -394,6 +433,17 @@ export async function buildProducaoPlayerMissingPlan(): Promise<PlayerIdRealignP
       pdvPortalIds.set(p.id, portalPdvId);
       pdvs++;
     }
+
+    for (const p of bucket.pdvs) {
+      if (!p.isLinhaProxy || pdvPortalIds.has(p.rioPdvId)) continue;
+      if (isLegacySingleProxyBucket(bucket)) continue;
+      seq += 1;
+      const portalPdvId = buildPortalPdvId(portalClienteId, seq);
+      work.push({ kind: "pdv", rioPdvKey: p.rioPdvId, portalPdvId });
+      pdvIds[p.rioPdvId] = portalPdvId;
+      pdvPortalIds.set(p.rioPdvId, portalPdvId);
+      pdvs++;
+    }
   }
 
   return { layoutIds, pdvIds, work, clientes, pdvs };
@@ -518,11 +568,7 @@ export function portalPdvIdsForBucket(
   const portalClienteId = bucket.portalClienteId;
   const ids = new Set<number>();
   for (const pdv of bucket.pdvs) {
-    if (pdv.isLinhaProxy) {
-      if (portalClienteId != null) ids.add(proxyPortalPdvId(portalClienteId));
-      continue;
-    }
-    const portalPdvId = pdvPortalIds.get(pdv.rioPdvId);
+    const portalPdvId = resolvePortalPdvIdForPdv(pdv, bucket, pdvPortalIds);
     if (portalPdvId != null) ids.add(portalPdvId);
   }
   return [...ids];
@@ -565,20 +611,18 @@ export async function assignPortalPlayerIdsForRioPdvKeys(
 
     const keysForBucket =
       opts?.allMissingInBucket ?
-        sortedNonProxyPdvs(bucket)
-          .map((p) => p.id)
-          .filter((id) => !pdvPortalIds.has(id))
+        bucket.pdvs
+          .filter(
+            (p) =>
+              !pdvPortalIds.has(p.rioPdvId) &&
+              resolvePortalPdvIdForPdv(p, { ...bucket, portalClienteId }, pdvPortalIds) == null,
+          )
+          .map((p) => p.rioPdvId)
       : keys.filter((k) => bucket.pdvs.some((p) => p.rioPdvId === k));
 
     for (const rioPdvKey of keysForBucket) {
       const pdv = bucket.pdvs.find((p) => p.rioPdvId === rioPdvKey);
       if (!pdv) continue;
-
-      if (pdv.isLinhaProxy) {
-        const portalPdvId = proxyPortalPdvId(portalClienteId);
-        assigned.push({ rioPdvKey, portalPdvId, portalClienteId });
-        continue;
-      }
 
       const existing = pdvPortalIds.get(rioPdvKey);
       if (existing != null) {
@@ -586,11 +630,12 @@ export async function assignPortalPlayerIdsForRioPdvKeys(
         continue;
       }
 
-      const sorted = sortedNonProxyPdvs(bucket);
-      const targetIdx = sorted.findIndex((p) => p.id === rioPdvKey);
-      if (targetIdx < 0) throw new Error("pdv_nao_encontrado");
-      const seq = targetIdx + 1;
-      const portalPdvId = buildPortalPdvId(portalClienteId, seq);
+      const portalPdvId = nextPortalPdvIdForAssignment(
+        pdv,
+        { ...bucket, portalClienteId },
+        portalClienteId,
+        pdvPortalIds,
+      );
 
       const owner = Object.entries(pdvIds).find(([, id]) => id === portalPdvId);
       if (owner && owner[0] !== rioPdvKey) {
@@ -633,9 +678,7 @@ export async function assignPortalPlayerIdsForBucketKey(
   const ctx = await loadMergedProducaoPlayerContext();
   const bucket = ctx.buckets.find((b) => b.key === bucketKey);
   if (!bucket) throw new Error("cliente_nao_encontrado");
-  const keys = bucket.pdvs.filter((p) => !p.isLinhaProxy).map((p) => p.rioPdvId);
-  if (keys.length === 0 && bucket.pdvs.some((p) => p.isLinhaProxy)) {
-    return assignPortalPlayerIdsForRioPdvKeys([bucket.pdvs.find((p) => p.isLinhaProxy)!.rioPdvId]);
-  }
+  const keys = bucket.pdvs.map((p) => p.rioPdvId);
+  if (keys.length === 0) throw new Error("cliente_nao_encontrado");
   return assignPortalPlayerIdsForRioPdvKeys(keys, { allMissingInBucket: true });
 }

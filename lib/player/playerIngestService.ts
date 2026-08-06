@@ -6,8 +6,7 @@ import {
   findMatchingExtraIndex,
   type ContatoLojaExtra,
 } from "@/lib/cadastros/contatosLojaExtras";
-import { loadMergedProducaoPlayerContext, type ProducaoPlayerBucket } from "@/lib/player/producaoPlayerBuckets";
-import { proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
+import { loadMergedProducaoPlayerContext, resolvePortalPdvIdForPdv, type ProducaoPlayerBucket } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
 import { serializeStringArray } from "@/lib/chamados/chamadoService";
 
@@ -116,13 +115,11 @@ function matchPdvInBucket(
   const pdvs = bucket.pdvs.filter((p) => !p.isLinhaProxy);
 
   if (pdvGatewayId != null && pdvGatewayId > 0) {
-    for (const pdv of pdvs) {
-      const portalId = pdvPortalIds.get(pdv.rioPdvId);
+    for (const pdv of bucket.pdvs) {
+      const portalId =
+        pdvPortalIds.get(pdv.rioPdvId) ??
+        resolvePortalPdvIdForPdv(pdv, bucket, pdvPortalIds);
       if (portalId === pdvGatewayId) return pdv.rioPdvId;
-    }
-    if (bucket.portalClienteId != null && pdvGatewayId === proxyPortalPdvId(bucket.portalClienteId)) {
-      const proxies = bucket.pdvs.filter((p) => p.isLinhaProxy);
-      if (proxies.length === 1) return proxies[0]!.rioPdvId;
     }
   }
 

@@ -5,10 +5,10 @@ import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import {
   formatPortalPdvIdDisplay,
   portalClienteIdFromPdvId,
-  proxyPortalPdvId,
 } from "@/lib/player/portalPlayerIds";
 import {
   loadMergedProducaoPlayerContext,
+  resolvePortalPdvIdForPdv,
   type MergedProducaoPlayerContext,
   type ProducaoLayoutWithPlayerIds,
 } from "@/lib/player/producaoPlayerBuckets";
@@ -157,7 +157,8 @@ export async function buildPlayerGatewaySyncPayload(): Promise<PlayerGatewaySync
       const prog = programacaoForPdv(p.rioPdvId);
 
       if (p.isLinhaProxy) {
-        const virtualId = proxyPortalPdvId(portalClienteId);
+        const virtualId = resolvePortalPdvIdForPdv(p, bucket, ctx.pdvPortalIds);
+        if (virtualId == null) continue;
         pdvs.push({
           id: virtualId,
           clienteId: portalClienteId,

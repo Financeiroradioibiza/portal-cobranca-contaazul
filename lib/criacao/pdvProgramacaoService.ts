@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sortRioPdvsByNome } from "@/lib/rio/pdvNames";
-import { formatPortalPdvIdDisplay, proxyPortalPdvId } from "@/lib/player/portalPlayerIds";
-import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
+import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
+import { loadMergedProducaoPlayerContext, resolvePortalPdvIdForPdv } from "@/lib/player/producaoPlayerBuckets";
 import { syncPdvProgramacaoToGateway, type SyncPdvProgramacaoResult } from "@/lib/player/pdvProgramacaoGatewaySync";
 import { effectiveRioTagCobranca, type RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
@@ -120,7 +120,7 @@ export async function getClientePdvProgramacoes(clienteRef: string): Promise<Cli
     const cad = cadByKey.get(p.rioPdvId);
     const portalPdvId =
       p.isLinhaProxy && bucket.portalClienteId != null ?
-        proxyPortalPdvId(bucket.portalClienteId)
+        resolvePortalPdvIdForPdv(p, bucket, ctx.pdvPortalIds)
       : (ctx.pdvPortalIds.get(p.rioPdvId) ?? null);
 
     const { programacaoId, programacaoNome } = resolvePdvProgramacaoAssignment(
