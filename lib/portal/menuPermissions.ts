@@ -11,6 +11,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "envios-manuais", label: "Envios manuais" },
       { id: "envios-oc", label: "Envios OC" },
       { id: "consulta-painel", label: "Consulta painel" },
+      { id: "diario", label: "Diário" },
     ],
   },
   {

@@ -1493,3 +1493,25 @@ model DownloadItem {
   @@index([status, createdAt])
   @@map("download_item")
 }
+
+/// Diário do financeiro — relato de atendimento por cliente/PDV.
+model FinanceiroDiarioEntry {
+  id              String   @id @default(cuid())
+  /// "cliente" | "pdv"
+  escopo          String   @default("pdv") @db.VarChar(12)
+  portalClienteId Int?     @map("portal_cliente_id")
+  portalPdvId     Int?     @map("portal_pdv_id")
+  clienteNome     String   @default("") @map("cliente_nome") @db.VarChar(200)
+  pdvNome         String   @default("") @map("pdv_nome") @db.VarChar(200)
+  codigoDisplay   String   @default("") @map("codigo_display") @db.VarChar(32)
+  texto           String   @db.Text
+  criadoPorEmail  String   @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome   String   @default("") @map("criado_por_nome") @db.VarChar(120)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([portalClienteId])
+  @@index([portalPdvId])
+  @@index([criadoPorEmail])
+  @@map("financeiro_diario_entry")
+}

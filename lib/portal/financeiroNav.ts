@@ -8,6 +8,7 @@ export const FINANCEIRO_NAV = [
   { href: "/financeiro/envios-manuais", label: "Envios manuais", icon: "✉️" },
   { href: "/financeiro/envios-oc", label: "Envios OC", icon: "📅" },
   { href: "/financeiro/consulta-painel", label: "Consulta painel", icon: "🔍" },
+  { href: "/financeiro/diario", label: "Diário", icon: "📓" },
   {
     href: "/financeiro/fluxo-rafael",
     label: "Fluxo Rafael",
