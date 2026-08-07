@@ -29,12 +29,10 @@ export function renderInstalacaoPlay5EmailHtml(input: {
   codigoPlay: string;
   playUrl: string;
 }): string {
-  const phoneLeft = portalPublicAsset("/email/instalacao-play5-phone-left.png");
-  const phoneRight = portalPublicAsset("/email/instalacao-play5-phone-right.png");
+  const heroBanner = portalPublicAsset("/email/instalacao-play5-hero-banner.png");
 
   return loadTemplate()
-    .replace(/\{\{ASSET_instalacao-play5-phone-left\.png\}\}/g, esc(phoneLeft))
-    .replace(/\{\{ASSET_instalacao-play5-phone-right\.png\}\}/g, esc(phoneRight))
+    .replace(/\{\{ASSET_instalacao-play5-hero-banner\.png\}\}/g, esc(heroBanner))
     .replace(/\{\{CLIENTE_NOME\}\}/g, esc(input.clienteNome))
     .replace(/\{\{PDV_NOME\}\}/g, esc(input.pdvNome))
     .replace(/\{\{CODIGO_DISPLAY\}\}/g, esc(input.codigoDisplay))
