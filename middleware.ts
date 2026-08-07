@@ -27,6 +27,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/_next/static") ||
     pathname.startsWith("/_next/image") ||
+    pathname.startsWith("/email/") ||
     pathname === "/favicon.ico" ||
     pathname === "/privacidade" ||
     pathname === "/privacidade.html"
