@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { brazilTodayYmd } from "@/lib/financeiro/financeiroOverviewDates";
 import type { FinanceiroDiarioEntryRow, FinanceiroDiarioSortField } from "@/lib/financeiro/financeiroDiarioService";
 import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
 
@@ -248,8 +247,6 @@ function SortButton({
 }
 
 export function FinanceiroDiarioPanel() {
-  const today = brazilTodayYmd();
-
   const [scope, setScope] = useState<TargetScope>("pdv");
   const [selectedPdv, setSelectedPdv] = useState<SelectedPdv | null>(null);
   const [selectedClient, setSelectedClient] = useState<SelectedClient | null>(null);
@@ -258,8 +255,8 @@ export function FinanceiroDiarioPanel() {
   const [formError, setFormError] = useState<string | null>(null);
   const [formOk, setFormOk] = useState<string | null>(null);
 
-  const [dataDe, setDataDe] = useState(today);
-  const [dataAte, setDataAte] = useState(today);
+  const [dataDe, setDataDe] = useState("");
+  const [dataAte, setDataAte] = useState("");
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroPdv, setFiltroPdv] = useState("");
   const [filtroTexto, setFiltroTexto] = useState("");
@@ -281,13 +278,13 @@ export function FinanceiroDiarioPanel() {
     setListError(null);
     try {
       const params = new URLSearchParams({
-        dataDe,
-        dataAte,
         sort,
         order,
         limit: String(limit),
         offset: String(offset),
       });
+      if (dataDe.trim()) params.set("dataDe", dataDe.trim());
+      if (dataAte.trim()) params.set("dataAte", dataAte.trim());
       if (filtroCliente.trim()) params.set("cliente", filtroCliente.trim());
       if (filtroPdv.trim()) params.set("pdv", filtroPdv.trim());
       if (filtroTexto.trim()) params.set("texto", filtroTexto.trim());
@@ -510,7 +507,9 @@ export function FinanceiroDiarioPanel() {
             </label>
           </div>
           <p className="mt-2 text-[11px] text-slate-400">
-            {total} registro{total === 1 ? "" : "s"} · ordenar pelas colunas abaixo
+            {total} registro{total === 1 ? "" : "s"}
+            {!dataDe && !dataAte ? " · todos os dias" : ""}
+            {" · "}ordenar pelas colunas abaixo
           </p>
         </div>
 
@@ -520,7 +519,7 @@ export function FinanceiroDiarioPanel() {
           : listError ?
             <p className="p-4 text-sm text-rose-600">{listError}</p>
           : rows.length === 0 ?
-            <p className="p-4 text-sm text-slate-500">Nenhum registro no período.</p>
+            <p className="p-4 text-sm text-slate-500">Nenhum registro encontrado.</p>
           : <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-950">
                 <tr>
