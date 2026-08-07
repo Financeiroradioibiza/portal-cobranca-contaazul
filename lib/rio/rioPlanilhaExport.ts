@@ -423,6 +423,25 @@ export async function downloadRioClientePdvsExcel(opts: {
   );
 }
 
+/** Texto fixo de tributação no PDF de PDVs do cliente (Ordem de Compra). */
+function rioClientePdfTributacaoHtml(company: string): string {
+  const intro =
+    "Para fins de cadastro na Ordem de Compra (OC), seguem os dados da nossa tributação atual:";
+  const lines = [
+    "Regime Tributário: Simples Nacional (Lei Complementar 123/2006)",
+    "IRPJ, CSLL, PIS e COFINS: 0% (Dispensado de retenção na fonte conforme art. 32 da Lei 10.833/03 e IN RFB 2.110/2022).",
+    "Alíquota efetiva do Simples Nacional: 15,49% (estimada com base na nossa faixa de faturamento).",
+    "ISS: A parcela correspondente de ISS no Simples Nacional é de 5,00% (informação para Dados Adicionais da NF e eventual retenção municipal, se aplicável ao código do serviço).",
+  ];
+  const body = lines.map((l) => `<p>${escapeHtml(l)}</p>`).join("");
+  return `<div class="tributacao">
+    <p class="tributacao-intro">${escapeHtml(intro)}</p>
+    ${body}
+    <p class="tributacao-obrigado">Obrigado</p>
+    <p class="tributacao-assinatura">${escapeHtml(company)}</p>
+  </div>`;
+}
+
 /** Abre diálogo de impressão / PDF com layout do relatório de PDVs do cliente. */
 export function printRioClientePdvsPdf(opts: {
   yearMonth: number;
@@ -465,6 +484,11 @@ export function printRioClientePdvsPdf(opts: {
   td.empty { text-align: center; font-style: italic; color: #64748b; }
   .total { margin-top: 16px; padding: 12px 16px; background: #e2e8f0; border-radius: 8px; text-align: right; font-size: 15px; font-weight: 700; }
   .total span { color: #065f46; }
+  .tributacao { margin-top: 28px; padding: 16px 18px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; line-height: 1.55; color: #334155; page-break-inside: avoid; }
+  .tributacao p { margin: 0 0 10px; }
+  .tributacao-intro { font-weight: 600; color: #0f172a; }
+  .tributacao-obrigado { margin-top: 18px !important; font-weight: 600; }
+  .tributacao-assinatura { margin-top: 4px !important; font-weight: 700; color: #065f46; }
   @media print { body { padding: 0; } }
 </style>
 </head>
@@ -477,6 +501,7 @@ export function printRioClientePdvsPdf(opts: {
     <tbody>${rowsHtml}</tbody>
   </table>
   <div class="total">Valor total: <span>${escapeHtml(valorFmt)}</span></div>
+  ${rioClientePdfTributacaoHtml(company)}
   <script>window.onload = function(){ window.print(); };</script>
 </body>
 </html>`;
