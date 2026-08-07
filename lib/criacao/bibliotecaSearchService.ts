@@ -1,7 +1,15 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { EXPLICIT_MUSICA_SQL } from "@/lib/criacao/explicitMusicaSql";
 import { LEGACY_MUSICA_SQL } from "@/lib/criacao/legacyMusicaSql";
 import { B2_FULL_MUSICA_SQL, PRE_B2_MUSICA_SQL } from "@/lib/criacao/musicaB2Criteria";
+
+export type BibliotecaCatalogSortBy =
+  | "recent"
+  | "artista"
+  | "titulo"
+  | "gravadora"
+  | "programacoes";
 
 export type BibliotecaListFilter = "all" | "unused" | "leastUsed" | "legacy";
 
@@ -21,56 +29,26 @@ export async function countLegacyMusicas(): Promise<number> {
   return Number(rows[0]?.total ?? 0);
 }
 
-/** Top 5 tags manuais mais usadas em programações (pastas de clientes). */
-export async function getBibliotecaFacets(): Promise<{
-  topTags: BibliotecaFacetTag[];
-  legacyCount: number;
-}> {
-  const [rows, legacyCount] = await Promise.all([
-    prisma.$queryRaw<
-      { id: string; nome: string; cor: string; criativo_nome: string; uso_count: number }[]
-    >`
-      SELECT t.id, t.nome, t.cor, t.criativo_nome, COUNT(DISTINCT p.programacao_id)::int AS uso_count
-        FROM tag_criativo t
-        JOIN musica_tag_manual mt ON mt.tag_id = t.id
-        JOIN pasta_musica pm ON pm.musica_id = mt.musica_id
-        JOIN pasta p ON p.id = pm.pasta_id
-       GROUP BY t.id, t.nome, t.cor, t.criativo_nome
-       ORDER BY uso_count DESC, t.nome ASC
-       LIMIT 5`,
-    countLegacyMusicas(),
-  ]);
-
-  return {
-    topTags: rows.map((r) => ({
-      id: r.id,
-      nome: r.nome,
-      cor: r.cor,
-      criativoNome: r.criativo_nome,
-      usoCount: r.uso_count,
-    })),
-    legacyCount,
-  };
+export async function countExplicitMusicas(): Promise<number> {
+  const rows = await prisma.$queryRaw<{ total: bigint }[]>`
+    SELECT COUNT(*)::bigint AS total
+      FROM musica_biblioteca m
+     WHERE ${EXPLICIT_MUSICA_SQL}`;
+  return Number(rows[0]?.total ?? 0);
 }
 
-type UsageListOpts = {
-  page: number;
-  pageSize: number;
+type BibliotecaSqlFilterOpts = {
   search?: string;
   status?: string;
   tagId?: string;
   gravadora?: string;
-  listFilter: "unused" | "leastUsed";
+  explicitOnly?: boolean;
+  bibliotecaPastaId?: string;
+  pastaProgramacaoId?: string;
+  pastaEspecialId?: string;
 };
 
-/** Lista com filtro de uso em programações (não usadas / menos usadas). */
-export async function listMusicaIdsByUsageFilter(
-  opts: UsageListOpts,
-): Promise<{ ids: string[]; total: number }> {
-  const page = Math.max(1, opts.page);
-  const pageSize = Math.min(200, Math.max(1, opts.pageSize));
-  const skip = (page - 1) * pageSize;
-
+function buildBibliotecaSqlConditions(opts: BibliotecaSqlFilterOpts): Prisma.Sql[] {
   const conditions: Prisma.Sql[] = [Prisma.sql`TRUE`];
 
   if (opts.status && opts.status !== "all") {
@@ -100,6 +78,132 @@ export async function listMusicaIdsByUsageFilter(
     const like = `%${grav}%`;
     conditions.push(Prisma.sql`m.tags_auto::text ILIKE ${like}`);
   }
+
+  if (opts.explicitOnly) {
+    conditions.push(EXPLICIT_MUSICA_SQL);
+  }
+
+  if (opts.bibliotecaPastaId) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM biblioteca_pasta_musica bpm
+       WHERE bpm.musica_id = m.id AND bpm.pasta_id = ${opts.bibliotecaPastaId}
+    )`);
+  }
+
+  if (opts.pastaProgramacaoId) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM pasta_musica pm
+       WHERE pm.musica_id = m.id AND pm.pasta_id = ${opts.pastaProgramacaoId}
+    )`);
+  }
+
+  if (opts.pastaEspecialId) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM pasta_especial_musica pem
+       WHERE pem.musica_id = m.id AND pem.pasta_especial_id = ${opts.pastaEspecialId}
+    )`);
+  }
+
+  return conditions;
+}
+
+function catalogOrderSql(sortBy: BibliotecaCatalogSortBy): Prisma.Sql {
+  switch (sortBy) {
+    case "artista":
+      return Prisma.sql`m.artista ASC, m.titulo ASC`;
+    case "titulo":
+      return Prisma.sql`m.titulo ASC, m.artista ASC`;
+    case "gravadora":
+    case "programacoes":
+    case "recent":
+    default:
+      return Prisma.sql`m.created_at DESC`;
+  }
+}
+
+/** Lista geral com filtros SQL (usado quando explicitOnly ou pastas especiais). */
+export async function listMusicaIdsByCatalogFilter(
+  opts: BibliotecaSqlFilterOpts & {
+    page: number;
+    pageSize: number;
+    sortBy?: BibliotecaCatalogSortBy;
+  },
+): Promise<{ ids: string[]; total: number }> {
+  const page = Math.max(1, opts.page);
+  const pageSize = Math.min(200, Math.max(1, opts.pageSize));
+  const skip = (page - 1) * pageSize;
+  const whereSql = Prisma.join(buildBibliotecaSqlConditions(opts), " AND ");
+  const orderSql = catalogOrderSql(opts.sortBy ?? "recent");
+
+  const [idRows, countRows] = await Promise.all([
+    prisma.$queryRaw<{ id: string }[]>`
+      SELECT m.id
+        FROM musica_biblioteca m
+       WHERE ${whereSql}
+       ORDER BY ${orderSql}
+       LIMIT ${pageSize} OFFSET ${skip}`,
+    prisma.$queryRaw<{ total: bigint }[]>`
+      SELECT COUNT(*)::bigint AS total
+        FROM musica_biblioteca m
+       WHERE ${whereSql}`,
+  ]);
+
+  return {
+    ids: idRows.map((r) => r.id),
+    total: Number(countRows[0]?.total ?? 0),
+  };
+}
+
+/** Top 5 tags manuais mais usadas em programações (pastas de clientes). */
+export async function getBibliotecaFacets(): Promise<{
+  topTags: BibliotecaFacetTag[];
+  legacyCount: number;
+  explicitCount: number;
+}> {
+  const [rows, legacyCount, explicitCount] = await Promise.all([
+    prisma.$queryRaw<
+      { id: string; nome: string; cor: string; criativo_nome: string; uso_count: number }[]
+    >`
+      SELECT t.id, t.nome, t.cor, t.criativo_nome, COUNT(DISTINCT p.programacao_id)::int AS uso_count
+        FROM tag_criativo t
+        JOIN musica_tag_manual mt ON mt.tag_id = t.id
+        JOIN pasta_musica pm ON pm.musica_id = mt.musica_id
+        JOIN pasta p ON p.id = pm.pasta_id
+       GROUP BY t.id, t.nome, t.cor, t.criativo_nome
+       ORDER BY uso_count DESC, t.nome ASC
+       LIMIT 5`,
+    countLegacyMusicas(),
+    countExplicitMusicas(),
+  ]);
+
+  return {
+    topTags: rows.map((r) => ({
+      id: r.id,
+      nome: r.nome,
+      cor: r.cor,
+      criativoNome: r.criativo_nome,
+      usoCount: r.uso_count,
+    })),
+    legacyCount,
+    explicitCount,
+  };
+}
+
+type UsageListOpts = BibliotecaSqlFilterOpts & {
+  page: number;
+  pageSize: number;
+  listFilter: "unused" | "leastUsed";
+};
+
+/** Lista com filtro de uso em programações (não usadas / menos usadas). */
+export async function listMusicaIdsByUsageFilter(
+  opts: UsageListOpts,
+): Promise<{ ids: string[]; total: number }> {
+  const page = Math.max(1, opts.page);
+  const pageSize = Math.min(200, Math.max(1, opts.pageSize));
+  const skip = (page - 1) * pageSize;
+
+  const conditions = buildBibliotecaSqlConditions(opts);
 
   if (opts.listFilter === "unused") {
     conditions.push(Prisma.sql`COALESCE(u.n, 0) = 0`);
@@ -142,47 +246,13 @@ export async function listMusicaIdsByUsageFilter(
   };
 }
 
-type LegacyListOpts = {
+type LegacyListOpts = BibliotecaSqlFilterOpts & {
   page: number;
   pageSize: number;
-  search?: string;
-  status?: string;
-  tagId?: string;
-  gravadora?: string;
 };
 
 function buildLegacyListConditions(opts: LegacyListOpts): Prisma.Sql[] {
-  const conditions: Prisma.Sql[] = [LEGACY_MUSICA_SQL];
-
-  if (opts.status && opts.status !== "all") {
-    conditions.push(Prisma.sql`m.status = ${opts.status}::"MusicaProcessStatus"`);
-  }
-
-  const q = opts.search?.trim();
-  if (q) {
-    const like = `%${q}%`;
-    conditions.push(Prisma.sql`(
-      m.titulo ILIKE ${like}
-      OR m.artista ILIKE ${like}
-      OR COALESCE(m.isrc, '') ILIKE ${like}
-      OR COALESCE(m.tom, '') ILIKE ${like}
-      OR m.tags_auto::text ILIKE ${like}
-    )`);
-  }
-
-  if (opts.tagId) {
-    conditions.push(Prisma.sql`EXISTS (
-      SELECT 1 FROM musica_tag_manual mt WHERE mt.musica_id = m.id AND mt.tag_id = ${opts.tagId}
-    )`);
-  }
-
-  const grav = opts.gravadora?.trim();
-  if (grav) {
-    const like = `%${grav}%`;
-    conditions.push(Prisma.sql`m.tags_auto::text ILIKE ${like}`);
-  }
-
-  return conditions;
+  return [LEGACY_MUSICA_SQL, ...buildBibliotecaSqlConditions(opts).slice(1)];
 }
 
 /** Lista faixas legadas (pipeline antigo, sem 128 mono / LUFS / master). */

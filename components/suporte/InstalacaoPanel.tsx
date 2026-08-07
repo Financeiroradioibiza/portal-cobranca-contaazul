@@ -47,6 +47,9 @@ const inputClass =
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const GOOGLE_PLAY_URL =
+  "https://play.google.com/store/apps/details?id=br.com.radioibiza.player5.twa&pcampaignid=web_share";
+
 const TIPOS: { id: Tipo; label: string; desc: string }[] = [
   {
     id: "padrao_cliente",
@@ -407,17 +410,19 @@ export function InstalacaoPanel() {
         portalClienteId: selected.portalClienteId,
         portalPdvId: selected.portalPdvId,
         tipo,
-        plataforma,
+        plataforma: tipo === "pdv_play5" ? "mobile" : plataforma,
         email: destinatario === "novo" ? destino : undefined,
         senhaTemporaria: senhaTemp || undefined,
+        codigoPlay: tipo === "pdv_play5" ? codigoPlay || undefined : undefined,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setStatus({ kind: "err", text: mapErr(data) });
         return;
       }
-      const d = data as { to?: string; senhaTemporaria?: string; link?: string };
+      const d = data as { to?: string; senhaTemporaria?: string; link?: string; codigoPlay?: string };
       if (d.senhaTemporaria) setSenhaTemp(d.senhaTemporaria);
       if (typeof d.link === "string" && d.link.trim()) setLink(d.link.trim());
+      if (d.codigoPlay) setCodigoPlay(d.codigoPlay);
       setStatus({ kind: "ok", text: `E-mail enviado para ${d.to ?? destino}.` });
       void refreshLog();
     } finally {
@@ -582,6 +587,11 @@ export function InstalacaoPanel() {
                 <p className="text-[11px] text-zinc-400">
                   Digite no app instalado pela Play Store. Não compartilhe publicamente.
                 </p>
+                <p className="break-all font-mono text-[11px] text-emerald-300/90">
+                  <a href={GOOGLE_PLAY_URL} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    {GOOGLE_PLAY_URL}
+                  </a>
+                </p>
               </div>
             ) : null}
 
@@ -617,9 +627,14 @@ export function InstalacaoPanel() {
             ) : null}
           </section>
 
-          {tipo !== "pdv_play5" ? (
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <h2 className="mb-3 text-sm font-semibold text-zinc-200">3. Enviar por e-mail</h2>
+            {tipo === "pdv_play5" ? (
+              <p className="mb-3 text-[12px] text-zinc-400">
+                O e-mail inclui o link da Google Play e o código PL5
+                {codigoPlay ? " gerado acima" : " (será gerado automaticamente ao enviar, se ainda não existir)"}.
+              </p>
+            ) : null}
             <div className="space-y-2">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-200">
                 <input
@@ -659,7 +674,10 @@ export function InstalacaoPanel() {
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={busy}
+                disabled={
+                  busy ||
+                  (tipo === "pdv_play5" && contexto != null && !contexto.podeGerarCodigoPlay && !codigoPlay)
+                }
                 onClick={handleEnviarEmail}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               >
@@ -675,7 +693,6 @@ export function InstalacaoPanel() {
               </button>
             </div>
           </section>
-          ) : null}
 
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <div className="mb-3 flex items-center justify-between">

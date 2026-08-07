@@ -680,6 +680,16 @@ export async function assignPortalPlayerIdsForRioPdvKeys(
     if (newAssignments.length > 0) {
       const { ensureInstalacaoTokensForKeys } = await import("@/lib/player/pdvInstalacaoToken");
       await ensureInstalacaoTokensForKeys(newAssignments.map((a) => a.rioPdvKey));
+      const { seedPdvCadastroFromRioPlanilha } = await import(
+        "@/lib/cadastros/producaoPdvCadastroService"
+      );
+      for (const a of newAssignments) {
+        try {
+          await seedPdvCadastroFromRioPlanilha(a.rioPdvKey);
+        } catch (e) {
+          console.warn("[assignPortalPlayerIds] seed cadastro rio failed", a.rioPdvKey, e);
+        }
+      }
     }
   }
 

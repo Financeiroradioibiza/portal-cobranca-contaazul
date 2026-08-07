@@ -5,6 +5,7 @@ import { buildInstalacaoEmail } from "@/lib/suporte/instalacaoEmail";
 import {
   buildInstallLink,
   gerarSenhaTemporaria,
+  GOOGLE_PLAY_PLAYER5_URL,
   listEnviosForPdv,
   registrarEnvio,
   resolveInstalacaoPdv,
@@ -199,6 +200,62 @@ export async function POST(request: Request) {
       const destino = custom || ctx.contatoLojaEmail;
       if (!destino || !EMAIL_RE.test(destino)) {
         return NextResponse.json({ ok: false, error: "email_invalido" }, { status: 400 });
+      }
+
+      if (tipo === "pdv_play5") {
+        let codigoPlay =
+          typeof body.codigoPlay === "string" && body.codigoPlay.trim()
+            ? body.codigoPlay.trim()
+            : "";
+        if (!codigoPlay) {
+          try {
+            codigoPlay = await gerarCodigoPlayInstalacao({
+              portalClienteId,
+              portalPdvId,
+              rioPdvKey: ctx.rioPdvKey,
+              criadaPor: actorFrom(session),
+            });
+          } catch (e) {
+            if (e instanceof Error && e.message === "pdv_com_player_instalado") {
+              return NextResponse.json(
+                { ok: false, error: "pdv_com_player_instalado" },
+                { status: 409 },
+              );
+            }
+            throw e;
+          }
+        }
+
+        const email = buildInstalacaoEmail({
+          tipo: "pdv_play5",
+          plataforma: "mobile",
+          clienteNome: ctx.clienteNome,
+          pdvNome: ctx.pdvNome,
+          codigoDisplay: ctx.codigoDisplay,
+          link: GOOGLE_PLAY_PLAYER5_URL,
+          codigoPlay,
+        });
+
+        await sendEmailViaSmtp({
+          to: [destino],
+          subject: email.subject,
+          text: email.text,
+          html: email.html,
+          mailProfile: "suporte",
+        });
+
+        await registrarEnvio({
+          portalClienteId,
+          portalPdvId,
+          tipo: "pdv_play5",
+          plataforma: "mobile",
+          canal: "email",
+          destinoEmail: destino,
+          link: `codigo:${codigoPlay}`,
+          enviadoPor: actorFrom(session),
+        });
+
+        return NextResponse.json({ ok: true, to: destino, codigoPlay });
       }
 
       const senhaTemporaria =

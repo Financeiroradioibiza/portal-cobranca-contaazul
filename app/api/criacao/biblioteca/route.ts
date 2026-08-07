@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     const pastaProgramacaoId = url.searchParams.get("pastaProgramacaoId") ?? undefined;
     const offArquivoId = url.searchParams.get("offArquivoId") ?? undefined;
     const gravadora = url.searchParams.get("gravadora") ?? undefined;
+    const explicitOnly = url.searchParams.get("explicitOnly") === "1";
     const listFilterRaw = url.searchParams.get("listFilter");
     const listFilter =
       listFilterRaw === "unused" || listFilterRaw === "leastUsed" || listFilterRaw === "legacy" ?
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
       pastaProgramacaoId,
       offArquivoId,
       gravadora,
+      explicitOnly,
       listFilter,
       sortBy,
     });

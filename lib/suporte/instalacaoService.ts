@@ -14,6 +14,10 @@ export type InstalacaoTipo =
 export type InstalacaoPlataforma = "windows" | "mobile";
 export type InstalacaoCanal = "email" | "link";
 
+/** App Android na Google Play (TWA Player 5). */
+export const GOOGLE_PLAY_PLAYER5_URL =
+  "https://play.google.com/store/apps/details?id=br.com.radioibiza.player5.twa&pcampaignid=web_share";
+
 /** Origem pública do Player 5 — base de todos os links de instalação. */
 export function player5Origin(): string {
   const raw = process.env.PLAYER5_PUBLIC_ORIGIN?.trim();

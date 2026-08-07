@@ -371,6 +371,7 @@ export async function listMusicasBiblioteca(opts: {
   pastaProgramacaoId?: string;
   offArquivoId?: string;
   gravadora?: string;
+  explicitOnly?: boolean;
   listFilter?: BibliotecaListFilter;
   sortBy?: BibliotecaSortBy;
   /** Só use true após upload — evita travar a listagem. */
@@ -455,6 +456,7 @@ export async function listMusicasBiblioteca(opts: {
       status: opts.status,
       tagId: opts.tagId,
       gravadora: opts.gravadora,
+      explicitOnly: opts.explicitOnly,
       listFilter,
     });
     total = usage.total;
@@ -479,6 +481,7 @@ export async function listMusicasBiblioteca(opts: {
       status: opts.status,
       tagId: opts.tagId,
       gravadora: opts.gravadora,
+      explicitOnly: opts.explicitOnly,
     });
     total = legacy.total;
     if (legacy.ids.length === 0) {
@@ -490,6 +493,34 @@ export async function listMusicasBiblioteca(opts: {
       });
       const byId = new Map(fetched.map((m) => [m.id, m]));
       items = legacy.ids
+        .map((id) => byId.get(id))
+        .filter((m): m is NonNullable<typeof m> => m != null) as MusicaDbRow[];
+    }
+  } else if (opts.explicitOnly) {
+    const { listMusicaIdsByCatalogFilter } = await import("@/lib/criacao/bibliotecaSearchService");
+    const catalog = await listMusicaIdsByCatalogFilter({
+      page,
+      pageSize,
+      search: opts.search,
+      status: opts.status,
+      tagId: opts.tagId,
+      gravadora: opts.gravadora,
+      explicitOnly: true,
+      bibliotecaPastaId: opts.bibliotecaPastaId,
+      pastaProgramacaoId: opts.pastaProgramacaoId,
+      pastaEspecialId: opts.pastaEspecialId,
+      sortBy,
+    });
+    total = catalog.total;
+    if (catalog.ids.length === 0) {
+      items = [];
+    } else {
+      const fetched = await prisma.musicaBiblioteca.findMany({
+        where: { id: { in: catalog.ids } },
+        include: musicaInclude,
+      });
+      const byId = new Map(fetched.map((m) => [m.id, m]));
+      items = catalog.ids
         .map((id) => byId.get(id))
         .filter((m): m is NonNullable<typeof m> => m != null) as MusicaDbRow[];
     }

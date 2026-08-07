@@ -41,5 +41,6 @@ Exemplo real: «+Prioritária» alterou publicação/player e afetou cronogramas
 - Novo campo na publicação que altere playlists/agendas existentes
 - Sync que sobrescreva `status`, cronograma ou flags em massa
 - Qualquer coisa que exija «republicar todas as programações»
+- **Qualquer alteração no repo do player** (`radio-ibiza-player-4` ou `radio-ibiza-player-5`) — baseline congelado desde 2026-08-07; ver `docs/BASELINE-PLAYER-PRODUCAO.md` no repo do player
 
 Se houver dúvida: **perguntar antes de deploy em produção.**

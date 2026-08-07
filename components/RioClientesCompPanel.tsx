@@ -149,6 +149,8 @@ export function RioClientesCompPanel() {
   const [exportingMonth, setExportingMonth] = useState(false);
   /** Painel de configuração (textos, sync, import) — oculto por padrão para mostrar a planilha. */
   const [rioConfigOpen, setRioConfigOpen] = useState(false);
+  /** Competência pinada no Cadastros › Rio×Produção (`producao.rio_source_ym`). */
+  const [rioEspelhoYm, setRioEspelhoYm] = useState<number | null>(null);
 
   const loadMonths = useCallback(async () => {
     const res = await fetch("/api/rio-planilha/clientes/months", { credentials: "include" });
@@ -197,6 +199,15 @@ export function RioClientesCompPanel() {
   useEffect(() => {
     void loadMonths();
   }, [loadMonths]);
+
+  useEffect(() => {
+    void fetch("/api/cadastros/producao-catalog", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { ok?: boolean; rioSourceYearMonth?: number } | null) => {
+        if (d?.ok && d.rioSourceYearMonth) setRioEspelhoYm(d.rioSourceYearMonth);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (months.length === 0) return;
@@ -1984,6 +1995,16 @@ export function RioClientesCompPanel() {
       {monthClosed ?
         <div className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200">
           Competência <strong>fechada</strong> (somente consulta). Crie o mês seguinte para continuar a editar.
+        </div>
+      : null}
+
+      {rioEspelhoYm != null && activeYm !== rioEspelhoYm ?
+        <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-950 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100">
+          O <strong>Cadastros › Rio×Produção</strong> usa espelho fixo{" "}
+          <strong>{formatYearMonthLabel(rioEspelhoYm)}</strong>. Esta tela está em{" "}
+          <strong>{formatYearMonthLabel(activeYm)}</strong>
+          {linhas.length === 0 ? " (sem linhas)" : ""}. Troque a competência acima para ver ou apagar os mesmos
+          clientes do espelho.
         </div>
       : null}
 

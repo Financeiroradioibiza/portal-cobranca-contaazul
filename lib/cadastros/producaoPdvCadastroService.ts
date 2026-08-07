@@ -13,7 +13,8 @@ import {
 } from "@/lib/cadastros/producaoHierarchy";
 import { isRioCaPersonLinked } from "@/lib/rio/rioCaPersonLink";
 import { patchRioCompPdv } from "@/lib/rio/rioClienteCompService";
-import { onlyDigits } from "@/lib/format";
+import { isValidBrazilianCnpj, lookupCnpjReceita } from "@/lib/cadastros/cnpjLookup";
+import { normalizeBrazilianTaxIdForStorage, onlyDigits } from "@/lib/format";
 import type { ProducaoPlayerStatus } from "@prisma/client";
 import { newPlayerInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
 import {
@@ -239,6 +240,64 @@ function buildCaContatoPatch(
   return data;
 }
 
+function cnpjFromRioDocumento(documento: string | null | undefined): string {
+  const raw = documento?.trim() ?? "";
+  if (!raw) return "";
+  const digits = onlyDigits(raw);
+  if (digits.length === 14) {
+    return normalizeBrazilianTaxIdForStorage(digits) ?? digits;
+  }
+  return raw;
+}
+
+/**
+ * Ao ativar ID Player: copia nome/CNPJ da Planilha Rio e consulta Receita quando houver CNPJ.
+ * Contato cobrança vem da Conta Azul; contato loja permanece para a instalação.
+ */
+export async function seedPdvCadastroFromRioPlanilha(
+  rioPdvKey: string,
+  opts?: { lookupReceita?: boolean },
+): Promise<void> {
+  const seed = await defaultSeedForKey(rioPdvKey, true);
+  const patch: Partial<Omit<ProducaoPdvCadastroDto, "rioPdvKey" | "cobrancaFromCa">> = {
+    nome: seed.nome,
+  };
+  if (seed.razaoSocial.trim()) {
+    patch.razaoSocial = seed.razaoSocial;
+  }
+
+  const cnpj = cnpjFromRioDocumento(seed.documento);
+  if (cnpj) patch.cnpj = cnpj;
+
+  await getOrCreatePdvCadastro(rioPdvKey, { refreshCobranca: false });
+  await updatePdvCadastro(rioPdvKey, {
+    ...patch,
+    ...buildCaContatoPatch(seed),
+  });
+
+  const docDigits = onlyDigits(cnpj);
+  if (
+    opts?.lookupReceita !== false &&
+    docDigits.length === 14 &&
+    isValidBrazilianCnpj(docDigits)
+  ) {
+    const lookup = await lookupCnpjReceita(docDigits);
+    if (lookup.ok) {
+      await updatePdvCadastro(rioPdvKey, {
+        cnpj: lookup.data.cnpj || cnpj,
+        razaoSocial: lookup.data.razaoSocial || seed.razaoSocial || seed.nome,
+        cep: lookup.data.cep,
+        endereco: lookup.data.endereco,
+        numero: lookup.data.numero,
+        complemento: lookup.data.complemento,
+        bairro: lookup.data.bairro,
+        cidade: lookup.data.cidade,
+        estado: lookup.data.uf,
+      });
+    }
+  }
+}
+
 export async function getOrCreatePdvCadastro(
   rioPdvKey: string,
   opts?: { refreshCobranca?: boolean; forceCaContatos?: boolean },
@@ -253,7 +312,7 @@ export async function getOrCreatePdvCadastro(
         rioPdvKey,
         nome: seed.nome,
         razaoSocial: seed.razaoSocial,
-        cnpj: seed.documento ?? "",
+        cnpj: cnpjFromRioDocumento(seed.documento),
         placaCarro: false,
         controlarPlayer: true,
         controlarPlaylist: true,
@@ -268,9 +327,16 @@ export async function getOrCreatePdvCadastro(
     return rowToDto(row, Boolean(seed.cobranca));
   }
 
-  if (refreshCobranca) {
-    const seed = await defaultSeedForKey(rioPdvKey, true);
-    const patch = buildCaContatoPatch(seed);
+  const needsRioBackfill = !row.nome.trim() || !row.cnpj.trim() || !row.razaoSocial.trim();
+  if (refreshCobranca || needsRioBackfill) {
+    const seed = await defaultSeedForKey(rioPdvKey, refreshCobranca);
+    const patch: Record<string, string> = buildCaContatoPatch(seed);
+    if (!row.nome.trim() && seed.nome.trim()) patch.nome = seed.nome;
+    if (!row.razaoSocial.trim() && seed.razaoSocial.trim()) patch.razaoSocial = seed.razaoSocial;
+    if (!row.cnpj.trim()) {
+      const cnpj = cnpjFromRioDocumento(seed.documento);
+      if (cnpj) patch.cnpj = cnpj;
+    }
     if (Object.keys(patch).length > 0) {
       row = await prisma.producaoPdvCadastro.update({
         where: { rioPdvKey },

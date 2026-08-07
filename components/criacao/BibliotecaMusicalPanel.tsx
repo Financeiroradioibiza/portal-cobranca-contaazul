@@ -225,8 +225,10 @@ export function BibliotecaMusicalPanel({
   >("recent");
   const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
   const [gravadoraFilter, setGravadoraFilter] = useState("");
+  const [explicitOnlyFilter, setExplicitOnlyFilter] = useState(false);
   const [topTags, setTopTags] = useState<FacetTag[]>([]);
   const [legacyCount, setLegacyCount] = useState(0);
+  const [explicitCount, setExplicitCount] = useState(0);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [tags, setTags] = useState<TagCriativo[]>([]);
   const [showTagManager, setShowTagManager] = useState(false);
@@ -260,9 +262,14 @@ export function BibliotecaMusicalPanel({
       try {
         const res = await fetch("/api/criacao/biblioteca/facets");
         if (!res.ok) return;
-        const data = (await res.json()) as { topTags?: FacetTag[]; legacyCount?: number };
+        const data = (await res.json()) as {
+          topTags?: FacetTag[];
+          legacyCount?: number;
+          explicitCount?: number;
+        };
         setTopTags(data.topTags ?? []);
         setLegacyCount(data.legacyCount ?? 0);
+        setExplicitCount(data.explicitCount ?? 0);
       } catch {
         /* silencioso */
       }
@@ -273,7 +280,7 @@ export function BibliotecaMusicalPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, folderFilter]);
+  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, explicitOnlyFilter, folderFilter]);
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams({
@@ -291,8 +298,9 @@ export function BibliotecaMusicalPanel({
     if (folderFilter?.offArquivoId) params.set("offArquivoId", folderFilter.offArquivoId);
     if (listFilter === "all" && sortBy !== "recent") params.set("sortBy", sortBy);
     if (gravadoraFilter.trim()) params.set("gravadora", gravadoraFilter.trim());
+    if (explicitOnlyFilter) params.set("explicitOnly", "1");
     return params.toString();
-  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, folderFilter, page, pageSize]);
+  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, explicitOnlyFilter, folderFilter, page, pageSize]);
 
   const goToPage = useCallback((next: number) => {
     setPage(next);
@@ -842,6 +850,21 @@ export function BibliotecaMusicalPanel({
             type="button"
             onClick={() => {
               setTagIdFilter(null);
+              setExplicitOnlyFilter((v) => !v);
+            }}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+              explicitOnlyFilter ?
+                "border-red-400 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-200"
+              : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
+            }`}
+            title="Faixas com badge EXP (IA) ou DZ explicit (Deezer explicit_lyrics)"
+          >
+            Conteúdo explícito{explicitCount > 0 ? ` (${explicitCount})` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTagIdFilter(null);
               setListFilter(listFilter === "legacy" ? "all" : "legacy");
             }}
             className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
@@ -852,13 +875,14 @@ export function BibliotecaMusicalPanel({
           >
             Legado · sem pipeline novo{legacyCount > 0 ? ` (${legacyCount})` : ""}
           </button>
-          {(tagIdFilter || listFilter !== "all" || gravadoraFilter.trim()) ?
+          {(tagIdFilter || listFilter !== "all" || gravadoraFilter.trim() || explicitOnlyFilter) ?
             <button
               type="button"
               onClick={() => {
                 setTagIdFilter(null);
                 setListFilter("all");
                 setGravadoraFilter("");
+                setExplicitOnlyFilter(false);
               }}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700"
             >
