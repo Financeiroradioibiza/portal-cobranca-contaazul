@@ -434,7 +434,7 @@ export function InstalacaoPanel() {
     setBusy(true);
     setStatus(null);
     try {
-      const { res, data } = await postInstalacao({ action: "enviar_teste" });
+      const { res, data } = await postInstalacao({ action: "enviar_teste", tipo });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setStatus({ kind: "err", text: mapErr(data) });
         return;

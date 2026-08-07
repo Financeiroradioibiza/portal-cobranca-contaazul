@@ -72,15 +72,30 @@ export async function POST(request: Request) {
       if (!isOcSmtpConfigured()) {
         return NextResponse.json({ ok: false, error: "smtp_nao_configurado" }, { status: 400 });
       }
-      const email = buildInstalacaoEmail({
-        tipo: "pdv_senha_temp",
-        plataforma: "windows",
-        clienteNome: "Teste portal",
-        pdvNome: "Teste portal 01",
-        codigoDisplay: "316.001",
-        link: buildInstallLink("pdv_senha_temp", "windows", { portalClienteId: 316, portalPdvId: 316001 }),
-        senhaTemporaria: "TESTE123",
-      });
+      const testTipo = parseTipo(body.tipo) ?? "pdv_senha_temp";
+      const email =
+        testTipo === "pdv_play5"
+          ? buildInstalacaoEmail({
+              tipo: "pdv_play5",
+              plataforma: "mobile",
+              clienteNome: "Teste portal",
+              pdvNome: "Teste portal — Para google não mexer",
+              codigoDisplay: "316.006",
+              link: GOOGLE_PLAY_PLAYER5_URL,
+              codigoPlay: "PL5-BWUC-ZR75",
+            })
+          : buildInstalacaoEmail({
+              tipo: "pdv_senha_temp",
+              plataforma: "windows",
+              clienteNome: "Teste portal",
+              pdvNome: "Teste portal 01",
+              codigoDisplay: "316.001",
+              link: buildInstallLink("pdv_senha_temp", "windows", {
+                portalClienteId: 316,
+                portalPdvId: 316001,
+              }),
+              senhaTemporaria: "TESTE123",
+            });
       await sendEmailViaSmtp({
         to: [TEST_EMAIL],
         subject: `[TESTE] ${email.subject}`,
