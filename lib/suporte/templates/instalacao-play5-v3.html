@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Radio Ibiza - Preview Email</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #05050a;
+    font-family: 'Inter', sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+
+  .email {
+    width: 100%;
+    max-width: 460px;
+    background: #12121a;
+    border-radius: 24px;
+    overflow: hidden;
+    border: 1px solid #23232f;
+  }
+
+  /* ============ HERO com celulares ============ */
+  .hero {
+    position: relative;
+    padding: 46px 20px 40px;
+    background: #0c0c14;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* glow ambient atrás dos celulares */
+  .glow {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 28% 30%, rgba(255,122,69,0.38), transparent 45%),
+      radial-gradient(circle at 72% 35%, rgba(102,217,140,0.30), transparent 45%),
+      radial-gradient(circle at 50% 75%, rgba(255,77,141,0.32), transparent 50%);
+    filter: blur(10px);
+  }
+
+  .phones {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 330px;
+    width: 100%;
+  }
+
+  .phone {
+    position: absolute;
+    width: 172px;
+    border-radius: 24px;
+    background: #000;
+    padding: 5px;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  .phone .screen {
+    width: 100%;
+    border-radius: 20px;
+    overflow: hidden;
+    display: block;
+  }
+
+  .phone .notch {
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 50px;
+    height: 15px;
+    background: #000;
+    border-radius: 0 0 10px 10px;
+    z-index: 2;
+  }
+
+  .phone-left {
+    transform: rotate(-15deg) translate(-80px, 20px);
+  }
+  .phone-right {
+    transform: rotate(15deg) translate(80px, 20px);
+  }
+
+  /* headline flutuando NA FRENTE dos celulares */
+  .hero-text {
+    position: absolute;
+    z-index: 3;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    width: 210px;
+    padding: 14px 12px;
+    background: rgba(8,8,14,0.62);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .logo {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 800;
+    font-size: 17px;
+    letter-spacing: -0.3px;
+    margin-bottom: 6px;
+  }
+  .logo .r2 { background: linear-gradient(90deg,#ff7a45,#ff4d8d); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .logo .i { background: linear-gradient(90deg,#4dd0e1,#66d98c); -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+  .hero-text h1 {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 13.5px;
+    line-height: 1.25;
+    color: #ffffff;
+    margin-bottom: 5px;
+  }
+
+  .hero-text p {
+    font-size: 10.5px;
+    color: #d8d8e6;
+    font-weight: 500;
+  }
+
+  /* ---------- divider ---------- */
+  .divider-wrap {
+    padding: 0 28px;
+  }
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #ff4d8d, #66d98c, transparent);
+    opacity: 0.5;
+  }
+
+  /* ---------- BOTTOM: mensagem principal (mantida) ---------- */
+  .main {
+    padding: 26px 28px 30px;
+  }
+
+  .eyebrow-main {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #ff6f9c;
+    margin-bottom: 14px;
+  }
+
+  .main p.intro {
+    font-size: 14px;
+    color: #d4d4e0;
+    margin-bottom: 16px;
+    line-height: 1.5;
+  }
+  .main p.intro b { color: #fff; }
+
+  .info-box {
+    background: #191922;
+    border: 1px solid #26262f;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 13px;
+    color: #b8b8c8;
+    line-height: 1.9;
+    margin-bottom: 18px;
+  }
+  .info-box b { color: #e8e8f0; }
+
+  .code-box {
+    border: 1.5px solid #ff4d8d;
+    border-radius: 14px;
+    padding: 18px;
+    text-align: center;
+    margin-bottom: 20px;
+    background: rgba(255,77,141,0.04);
+  }
+  .code-label {
+    font-size: 10.5px;
+    letter-spacing: 1.5px;
+    color: #ff6f9c;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .code {
+    font-family: 'Poppins', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #ffb199;
+    margin-bottom: 10px;
+  }
+  .code-hint {
+    font-size: 11px;
+    color: #8b8b9c;
+  }
+  .code-hint b { color: #cfcfe0; }
+
+  .cta-btn {
+    display: block;
+    text-align: center;
+    background: linear-gradient(135deg, #1fae6b, #17915a);
+    color: #fff;
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px;
+    border-radius: 12px;
+    text-decoration: none;
+    margin-bottom: 8px;
+    box-shadow: 0 6px 18px rgba(31,174,107,0.3);
+  }
+  .cta-link {
+    text-align: center;
+    font-size: 10.5px;
+    color: #6b6b7c;
+    word-break: break-all;
+    margin-bottom: 22px;
+  }
+
+  .steps-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f0f0f4;
+    margin-bottom: 10px;
+  }
+  .steps {
+    list-style: none;
+    counter-reset: step;
+  }
+  .steps li {
+    counter-increment: step;
+    font-size: 13px;
+    color: #c0c0d0;
+    line-height: 1.5;
+    padding-left: 26px;
+    position: relative;
+    margin-bottom: 10px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #23232f;
+    color: #ff6f9c;
+    font-size: 10.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .footer {
+    text-align: center;
+    padding: 20px 28px 26px;
+    font-size: 12px;
+    color: #6b6b7c;
+  }
+  .footer .fname {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+  .footer .fname .r { color: #ff7a45; }
+  .footer .fname .i { color: #66d98c; }
+</style>
+</head>
+<body>
+
+<div class="email">
+
+  <!-- HERO: celulares + bem-vindo na frente -->
+  <div class="hero">
+    <div class="glow"></div>
+
+    <div class="phones">
+      <div class="phone phone-left">
+        <div class="notch"></div>
+        <img class="screen" src="{{ASSET_instalacao-play5-phone-left.png}}" alt="Radio Ibiza Player">
+      </div>
+      <div class="phone phone-right">
+        <div class="notch"></div>
+        <img class="screen" src="{{ASSET_instalacao-play5-phone-right.png}}" alt="Radio Ibiza Player">
+      </div>
+    </div>
+
+    <div class="hero-text">
+      <div class="logo"><span class="r2">Radio</span> <span class="i">Ibiza</span></div>
+      <h1>Bem-vindo à Radio Ibiza</h1>
+      <p>Curta seu player para Google Play</p>
+    </div>
+  </div>
+
+  <div class="divider-wrap"><div class="divider"></div></div>
+
+  <!-- MENSAGEM PRINCIPAL (mantida como já estava) -->
+  <div class="main">
+    <div class="eyebrow-main">SUA RÁDIO, NA PALMA DA MÃO</div>
+
+    <p class="intro">Olá! Segue tudo para instalar o Player pela <b>Google Play</b> no Android.</p>
+
+    <div class="info-box">
+      <b>Cliente:</b> {{CLIENTE_NOME}}<br>
+      <b>Ponto de venda:</b> {{PDV_NOME}} ({{CODIGO_DISPLAY}})<br>
+      <b>Plataforma:</b> Android (Google Play)
+    </div>
+
+    <div class="code-box">
+      <div class="code-label">CÓDIGO GOOGLE PLAY · USO ÚNICO</div>
+      <div class="code">{{CODIGO_PLAY}}</div>
+      <div class="code-hint">Copiar: clique ou toque no código → <b>Ctrl+C</b> ou <b>Cmd+C</b> e cole no app.</div>
+    </div>
+
+    <a class="cta-btn" href="{{PLAY_URL}}">Abrir na Google Play</a>
+    <div class="cta-link">{{PLAY_URL}}</div>
+
+    <div class="steps-title">Passo a passo</div>
+    <ul class="steps">
+      <li>Abra o link da Google Play neste e-mail e instale o app «Rádio Ibiza Player» no celular Android.</li>
+      <li>Ao abrir o app pela primeira vez, digite o código PL5 destacado acima (sem os hífens, se preferir).</li>
+      <li>Código: {{CODIGO_PLAY}} — funciona apenas uma vez, nesta instalação.</li>
+      <li>Aguarde o download da programação e confirme os dados da loja na tela do app.</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    Qualquer dúvida, é só responder este e-mail.
+    <div class="fname"><span class="r">Radio</span> <span class="i">Ibiza</span></div>
+  </div>
+
+</div>
+
+</body>
+</html>
