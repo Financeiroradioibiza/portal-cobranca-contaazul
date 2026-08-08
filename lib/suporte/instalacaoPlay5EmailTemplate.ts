@@ -1,5 +1,8 @@
 /** Gerado a partir de lib/suporte/templates/instalacao-play5-v3.html — não editar só o .ts */
-import { portalPublicAsset } from "@/lib/brand";
+import type { EmailAttachment } from "@/lib/email/ocSmtp";
+import { INSTALACAO_PLAY5_HERO_B64 } from "@/lib/suporte/instalacaoPlay5HeroBannerBase64";
+
+const PLAY5_HERO_CID = "play5-hero-banner";
 
 const PLAY5_EMAIL_TEMPLATE = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -348,14 +351,26 @@ export function renderInstalacaoPlay5EmailHtml(input: {
   codigoDisplay: string;
   codigoPlay: string;
   playUrl: string;
-}): string {
-  const heroBanner = portalPublicAsset("/email/instalacao-play5-hero-banner.png");
-
-  return PLAY5_EMAIL_TEMPLATE
-    .replace(/\{\{ASSET_instalacao-play5-hero-banner\.png\}\}/g, esc(heroBanner))
+}): { html: string; attachments: EmailAttachment[] } {
+  const html = PLAY5_EMAIL_TEMPLATE.replace(
+    /\{\{ASSET_instalacao-play5-hero-banner\.png\}\}/g,
+    `cid:${PLAY5_HERO_CID}`,
+  )
     .replace(/\{\{CLIENTE_NOME\}\}/g, esc(input.clienteNome))
     .replace(/\{\{PDV_NOME\}\}/g, esc(input.pdvNome))
     .replace(/\{\{CODIGO_DISPLAY\}\}/g, esc(input.codigoDisplay))
     .replace(/\{\{CODIGO_PLAY\}\}/g, esc(input.codigoPlay))
     .replace(/\{\{PLAY_URL\}\}/g, esc(input.playUrl));
+
+  return {
+    html,
+    attachments: [
+      {
+        filename: "instalacao-play5-hero-banner.png",
+        content: Buffer.from(INSTALACAO_PLAY5_HERO_B64, "base64"),
+        contentType: "image/png",
+        cid: PLAY5_HERO_CID,
+      },
+    ],
+  };
 }

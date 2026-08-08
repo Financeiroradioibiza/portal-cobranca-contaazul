@@ -103,6 +103,7 @@ export async function POST(request: Request) {
         subject: `[TESTE] ${email.subject}`,
         text: email.text,
         html: email.html,
+        attachments: email.attachments,
         mailProfile: "suporte",
       });
       return NextResponse.json({ ok: true, to: testTo });
@@ -258,6 +259,7 @@ export async function POST(request: Request) {
           subject: email.subject,
           text: email.text,
           html: email.html,
+          attachments: email.attachments,
           mailProfile: "suporte",
         });
 
@@ -297,6 +299,7 @@ export async function POST(request: Request) {
         subject: email.subject,
         text: email.text,
         html: email.html,
+        attachments: email.attachments,
         mailProfile: "suporte",
       });
 

@@ -1,3 +1,4 @@
+import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import { COMPANY_NAME } from "@/lib/brand";
 import { renderInstalacaoPlay5EmailHtml } from "@/lib/suporte/instalacaoPlay5EmailTemplate";
 import { GOOGLE_PLAY_PLAYER5_URL } from "@/lib/suporte/instalacaoService";
@@ -20,6 +21,7 @@ export type InstalacaoEmailContent = {
   subject: string;
   text: string;
   html: string;
+  attachments?: EmailAttachment[];
 };
 
 function esc(s: string): string {
@@ -190,7 +192,7 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
     ? `<p style="margin:0 0 16px;color:#0f172a;font-size:15px;">Olá! Segue o código e o link para instalar o Player pela Google Play no Android.</p>`
     : `<p style="margin:0 0 16px;color:#0f172a;font-size:15px;">Olá! Segue o link para instalar o Player.</p>`;
 
-  const html =
+  const play5Rendered =
     isPlay5 && codigoPlay
       ? renderInstalacaoPlay5EmailHtml({
           clienteNome,
@@ -199,7 +201,11 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
           codigoPlay,
           playUrl,
         })
-      : `<!doctype html>
+      : null;
+
+  const html =
+    play5Rendered?.html ??
+    `<!doctype html>
 <html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:24px 0;">
@@ -230,5 +236,5 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
   </table>
 </body></html>`;
 
-  return { subject, text, html };
+  return { subject, text, html, attachments: play5Rendered?.attachments };
 }

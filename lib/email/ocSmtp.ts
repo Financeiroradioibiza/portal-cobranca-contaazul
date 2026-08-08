@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
 /** Endereços adicionados em BCC onde o cliente de e-mail preserva cópia oculta ao destinatário principal. */
 const INTERNAL_COBRANCA_BCC_DEFAULT = "cobranca@radioibiza.com.br";
@@ -10,6 +11,22 @@ const SUPORTE_FROM_DEFAULT = "suporte@radioibiza.com.br";
 const SUPORTE_FROM_NAME_DEFAULT = "Radio Ibiza — Suporte";
 
 export type OcSmtpMailProfile = "default" | "suporte";
+
+export type EmailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+  /** inline CID — use src="cid:..." no HTML */
+  cid?: string;
+};
+
+export type SendEmailViaSmtpResult = {
+  messageId: string;
+  accepted: string[];
+  rejected: string[];
+  envelopeFrom: string;
+  headerFrom: string;
+};
 
 function envStr(name: string): string | undefined {
   const v = process.env[name];
@@ -42,10 +59,6 @@ function parseEmailList(raw: string | undefined, excludeLowerSet: ReadonlySet<st
   return out;
 }
 
-/**
- * Endereços em Cc (visíveis no cliente de e-mail).
- * Principal: env `OC_EMAIL_CC_COBRANCA` ou cobranca@radioibiza.com.br; extras opcionais em `OC_EMAIL_CC_EXTRA`.
- */
 function internalAlwaysCc(excludeLowerSet: ReadonlySet<string>): string[] {
   const primaryRaw = envStr("OC_EMAIL_CC_COBRANCA") ?? INTERNAL_COBRANCA_CC_DEFAULT;
   const extraRaw = envStr("OC_EMAIL_CC_EXTRA");
@@ -73,7 +86,6 @@ function internalSuporteCc(excludeLowerSet: ReadonlySet<string>): string[] {
   return parseEmailList(envStr("OC_EMAIL_CC_SUPORTE") ?? SUPORTE_FROM_DEFAULT, excludeLowerSet);
 }
 
-/** Cópia oculta em envios de suporte (instalação Player etc.). */
 function internalSuporteBcc(excludeLowerSet: ReadonlySet<string>): string[] {
   const primaryRaw = envStr("OC_EMAIL_BCC_SUPORTE") ?? "rafael@radioibiza.com.br";
   const extraRaw = envStr("OC_EMAIL_BCC_EXTRA");
@@ -96,9 +108,6 @@ function internalSuporteBcc(excludeLowerSet: ReadonlySet<string>): string[] {
   return out;
 }
 
-/**
- * Lista BCC adicional, sem repetir Para nem Cc já cobertos.
- */
 function internalAlwaysBcc(excludeLowerSet: ReadonlySet<string>): string[] {
   const primaryRaw = envStr("OC_EMAIL_BCC_COBRANCA") ?? INTERNAL_COBRANCA_BCC_DEFAULT;
   const extraRaw = envStr("OC_EMAIL_BCC_EXTRA");
@@ -122,9 +131,25 @@ function internalAlwaysBcc(excludeLowerSet: ReadonlySet<string>): string[] {
   return out;
 }
 
+function resolveSmtpAuth(profile: OcSmtpMailProfile): { user: string; pass: string } {
+  const defaultUser = envStr("OC_EMAIL_SMTP_USER");
+  const defaultPass = envStr("OC_EMAIL_SMTP_PASS");
+  if (!defaultUser || !defaultPass) {
+    throw new Error("SMTP não configurado: defina OC_EMAIL_SMTP_* e OC_EMAIL_FROM no ambiente");
+  }
+  if (profile === "suporte") {
+    const suporteUser = envStr("OC_EMAIL_SMTP_USER_SUPORTE");
+    const suportePass = envStr("OC_EMAIL_SMTP_PASS_SUPORTE");
+    if (suporteUser && suportePass) {
+      return { user: suporteUser, pass: suportePass };
+    }
+  }
+  return { user: defaultUser, pass: defaultPass };
+}
+
 /**
  * Locaweb / SMTP genérico para `cobranca@radioibiza.com.br`.
- * Preencha host/porta conforme o painel da Locaweb (ex.: relay com TLS 587).
+ * Perfil suporte: prefira OC_EMAIL_SMTP_USER_SUPORTE (caixa suporte@) para entrega externa (Gmail).
  */
 export function isOcSmtpConfigured(): boolean {
   return Boolean(
@@ -140,15 +165,9 @@ export async function sendTextEmailViaSmtp(opts: {
   subject: string;
   text: string;
   replyTo?: string;
-}): Promise<void> {
-  await sendEmailViaSmtp({ ...opts });
+}): Promise<SendEmailViaSmtpResult> {
+  return sendEmailViaSmtp({ ...opts });
 }
-
-export type EmailAttachment = {
-  filename: string;
-  content: Buffer;
-  contentType?: string;
-};
 
 /**
  * Envio genérico (texto + opcional HTML + anexos). Cc padrão ao financeiro (+ env); BCC sem duplicar Cc/Para.
@@ -160,21 +179,20 @@ export async function sendEmailViaSmtp(opts: {
   html?: string;
   attachments?: EmailAttachment[];
   replyTo?: string;
-  /** default = cobrança (OC); suporte = instalação Player e afins */
   mailProfile?: OcSmtpMailProfile;
-}): Promise<void> {
+}): Promise<SendEmailViaSmtpResult> {
   if (!opts.to.length) throw new Error("Nenhum destinatário válido");
 
   const host = envStr("OC_EMAIL_SMTP_HOST");
-  const user = envStr("OC_EMAIL_SMTP_USER");
-  const pass = envStr("OC_EMAIL_SMTP_PASS");
   const defaultFrom = envStr("OC_EMAIL_FROM");
-  if (!host || !user || !pass || !defaultFrom) {
+  if (!host || !defaultFrom) {
     throw new Error("SMTP não configurado: defina OC_EMAIL_SMTP_* e OC_EMAIL_FROM no ambiente");
   }
 
   const profile = opts.mailProfile ?? "default";
-  const fromAddr =
+  const auth = resolveSmtpAuth(profile);
+
+  const displayFrom =
     profile === "suporte"
       ? envStr("OC_EMAIL_FROM_SUPORTE") ?? SUPORTE_FROM_DEFAULT
       : defaultFrom;
@@ -182,14 +200,19 @@ export async function sendEmailViaSmtp(opts: {
     profile === "suporte"
       ? envStr("OC_EMAIL_FROM_NAME_SUPORTE") ?? SUPORTE_FROM_NAME_DEFAULT
       : envStr("OC_EMAIL_FROM_NAME") ?? "Radio Ibiza — Cobrança";
+
+  /** Envelope MAIL FROM = usuário autenticado (Locaweb exige para Gmail/externos). */
+  const envelopeFrom = auth.user;
+  const headerFrom =
+    envelopeFrom.toLowerCase() === displayFrom.toLowerCase() ? displayFrom : envelopeFrom;
+
   const replyTo =
     opts.replyTo ??
     (profile === "suporte"
-      ? envStr("OC_EMAIL_REPLY_TO_SUPORTE") ?? fromAddr
+      ? envStr("OC_EMAIL_REPLY_TO_SUPORTE") ?? displayFrom
       : envStr("OC_EMAIL_REPLY_TO"));
 
   const port = Math.max(1, Number(envStr("OC_EMAIL_SMTP_PORT") ?? "587") || 587);
-  /** 465 costuma usar SSL direto; 587 STARTTLS */
   const secure =
     envStr("OC_EMAIL_SMTP_SECURE") === "1" ||
     envStr("OC_EMAIL_SMTP_SECURE") === "true" ||
@@ -199,7 +222,10 @@ export async function sendEmailViaSmtp(opts: {
     host,
     port,
     secure,
-    auth: { user, pass },
+    auth,
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+    socketTimeout: 45_000,
   });
 
   const toLower = new Set(opts.to.map((a) => a.toLowerCase()));
@@ -210,8 +236,15 @@ export async function sendEmailViaSmtp(opts: {
   const alwaysBcc =
     profile === "suporte" ? internalSuporteBcc(denyBcc) : internalAlwaysBcc(denyBcc);
 
-  await transporter.sendMail({
-    from: `"${fromName.replace(/"/g, "\\\"")}" <${fromAddr}>`,
+  const envelopeTo = [...opts.to, ...alwaysCc, ...alwaysBcc];
+
+  const info = (await transporter.sendMail({
+    from: `"${fromName.replace(/"/g, '\\"')}" <${headerFrom}>`,
+    sender: envelopeFrom,
+    envelope: {
+      from: envelopeFrom,
+      to: envelopeTo,
+    },
     to: opts.to.join(", "),
     ...(alwaysCc.length ? { cc: alwaysCc.join(", ") } : {}),
     ...(alwaysBcc.length ? { bcc: alwaysBcc.join(", ") } : {}),
@@ -225,8 +258,36 @@ export async function sendEmailViaSmtp(opts: {
             filename: a.filename,
             content: a.content,
             contentType: a.contentType,
+            ...(a.cid ? { cid: a.cid } : {}),
           })),
         }
       : {}),
+  })) as SMTPTransport.SentMessageInfo;
+
+  const rejected = Array.isArray(info.rejected) ? info.rejected.map(String) : [];
+  const accepted = Array.isArray(info.accepted) ? info.accepted.map(String) : [];
+
+  if (rejected.length > 0) {
+    throw new Error(`SMTP rejeitou destinatário(s): ${rejected.join(", ")}`);
+  }
+
+  console.info("[ocSmtp] sent", {
+    profile,
+    envelopeFrom,
+    headerFrom,
+    to: opts.to,
+    cc: alwaysCc,
+    bcc: alwaysBcc,
+    messageId: info.messageId,
+    accepted,
+    rejected,
   });
+
+  return {
+    messageId: String(info.messageId ?? ""),
+    accepted,
+    rejected,
+    envelopeFrom,
+    headerFrom,
+  };
 }
