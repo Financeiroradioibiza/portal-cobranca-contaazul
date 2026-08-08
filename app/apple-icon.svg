@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Radio Ibiza">
+  <defs>
+    <linearGradient id="r" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff4d8d"/>
+      <stop offset="45%" stop-color="#ffb84d"/>
+      <stop offset="100%" stop-color="#4dd0ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="40" fill="#12121a"/>
+  <text
+    x="90"
+    y="128"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-size="118"
+    font-weight="800"
+    fill="url(#r)">R</text>
+</svg>

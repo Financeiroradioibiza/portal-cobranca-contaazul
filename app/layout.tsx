@@ -17,6 +17,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: `${COMPANY_NAME} — Portal`,
   description: `Portal ${COMPANY_NAME}: dashboard, financeiro, cadastros e suporte.`,
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({
