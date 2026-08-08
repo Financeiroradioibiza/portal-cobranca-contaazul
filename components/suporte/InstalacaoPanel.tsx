@@ -89,6 +89,12 @@ function mapErr(data: unknown): string {
     return "PDV com player instalado. Regenerar a chave serial no Suporte antes de gerar código Play.";
   }
   if (err === "smtp_nao_configurado") return "SMTP não configurado no ambiente (OC_EMAIL_SMTP_*).";
+  if (err === "envio_falhou") {
+    const detail = (data as { detail?: unknown })?.detail;
+    return typeof detail === "string" && detail.trim()
+      ? `Falha ao enviar e-mail: ${detail.trim()}`
+      : "Falha ao enviar e-mail (SMTP). Tente de novo ou avise o suporte.";
+  }
   if (typeof err === "string" && err.trim()) return err;
   return "Operação falhou.";
 }

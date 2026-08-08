@@ -315,7 +315,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "acao_desconhecida" }, { status: 400 });
   } catch (e) {
     if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : String(e);
     console.error("[suporte/instalacao POST]", e);
-    return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
+    const smtpHint =
+      /SMTP|ECONNREFUSED|ETIMEDOUT|EAUTH|nodemailer|ENOENT/i.test(msg) ? msg.slice(0, 200) : undefined;
+    return NextResponse.json(
+      { ok: false, error: smtpHint ? "envio_falhou" : "server_error", detail: smtpHint },
+      { status: 500 },
+    );
   }
 }
