@@ -203,8 +203,26 @@ export async function sendEmailViaSmtp(opts: {
 
   /** Envelope MAIL FROM = usuário autenticado (Locaweb exige para Gmail/externos). */
   const envelopeFrom = auth.user;
+  /** Suporte: From visível sempre suporte@ + nome «Radio Ibiza — Suporte» (cadastro ou e-mail personalizado). */
   const headerFrom =
-    envelopeFrom.toLowerCase() === displayFrom.toLowerCase() ? displayFrom : envelopeFrom;
+    profile === "suporte"
+      ? displayFrom
+      : envelopeFrom.toLowerCase() === displayFrom.toLowerCase()
+        ? displayFrom
+        : envelopeFrom;
+
+  if (
+    profile === "suporte" &&
+    envelopeFrom.toLowerCase() !== displayFrom.toLowerCase()
+  ) {
+    console.warn(
+      "[ocSmtp] perfil suporte sem OC_EMAIL_SMTP_USER_SUPORTE — envelope",
+      envelopeFrom,
+      "≠ From",
+      displayFrom,
+      "(configure suporte@ no SMTP para alinhar SPF/DMARC no Gmail)",
+    );
+  }
 
   const replyTo =
     opts.replyTo ??
@@ -238,9 +256,13 @@ export async function sendEmailViaSmtp(opts: {
 
   const envelopeTo = [...opts.to, ...alwaysCc, ...alwaysBcc];
 
+  /** Locaweb/Exchange interno exibe o header Sender; omitir se ≠ From (evita cobranca@ no rafael@). */
+  const smtpSender =
+    envelopeFrom.toLowerCase() === headerFrom.toLowerCase() ? envelopeFrom : undefined;
+
   const info = (await transporter.sendMail({
     from: `"${fromName.replace(/"/g, '\\"')}" <${headerFrom}>`,
-    sender: envelopeFrom,
+    ...(smtpSender ? { sender: smtpSender } : {}),
     envelope: {
       from: envelopeFrom,
       to: envelopeTo,
