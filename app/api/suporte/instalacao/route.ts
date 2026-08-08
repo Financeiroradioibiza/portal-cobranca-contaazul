@@ -73,6 +73,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "smtp_nao_configurado" }, { status: 400 });
       }
       const testTipo = parseTipo(body.tipo) ?? "pdv_senha_temp";
+      const customTest = typeof body.email === "string" ? body.email.trim() : "";
+      const testTo = customTest && EMAIL_RE.test(customTest) ? customTest : TEST_EMAIL;
       const email =
         testTipo === "pdv_play5"
           ? buildInstalacaoEmail({
@@ -97,13 +99,13 @@ export async function POST(request: Request) {
               senhaTemporaria: "TESTE123",
             });
       await sendEmailViaSmtp({
-        to: [TEST_EMAIL],
+        to: [testTo],
         subject: `[TESTE] ${email.subject}`,
         text: email.text,
         html: email.html,
         mailProfile: "suporte",
       });
-      return NextResponse.json({ ok: true, to: TEST_EMAIL });
+      return NextResponse.json({ ok: true, to: testTo });
     }
 
     const portalClienteId = parseId(body.portalClienteId);

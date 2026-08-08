@@ -437,15 +437,25 @@ export function InstalacaoPanel() {
   }
 
   async function handleEnviarTeste() {
+    if (!selected) return;
+    const destino =
+      destinatario === "loja"
+        ? contexto?.contatoLojaEmail?.trim() ?? ""
+        : emailNovo.trim();
     setBusy(true);
     setStatus(null);
     try {
-      const { res, data } = await postInstalacao({ action: "enviar_teste", tipo });
+      const { res, data } = await postInstalacao({
+        action: "enviar_teste",
+        tipo,
+        email: destino || undefined,
+      });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setStatus({ kind: "err", text: mapErr(data) });
         return;
       }
-      setStatus({ kind: "ok", text: "E-mail de teste enviado para rafael@radioibiza.com.br." });
+      const to = (data as { to?: string })?.to ?? destino ?? "rafael@radioibiza.com.br";
+      setStatus({ kind: "ok", text: `E-mail de teste enviado para ${to}.` });
     } finally {
       setBusy(false);
     }
@@ -695,8 +705,12 @@ export function InstalacaoPanel() {
                 onClick={handleEnviarTeste}
                 className="rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
               >
-                Enviar teste (rafael@)
+                Enviar teste
               </button>
+              <p className="text-[11px] text-zinc-500">
+                Teste usa o destinatário selecionado acima; se vazio, vai para rafael@radioibiza.com.br.
+                Gmail externo pode cair em spam na primeira vez.
+              </p>
             </div>
           </section>
 

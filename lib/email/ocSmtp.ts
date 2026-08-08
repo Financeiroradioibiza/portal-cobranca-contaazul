@@ -73,6 +73,29 @@ function internalSuporteCc(excludeLowerSet: ReadonlySet<string>): string[] {
   return parseEmailList(envStr("OC_EMAIL_CC_SUPORTE") ?? SUPORTE_FROM_DEFAULT, excludeLowerSet);
 }
 
+/** Cópia oculta em envios de suporte (instalação Player etc.). */
+function internalSuporteBcc(excludeLowerSet: ReadonlySet<string>): string[] {
+  const primaryRaw = envStr("OC_EMAIL_BCC_SUPORTE") ?? "rafael@radioibiza.com.br";
+  const extraRaw = envStr("OC_EMAIL_BCC_EXTRA");
+  const parts: string[] = [];
+  for (const fragment of [...primaryRaw.split(/[,;]/), ...(extraRaw ? extraRaw.split(/[,;]/) : [])]) {
+    const t = fragment.trim();
+    if (!t.length) continue;
+    if (!emailLooksValid(t)) continue;
+    parts.push(t);
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const addr of parts) {
+    const k = addr.toLowerCase();
+    if (excludeLowerSet.has(k)) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(addr);
+  }
+  return out;
+}
+
 /**
  * Lista BCC adicional, sem repetir Para nem Cc já cobertos.
  */
@@ -184,7 +207,8 @@ export async function sendEmailViaSmtp(opts: {
     profile === "suporte" ? internalSuporteCc(toLower) : internalAlwaysCc(toLower);
   const ccLower = new Set(alwaysCc.map((a) => a.toLowerCase()));
   const denyBcc = new Set<string>([...toLower, ...ccLower]);
-  const alwaysBcc = profile === "suporte" ? [] : internalAlwaysBcc(denyBcc);
+  const alwaysBcc =
+    profile === "suporte" ? internalSuporteBcc(denyBcc) : internalAlwaysBcc(denyBcc);
 
   await transporter.sendMail({
     from: `"${fromName.replace(/"/g, "\\\"")}" <${fromAddr}>`,

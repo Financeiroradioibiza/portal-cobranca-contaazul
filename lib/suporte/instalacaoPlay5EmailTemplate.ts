@@ -7,13 +7,11 @@ const PLAY5_EMAIL_TEMPLATE = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <title>Radio Ibiza - Preview Email</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
-
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
     background: #05050a;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     display: flex;
     justify-content: center;
     padding: 40px 16px;
@@ -114,7 +112,7 @@ const PLAY5_EMAIL_TEMPLATE = `<!DOCTYPE html>
   }
 
   .logo {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-weight: 800;
     font-size: 17px;
     letter-spacing: -0.3px;
@@ -124,7 +122,7 @@ const PLAY5_EMAIL_TEMPLATE = `<!DOCTYPE html>
   .logo .i { background: linear-gradient(90deg,#4dd0e1,#66d98c); -webkit-background-clip:text; background-clip:text; color:transparent; }
 
   .hero-text h1 {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-weight: 700;
     font-size: 13.5px;
     line-height: 1.25;
@@ -198,7 +196,7 @@ const PLAY5_EMAIL_TEMPLATE = `<!DOCTYPE html>
     margin-bottom: 10px;
   }
   .code {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-size: 24px;
     font-weight: 700;
     letter-spacing: 3px;
@@ -275,7 +273,7 @@ const PLAY5_EMAIL_TEMPLATE = `<!DOCTYPE html>
     color: #6b6b7c;
   }
   .footer .fname {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     font-weight: 700;
     margin-top: 8px;
     font-size: 14px;
