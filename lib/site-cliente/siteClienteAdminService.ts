@@ -149,8 +149,8 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
 
   const rioLinhaIds = g.clientes.map((c) => c.rioLinhaId);
   const rioPdvKeys = g.pdvs.map((p) => p.rioPdvKey);
-  let clienteByLinha = new Map<string, { nome: string; pdvs: Map<string, string> }>();
-  let pdvMeta = new Map<string, { nome: string; clienteNome: string }>();
+  const clienteByLinha = new Map<string, { nome: string; pdvs: Map<string, string> }>();
+  const pdvMeta = new Map<string, { nome: string; clienteNome: string }>();
 
   if (rioLinhaIds.length > 0 || rioPdvKeys.length > 0) {
     const dash = await getProducaoDashboard();

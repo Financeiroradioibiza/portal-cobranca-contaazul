@@ -123,6 +123,20 @@ export function SiteClientesAdminPanel() {
     if (data.ok && data.grupo) setDetail(data.grupo);
   }, []);
 
+  const selectGrupo = useCallback(
+    (id: string | null) => {
+      setSelectedId(id);
+      setBuscaResultados([]);
+      setBuscaCliente("");
+      if (!id) {
+        setDetail(null);
+        return;
+      }
+      void loadDetail(id);
+    },
+    [loadDetail],
+  );
+
   useEffect(() => {
     void (async () => {
       setLoading(true);
@@ -133,13 +147,6 @@ export function SiteClientesAdminPanel() {
       }
     })();
   }, [loadGrupos]);
-
-  useEffect(() => {
-    if (selectedId) void loadDetail(selectedId);
-    else setDetail(null);
-    setBuscaResultados([]);
-    setBuscaCliente("");
-  }, [selectedId, loadDetail]);
 
   const selectedLinhas = useMemo(
     () => new Set(detail?.clientes.map((c) => c.rioLinhaId) ?? []),
@@ -187,7 +194,7 @@ export function SiteClientesAdminPanel() {
       if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
       setNovoGrupoNome("");
       await loadGrupos();
-      if (data.id) setSelectedId(data.id);
+      if (data.id) selectGrupo(data.id);
       setMsg("Grupo criado.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao criar grupo.");
@@ -372,7 +379,7 @@ export function SiteClientesAdminPanel() {
                 <li key={g.id}>
                   <button
                     type="button"
-                    onClick={() => setSelectedId(g.id)}
+                    onClick={() => selectGrupo(g.id)}
                     className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
                       selectedId === g.id
                         ? "bg-violet-100 font-medium text-violet-900 dark:bg-violet-900/40 dark:text-violet-100"
