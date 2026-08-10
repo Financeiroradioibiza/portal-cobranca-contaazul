@@ -8,6 +8,10 @@ import {
   resolveRouteAccessRule,
 } from "@/lib/auth/routeAccess";
 import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
+import {
+  SITE_CLIENTE_SESSION_COOKIE,
+  verifySiteClienteSessionToken,
+} from "@/lib/site-cliente/session";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
@@ -69,6 +73,39 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/player/ingest/")) {
+    return NextResponse.next();
+  }
+
+  /** Site Clientes — auth separada do portal (somente leitura via cloud2). */
+  if (
+    pathname === "/site-cliente/login" ||
+    pathname.startsWith("/site-cliente/login/") ||
+    pathname === "/api/site-cliente/auth/login" ||
+    pathname.startsWith("/api/site-cliente/auth/login/") ||
+    pathname === "/api/site-cliente/auth/logout" ||
+    pathname.startsWith("/api/site-cliente/auth/logout/")
+  ) {
+    return NextResponse.next();
+  }
+
+  if (pathname.startsWith("/site-cliente")) {
+    const rawSc = request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value;
+    const scSession = await verifySiteClienteSessionToken(rawSc);
+    if (!scSession) {
+      const u = request.nextUrl.clone();
+      u.pathname = "/site-cliente/login";
+      u.searchParams.set("next", safeInternalPath(pathname + request.nextUrl.search));
+      return NextResponse.redirect(u);
+    }
+    return NextResponse.next();
+  }
+
+  if (pathname.startsWith("/api/site-cliente")) {
+    const rawSc = request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value;
+    const scSession = await verifySiteClienteSessionToken(rawSc);
+    if (!scSession) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
     return NextResponse.next();
   }
 

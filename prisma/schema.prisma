@@ -1515,3 +1515,88 @@ model FinanceiroDiarioEntry {
   @@index([criadoPorEmail])
   @@map("financeiro_diario_entry")
 }
+
+/// Grupo de acesso ao Site Clientes (Suporte → Site clientes).
+model SiteClienteGrupo {
+  id        String   @id @default(cuid())
+  nome      String   @db.VarChar(120)
+  active    Boolean  @default(true)
+  createdBy String   @default("") @map("created_by") @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  usuarios   SiteClienteUsuario[]
+  clientes   SiteClienteGrupoCliente[]
+  pdvs       SiteClienteGrupoPdv[]
+  moodboards SiteClienteMoodboard[]
+
+  @@map("site_cliente_grupo")
+}
+
+model SiteClienteUsuario {
+  id           String   @id @default(cuid())
+  grupoId      String   @map("grupo_id")
+  nome         String   @db.VarChar(200)
+  telefone     String   @default("") @db.VarChar(40)
+  email        String   @db.VarChar(200)
+  funcao       String   @default("") @map("funcao_empresa") @db.VarChar(120)
+  loginEmail   String   @unique @map("login_email") @db.VarChar(200)
+  passwordHash String   @map("password_hash") @db.Text
+  active       Boolean  @default(true)
+  permissoes   Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  grupo SiteClienteGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@index([grupoId])
+  @@map("site_cliente_usuario")
+}
+
+/// Clientes inteiros visíveis no grupo (rio_linha_id da planilha produção).
+model SiteClienteGrupoCliente {
+  id              String @id @default(cuid())
+  grupoId         String @map("grupo_id")
+  rioLinhaId      String @map("rio_linha_id") @db.VarChar(80)
+  portalClienteId Int?   @map("portal_cliente_id")
+
+  grupo SiteClienteGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, rioLinhaId])
+  @@index([grupoId])
+  @@map("site_cliente_grupo_cliente")
+}
+
+/// PDVs avulsos no grupo (opcional — restringe subset dentro do cliente).
+model SiteClienteGrupoPdv {
+  id          String @id @default(cuid())
+  grupoId     String @map("grupo_id")
+  rioPdvKey   String @map("rio_pdv_key") @db.VarChar(80)
+  portalPdvId Int?   @map("portal_pdv_id")
+
+  grupo SiteClienteGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, rioPdvKey])
+  @@index([grupoId])
+  @@map("site_cliente_grupo_pdv")
+}
+
+/// Estratégia / moodboard por cliente (preenchido pelo suporte).
+model SiteClienteMoodboard {
+  id                     String   @id @default(cuid())
+  grupoId                String   @map("grupo_id")
+  rioLinhaId             String   @map("rio_linha_id") @db.VarChar(80)
+  portalClienteId        Int?     @map("portal_cliente_id")
+  perfilPublico          String   @default("") @map("perfil_publico") @db.Text
+  posicionamentoMarca    String   @default("") @map("posicionamento_marca") @db.Text
+  estiloMusicalPrincipal String   @default("") @map("estilo_musical_principal") @db.VarChar(120)
+  objetivoPeriodo        String   @default("") @map("objetivo_periodo") @db.Text
+  notasInternas          String   @default("") @map("notas_internas") @db.Text
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  grupo SiteClienteGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, rioLinhaId])
+  @@map("site_cliente_moodboard")
+}
