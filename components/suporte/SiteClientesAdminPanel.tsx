@@ -57,11 +57,12 @@ const PERM_KEYS = Object.keys(SITE_CLIENTE_PERMISSOES_DEFAULT) as (keyof SiteCli
 
 export function SiteClientesAdminPanel() {
   const [grupos, setGrupos] = useState<GrupoListItem[]>([]);
-  const [catalog, setCatalog] = useState<CatalogCliente[]>([]);
+  const [buscaResultados, setBuscaResultados] = useState<CatalogCliente[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<GrupoDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [buscando, setBuscando] = useState(false);
   const [msg, setMsg] = useState("");
   const [novoGrupoNome, setNovoGrupoNome] = useState("");
   const [buscaCliente, setBuscaCliente] = useState("");
@@ -77,6 +78,8 @@ export function SiteClientesAdminPanel() {
   });
 
   const [moodClienteId, setMoodClienteId] = useState<string | null>(null);
+  const [moodClienteNome, setMoodClienteNome] = useState("");
+  const [moodPortalClienteId, setMoodPortalClienteId] = useState<number | null>(null);
   const [moodForm, setMoodForm] = useState({
     perfilPublico: "",
     posicionamentoMarca: "",
@@ -91,11 +94,28 @@ export function SiteClientesAdminPanel() {
     if (data.ok) setGrupos(data.grupos ?? []);
   }, []);
 
-  const loadCatalog = useCallback(async () => {
-    const res = await fetch("/api/suporte/site-clientes/catalog");
-    const data = (await res.json()) as { ok?: boolean; clientes?: CatalogCliente[] };
-    if (data.ok) setCatalog(data.clientes ?? []);
-  }, []);
+  const buscarClientes = useCallback(async (termo?: string) => {
+    const q = (termo ?? buscaCliente).trim();
+    if (q.length < 2) {
+      setBuscaResultados([]);
+      setMsg("Digite pelo menos 2 letras para buscar.");
+      return;
+    }
+    setBuscando(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/suporte/site-clientes/catalog?q=${encodeURIComponent(q)}`);
+      const data = (await res.json()) as { ok?: boolean; clientes?: CatalogCliente[]; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
+      setBuscaResultados(data.clientes ?? []);
+      if ((data.clientes ?? []).length === 0) setMsg("Nenhum cliente encontrado.");
+    } catch (e) {
+      setBuscaResultados([]);
+      setMsg(e instanceof Error ? e.message : "Falha na busca.");
+    } finally {
+      setBuscando(false);
+    }
+  }, [buscaCliente]);
 
   const loadDetail = useCallback(async (grupoId: string) => {
     const res = await fetch(`/api/suporte/site-clientes/${grupoId}`);
@@ -107,23 +127,19 @@ export function SiteClientesAdminPanel() {
     void (async () => {
       setLoading(true);
       try {
-        await Promise.all([loadGrupos(), loadCatalog()]);
+        await loadGrupos();
       } finally {
         setLoading(false);
       }
     })();
-  }, [loadGrupos, loadCatalog]);
+  }, [loadGrupos]);
 
   useEffect(() => {
     if (selectedId) void loadDetail(selectedId);
     else setDetail(null);
+    setBuscaResultados([]);
+    setBuscaCliente("");
   }, [selectedId, loadDetail]);
-
-  const clientesFiltrados = useMemo(() => {
-    const q = buscaCliente.trim().toLowerCase();
-    if (!q) return catalog;
-    return catalog.filter((c) => c.nome.toLowerCase().includes(q));
-  }, [catalog, buscaCliente]);
 
   const selectedLinhas = useMemo(
     () => new Set(detail?.clientes.map((c) => c.rioLinhaId) ?? []),
@@ -133,6 +149,28 @@ export function SiteClientesAdminPanel() {
     () => new Set(detail?.pdvs.map((p) => p.rioPdvKey) ?? []),
     [detail],
   );
+
+  async function limparEscopo() {
+    if (!detail) return;
+    if (!window.confirm(`Remover todos os clientes e PDVs do grupo «${detail.nome}»?`)) return;
+    await saveEscopo([], []);
+  }
+
+  async function removeClienteSelecionado(rioLinhaId: string) {
+    if (!detail) return;
+    await saveEscopo(
+      detail.clientes.filter((c) => c.rioLinhaId !== rioLinhaId),
+      detail.pdvs,
+    );
+  }
+
+  async function removePdvSelecionado(rioPdvKey: string) {
+    if (!detail) return;
+    await saveEscopo(
+      detail.clientes,
+      detail.pdvs.filter((p) => p.rioPdvKey !== rioPdvKey),
+    );
+  }
 
   async function criarGrupo() {
     const nome = novoGrupoNome.trim();
@@ -287,7 +325,11 @@ export function SiteClientesAdminPanel() {
     }
   }
 
-  function openMoodboard(c: CatalogCliente) {
+  function openMoodboardCliente(c: {
+    rioLinhaId: string;
+    portalClienteId: number | null;
+    nome: string;
+  }) {
     const existing = detail?.moodboards.find((m) => m.rioLinhaId === c.rioLinhaId);
     setMoodForm({
       perfilPublico: existing?.perfilPublico ?? "",
@@ -297,9 +339,9 @@ export function SiteClientesAdminPanel() {
       notasInternas: existing?.notasInternas ?? "",
     });
     setMoodClienteId(c.rioLinhaId);
+    setMoodClienteNome(c.nome);
+    setMoodPortalClienteId(c.portalClienteId);
   }
-
-  const moodCliente = catalog.find((c) => c.rioLinhaId === moodClienteId);
 
   const loginUrl =
     typeof window !== "undefined"
@@ -420,71 +462,138 @@ export function SiteClientesAdminPanel() {
               ) : null}
 
               <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-                <h3 className="mb-1 font-semibold">Escopo — clientes e PDVs</h3>
-                <p className="mb-3 text-xs text-zinc-500">
-                  Marque o <strong>cliente</strong> para incluir <strong>todos os PDVs</strong> dele. Use
-                  os checkboxes de PDV só quando quiser um ou outro PDV avulso, sem marcar o cliente
-                  inteiro.
-                </p>
-                <input
-                  className="portal-input mb-3 w-full text-sm"
-                  placeholder="Buscar cliente…"
-                  value={buscaCliente}
-                  onChange={(e) => setBuscaCliente(e.target.value)}
-                />
-                <div className="max-h-72 space-y-2 overflow-y-auto">
-                  {clientesFiltrados.map((c) => (
-                    <div
-                      key={c.key}
-                      className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800"
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-semibold">Clientes no grupo</h3>
+                  {detail.clientes.length + detail.pdvs.length > 0 ? (
+                    <button
+                      type="button"
+                      className="text-xs text-rose-600 hover:underline dark:text-rose-400"
+                      disabled={busy}
+                      onClick={() => void limparEscopo()}
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <label className="flex flex-1 cursor-pointer items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={selectedLinhas.has(c.rioLinhaId)}
-                            onChange={() => void toggleCliente(c)}
-                            disabled={busy}
-                          />
-                          <span className="font-medium">{c.nome}</span>
-                        </label>
-                        {selectedLinhas.has(c.rioLinhaId) ? (
-                          <button
-                            type="button"
-                            className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-3 py-1 text-xs font-semibold text-white shadow"
-                            onClick={() => openMoodboard(c)}
-                          >
-                            Moodboard
-                          </button>
-                        ) : null}
-                      </div>
-                      {c.pdvs.length > 0 ? (
-                        <div className="mt-2 ml-6 space-y-1">
-                          {selectedLinhas.has(c.rioLinhaId) ? (
-                            <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                              ✓ {c.pdvs.length} PDV(s) incluídos automaticamente
-                            </p>
-                          ) : (
-                            c.pdvs.map((p) => (
-                              <label
-                                key={p.rioPdvKey}
-                                className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedPdvs.has(p.rioPdvKey)}
-                                  onChange={() => void togglePdv(p, c)}
-                                  disabled={busy}
-                                />
-                                PDV avulso: {p.nome}
-                              </label>
-                            ))
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
+                      Remover todos
+                    </button>
+                  ) : null}
                 </div>
+
+                {detail.clientes.length === 0 && detail.pdvs.length === 0 ? (
+                  <p className="mb-4 text-sm text-zinc-500">
+                    Nenhum cliente selecionado. Use a busca abaixo para adicionar.
+                  </p>
+                ) : (
+                  <ul className="mb-4 space-y-2">
+                    {detail.clientes.map((c) => (
+                      <li
+                        key={c.rioLinhaId}
+                        className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-sm dark:bg-violet-950/30"
+                      >
+                        <span className="font-medium">{c.nome}</span>
+                        <span className="text-xs text-zinc-500">(todos os PDVs)</span>
+                        <button
+                          type="button"
+                          className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-2 py-0.5 text-xs font-semibold text-white"
+                          onClick={() => openMoodboardCliente(c)}
+                        >
+                          Moodboard
+                        </button>
+                        <button
+                          type="button"
+                          className="ml-auto text-xs text-rose-600 hover:underline"
+                          disabled={busy}
+                          onClick={() => void removeClienteSelecionado(c.rioLinhaId)}
+                        >
+                          Remover
+                        </button>
+                      </li>
+                    ))}
+                    {detail.pdvs.map((p) => (
+                      <li
+                        key={p.rioPdvKey}
+                        className="flex flex-wrap items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/60"
+                      >
+                        <span>
+                          PDV avulso: <strong>{p.nome}</strong>
+                          {p.clienteNome ? ` · ${p.clienteNome}` : ""}
+                        </span>
+                        <button
+                          type="button"
+                          className="ml-auto text-xs text-rose-600 hover:underline"
+                          disabled={busy}
+                          onClick={() => void removePdvSelecionado(p.rioPdvKey)}
+                        >
+                          Remover
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <h4 className="mb-1 text-sm font-medium">Adicionar cliente</h4>
+                <p className="mb-2 text-xs text-zinc-500">
+                  Busque pelo nome (mín. 2 letras). Marcar o cliente inclui todos os PDVs dele.
+                </p>
+                <div className="mb-3 flex gap-2">
+                  <input
+                    className="portal-input flex-1 text-sm"
+                    placeholder="Ex.: Boteco Princesa"
+                    value={buscaCliente}
+                    onChange={(e) => setBuscaCliente(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void buscarClientes();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="portal-btn portal-btn-primary text-sm"
+                    disabled={busy || buscando}
+                    onClick={() => void buscarClientes()}
+                  >
+                    {buscando ? "…" : "Buscar"}
+                  </button>
+                </div>
+
+                {buscaResultados.length > 0 ? (
+                  <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-zinc-100 p-2 dark:border-zinc-800">
+                    {buscaResultados.map((c) => {
+                      const jaSelecionado = selectedLinhas.has(c.rioLinhaId);
+                      return (
+                        <div
+                          key={c.key}
+                          className="rounded-lg border border-zinc-100 p-3 dark:border-zinc-800"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              className="portal-btn text-sm"
+                              disabled={busy || jaSelecionado}
+                              onClick={() => void toggleCliente(c)}
+                            >
+                              {jaSelecionado ? "Já no grupo" : "Adicionar cliente"}
+                            </button>
+                            <span className="font-medium">{c.nome}</span>
+                            <span className="text-xs text-zinc-500">{c.pdvs.length} PDV(s)</span>
+                          </div>
+                          {!jaSelecionado && c.pdvs.length > 0 ? (
+                            <div className="mt-2 space-y-1 pl-1">
+                              {c.pdvs.map((p) => (
+                                <div key={p.rioPdvKey} className="flex items-center gap-2 text-xs">
+                                  <button
+                                    type="button"
+                                    className="text-violet-600 hover:underline dark:text-violet-400"
+                                    disabled={busy || selectedPdvs.has(p.rioPdvKey)}
+                                    onClick={() => void togglePdv(p, c)}
+                                  >
+                                    {selectedPdvs.has(p.rioPdvKey) ? "PDV já no grupo" : `+ PDV: ${p.nome}`}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
@@ -577,11 +686,11 @@ export function SiteClientesAdminPanel() {
         </section>
       </div>
 
-      {moodClienteId && moodCliente ? (
+      {moodClienteId ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-gradient-to-br from-fuchsia-600 via-violet-600 to-cyan-500 p-1 shadow-2xl">
             <div className="rounded-[14px] bg-white p-5 dark:bg-zinc-900">
-              <h3 className="text-lg font-bold">Moodboard — {moodCliente.nome}</h3>
+              <h3 className="text-lg font-bold">Moodboard — {moodClienteNome}</h3>
               <div className="mt-4 space-y-3">
                 <textarea
                   className="portal-input min-h-[80px] w-full text-sm"
@@ -631,7 +740,7 @@ export function SiteClientesAdminPanel() {
                   className="portal-btn portal-btn-primary"
                   disabled={busy}
                   onClick={() =>
-                    void salvarMoodboard(moodCliente.rioLinhaId, moodCliente.portalClienteId)
+                    void salvarMoodboard(moodClienteId, moodPortalClienteId)
                   }
                 >
                   Salvar

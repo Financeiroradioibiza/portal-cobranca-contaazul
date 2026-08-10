@@ -106,13 +106,21 @@ export async function listSiteClienteGrupos(): Promise<SiteClienteGrupoListItem[
   }));
 }
 
-export async function getSiteClienteCatalog(): Promise<SiteClienteCatalog> {
+export async function searchSiteClienteCatalog(query: string, limit = 30): Promise<SiteClienteCatalog> {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return { clientes: [] };
+
   const [dash, layout] = await Promise.all([getProducaoDashboard(), getProducaoCatalogLayout()]);
   const pdvIds = layout.portalPdvIdsByRioPdvKey;
   const clienteIds = layout.portalClienteIdsByBucketKey;
 
-  return {
-    clientes: dash.clientes.map((c) => ({
+  const clientes = dash.clientes
+    .filter((c) => {
+      const blob = `${c.nome} ${c.pdvs.map((p) => p.nome).join(" ")}`.toLowerCase();
+      return blob.includes(q);
+    })
+    .slice(0, Math.min(Math.max(limit, 1), 50))
+    .map((c) => ({
       key: c.key,
       nome: c.nome,
       rioLinhaId: c.rioLinhaId,
@@ -122,8 +130,9 @@ export async function getSiteClienteCatalog(): Promise<SiteClienteCatalog> {
         nome: p.nome,
         portalPdvId: pdvIds[p.rioPdvKey] ?? null,
       })),
-    })),
-  };
+    }));
+
+  return { clientes };
 }
 
 export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteGrupoDetail | null> {
@@ -138,11 +147,25 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
   });
   if (!g) return null;
 
-  const catalog = await getSiteClienteCatalog();
-  const clienteByLinha = new Map(catalog.clientes.map((c) => [c.rioLinhaId, c]));
-  const pdvByKey = new Map(
-    catalog.clientes.flatMap((c) => c.pdvs.map((p) => [p.rioPdvKey, { ...p, clienteNome: c.nome }] as const)),
-  );
+  const rioLinhaIds = g.clientes.map((c) => c.rioLinhaId);
+  const rioPdvKeys = g.pdvs.map((p) => p.rioPdvKey);
+  let clienteByLinha = new Map<string, { nome: string; pdvs: Map<string, string> }>();
+  let pdvMeta = new Map<string, { nome: string; clienteNome: string }>();
+
+  if (rioLinhaIds.length > 0 || rioPdvKeys.length > 0) {
+    const dash = await getProducaoDashboard();
+    for (const c of dash.clientes) {
+      if (rioLinhaIds.includes(c.rioLinhaId) || c.pdvs.some((p) => rioPdvKeys.includes(p.rioPdvKey))) {
+        const pdvMap = new Map(c.pdvs.map((p) => [p.rioPdvKey, p.nome]));
+        clienteByLinha.set(c.rioLinhaId, { nome: c.nome, pdvs: pdvMap });
+        for (const p of c.pdvs) {
+          if (rioPdvKeys.includes(p.rioPdvKey)) {
+            pdvMeta.set(p.rioPdvKey, { nome: p.nome, clienteNome: c.nome });
+          }
+        }
+      }
+    }
+  }
 
   return {
     id: g.id,
@@ -157,7 +180,7 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
       nome: clienteByLinha.get(c.rioLinhaId)?.nome ?? c.rioLinhaId,
     })),
     pdvs: g.pdvs.map((p) => {
-      const meta = pdvByKey.get(p.rioPdvKey);
+      const meta = pdvMeta.get(p.rioPdvKey);
       return {
         rioPdvKey: p.rioPdvKey,
         portalPdvId: p.portalPdvId,
