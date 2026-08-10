@@ -55,6 +55,18 @@ type GrupoDetail = {
 
 const PERM_KEYS = Object.keys(SITE_CLIENTE_PERMISSOES_DEFAULT) as (keyof SiteClientePermissoes)[];
 
+/** Escopo grava `c.key` do bucket em `rioLinhaId` (legado: alguns registros usam rioLinhaId Rio). */
+function clienteEscopoCoincide(storedId: string, c: CatalogCliente): boolean {
+  return storedId === c.key || (!!c.rioLinhaId && storedId === c.rioLinhaId);
+}
+
+function clienteJaNoGrupo(
+  clientes: GrupoDetail["clientes"],
+  c: CatalogCliente,
+): boolean {
+  return clientes.some((x) => clienteEscopoCoincide(x.rioLinhaId, c));
+}
+
 export function SiteClientesAdminPanel() {
   const [grupos, setGrupos] = useState<GrupoListItem[]>([]);
   const [buscaResultados, setBuscaResultados] = useState<CatalogCliente[]>([]);
@@ -148,10 +160,6 @@ export function SiteClientesAdminPanel() {
     })();
   }, [loadGrupos]);
 
-  const selectedLinhas = useMemo(
-    () => new Set(detail?.clientes.map((c) => c.rioLinhaId) ?? []),
-    [detail],
-  );
   const selectedPdvs = useMemo(
     () => new Set(detail?.pdvs.map((p) => p.rioPdvKey) ?? []),
     [detail],
@@ -203,23 +211,17 @@ export function SiteClientesAdminPanel() {
     }
   }
 
-  async function toggleCliente(c: CatalogCliente) {
-    if (!detail) return;
+  async function addCliente(c: CatalogCliente) {
+    if (!detail || clienteJaNoGrupo(detail.clientes, c)) return;
     const clientes = [...detail.clientes];
     let pdvs = [...detail.pdvs];
     const pdvKeysCliente = new Set(c.pdvs.map((p) => p.rioPdvKey));
-    const idx = clientes.findIndex((x) => x.rioLinhaId === c.rioLinhaId);
-    if (idx >= 0) {
-      clientes.splice(idx, 1);
-      pdvs = pdvs.filter((p) => !pdvKeysCliente.has(p.rioPdvKey));
-    } else {
-      clientes.push({
-        rioLinhaId: c.rioLinhaId,
-        portalClienteId: c.portalClienteId,
-        nome: c.nome,
-      });
-      pdvs = pdvs.filter((p) => !pdvKeysCliente.has(p.rioPdvKey));
-    }
+    clientes.push({
+      rioLinhaId: c.key,
+      portalClienteId: c.portalClienteId,
+      nome: c.nome,
+    });
+    pdvs = pdvs.filter((p) => !pdvKeysCliente.has(p.rioPdvKey));
     await saveEscopo(clientes, pdvs);
   }
 
@@ -228,7 +230,7 @@ export function SiteClientesAdminPanel() {
     cliente: CatalogCliente,
   ) {
     if (!detail) return;
-    if (selectedLinhas.has(cliente.rioLinhaId)) return;
+    if (clienteJaNoGrupo(detail.clientes, cliente)) return;
     const pdvs = [...detail.pdvs];
     const idx = pdvs.findIndex((x) => x.rioPdvKey === pdv.rioPdvKey);
     if (idx >= 0) pdvs.splice(idx, 1);
@@ -562,7 +564,7 @@ export function SiteClientesAdminPanel() {
                 {buscaResultados.length > 0 ? (
                   <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-zinc-100 p-2 dark:border-zinc-800">
                     {buscaResultados.map((c) => {
-                      const jaSelecionado = selectedLinhas.has(c.rioLinhaId);
+                      const jaSelecionado = detail ? clienteJaNoGrupo(detail.clientes, c) : false;
                       return (
                         <div
                           key={c.key}
@@ -573,7 +575,7 @@ export function SiteClientesAdminPanel() {
                               type="button"
                               className="portal-btn text-sm"
                               disabled={busy || jaSelecionado}
-                              onClick={() => void toggleCliente(c)}
+                              onClick={() => void addCliente(c)}
                             >
                               {jaSelecionado ? "Já no grupo" : "Adicionar cliente"}
                             </button>

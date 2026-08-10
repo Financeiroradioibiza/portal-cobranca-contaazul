@@ -111,38 +111,41 @@ function msToHours(ms: number): number {
 }
 
 async function loadGrupoScope(grupoId: string): Promise<{
-  linhaIds: Set<string>;
+  clienteKeys: Set<string>;
   pdvKeys: Set<string>;
 }> {
   const g = await prisma.siteClienteGrupo.findUnique({
     where: { id: grupoId },
     include: { clientes: true, pdvs: true },
   });
-  if (!g) return { linhaIds: new Set(), pdvKeys: new Set() };
+  if (!g) return { clienteKeys: new Set(), pdvKeys: new Set() };
 
   return {
-    linhaIds: new Set(g.clientes.map((c) => c.rioLinhaId)),
+    /** Valor gravado em rio_linha_id = key do bucket na produção (pode ser custom:…). */
+    clienteKeys: new Set(g.clientes.map((c) => c.rioLinhaId)),
     pdvKeys: new Set(g.pdvs.map((p) => p.rioPdvKey)),
   };
 }
 
 function clienteNoEscopo(
+  clienteKey: string,
   rioLinhaId: string,
   pdvs: DashboardPdvRow[],
-  linhaIds: Set<string>,
+  clienteKeys: Set<string>,
   pdvKeys: Set<string>,
 ): boolean {
-  if (linhaIds.has(rioLinhaId)) return true;
+  if (clienteKeys.has(clienteKey) || (rioLinhaId && clienteKeys.has(rioLinhaId))) return true;
   return pdvs.some((p) => pdvKeys.has(p.rioPdvKey));
 }
 
 function filterPdvs(
   pdvs: DashboardPdvRow[],
-  linhaIds: Set<string>,
+  clienteKeys: Set<string>,
   pdvKeys: Set<string>,
+  clienteKey: string,
   rioLinhaId: string,
 ): DashboardPdvRow[] {
-  if (linhaIds.has(rioLinhaId)) return pdvs;
+  if (clienteKeys.has(clienteKey) || (rioLinhaId && clienteKeys.has(rioLinhaId))) return pdvs;
   return pdvs.filter((p) => pdvKeys.has(p.rioPdvKey));
 }
 
@@ -205,7 +208,7 @@ async function buildProgramacaoResumo(programacaoId: string): Promise<SiteClient
 export async function buildSiteClienteDashboard(
   session: SiteClienteSessionPayload,
 ): Promise<SiteClienteDashboardPayload> {
-  const { linhaIds, pdvKeys } = await loadGrupoScope(session.grupoId);
+  const { clienteKeys, pdvKeys } = await loadGrupoScope(session.grupoId);
   const dash = await getProducaoDashboard();
   const perm = session.permissoes;
   const now = new Date();
@@ -221,7 +224,7 @@ export async function buildSiteClienteDashboard(
   const moodboards = perm.verMoodboard
     ? await prisma.siteClienteMoodboard.findMany({ where: { grupoId: session.grupoId } })
     : [];
-  const moodByLinha = new Map(moodboards.map((m) => [m.rioLinhaId, m]));
+  const moodByKey = new Map(moodboards.map((m) => [m.rioLinhaId, m]));
 
   const programacaoCache = new Map<string, SiteClienteProgramacaoResumo | null>();
   const agCache = new Map<string, Awaited<ReturnType<typeof listAgendamentos>>>();
@@ -252,8 +255,8 @@ export async function buildSiteClienteDashboard(
   }
 
   const clientesFiltrados = dash.clientes.filter((c) => {
-    if (linhaIds.size === 0 && pdvKeys.size === 0) return false;
-    return clienteNoEscopo(c.rioLinhaId, c.pdvs, linhaIds, pdvKeys);
+    if (clienteKeys.size === 0 && pdvKeys.size === 0) return false;
+    return clienteNoEscopo(c.key, c.rioLinhaId, c.pdvs, clienteKeys, pdvKeys);
   });
 
   const layout = await getProducaoCatalogLayout();
@@ -267,7 +270,7 @@ export async function buildSiteClienteDashboard(
             tipo: "feedback",
             rioPdvKey: {
               in: clientesFiltrados.flatMap((c) =>
-                filterPdvs(c.pdvs, linhaIds, pdvKeys, c.rioLinhaId).map((p) => p.rioPdvKey),
+                filterPdvs(c.pdvs, clienteKeys, pdvKeys, c.key, c.rioLinhaId).map((p) => p.rioPdvKey),
               ),
             },
           },
@@ -280,7 +283,7 @@ export async function buildSiteClienteDashboard(
   const blocks: SiteClienteClienteBlock[] = [];
 
   for (const c of clientesFiltrados) {
-    const pdvsRaw = filterPdvs(c.pdvs, linhaIds, pdvKeys, c.rioLinhaId);
+    const pdvsRaw = filterPdvs(c.pdvs, clienteKeys, pdvKeys, c.key, c.rioLinhaId);
     const pdvRows: SiteClientePdvRow[] = [];
 
     let clienteProgramacao: SiteClienteProgramacaoResumo | null = null;
@@ -364,7 +367,7 @@ export async function buildSiteClienteDashboard(
         }));
     }
 
-    const mood = moodByLinha.get(c.rioLinhaId);
+    const mood = moodByKey.get(c.key) ?? (c.rioLinhaId ? moodByKey.get(c.rioLinhaId) : undefined);
     blocks.push({
       key: c.key,
       nome: c.nome,
@@ -406,7 +409,10 @@ export async function getSiteClienteMoodboardForUser(
   if (!session.permissoes.verMoodboard) return null;
 
   const scope = await loadGrupoScope(session.grupoId);
-  if (scope.linhaIds.size > 0 && !scope.linhaIds.has(rioLinhaId) && scope.pdvKeys.size === 0) {
+  const allowed =
+    scope.clienteKeys.has(rioLinhaId) ||
+    scope.pdvKeys.size > 0;
+  if (!allowed && scope.clienteKeys.size > 0) {
     return null;
   }
 

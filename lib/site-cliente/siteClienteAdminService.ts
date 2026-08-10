@@ -149,22 +149,31 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
 
   const rioLinhaIds = g.clientes.map((c) => c.rioLinhaId);
   const rioPdvKeys = g.pdvs.map((p) => p.rioPdvKey);
-  const clienteByLinha = new Map<string, { nome: string; pdvs: Map<string, string> }>();
   const pdvMeta = new Map<string, { nome: string; clienteNome: string }>();
+  let clienteByLinha = new Map<string, string>();
 
   if (rioLinhaIds.length > 0 || rioPdvKeys.length > 0) {
-    const dash = await getProducaoDashboard();
-    for (const c of dash.clientes) {
-      if (rioLinhaIds.includes(c.rioLinhaId) || c.pdvs.some((p) => rioPdvKeys.includes(p.rioPdvKey))) {
-        const pdvMap = new Map(c.pdvs.map((p) => [p.rioPdvKey, p.nome]));
-        clienteByLinha.set(c.rioLinhaId, { nome: c.nome, pdvs: pdvMap });
-        for (const p of c.pdvs) {
-          if (rioPdvKeys.includes(p.rioPdvKey)) {
-            pdvMeta.set(p.rioPdvKey, { nome: p.nome, clienteNome: c.nome });
-          }
-        }
+    const d = await getProducaoDashboard();
+    const bucketByScopeKey = new Map<string, (typeof d.clientes)[0]>();
+    for (const bucket of d.clientes) {
+      bucketByScopeKey.set(bucket.key, bucket);
+      if (bucket.rioLinhaId) bucketByScopeKey.set(bucket.rioLinhaId, bucket);
+    }
+
+    for (const { pdv, bucket } of d.clientes.flatMap((c) =>
+      c.pdvs.map((pdv) => ({ pdv, bucket: c })),
+    )) {
+      if (rioPdvKeys.includes(pdv.rioPdvKey)) {
+        pdvMeta.set(pdv.rioPdvKey, { nome: pdv.nome, clienteNome: bucket.nome });
       }
     }
+
+    clienteByLinha = new Map(
+      rioLinhaIds.map((id) => {
+        const bucket = bucketByScopeKey.get(id);
+        return [id, bucket?.nome ?? id] as const;
+      }),
+    );
   }
 
   return {
@@ -177,7 +186,7 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
     clientes: g.clientes.map((c) => ({
       rioLinhaId: c.rioLinhaId,
       portalClienteId: c.portalClienteId,
-      nome: clienteByLinha.get(c.rioLinhaId)?.nome ?? c.rioLinhaId,
+      nome: clienteByLinha.get(c.rioLinhaId) ?? c.rioLinhaId,
     })),
     pdvs: g.pdvs.map((p) => {
       const meta = pdvMeta.get(p.rioPdvKey);
