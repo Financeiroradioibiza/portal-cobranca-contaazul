@@ -4,14 +4,17 @@ import { isOcSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
 import { buildInstalacaoEmail } from "@/lib/suporte/instalacaoEmail";
 import {
   buildInstallLink,
+  buildElectronInstallerExeUrl,
   gerarSenhaTemporaria,
   GOOGLE_PLAY_PLAYER5_URL,
   listEnviosForPdv,
   registrarEnvio,
   resolveInstalacaoPdv,
+  type ElectronAuthModo,
   type InstalacaoPlataforma,
   type InstalacaoTipo,
 } from "@/lib/suporte/instalacaoService";
+import { tipoUsaSenhaTemporaria } from "@/lib/suporte/instalacaoTipos";
 import {
   gerarCodigoPlayInstalacao,
   listCodigosPlayForPdv,
@@ -36,9 +39,14 @@ function parseTipo(raw: unknown): InstalacaoTipo | null {
     raw === "pdv_login" ||
     raw === "pdv_senha_temp" ||
     raw === "pdv_senha_temp_migracao" ||
-    raw === "pdv_play5"
+    raw === "pdv_play5" ||
+    raw === "electron_ti"
     ? raw
     : null;
+}
+
+function parseElectronAuth(raw: unknown): ElectronAuthModo {
+  return raw === "login" ? "login" : "temp";
 }
 
 function parsePlataforma(raw: unknown): InstalacaoPlataforma | null {
@@ -73,6 +81,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "smtp_nao_configurado" }, { status: 400 });
       }
       const testTipo = parseTipo(body.tipo) ?? "pdv_senha_temp";
+      const testElectronAuth = parseElectronAuth(body.electronAuth);
       const customTest = typeof body.email === "string" ? body.email.trim() : "";
       const testTo = customTest && EMAIL_RE.test(customTest) ? customTest : TEST_EMAIL;
       const email =
@@ -86,18 +95,34 @@ export async function POST(request: Request) {
               link: GOOGLE_PLAY_PLAYER5_URL,
               codigoPlay: "PL5-BWUC-ZR75",
             })
-          : buildInstalacaoEmail({
-              tipo: "pdv_senha_temp",
-              plataforma: "windows",
-              clienteNome: "Teste portal",
-              pdvNome: "Teste portal 01",
-              codigoDisplay: "316.001",
-              link: buildInstallLink("pdv_senha_temp", "windows", {
+          : testTipo === "electron_ti"
+            ? buildInstalacaoEmail({
+                tipo: "electron_ti",
+                plataforma: "windows",
+                clienteNome: "Teste portal",
+                pdvNome: "Teste portal Electron TI",
+                codigoDisplay: "316.001",
+                link: buildInstallLink("electron_ti", "windows", {
+                  portalClienteId: 316,
+                  portalPdvId: 316001,
+                }, { electronAuth: testElectronAuth }),
+                senhaTemporaria: testElectronAuth === "temp" ? "TESTE123" : undefined,
+                electronAuth: testElectronAuth,
                 portalClienteId: 316,
                 portalPdvId: 316001,
-              }),
-              senhaTemporaria: "TESTE123",
-            });
+              })
+            : buildInstalacaoEmail({
+                tipo: "pdv_senha_temp",
+                plataforma: "windows",
+                clienteNome: "Teste portal",
+                pdvNome: "Teste portal 01",
+                codigoDisplay: "316.001",
+                link: buildInstallLink("pdv_senha_temp", "windows", {
+                  portalClienteId: 316,
+                  portalPdvId: 316001,
+                }),
+                senhaTemporaria: "TESTE123",
+              });
       await sendEmailViaSmtp({
         to: [testTo],
         subject: `[TESTE] ${email.subject}`,
@@ -151,10 +176,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "tipo_plataforma_invalido" }, { status: 400 });
     }
 
+    const electronAuth = parseElectronAuth(body.electronAuth);
+
     const ctx = await resolveInstalacaoPdv(portalClienteId, portalPdvId);
     if (!ctx) return NextResponse.json({ ok: false, error: "pdv_nao_encontrado" }, { status: 404 });
 
-    const link = buildInstallLink(tipo, plataforma, { portalClienteId, portalPdvId });
+    const linkOpts = tipo === "electron_ti" ? { electronAuth } : undefined;
+    const link = buildInstallLink(tipo, plataforma, { portalClienteId, portalPdvId }, linkOpts);
+    const exeUrl = tipo === "electron_ti" ? buildElectronInstallerExeUrl() : undefined;
 
     if (action === "gerar_link") {
       if (tipo === "pdv_play5") {
@@ -188,10 +217,10 @@ export async function POST(request: Request) {
       }
 
       let senhaTemporaria: string | undefined;
-      if (tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") {
+      if (tipoUsaSenhaTemporaria(tipo, electronAuth)) {
         senhaTemporaria = await gerarSenhaTemporaria(portalClienteId, portalPdvId, actorFrom(session));
       }
-      return NextResponse.json({ ok: true, link, senhaTemporaria });
+      return NextResponse.json({ ok: true, link, senhaTemporaria, exeUrl, electronAuth: tipo === "electron_ti" ? electronAuth : undefined });
     }
 
     if (action === "registrar_copia") {
@@ -280,7 +309,7 @@ export async function POST(request: Request) {
       const senhaTemporaria =
         typeof body.senhaTemporaria === "string" && body.senhaTemporaria.trim()
           ? body.senhaTemporaria.trim()
-          : tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao"
+          : tipoUsaSenhaTemporaria(tipo, electronAuth)
             ? await gerarSenhaTemporaria(portalClienteId, portalPdvId, actorFrom(session))
             : undefined;
 
@@ -292,6 +321,9 @@ export async function POST(request: Request) {
         codigoDisplay: ctx.codigoDisplay,
         link,
         senhaTemporaria,
+        electronAuth: tipo === "electron_ti" ? electronAuth : undefined,
+        portalClienteId,
+        portalPdvId,
       });
 
       await sendEmailViaSmtp({
@@ -314,7 +346,7 @@ export async function POST(request: Request) {
         enviadoPor: actorFrom(session),
       });
 
-      return NextResponse.json({ ok: true, to: destino, senhaTemporaria, link });
+      return NextResponse.json({ ok: true, to: destino, senhaTemporaria, link, exeUrl });
     }
 
     return NextResponse.json({ ok: false, error: "acao_desconhecida" }, { status: 400 });

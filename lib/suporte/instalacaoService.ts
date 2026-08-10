@@ -10,9 +10,11 @@ export type InstalacaoTipo =
   | "pdv_login"
   | "pdv_senha_temp"
   | "pdv_senha_temp_migracao"
-  | "pdv_play5";
+  | "pdv_play5"
+  | "electron_ti";
 export type InstalacaoPlataforma = "windows" | "mobile";
 export type InstalacaoCanal = "email" | "link";
+export type ElectronAuthModo = "login" | "temp";
 
 /** App Android na Google Play (TWA Player 5). */
 export const GOOGLE_PLAY_PLAYER5_URL =
@@ -86,11 +88,13 @@ export async function resolveInstalacaoPdv(
  * Monta o link de instalação.
  * - padrao_cliente → guia PWA padrão (instalar.html / m/instalar.html) — não embarca PDV.
  * - pdv_login / pdv_senha_temp / pdv_senha_temp_migracao → instalar-pdv.html que embarca cliente+PDV.
+ * - electron_ti → instalar-pdv.html com shell=ti (redireciona ao guia do .exe).
  */
 export function buildInstallLink(
   tipo: InstalacaoTipo,
   plataforma: InstalacaoPlataforma,
   ctx: { portalClienteId: number; portalPdvId: number },
+  opts?: { electronAuth?: ElectronAuthModo },
 ): string {
   const base = player5Origin();
   if (tipo === "padrao_cliente") {
@@ -99,13 +103,40 @@ export function buildInstallLink(
   const params = new URLSearchParams({
     c: String(ctx.portalClienteId),
     p: String(ctx.portalPdvId),
-    mode: tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao" ? "temp" : "login",
   });
+  if (tipo === "electron_ti") {
+    params.set("shell", "ti");
+    params.set("mode", opts?.electronAuth === "temp" ? "temp" : "login");
+  } else {
+    params.set(
+      "mode",
+      tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao" ? "temp" : "login",
+    );
+  }
   if (tipo === "pdv_senha_temp_migracao") {
     params.set("migrate", "1");
   }
   if (plataforma === "mobile") params.set("m", "1");
   return `${base}/instalar-pdv.html?${params.toString()}`;
+}
+
+/** URL fixa do instalador .exe (Electron TI) no host do Player 5. */
+export function buildElectronInstallerExeUrl(): string {
+  return `${player5Origin()}/install/RadioIbiza-Setup.exe`;
+}
+
+/** Página de guia TI com parâmetros do PDV (download do .exe + pending install). */
+export function buildElectronInstallerGuiaUrl(
+  ctx: { portalClienteId: number; portalPdvId: number },
+  electronAuth: ElectronAuthModo,
+): string {
+  const base = player5Origin();
+  const params = new URLSearchParams({
+    c: String(ctx.portalClienteId),
+    p: String(ctx.portalPdvId),
+    mode: electronAuth === "temp" ? "temp" : "login",
+  });
+  return `${base}/instalador-desktop/?${params.toString()}`;
 }
 
 const SENHA_TEMP_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

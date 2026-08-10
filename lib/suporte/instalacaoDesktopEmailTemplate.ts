@@ -25,13 +25,13 @@ function introForTipo(tipo: InstalacaoTipo): string {
 function subtituloForTipo(tipo: InstalacaoTipo): string {
   switch (tipo) {
     case "pdv_login":
-      return "Instalação do PDV com login";
+      return "Windows Web · PDV sem senha temporária";
     case "pdv_senha_temp":
-      return "Instalação com senha temporária";
+      return "Windows Web · senha temporária";
     case "pdv_senha_temp_migracao":
-      return "Atualização Player 5 + remover antigo";
+      return "Windows Web · atualização + remover antigo";
     default:
-      return "Instalação padrão (cliente)";
+      return "Windows Web · login administrativo (TI)";
   }
 }
 

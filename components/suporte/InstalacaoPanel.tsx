@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
+import {
+  INSTALACAO_TIPOS,
+  instalacaoTipoLabel,
+  type ElectronAuthModo,
+} from "@/lib/suporte/instalacaoTipos";
+import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
 
@@ -34,12 +40,7 @@ type LogRow = {
   createdAt: string;
 };
 
-type Tipo =
-  | "padrao_cliente"
-  | "pdv_login"
-  | "pdv_senha_temp"
-  | "pdv_senha_temp_migracao"
-  | "pdv_play5";
+type Tipo = InstalacaoTipo;
 type Plataforma = "windows" | "mobile";
 
 const inputClass =
@@ -49,34 +50,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const GOOGLE_PLAY_URL =
   "https://play.google.com/store/apps/details?id=br.com.radioibiza.player5.twa&pcampaignid=web_share";
-
-const TIPOS: { id: Tipo; label: string; desc: string }[] = [
-  {
-    id: "padrao_cliente",
-    label: "1 · Instalação padrão (cliente)",
-    desc: "Link de instalação no Windows. O cliente entra com e-mail/senha e escolhe o PDV na lista.",
-  },
-  {
-    id: "pdv_login",
-    label: "2 · Instalação do PDV com login",
-    desc: "Link Windows com o PDV embutido. O cliente entra com a senha padrão — o PDV já vem selecionado.",
-  },
-  {
-    id: "pdv_senha_temp",
-    label: "3 · Instalação do PDV com senha temporária",
-    desc: "Link Windows com o PDV embutido + senha de uso único. Vale só uma instalação; depois é preciso gerar outra.",
-  },
-  {
-    id: "pdv_senha_temp_migracao",
-    label: "4 · Atualização Player 5 + remover player antigo",
-    desc: "Igual ao tipo 3 no Windows. Após instalar o Player 5, o cliente recebe um passo para desinstalar a Rádio Ibiza antiga (.bat).",
-  },
-  {
-    id: "pdv_play5",
-    label: "5 · Instalação Google Play (Android)",
-    desc: "Código PL5 de uso único para o app da Play Store. Só gera com PDV sem player instalado (regenerar serial antes). Não usa login e senha.",
-  },
-];
 
 function mapErr(data: unknown): string {
   const err = (data as { error?: unknown })?.error;
@@ -113,14 +86,6 @@ async function postInstalacao(body: Record<string, unknown>) {
     data = null;
   }
   return { res, data };
-}
-
-function tipoLabel(t: string): string {
-  if (t === "pdv_play5") return "Google Play (PL5)";
-  if (t === "pdv_login") return "PDV com login";
-  if (t === "pdv_senha_temp") return "PDV senha temporária";
-  if (t === "pdv_senha_temp_migracao") return "Atualização + remover antigo";
-  return "Padrão cliente";
 }
 
 function PdvPicker({
@@ -250,9 +215,11 @@ function PdvPicker({
 export function InstalacaoPanel() {
   const [selected, setSelected] = useState<SelectedPdv | null>(null);
   const [contexto, setContexto] = useState<Contexto | null>(null);
-  const [tipo, setTipo] = useState<Tipo>("padrao_cliente");
+  const [tipo, setTipo] = useState<Tipo>("pdv_senha_temp");
+  const [electronAuth, setElectronAuth] = useState<ElectronAuthModo>("temp");
 
   const [link, setLink] = useState("");
+  const [exeUrl, setExeUrl] = useState("");
   const [senhaTemp, setSenhaTemp] = useState("");
   const [codigoPlay, setCodigoPlay] = useState("");
 
@@ -283,6 +250,7 @@ export function InstalacaoPanel() {
 
   useEffect(() => {
     setLink("");
+    setExeUrl("");
     setSenhaTemp("");
     setCodigoPlay("");
     setStatus(null);
@@ -295,8 +263,9 @@ export function InstalacaoPanel() {
 
   useEffect(() => {
     setLink("");
+    setExeUrl("");
     setSenhaTemp("");
-  }, [tipo]);
+  }, [tipo, electronAuth]);
 
   const refreshLog = useCallback(async () => {
     if (!selected) return;
@@ -322,24 +291,27 @@ export function InstalacaoPanel() {
         portalPdvId: selected.portalPdvId,
         tipo,
         plataforma: plataformaEnvio,
+        electronAuth: tipo === "electron_ti" ? electronAuth : undefined,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setStatus({ kind: "err", text: mapErr(data) });
         return;
       }
-      const d = data as { link?: string; senhaTemporaria?: string; codigoPlay?: string };
+      const d = data as { link?: string; senhaTemporaria?: string; codigoPlay?: string; exeUrl?: string };
       if (tipo === "pdv_play5") {
         setCodigoPlay(d.codigoPlay ?? "");
         setLink("");
+        setExeUrl("");
         setSenhaTemp("");
         setStatus({ kind: "ok", text: "Código Google Play gerado (uso único)." });
         void loadContextoELog(selected);
         return;
       }
       setLink(d.link ?? "");
+      setExeUrl(d.exeUrl ?? "");
       setSenhaTemp(d.senhaTemporaria ?? "");
       setCodigoPlay("");
-      setStatus({ kind: "ok", text: "Link gerado." });
+      setStatus({ kind: "ok", text: tipo === "electron_ti" ? "Link e instalador gerados." : "Link gerado." });
     } finally {
       setBusy(false);
     }
@@ -414,6 +386,7 @@ export function InstalacaoPanel() {
         portalPdvId: selected.portalPdvId,
         tipo,
         plataforma: plataformaEnvio,
+        electronAuth: tipo === "electron_ti" ? electronAuth : undefined,
         email: destinatario === "novo" ? destino : undefined,
         senhaTemporaria: senhaTemp || undefined,
         codigoPlay: tipo === "pdv_play5" ? codigoPlay || undefined : undefined,
@@ -422,9 +395,10 @@ export function InstalacaoPanel() {
         setStatus({ kind: "err", text: mapErr(data) });
         return;
       }
-      const d = data as { to?: string; senhaTemporaria?: string; link?: string; codigoPlay?: string };
+      const d = data as { to?: string; senhaTemporaria?: string; link?: string; codigoPlay?: string; exeUrl?: string };
       if (d.senhaTemporaria) setSenhaTemp(d.senhaTemporaria);
       if (typeof d.link === "string" && d.link.trim()) setLink(d.link.trim());
+      if (typeof d.exeUrl === "string" && d.exeUrl.trim()) setExeUrl(d.exeUrl.trim());
       if (d.codigoPlay) setCodigoPlay(d.codigoPlay);
       setStatus({ kind: "ok", text: `E-mail enviado para ${d.to ?? destino}.` });
       void refreshLog();
@@ -445,6 +419,7 @@ export function InstalacaoPanel() {
       const { res, data } = await postInstalacao({
         action: "enviar_teste",
         tipo,
+        electronAuth: tipo === "electron_ti" ? electronAuth : undefined,
         email: destino || undefined,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
@@ -470,7 +445,7 @@ export function InstalacaoPanel() {
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <h2 className="mb-3 text-sm font-semibold text-zinc-200">2. Tipo de instalação</h2>
             <div className="space-y-2">
-              {TIPOS.map((t) => (
+              {INSTALACAO_TIPOS.map((t) => (
                 <label
                   key={t.id}
                   className={
@@ -494,6 +469,46 @@ export function InstalacaoPanel() {
                 </label>
               ))}
             </div>
+
+            {tipo === "electron_ti" ? (
+              <div className="mt-4 rounded-lg border border-violet-800/50 bg-violet-950/20 p-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-violet-300">
+                  Autenticação no Player (.exe)
+                </p>
+                <div className="space-y-2">
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-200">
+                    <input
+                      type="radio"
+                      name="electronAuth"
+                      className="mt-1"
+                      checked={electronAuth === "temp"}
+                      onChange={() => setElectronAuth("temp")}
+                    />
+                    <span>
+                      <span className="font-medium">Senha temporária</span>
+                      <span className="mt-0.5 block text-[12px] text-zinc-400">
+                        Gera código de uso único — recomendado para entrega ao cliente/TI da loja.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-200">
+                    <input
+                      type="radio"
+                      name="electronAuth"
+                      className="mt-1"
+                      checked={electronAuth === "login"}
+                      onChange={() => setElectronAuth("login")}
+                    />
+                    <span>
+                      <span className="font-medium">Login e senha do cliente</span>
+                      <span className="mt-0.5 block text-[12px] text-zinc-400">
+                        O operador entra com e-mail e senha administrativos do cliente no Player.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            ) : null}
 
             {tipo === "pdv_play5" && contexto ? (
               <div
@@ -521,8 +536,20 @@ export function InstalacaoPanel() {
 
             {tipo !== "pdv_play5" ? (
               <p className="mt-3 text-[11px] text-zinc-500">
-                Instalação no <strong className="font-medium text-zinc-400">Windows</strong> (PWA no Chrome).
-                Para celular Android, use o tipo <strong className="font-medium text-zinc-400">5 · Google Play</strong>.
+                {tipo === "electron_ti" ? (
+                  <>
+                    Instalador <strong className="font-medium text-zinc-400">.exe multisusuário</strong> (Electron TI).
+                    Tipos 1–4 usam PWA no Chrome. Android: tipo{" "}
+                    <strong className="font-medium text-zinc-400">5 · Google Play</strong>.
+                  </>
+                ) : (
+                  <>
+                    Instalação no <strong className="font-medium text-zinc-400">Windows Web</strong> (PWA no Chrome).
+                    Para celular Android, use o tipo{" "}
+                    <strong className="font-medium text-zinc-400">5 · Google Play</strong>.
+                    Para .exe TI, use o tipo <strong className="font-medium text-zinc-400">6</strong>.
+                  </>
+                )}
               </p>
             ) : null}
 
@@ -533,7 +560,7 @@ export function InstalacaoPanel() {
                 onClick={handleGerarLink}
                 className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white hover:bg-fuchsia-500 disabled:opacity-50"
               >
-                {tipo === "pdv_play5" ? "Gerar código Play" : "Gerar link"}
+                {tipo === "pdv_play5" ? "Gerar código Play" : tipo === "electron_ti" ? "Gerar link + .exe" : "Gerar link"}
               </button>
               {tipo === "pdv_play5" && codigoPlay ? (
                 <button
@@ -592,9 +619,24 @@ export function InstalacaoPanel() {
               </div>
             ) : null}
 
-            {link ? (
+            {link || exeUrl ? (
               <div className="mt-3 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950 p-3">
-                <p className="break-all font-mono text-[12px] text-emerald-300">{link.trim()}</p>
+                {link ? (
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                      {tipo === "electron_ti" ? "Link de preparação (PDV embutido)" : "Link de instalação"}
+                    </p>
+                    <p className="break-all font-mono text-[12px] text-emerald-300">{link.trim()}</p>
+                  </div>
+                ) : null}
+                {exeUrl ? (
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet-400">
+                      Instalador .exe (Electron TI)
+                    </p>
+                    <p className="break-all font-mono text-[12px] text-violet-300">{exeUrl.trim()}</p>
+                  </div>
+                ) : null}
                 {senhaTemp ? (
                   <div className="rounded-lg border border-fuchsia-600/50 bg-fuchsia-950/20 px-3 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-300/90">
@@ -630,6 +672,13 @@ export function InstalacaoPanel() {
               <p className="mb-3 text-[12px] text-zinc-400">
                 O e-mail inclui o link da Google Play e o código PL5
                 {codigoPlay ? " gerado acima" : " (será gerado automaticamente ao enviar, se ainda não existir)"}.
+              </p>
+            ) : tipo === "electron_ti" ? (
+              <p className="mb-3 text-[12px] text-zinc-400">
+                O e-mail inclui link do instalador .exe, guia de instalação e{" "}
+                {electronAuth === "temp"
+                  ? "senha temporária (gerada ao enviar, se ainda não existir)."
+                  : "instruções para login e senha do cliente."}
               </p>
             ) : null}
             <div className="space-y-2">
@@ -713,7 +762,7 @@ export function InstalacaoPanel() {
                 {log.map((r) => (
                   <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                     <div>
-                      <span className="text-zinc-200">{tipoLabel(r.tipo)}</span>
+                      <span className="text-zinc-200">{instalacaoTipoLabel(r.tipo)}</span>
                       <span className="text-zinc-500"> · {r.plataforma}</span>
                       <span className="text-zinc-500"> · {r.canal === "email" ? "e-mail" : "link copiado"}</span>
                       {r.destinoEmail ? (

@@ -1,9 +1,17 @@
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import { COMPANY_NAME } from "@/lib/brand";
 import { renderInstalacaoDesktopEmailHtml } from "@/lib/suporte/instalacaoDesktopEmailTemplate";
+import { renderInstalacaoElectronEmailHtml } from "@/lib/suporte/instalacaoElectronEmailTemplate";
 import { renderInstalacaoPlay5EmailHtml } from "@/lib/suporte/instalacaoPlay5EmailTemplate";
-import { GOOGLE_PLAY_PLAYER5_URL } from "@/lib/suporte/instalacaoService";
-import type { InstalacaoPlataforma, InstalacaoTipo } from "@/lib/suporte/instalacaoService";
+import {
+  buildElectronInstallerExeUrl,
+  buildElectronInstallerGuiaUrl,
+  GOOGLE_PLAY_PLAYER5_URL,
+  type ElectronAuthModo,
+  type InstalacaoPlataforma,
+  type InstalacaoTipo,
+} from "@/lib/suporte/instalacaoService";
+import { tipoUsaSenhaTemporaria } from "@/lib/suporte/instalacaoTipos";
 
 export type InstalacaoEmailInput = {
   tipo: InstalacaoTipo;
@@ -12,10 +20,12 @@ export type InstalacaoEmailInput = {
   pdvNome: string;
   codigoDisplay: string;
   link: string;
-  /** Só para tipos pdv_senha_temp e pdv_senha_temp_migracao. */
   senhaTemporaria?: string;
-  /** Só para pdv_play5 (Google Play Android). */
   codigoPlay?: string;
+  /** Só tipo 6 (electron_ti). */
+  electronAuth?: ElectronAuthModo;
+  portalClienteId?: number;
+  portalPdvId?: number;
 };
 
 export type InstalacaoEmailContent = {
@@ -24,10 +34,6 @@ export type InstalacaoEmailContent = {
   html: string;
   attachments?: EmailAttachment[];
 };
-
-function usaSenhaTemporaria(tipo: InstalacaoTipo): boolean {
-  return tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao";
-}
 
 function passosPlay(codigoPlay: string): string[] {
   return [
@@ -38,7 +44,6 @@ function passosPlay(codigoPlay: string): string[] {
   ];
 }
 
-/** Passos de instalação Windows (tipos 1–4). Mobile/PWA: use tipo 5 Google Play. */
 function passosWindows(tipo: InstalacaoTipo, senha?: string): string[] {
   const passosList = [
     "Abra o link neste e-mail no Google Chrome do computador Windows.",
@@ -49,7 +54,7 @@ function passosWindows(tipo: InstalacaoTipo, senha?: string): string[] {
     passosList.push(
       "Ao abrir o Player, entre com o e-mail e a senha do cliente. O ponto de venda já vem selecionado — não é preciso escolher na lista.",
     );
-  } else if (usaSenhaTemporaria(tipo)) {
+  } else if (tipoUsaSenhaTemporaria(tipo)) {
     passosList.push(
       senha
         ? "Na tela do Player, digite a senha temporária destacada acima neste e-mail. Ela funciona apenas uma vez, nesta instalação."
@@ -68,9 +73,32 @@ function passosWindows(tipo: InstalacaoTipo, senha?: string): string[] {
   return passosList;
 }
 
+function passosElectron(auth: ElectronAuthModo, senha?: string): string[] {
+  const passosList = [
+    "Baixe e execute o instalador .exe (link «Baixar instalador» neste e-mail). Aceite as permissões de administrador se o Windows pedir.",
+    "Abra o Player instalado no menu Iniciar ou atalho «Radio Ibiza Player».",
+  ];
+  if (auth === "temp") {
+    passosList.push(
+      senha
+        ? "Na tela de login, escolha a aba «Senha temporária» e digite o código destacado acima (uso único)."
+        : "Na tela de login, escolha a aba «Senha temporária» e digite o código enviado neste e-mail.",
+    );
+  } else {
+    passosList.push(
+      "Na tela de login, use a aba «E-mail e senha» com as credenciais do cliente. O PDV deste link já vem associado a este computador.",
+    );
+  }
+  passosList.push("Aguarde o download da programação e confirme os dados da loja.");
+  return passosList;
+}
+
 function subjectForTipo(tipo: InstalacaoTipo, pdvNome: string): string {
   if (tipo === "pdv_play5") {
     return `${COMPANY_NAME} — Instalação do Player na Google Play (${pdvNome})`;
+  }
+  if (tipo === "electron_ti") {
+    return `${COMPANY_NAME} — Instalação multisusuário Windows (${pdvNome})`;
   }
   if (tipo === "pdv_senha_temp_migracao") {
     return `${COMPANY_NAME} — Atualização Player 5 no Windows (${pdvNome})`;
@@ -79,14 +107,35 @@ function subjectForTipo(tipo: InstalacaoTipo, pdvNome: string): string {
 }
 
 export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEmailContent {
-  const { tipo, clienteNome, pdvNome, codigoDisplay, link, senhaTemporaria, codigoPlay } = input;
+  const {
+    tipo,
+    clienteNome,
+    pdvNome,
+    codigoDisplay,
+    link,
+    senhaTemporaria,
+    codigoPlay,
+    electronAuth = "temp",
+    portalClienteId,
+    portalPdvId,
+  } = input;
 
   const isPlay5 = tipo === "pdv_play5";
+  const isElectron = tipo === "electron_ti";
   const playUrl = GOOGLE_PLAY_PLAYER5_URL;
   const subject = subjectForTipo(tipo, pdvNome);
 
-  const linhas =
-    isPlay5 && codigoPlay ? passosPlay(codigoPlay) : passosWindows(tipo, senhaTemporaria);
+  const exeUrl = buildElectronInstallerExeUrl();
+  const guiaUrl =
+    isElectron && portalClienteId != null && portalPdvId != null
+      ? buildElectronInstallerGuiaUrl({ portalClienteId, portalPdvId }, electronAuth)
+      : link;
+
+  const linhas = isPlay5 && codigoPlay
+    ? passosPlay(codigoPlay)
+    : isElectron
+      ? passosElectron(electronAuth, senhaTemporaria)
+      : passosWindows(tipo, senhaTemporaria);
 
   const textParts: string[] = [`Olá!`, ``];
 
@@ -109,6 +158,30 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
       );
     }
     textParts.push(`Link da Google Play:`, playUrl, ``);
+  } else if (isElectron) {
+    textParts.push(
+      `Segue o instalador multisusuário Windows (.exe) da ${COMPANY_NAME} para este PDV.`,
+      ``,
+      `Cliente: ${clienteNome}`,
+      `Ponto de venda: ${pdvNome} (${codigoDisplay})`,
+      `Modo: ${electronAuth === "temp" ? "Senha temporária" : "Login e senha do cliente"}`,
+      ``,
+      `Instalador (.exe):`,
+      exeUrl,
+      ``,
+      `Guia de instalação:`,
+      guiaUrl,
+      ``,
+    );
+    if (electronAuth === "temp" && senhaTemporaria) {
+      textParts.push(
+        `━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `Senha temporária (copie aqui):`,
+        senhaTemporaria,
+        `━━━━━━━━━━━━━━━━━━━━━━━━`,
+        ``,
+      );
+    }
   } else {
     textParts.push(
       `Segue o link para instalar o Player da ${COMPANY_NAME} no computador Windows.`,
@@ -121,7 +194,7 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
       link,
       ``,
     );
-    if (usaSenhaTemporaria(tipo) && senhaTemporaria) {
+    if (tipoUsaSenhaTemporaria(tipo) && senhaTemporaria) {
       textParts.push(
         `━━━━━━━━━━━━━━━━━━━━━━━━`,
         `Senha temporária (copie aqui):`,
@@ -149,17 +222,27 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
         })
       : null;
 
-  const html =
-    play5Rendered?.html ??
-    renderInstalacaoDesktopEmailHtml({
-      tipo,
-      clienteNome,
-      pdvNome,
-      codigoDisplay,
-      link,
-      senhaTemporaria,
-      passos: linhas,
-    });
+  const html = play5Rendered?.html
+    ?? (isElectron
+      ? renderInstalacaoElectronEmailHtml({
+          clienteNome,
+          pdvNome,
+          codigoDisplay,
+          guiaUrl,
+          exeUrl,
+          electronAuth,
+          senhaTemporaria,
+          passos: linhas,
+        })
+      : renderInstalacaoDesktopEmailHtml({
+          tipo,
+          clienteNome,
+          pdvNome,
+          codigoDisplay,
+          link,
+          senhaTemporaria,
+          passos: linhas,
+        }));
 
   return { subject, text, html, attachments: play5Rendered?.attachments };
 }
