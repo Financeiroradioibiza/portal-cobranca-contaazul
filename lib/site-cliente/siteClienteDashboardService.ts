@@ -142,13 +142,8 @@ function filterPdvs(
   pdvKeys: Set<string>,
   rioLinhaId: string,
 ): DashboardPdvRow[] {
-  const clienteInteiro = linhaIds.has(rioLinhaId);
-  const pdvsExplicitos = pdvs.filter((p) => pdvKeys.has(p.rioPdvKey));
-
-  if (clienteInteiro) {
-    return pdvsExplicitos.length > 0 ? pdvsExplicitos : pdvs;
-  }
-  return pdvsExplicitos;
+  if (linhaIds.has(rioLinhaId)) return pdvs;
+  return pdvs.filter((p) => pdvKeys.has(p.rioPdvKey));
 }
 
 async function buildProgramacaoResumo(programacaoId: string): Promise<SiteClienteProgramacaoResumo | null> {

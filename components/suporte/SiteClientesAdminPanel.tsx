@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CopyTextButton } from "@/components/CopyTextButton";
 import {
   SITE_CLIENTE_PERMISSAO_LABELS,
   SITE_CLIENTE_PERMISSOES_DEFAULT,
@@ -160,15 +161,21 @@ export function SiteClientesAdminPanel() {
   async function toggleCliente(c: CatalogCliente) {
     if (!detail) return;
     const clientes = [...detail.clientes];
+    let pdvs = [...detail.pdvs];
+    const pdvKeysCliente = new Set(c.pdvs.map((p) => p.rioPdvKey));
     const idx = clientes.findIndex((x) => x.rioLinhaId === c.rioLinhaId);
-    if (idx >= 0) clientes.splice(idx, 1);
-    else
+    if (idx >= 0) {
+      clientes.splice(idx, 1);
+      pdvs = pdvs.filter((p) => !pdvKeysCliente.has(p.rioPdvKey));
+    } else {
       clientes.push({
         rioLinhaId: c.rioLinhaId,
         portalClienteId: c.portalClienteId,
         nome: c.nome,
       });
-    await saveEscopo(clientes, detail.pdvs);
+      pdvs = pdvs.filter((p) => !pdvKeysCliente.has(p.rioPdvKey));
+    }
+    await saveEscopo(clientes, pdvs);
   }
 
   async function togglePdv(
@@ -176,6 +183,7 @@ export function SiteClientesAdminPanel() {
     cliente: CatalogCliente,
   ) {
     if (!detail) return;
+    if (selectedLinhas.has(cliente.rioLinhaId)) return;
     const pdvs = [...detail.pdvs];
     const idx = pdvs.findIndex((x) => x.rioPdvKey === pdv.rioPdvKey);
     if (idx >= 0) pdvs.splice(idx, 1);
@@ -293,6 +301,14 @@ export function SiteClientesAdminPanel() {
 
   const moodCliente = catalog.find((c) => c.rioLinhaId === moodClienteId);
 
+  const loginUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/site-cliente/login`
+      : "/site-cliente/login";
+
+  const grupoPronto =
+    detail != null && detail.clientes.length + detail.pdvs.length > 0 && detail.usuarios.length > 0;
+
   return (
     <div className="space-y-6">
       {msg ? (
@@ -347,7 +363,8 @@ export function SiteClientesAdminPanel() {
             </button>
           </div>
           <p className="mt-3 text-xs text-zinc-500">
-            URL do cliente: <strong>/site-cliente/login</strong>
+            O cliente acessa em <strong>/site-cliente/login</strong> — não precisa «criar site»; basta
+            grupo + usuário.
           </p>
         </section>
 
@@ -366,8 +383,49 @@ export function SiteClientesAdminPanel() {
                 </p>
               </div>
 
+              {grupoPronto ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-800 dark:bg-emerald-950/30">
+                  <h3 className="font-semibold text-emerald-900 dark:text-emerald-100">
+                    Site pronto para usar
+                  </h3>
+                  <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">
+                    Não há passo extra de «publicar site». Envie ao cliente o link e o login abaixo.
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <code className="rounded bg-white/80 px-2 py-1 text-sm dark:bg-black/30">
+                      {loginUrl}
+                    </code>
+                    <CopyTextButton text={loginUrl} label="Copiar link" />
+                    <a
+                      href="/site-cliente/login"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="portal-btn portal-btn-primary text-sm"
+                    >
+                      Abrir login
+                    </a>
+                  </div>
+                  <ul className="mt-3 space-y-1 text-sm text-emerald-900 dark:text-emerald-100">
+                    {detail.usuarios.map((u) => (
+                      <li key={u.id}>
+                        <strong>{u.nome}</strong> — login:{" "}
+                        <code className="rounded bg-white/60 px-1 dark:bg-black/20">{u.loginEmail}</code>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
+                    A senha é a que você definiu ao criar o usuário (não fica salva em texto aqui).
+                  </p>
+                </div>
+              ) : null}
+
               <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-                <h3 className="mb-3 font-semibold">Escopo — clientes e PDVs</h3>
+                <h3 className="mb-1 font-semibold">Escopo — clientes e PDVs</h3>
+                <p className="mb-3 text-xs text-zinc-500">
+                  Marque o <strong>cliente</strong> para incluir <strong>todos os PDVs</strong> dele. Use
+                  os checkboxes de PDV só quando quiser um ou outro PDV avulso, sem marcar o cliente
+                  inteiro.
+                </p>
                 <input
                   className="portal-input mb-3 w-full text-sm"
                   placeholder="Buscar cliente…"
@@ -402,20 +460,26 @@ export function SiteClientesAdminPanel() {
                       </div>
                       {c.pdvs.length > 0 ? (
                         <div className="mt-2 ml-6 space-y-1">
-                          {c.pdvs.map((p) => (
-                            <label
-                              key={p.rioPdvKey}
-                              className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedPdvs.has(p.rioPdvKey)}
-                                onChange={() => void togglePdv(p, c)}
-                                disabled={busy}
-                              />
-                              PDV: {p.nome}
-                            </label>
-                          ))}
+                          {selectedLinhas.has(c.rioLinhaId) ? (
+                            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                              ✓ {c.pdvs.length} PDV(s) incluídos automaticamente
+                            </p>
+                          ) : (
+                            c.pdvs.map((p) => (
+                              <label
+                                key={p.rioPdvKey}
+                                className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPdvs.has(p.rioPdvKey)}
+                                  onChange={() => void togglePdv(p, c)}
+                                  disabled={busy}
+                                />
+                                PDV avulso: {p.nome}
+                              </label>
+                            ))
+                          )}
                         </div>
                       ) : null}
                     </div>
