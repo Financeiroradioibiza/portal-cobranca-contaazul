@@ -54,22 +54,22 @@ const TIPOS: { id: Tipo; label: string; desc: string }[] = [
   {
     id: "padrao_cliente",
     label: "1 · Instalação padrão (cliente)",
-    desc: "Link padrão de instalação. O cliente entra com e-mail/senha e escolhe o PDV na lista.",
+    desc: "Link de instalação no Windows. O cliente entra com e-mail/senha e escolhe o PDV na lista.",
   },
   {
     id: "pdv_login",
     label: "2 · Instalação do PDV com login",
-    desc: "Link já com o PDV embutido. O cliente entra com a senha padrão — o PDV já vem selecionado.",
+    desc: "Link Windows com o PDV embutido. O cliente entra com a senha padrão — o PDV já vem selecionado.",
   },
   {
     id: "pdv_senha_temp",
     label: "3 · Instalação do PDV com senha temporária",
-    desc: "Link com o PDV embutido + senha de uso único. Vale só uma instalação; depois é preciso gerar outra.",
+    desc: "Link Windows com o PDV embutido + senha de uso único. Vale só uma instalação; depois é preciso gerar outra.",
   },
   {
     id: "pdv_senha_temp_migracao",
     label: "4 · Atualização Player 5 + remover player antigo",
-    desc: "Igual ao tipo 3 (senha temporária). Após instalar o Player 5, o cliente recebe um passo para desinstalar a Rádio Ibiza antiga no Windows (.bat).",
+    desc: "Igual ao tipo 3 no Windows. Após instalar o Player 5, o cliente recebe um passo para desinstalar a Rádio Ibiza antiga (.bat).",
   },
   {
     id: "pdv_play5",
@@ -251,7 +251,6 @@ export function InstalacaoPanel() {
   const [selected, setSelected] = useState<SelectedPdv | null>(null);
   const [contexto, setContexto] = useState<Contexto | null>(null);
   const [tipo, setTipo] = useState<Tipo>("padrao_cliente");
-  const [plataforma, setPlataforma] = useState<Plataforma>("windows");
 
   const [link, setLink] = useState("");
   const [senhaTemp, setSenhaTemp] = useState("");
@@ -297,7 +296,7 @@ export function InstalacaoPanel() {
   useEffect(() => {
     setLink("");
     setSenhaTemp("");
-  }, [tipo, plataforma]);
+  }, [tipo]);
 
   const refreshLog = useCallback(async () => {
     if (!selected) return;
@@ -310,9 +309,7 @@ export function InstalacaoPanel() {
     setLog(Array.isArray(rows) ? rows : []);
   }, [selected]);
 
-  useEffect(() => {
-    if (tipo === "pdv_play5") setPlataforma("mobile");
-  }, [tipo]);
+  const plataformaEnvio: Plataforma = tipo === "pdv_play5" ? "mobile" : "windows";
 
   async function handleGerarLink() {
     if (!selected) return;
@@ -324,7 +321,7 @@ export function InstalacaoPanel() {
         portalClienteId: selected.portalClienteId,
         portalPdvId: selected.portalPdvId,
         tipo,
-        plataforma: tipo === "pdv_play5" ? "mobile" : plataforma,
+        plataforma: plataformaEnvio,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setStatus({ kind: "err", text: mapErr(data) });
@@ -373,7 +370,7 @@ export function InstalacaoPanel() {
         portalClienteId: selected.portalClienteId,
         portalPdvId: selected.portalPdvId,
         tipo,
-        plataforma,
+        plataforma: plataformaEnvio,
         link: url,
       });
       void refreshLog();
@@ -416,7 +413,7 @@ export function InstalacaoPanel() {
         portalClienteId: selected.portalClienteId,
         portalPdvId: selected.portalPdvId,
         tipo,
-        plataforma: tipo === "pdv_play5" ? "mobile" : plataforma,
+        plataforma: plataformaEnvio,
         email: destinatario === "novo" ? destino : undefined,
         senhaTemporaria: senhaTemp || undefined,
         codigoPlay: tipo === "pdv_play5" ? codigoPlay || undefined : undefined,
@@ -460,8 +457,6 @@ export function InstalacaoPanel() {
       setBusy(false);
     }
   }
-
-  const podeMobile = true;
 
   return (
     <div className="space-y-6">
@@ -524,25 +519,11 @@ export function InstalacaoPanel() {
               </div>
             ) : null}
 
-            {tipo !== "pdv_play5" && podeMobile ? (
-              <div className="mt-4">
-                <p className="mb-1.5 text-xs text-zinc-500">Plataforma</p>
-                <div className="inline-flex rounded-lg border border-zinc-700 p-0.5">
-                  {(["windows", "mobile"] as Plataforma[]).map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setPlataforma(p)}
-                      className={
-                        "rounded-md px-4 py-1.5 text-sm " +
-                        (plataforma === p ? "bg-fuchsia-600 text-white" : "text-zinc-400 hover:text-zinc-200")
-                      }
-                    >
-                      {p === "windows" ? "Windows" : "Mobile"}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {tipo !== "pdv_play5" ? (
+              <p className="mt-3 text-[11px] text-zinc-500">
+                Instalação no <strong className="font-medium text-zinc-400">Windows</strong> (PWA no Chrome).
+                Para celular Android, use o tipo <strong className="font-medium text-zinc-400">5 · Google Play</strong>.
+              </p>
             ) : null}
 
             <div className="mt-4 flex flex-wrap items-center gap-3">

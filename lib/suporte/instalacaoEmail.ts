@@ -1,5 +1,6 @@
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import { COMPANY_NAME } from "@/lib/brand";
+import { renderInstalacaoDesktopEmailHtml } from "@/lib/suporte/instalacaoDesktopEmailTemplate";
 import { renderInstalacaoPlay5EmailHtml } from "@/lib/suporte/instalacaoPlay5EmailTemplate";
 import { GOOGLE_PLAY_PLAYER5_URL } from "@/lib/suporte/instalacaoService";
 import type { InstalacaoPlataforma, InstalacaoTipo } from "@/lib/suporte/instalacaoService";
@@ -24,18 +25,6 @@ export type InstalacaoEmailContent = {
   attachments?: EmailAttachment[];
 };
 
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function plataformaLabel(p: InstalacaoPlataforma): string {
-  return p === "mobile" ? "Celular / Tablet" : "Computador Windows";
-}
-
 function usaSenhaTemporaria(tipo: InstalacaoTipo): boolean {
   return tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao";
 }
@@ -49,22 +38,12 @@ function passosPlay(codigoPlay: string): string[] {
   ];
 }
 
-/** Passos de instalação por plataforma (texto simples). */
-function passos(plataforma: InstalacaoPlataforma, tipo: InstalacaoTipo, senha?: string): string[] {
-  if (tipo === "pdv_play5") {
-    return passosPlay("");
-  }
-
-  const abrir =
-    plataforma === "mobile"
-      ? "Abra o link no navegador do celular (Chrome no Android ou Safari no iPhone)."
-      : "Abra o link no navegador do computador (Google Chrome de preferência).";
-  const instalar =
-    plataforma === "mobile"
-      ? "Siga o guia da página para adicionar o Player à tela inicial."
-      : "Clique em «Instalar aplicativo» e siga o assistente do navegador.";
-
-  const passosList = [abrir, instalar];
+/** Passos de instalação Windows (tipos 1–4). Mobile/PWA: use tipo 5 Google Play. */
+function passosWindows(tipo: InstalacaoTipo, senha?: string): string[] {
+  const passosList = [
+    "Abra o link neste e-mail no Google Chrome do computador Windows.",
+    "Clique em «Instalar aplicativo» e siga o assistente do navegador.",
+  ];
 
   if (tipo === "pdv_login") {
     passosList.push(
@@ -76,7 +55,7 @@ function passos(plataforma: InstalacaoPlataforma, tipo: InstalacaoTipo, senha?: 
         ? "Na tela do Player, digite a senha temporária destacada acima neste e-mail. Ela funciona apenas uma vez, nesta instalação."
         : "Na tela do Player, digite a senha temporária enviada neste e-mail (uso único).",
     );
-    if (tipo === "pdv_senha_temp_migracao" && plataforma === "windows") {
+    if (tipo === "pdv_senha_temp_migracao") {
       passosList.push(
         "Depois de baixar a programação e confirmar os dados da loja, siga o passo na tela para desinstalar o player antigo (ficheiro .bat na pasta Downloads).",
       );
@@ -89,18 +68,25 @@ function passos(plataforma: InstalacaoPlataforma, tipo: InstalacaoTipo, senha?: 
   return passosList;
 }
 
+function subjectForTipo(tipo: InstalacaoTipo, pdvNome: string): string {
+  if (tipo === "pdv_play5") {
+    return `${COMPANY_NAME} — Instalação do Player na Google Play (${pdvNome})`;
+  }
+  if (tipo === "pdv_senha_temp_migracao") {
+    return `${COMPANY_NAME} — Atualização Player 5 no Windows (${pdvNome})`;
+  }
+  return `${COMPANY_NAME} — Instalação do Player no Windows (${pdvNome})`;
+}
+
 export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEmailContent {
-  const { tipo, plataforma, clienteNome, pdvNome, codigoDisplay, link, senhaTemporaria, codigoPlay } =
-    input;
+  const { tipo, clienteNome, pdvNome, codigoDisplay, link, senhaTemporaria, codigoPlay } = input;
 
   const isPlay5 = tipo === "pdv_play5";
   const playUrl = GOOGLE_PLAY_PLAYER5_URL;
+  const subject = subjectForTipo(tipo, pdvNome);
 
-  const subject = isPlay5
-    ? `${COMPANY_NAME} — Instalação do Player na Google Play (${pdvNome})`
-    : `${COMPANY_NAME} — Instalação do Player (${pdvNome})`;
-
-  const linhas = isPlay5 && codigoPlay ? passosPlay(codigoPlay) : passos(plataforma, tipo, senhaTemporaria);
+  const linhas =
+    isPlay5 && codigoPlay ? passosPlay(codigoPlay) : passosWindows(tipo, senhaTemporaria);
 
   const textParts: string[] = [`Olá!`, ``];
 
@@ -125,11 +111,11 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
     textParts.push(`Link da Google Play:`, playUrl, ``);
   } else {
     textParts.push(
-      `Segue o link para instalar o Player da ${COMPANY_NAME}.`,
+      `Segue o link para instalar o Player da ${COMPANY_NAME} no computador Windows.`,
       ``,
       `Cliente: ${clienteNome}`,
       `Ponto de venda: ${pdvNome} (${codigoDisplay})`,
-      `Plataforma: ${plataformaLabel(plataforma)}`,
+      `Plataforma: Computador Windows`,
       ``,
       `Link de instalação:`,
       link,
@@ -152,46 +138,6 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
 
   const text = textParts.join("\n");
 
-  const senhaBlockHtml =
-    !isPlay5 && usaSenhaTemporaria(tipo) && senhaTemporaria
-      ? `<tr><td style="padding:8px 0 20px;">
-           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #d946ef;border-radius:14px;background:linear-gradient(180deg,#fdf4ff 0%,#faf5ff 100%);">
-             <tr><td style="padding:18px 20px;text-align:center;">
-               <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#a21caf;margin-bottom:10px;">Senha temporária · uso único</div>
-               <div style="font-family:Consolas,Monaco,'Courier New',monospace;font-size:34px;letter-spacing:0.28em;font-weight:800;color:#701a75;background:#ffffff;border:1px solid #f0abfc;border-radius:10px;padding:16px 22px;display:inline-block;-webkit-user-select:all;user-select:all;cursor:text;">${esc(senhaTemporaria)}</div>
-               <div style="margin-top:12px;font-size:12px;line-height:1.55;color:#6b7280;max-width:420px;margin-left:auto;margin-right:auto;">
-                 <strong style="color:#374151;">Copiar:</strong> clique ou toque na senha para selecionar tudo → depois <strong style="color:#374151;">Ctrl+C</strong> (Windows) ou <strong style="color:#374151;">Cmd+C</strong> (Mac) e cole no Player.
-               </div>
-             </td></tr>
-           </table>
-         </td></tr>`
-      : "";
-
-  const playCodigoBlockHtml = "";
-
-  const passosHtml = linhas
-    .map(
-      (l, i) =>
-        `<li style="margin-bottom:8px;color:#334155;font-size:14px;line-height:1.5;">${esc(l)}</li>`,
-    )
-    .join("");
-
-  const plataformaInfo = isPlay5 ? "Android (Google Play)" : plataformaLabel(plataforma);
-
-  const ctaHtml = isPlay5
-    ? `<div style="text-align:center;margin:26px 0;">
-            <a href="${esc(playUrl)}" style="background:#34a853;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 30px;border-radius:12px;display:inline-block;">Abrir na Google Play</a>
-          </div>
-          <div style="font-size:12px;color:#94a3b8;word-break:break-all;text-align:center;margin-bottom:8px;">${esc(playUrl)}</div>`
-    : `<div style="text-align:center;margin:26px 0;">
-            <a href="${esc(link)}" style="background:#7c3aed;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 30px;border-radius:12px;display:inline-block;">Abrir instalação</a>
-          </div>
-          <div style="font-size:12px;color:#94a3b8;word-break:break-all;text-align:center;margin-bottom:8px;">${esc(link)}</div>`;
-
-  const introHtml = isPlay5
-    ? `<p style="margin:0 0 16px;color:#0f172a;font-size:15px;">Olá! Segue o código e o link para instalar o Player pela Google Play no Android.</p>`
-    : `<p style="margin:0 0 16px;color:#0f172a;font-size:15px;">Olá! Segue o link para instalar o Player.</p>`;
-
   const play5Rendered =
     isPlay5 && codigoPlay
       ? renderInstalacaoPlay5EmailHtml({
@@ -205,36 +151,15 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
 
   const html =
     play5Rendered?.html ??
-    `<!doctype html>
-<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;">
-        <tr><td style="background:#0f172a;padding:22px 28px;">
-          <div style="color:#ffffff;font-size:18px;font-weight:700;">${esc(COMPANY_NAME)}</div>
-          <div style="color:#94a3b8;font-size:13px;margin-top:2px;">${isPlay5 ? "Instalação Google Play (Android)" : "Instalação do Player"}</div>
-        </td></tr>
-        <tr><td style="padding:28px;">
-          ${introHtml}
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:12px;">
-            <tr><td style="padding:14px 16px;font-size:13px;color:#475569;">
-              <div><strong style="color:#0f172a;">Cliente:</strong> ${esc(clienteNome)}</div>
-              <div style="margin-top:4px;"><strong style="color:#0f172a;">Ponto de venda:</strong> ${esc(pdvNome)} <span style="color:#94a3b8;">(${esc(codigoDisplay)})</span></div>
-              <div style="margin-top:4px;"><strong style="color:#0f172a;">Plataforma:</strong> ${esc(plataformaInfo)}</div>
-            </td></tr>
-          </table>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${playCodigoBlockHtml}${senhaBlockHtml}</table>
-          ${ctaHtml}
-          <h3 style="font-size:14px;color:#0f172a;margin:20px 0 8px;">Passo a passo</h3>
-          <ol style="margin:0;padding-left:20px;">${passosHtml}</ol>
-          <p style="margin:22px 0 0;color:#64748b;font-size:13px;">Qualquer dúvida, é só responder este e-mail.</p>
-          <p style="margin:8px 0 0;color:#0f172a;font-size:13px;font-weight:600;">Equipe ${esc(COMPANY_NAME)}</p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
+    renderInstalacaoDesktopEmailHtml({
+      tipo,
+      clienteNome,
+      pdvNome,
+      codigoDisplay,
+      link,
+      senhaTemporaria,
+      passos: linhas,
+    });
 
   return { subject, text, html, attachments: play5Rendered?.attachments };
 }
