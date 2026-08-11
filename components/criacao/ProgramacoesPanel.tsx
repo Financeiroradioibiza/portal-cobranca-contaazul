@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddMusicasBibliotecaModal } from "@/components/criacao/AddMusicasBibliotecaModal";
 import { EscolherPastaEspecialModal } from "@/components/criacao/EscolherPastaEspecialModal";
 import { EscolherBibliotecaPastaModal } from "@/components/criacao/EscolherBibliotecaPastaModal";
@@ -12,7 +12,9 @@ import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaCl
 import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { CronogramaAlvoBadges, DOW, diasLabel, formatPeriodoAgendamento } from "@/components/criacao/CronogramaAlvoBadges";
+import { AgendaSemanaChart } from "@/components/criacao/AgendaSemanaChart";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
+import { buildSemanaBlocos } from "@/lib/site-cliente/estiloAgora";
 import { formatPastaMusicaAddedAt, isMusicaNovaNaAtualizacao } from "@/lib/criacao/pastaMusicaUi";
 
 type SortKey = "titulo" | "artista" | "addedAt";
@@ -214,6 +216,8 @@ function ProgramacaoEditor({
 
   /** Recarrega pastas (e metadados) sem piscar a tela inteira — usado pelo cronograma. */
   const reloadPastasParaCronograma = reloadSilently;
+
+  const semanaBlocos = useMemo(() => buildSemanaBlocos(ags), [ags]);
 
   useEffect(() => {
     void load();
@@ -902,6 +906,15 @@ function ProgramacaoEditor({
         onEdit={registrarEdicao}
         onRefreshTargets={reloadPastasParaCronograma}
       />
+
+      <div className="mt-6">
+        <AgendaSemanaChart
+          blocos={semanaBlocos}
+          exportLabel={prog.nome}
+          canExport
+          theme="portal"
+        />
+      </div>
 
       {addTo ?
         <AddMusicasBibliotecaModal
