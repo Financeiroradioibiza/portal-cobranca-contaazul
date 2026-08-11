@@ -177,7 +177,7 @@ async function buildProgramacaoResumo(
       nome: pasta.nome,
       faixas: pasta.musicas.length,
       duracaoMinutos: Math.round(dur / 60000),
-      horarios: horariosParaPasta(pasta.nome, agendamentos),
+      horarios: horariosParaPasta(pasta.nome, agendamentos, pasta.selecionavel),
     };
   });
 

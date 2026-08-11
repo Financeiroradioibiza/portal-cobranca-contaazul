@@ -43,12 +43,19 @@ function formatHorarioLabel(ag: AgendamentoRow): string {
 export function horariosParaPasta(
   pastaNome: string,
   agendamentos: AgendamentoRow[],
+  selecionavel = false,
 ): PastaHorarioView[] {
   const slots = agendamentos.filter(
     (a) => a.ativo && a.alvoTipo === "pasta" && a.alvoNome === pastaNome,
   );
   if (slots.length === 0) {
-    return [{ diasLabel: "—", horarioLabel: "Sem horário na agenda", tocandoSempre: false }];
+    return [
+      {
+        diasLabel: "—",
+        horarioLabel: selecionavel ? "Pasta Selecionável" : "Sem horário na agenda",
+        tocandoSempre: false,
+      },
+    ];
   }
   return slots.map((ag) => ({
     diasLabel: formatDiasLabel(ag.diasSemana),
