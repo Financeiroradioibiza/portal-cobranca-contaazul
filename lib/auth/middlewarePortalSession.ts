@@ -52,5 +52,5 @@ export async function finishVerifiedPortalSession(
     return portalAccessDenied(request);
   }
 
-  return nextWithPortalSession(request, session);
+  return nextWithPortalSession(request, session, pathname);
 }

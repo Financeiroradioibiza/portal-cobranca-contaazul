@@ -3,6 +3,11 @@ import { CADASTROS_SIDEBAR, CADASTROS_HOME_HREF } from "@/lib/portal/cadastrosNa
 import { CRIACAO_SIDEBAR, CRIACAO_HOME_HREF } from "@/lib/portal/criacaoNav";
 import { CONFIG_NAV, CONFIG_HOME_HREF } from "@/lib/portal/configNav";
 import { PORTAL_HOME_HREF } from "@/lib/portal/portalHome";
+import {
+  isSidebarHrefAllowed,
+  isTopNavModuleVisible,
+} from "@/lib/portal/pathMenuMap";
+import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 
 const CONFIG_ICONS: Record<string, string> = {
   "/config/parametros": "⚙️",
@@ -143,9 +148,36 @@ export function isSidebarActive(pathname: string, href: string, exact?: boolean)
   return pathname.startsWith(`${href}/`);
 }
 
-export function topNavHref(item: PortalTopNavItem): string {
+export function topNavHref(item: PortalTopNavItem, perm: PortalPermissionsMap | "all" = "all"): string {
   if (item.id === "dashboard") return PORTAL_HOME_HREF;
   const sidebar = PORTAL_SIDEBARS[item.id];
-  const first = sidebar.items.find((x) => !x.soon && !x.separator && x.href);
+  const first = sidebar.items.find(
+    (x) =>
+      !x.soon &&
+      !x.separator &&
+      x.href &&
+      isSidebarHrefAllowed(x.href, perm),
+  );
   return first?.href ?? item.href;
+}
+
+export function filterTopNav(
+  items: PortalTopNavItem[],
+  perm: PortalPermissionsMap | "all",
+  opts?: { isMaster?: boolean },
+): PortalTopNavItem[] {
+  return items.filter((item) => {
+    if (item.masterOnly && !opts?.isMaster) return false;
+    return isTopNavModuleVisible(item.id, perm);
+  });
+}
+
+export function filterSidebarItems(
+  items: PortalSidebarItem[],
+  perm: PortalPermissionsMap | "all",
+): PortalSidebarItem[] {
+  return items.filter((item) => {
+    if (item.separator || item.soon || !item.href) return true;
+    return isSidebarHrefAllowed(item.href, perm);
+  });
 }

@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   PORTAL_TOP_NAV,
+  filterTopNav,
   resolvePortalModule,
   topNavHref,
   type PortalTopNavItem,
 } from "@/lib/portal/portalNav";
+import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 function userInitials(name: string): string {
@@ -17,20 +19,32 @@ function userInitials(name: string): string {
   return name.slice(0, 2).toUpperCase() || "RI";
 }
 
+type MeResponse = {
+  email?: string;
+  displayName?: string;
+  isMaster?: boolean;
+  menuPermissions?: PortalPermissionsMap | "all";
+};
+
 export function PortalTopbar() {
   const pathname = usePathname();
   const moduleId = resolvePortalModule(pathname);
-  const [session, setSession] = useState<{ displayName: string; isMaster: boolean } | null>(null);
+  const [session, setSession] = useState<{
+    displayName: string;
+    isMaster: boolean;
+    menuPermissions: PortalPermissionsMap | "all";
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/auth/me")
+    fetch("/api/auth/me", { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
+      .then((data: MeResponse | null) => {
         if (!cancelled && data?.email) {
           setSession({
             displayName: data.displayName ?? data.email,
             isMaster: Boolean(data.isMaster),
+            menuPermissions: data.menuPermissions ?? {},
           });
         }
       })
@@ -40,7 +54,17 @@ export function PortalTopbar() {
     };
   }, []);
 
-  const visibleNav = PORTAL_TOP_NAV.filter((item) => !item.masterOnly || session?.isMaster);
+  const perm = session?.menuPermissions ?? {};
+  const visibleNav = filterTopNav(PORTAL_TOP_NAV, perm, { isMaster: session?.isMaster });
+
+  const accountHref = (() => {
+    if (perm === "all") return "/config/usuarios";
+    const cfg = perm.config;
+    if (cfg === "all") return "/config/usuarios";
+    if (Array.isArray(cfg) && cfg.includes("usuarios")) return "/config/usuarios";
+    if (Array.isArray(cfg) && cfg.includes("logs")) return "/config/logs";
+    return "/";
+  })();
 
   return (
     <header className="portal-topbar">
@@ -54,7 +78,7 @@ export function PortalTopbar() {
 
       <nav className="portal-topnav" aria-label="Módulos">
         {visibleNav.map((item) => (
-          <TopNavLink key={item.id} item={item} active={moduleId === item.id} />
+          <TopNavLink key={item.id} item={item} active={moduleId === item.id} perm={perm} />
         ))}
       </nav>
 
@@ -62,7 +86,7 @@ export function PortalTopbar() {
         <ThemeToggle />
         {session ?
           <Link
-            href="/config/usuarios"
+            href={accountHref}
             className="portal-user-avatar"
             title={session.displayName}
             aria-label="Conta"
@@ -75,10 +99,18 @@ export function PortalTopbar() {
   );
 }
 
-function TopNavLink({ item, active }: { item: PortalTopNavItem; active: boolean }) {
+function TopNavLink({
+  item,
+  active,
+  perm,
+}: {
+  item: PortalTopNavItem;
+  active: boolean;
+  perm: PortalPermissionsMap | "all";
+}) {
   return (
     <Link
-      href={topNavHref(item)}
+      href={topNavHref(item, perm)}
       className={"portal-topnav-item" + (active ? " portal-topnav-item--active" : "")}
     >
       <span aria-hidden>{item.icon}</span>

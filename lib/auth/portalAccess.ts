@@ -50,7 +50,11 @@ export function sessionFromMiddlewareHeaders(h: Headers): PortalSessionPayload |
 }
 
 /** Middleware: repassa sessão já validada para handlers (Netlify/Next serverless). */
-export function nextWithPortalSession(request: NextRequest, session: PortalSessionPayload): NextResponse {
+export function nextWithPortalSession(
+  request: NextRequest,
+  session: PortalSessionPayload,
+  pathname?: string,
+): NextResponse {
   const requestHeaders = new Headers(request.headers);
   for (const key of [PORTAL_AUTH_EMAIL_HEADER, PORTAL_AUTH_ROLES_HEADER, PORTAL_AUTH_NAME_HEADER]) {
     requestHeaders.delete(key);
@@ -59,6 +63,9 @@ export function nextWithPortalSession(request: NextRequest, session: PortalSessi
   requestHeaders.set(PORTAL_AUTH_ROLES_HEADER, JSON.stringify(session.roles));
   if (session.displayName?.trim()) {
     requestHeaders.set(PORTAL_AUTH_NAME_HEADER, session.displayName.trim());
+  }
+  if (pathname?.trim()) {
+    requestHeaders.set("x-portal-pathname", pathname.trim());
   }
   return NextResponse.next({ request: { headers: requestHeaders } });
 }

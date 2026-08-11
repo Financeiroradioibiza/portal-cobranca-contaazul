@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { DM_Sans, Bebas_Neue } from "next/font/google";
 import { PortalShell } from "@/components/portal/PortalShell";
 import { guardPortalPage, resolvePortalPathname } from "@/lib/auth/portalPageGuard";

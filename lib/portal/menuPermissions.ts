@@ -186,6 +186,18 @@ export function parsePermissionsJson(raw: string): ModulePermission | "all" {
   }
 }
 
+/** Permissões completas do perfil (objeto por módulo). */
+export function parseProfilePermissionsJson(raw: string): PortalPermissionsMap | "all" {
+  try {
+    const v = JSON.parse(raw || "{}");
+    if (v === "all") return "all";
+    if (v && typeof v === "object" && !Array.isArray(v)) return v as PortalPermissionsMap;
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
 export function parseRolesJson(raw: string): string[] {
   try {
     const v = JSON.parse(raw || "[]");

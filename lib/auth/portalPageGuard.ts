@@ -7,26 +7,45 @@ import {
 } from "@/lib/auth/routeAccess";
 import { userHasRole } from "@/lib/auth/roles";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
+import { getPortalMenuPermissionsForEmail } from "@/lib/config/portalUserPermissions";
 import { isFluxoRafaelAdmin } from "@/lib/financeiro/fluxoRafaelAccess";
+import { isPathAllowedByMenuPermissions } from "@/lib/portal/pathMenuMap";
 
 export const PORTAL_PATHNAME_HEADER = "x-portal-pathname";
 
+function readPathnameHeader(h: Headers): string | undefined {
+  const direct = h.get(PORTAL_PATHNAME_HEADER)?.trim();
+  if (direct) return direct;
+  const prefixed = h.get(`x-middleware-request-${PORTAL_PATHNAME_HEADER}`)?.trim();
+  if (prefixed) return prefixed;
+  for (const [key, value] of h.entries()) {
+    if (key.toLowerCase().endsWith("portal-pathname") && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
 export async function resolvePortalPathname(): Promise<string> {
   const h = await headers();
-  const fromMiddleware = h.get(PORTAL_PATHNAME_HEADER)?.trim();
+  const fromMiddleware = readPathnameHeader(h);
   if (fromMiddleware) return fromMiddleware;
-  const url = h.get("x-url") ?? h.get("next-url");
-  if (url) {
+
+  for (const key of ["next-url", "x-url", "x-invoke-path", "x-forwarded-uri"]) {
+    const raw = h.get(key)?.trim();
+    if (!raw) continue;
     try {
-      return new URL(url).pathname;
+      const path = raw.startsWith("/") ? raw : new URL(raw).pathname;
+      if (path.startsWith("/")) return path.split("?")[0] ?? path;
     } catch {
       /* ignore */
     }
   }
+
   return "/";
 }
 
-/** Guarda páginas do portal no runtime Node (JWT validado aqui, não na Edge). */
+/** Guarda páginas do portal no runtime Node (JWT + perfil Config → Usuários). */
 export async function guardPortalPage(pathname: string): Promise<void> {
   const session = await getPortalSession();
   if (!session) {
@@ -52,6 +71,11 @@ export async function guardPortalPage(pathname: string): Promise<void> {
 
   const rule = resolveRouteAccessRule(pathname);
   if (rule && !isRouteAccessAllowed(rule, session.roles)) {
+    redirect("/?error=forbidden");
+  }
+
+  const menuPerm = await getPortalMenuPermissionsForEmail(session.email);
+  if (!isPathAllowedByMenuPermissions(pathname, menuPerm)) {
     redirect("/?error=forbidden");
   }
 }

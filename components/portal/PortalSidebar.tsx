@@ -5,9 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   PORTAL_SIDEBARS,
+  filterSidebarItems,
   isSidebarActive,
   resolvePortalModule,
 } from "@/lib/portal/portalNav";
+import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 import { PortalSidebarChamados } from "@/components/portal/PortalSidebarChamados";
 
 function userInitials(name: string): string {
@@ -26,6 +28,7 @@ export function PortalSidebar() {
     email: string;
     isMaster: boolean;
     fluxoRafaelAdmin: boolean;
+    menuPermissions: PortalPermissionsMap | "all";
   } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [atlCadastrosPendentes, setAtlCadastrosPendentes] = useState(0);
@@ -41,6 +44,7 @@ export function PortalSidebar() {
             displayName: data.displayName ?? data.email,
             isMaster: Boolean(data.isMaster),
             fluxoRafaelAdmin: Boolean(data.fluxoRafaelAdmin),
+            menuPermissions: data.menuPermissions ?? {},
           });
         }
       })
@@ -90,6 +94,17 @@ export function PortalSidebar() {
     }
   }, [router]);
 
+  const perm = session?.menuPermissions ?? {};
+  const menuItems = filterSidebarItems(menu.items, perm);
+  const accountHref = (() => {
+    if (perm === "all") return "/config/usuarios";
+    const cfg = perm.config;
+    if (cfg === "all") return "/config/usuarios";
+    if (Array.isArray(cfg) && cfg.includes("usuarios")) return "/config/usuarios";
+    if (Array.isArray(cfg) && cfg.includes("logs")) return "/config/logs";
+    return "/";
+  })();
+
   return (
     <aside className="portal-sidebar" aria-label="Submenu">
       <div
@@ -98,7 +113,7 @@ export function PortalSidebar() {
         }
       >
         <div className="portal-sidebar-heading">{menu.section}</div>
-        {menu.items
+        {menuItems
           .filter((item) => !item.fluxoRafaelOnly || session?.fluxoRafaelAdmin)
           .map((item, idx) => {
           if (item.separator) {
@@ -148,7 +163,7 @@ export function PortalSidebar() {
       {session ?
         <div className="portal-sidebar-footer">
           <Link
-            href="/config/usuarios"
+            href={accountHref}
             className="portal-sidebar-user"
             title={session.email}
           >
