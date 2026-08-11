@@ -1,5 +1,6 @@
 import { DM_Sans, Bebas_Neue } from "next/font/google";
 import { PortalShell } from "@/components/portal/PortalShell";
+import { guardPortalPage, resolvePortalPathname } from "@/lib/auth/portalPageGuard";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -13,7 +14,9 @@ const bebasNeue = Bebas_Neue({
   weight: "400",
 });
 
-export default function PortalLayout({ children }: { children: React.ReactNode }) {
+export default async function PortalLayout({ children }: { children: React.ReactNode }) {
+  await guardPortalPage(await resolvePortalPathname());
+
   return (
     <div className={`${dmSans.variable} ${bebasNeue.variable} h-full`}>
       <PortalShell>{children}</PortalShell>

@@ -2,11 +2,10 @@ import { NextResponse, after } from "next/server";
 import type { NextRequest } from "next/server";
 import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
 import { shouldRecordPortalAudit } from "@/lib/audit/describeAuditAction";
-import { nextWithPortalSession, portalAccessDenied } from "@/lib/auth/portalAccess";
 import {
-  isRouteAccessAllowed,
-  resolveRouteAccessRule,
-} from "@/lib/auth/routeAccess";
+  finishVerifiedPortalSession,
+  passPortalCookieToNode,
+} from "@/lib/auth/middlewarePortalSession";
 import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
 import {
   SITE_CLIENTE_SESSION_COOKIE,
@@ -19,8 +18,6 @@ import {
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
-import { userHasRole } from "@/lib/auth/roles";
-import { isFluxoRafaelAdmin } from "@/lib/financeiro/fluxoRafaelAccess";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -55,6 +52,9 @@ export async function middleware(request: NextRequest) {
       const session = await verifyPortalSessionToken(raw);
       if (session) {
         return NextResponse.redirect(new URL("/", request.url));
+      }
+      if (raw?.trim()) {
+        return passPortalCookieToNode(request, pathname);
       }
     }
     return NextResponse.next();
@@ -142,8 +142,7 @@ export async function middleware(request: NextRequest) {
   }
 
   const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
-  const session = await verifyPortalSessionToken(raw);
-  if (!session) {
+  if (!raw?.trim()) {
     const isBrowserOAuthStart =
       pathname === "/api/contaazul/login" ||
       pathname.startsWith("/api/contaazul/login/");
@@ -158,30 +157,6 @@ export async function middleware(request: NextRequest) {
     const nextPath = safeInternalPath(pathname + request.nextUrl.search);
     u.searchParams.set("next", nextPath);
     return NextResponse.redirect(u);
-  }
-
-  if (
-    pathname.startsWith("/config") ||
-    pathname.startsWith("/api/config")
-  ) {
-    if (!userHasRole(session.roles, "master")) {
-      return portalAccessDenied(request);
-    }
-  }
-
-  if (
-    pathname.startsWith("/financeiro/fluxo-rafael") ||
-    pathname.startsWith("/api/financeiro/fluxo-rafael") ||
-    pathname.startsWith("/fluxo-rafael/")
-  ) {
-    if (!isFluxoRafaelAdmin(session)) {
-      return portalAccessDenied(request);
-    }
-  }
-
-  const accessRule = resolveRouteAccessRule(pathname);
-  if (accessRule && !isRouteAccessAllowed(accessRule, session.roles)) {
-    return portalAccessDenied(request);
   }
 
   if (shouldRecordPortalAudit(pathname, request.method)) {
@@ -214,7 +189,7 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  return nextWithPortalSession(request, session);
+  return finishVerifiedPortalSession(request, pathname, raw);
 }
 
 export const config = {
