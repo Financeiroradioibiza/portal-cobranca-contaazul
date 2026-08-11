@@ -1,9 +1,14 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
+import {
+  PORTAL_AUTH_EMAIL_HEADER,
+  PORTAL_AUTH_NAME_HEADER,
+  PORTAL_AUTH_ROLES_HEADER,
+  PORTAL_SESSION_COOKIE,
+} from "@/lib/auth/constants";
 import type { PortalRole } from "@/lib/auth/roles";
-import { userHasRole } from "@/lib/auth/roles";
+import { parsePortalRoles, userHasRole } from "@/lib/auth/roles";
 import {
   isRouteAccessAllowed,
   resolveRouteAccessRule,
@@ -15,10 +20,59 @@ import {
 import { isVinhetaConfigAdmin } from "@/lib/criacao/vinhetaConfigAccess";
 import { isFluxoRafaelAdmin } from "@/lib/financeiro/fluxoRafaelAccess";
 
+function readCookieValue(cookieHeader: string | null | undefined, name: string): string | undefined {
+  if (!cookieHeader) return undefined;
+  for (const part of cookieHeader.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    const value = part.slice(eq + 1).trim();
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+export function sessionFromMiddlewareHeaders(h: Headers): PortalSessionPayload | null {
+  const email = h.get(PORTAL_AUTH_EMAIL_HEADER)?.trim().toLowerCase();
+  if (!email) return null;
+  let roles: PortalRole[] = [];
+  try {
+    roles = parsePortalRoles(JSON.parse(h.get(PORTAL_AUTH_ROLES_HEADER) ?? "[]"));
+  } catch {
+    return null;
+  }
+  const displayName = h.get(PORTAL_AUTH_NAME_HEADER)?.trim() || undefined;
+  return { email, roles, displayName };
+}
+
+/** Middleware: repassa sessão já validada para handlers (Netlify/Next serverless). */
+export function nextWithPortalSession(request: NextRequest, session: PortalSessionPayload): NextResponse {
+  const requestHeaders = new Headers(request.headers);
+  for (const key of [PORTAL_AUTH_EMAIL_HEADER, PORTAL_AUTH_ROLES_HEADER, PORTAL_AUTH_NAME_HEADER]) {
+    requestHeaders.delete(key);
+  }
+  requestHeaders.set(PORTAL_AUTH_EMAIL_HEADER, session.email);
+  requestHeaders.set(PORTAL_AUTH_ROLES_HEADER, JSON.stringify(session.roles));
+  if (session.displayName?.trim()) {
+    requestHeaders.set(PORTAL_AUTH_NAME_HEADER, session.displayName.trim());
+  }
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 export async function getPortalSession(): Promise<PortalSessionPayload | null> {
   const jar = await cookies();
-  const raw = jar.get(PORTAL_SESSION_COOKIE)?.value;
-  return verifyPortalSessionToken(raw);
+  let raw = jar.get(PORTAL_SESSION_COOKIE)?.value;
+  const h = await headers();
+  if (!raw?.trim()) {
+    raw = readCookieValue(h.get("cookie"), PORTAL_SESSION_COOKIE);
+  }
+  const fromCookie = await verifyPortalSessionToken(raw);
+  if (fromCookie) return fromCookie;
+  return sessionFromMiddlewareHeaders(h);
 }
 
 export function requirePortalSession(session: PortalSessionPayload | null): PortalSessionPayload {

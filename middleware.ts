@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import type { NextRequest } from "next/server";
 import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
 import { shouldRecordPortalAudit } from "@/lib/audit/describeAuditAction";
-import { portalAccessDenied } from "@/lib/auth/portalAccess";
+import { nextWithPortalSession, portalAccessDenied } from "@/lib/auth/portalAccess";
 import {
   isRouteAccessAllowed,
   resolveRouteAccessRule,
@@ -214,7 +214,7 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  return NextResponse.next();
+  return nextWithPortalSession(request, session);
 }
 
 export const config = {

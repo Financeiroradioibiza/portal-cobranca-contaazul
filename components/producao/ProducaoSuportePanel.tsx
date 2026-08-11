@@ -872,6 +872,12 @@ function PdvRow({
   );
 }
 
+function mapSuporteLoadErr(message: string): string {
+  if (message === "unauthorized") return "Sessão expirada. Saia e entre novamente no portal.";
+  if (message === "forbidden") return "Seu perfil não tem acesso ao dashboard de suporte.";
+  return message;
+}
+
 export function ProducaoSuportePanel() {
   const [data, setData] = useState<ProducaoSuportePayload | null>(null);
   const [busy, setBusy] = useState(false);
@@ -914,7 +920,8 @@ export function ProducaoSuportePanel() {
       setData(json);
       setVisibleCount(DEFAULT_BATCH);
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Erro ao carregar suporte.");
+      const raw = e instanceof Error ? e.message : "Erro ao carregar suporte.";
+      setMsg(mapSuporteLoadErr(raw));
       setData(null);
     } finally {
       setBusy(false);

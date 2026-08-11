@@ -64,8 +64,8 @@ export function LoginForm() {
         return;
       }
 
-      router.replace(next);
-      router.refresh();
+      window.location.assign(next);
+      return;
     } catch {
       setFormError("Falha de rede. Tente novamente.");
     } finally {

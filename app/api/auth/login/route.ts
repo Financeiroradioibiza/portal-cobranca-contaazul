@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import {
@@ -69,8 +68,6 @@ export async function POST(request: Request) {
     roles: user.roles,
     displayName: user.displayName,
   });
-  const jar = await cookies();
-  jar.set(PORTAL_SESSION_COOKIE, token, portalSessionCookieOptions());
 
   try {
     await recordPortalAuditLog({
@@ -89,5 +86,7 @@ export async function POST(request: Request) {
     console.error("[auth/login audit]", e);
   }
 
-  return NextResponse.json({ ok: true, email: user.email });
+  const res = NextResponse.json({ ok: true, email: user.email });
+  res.cookies.set(PORTAL_SESSION_COOKIE, token, portalSessionCookieOptions());
+  return res;
 }

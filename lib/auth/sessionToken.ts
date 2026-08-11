@@ -5,6 +5,7 @@ import {
   PORTAL_SESSION_COOKIE,
   PORTAL_SESSION_MAX_AGE,
 } from "@/lib/auth/constants";
+import { readPortalSessionSecret } from "@/lib/auth/sessionSecret";
 
 export type PortalSessionPayload = {
   email: string;
@@ -13,7 +14,7 @@ export type PortalSessionPayload = {
 };
 
 function getSecretKey() {
-  const s = process.env.PORTAL_SESSION_SECRET?.trim();
+  const s = readPortalSessionSecret();
   if (!s || s.length < 32) {
     throw new Error("PORTAL_SESSION_SECRET ausente ou curta (mín. 32 caracteres).");
   }

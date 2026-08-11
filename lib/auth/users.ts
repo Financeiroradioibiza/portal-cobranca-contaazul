@@ -1,4 +1,5 @@
 import { parsePortalRoles, type PortalRole } from "@/lib/auth/roles";
+import { readPortalSessionSecret } from "@/lib/auth/sessionSecret";
 
 export type PortalUserRecord = {
   /** E-mail de login (normalizado minúsculas). */
@@ -87,7 +88,7 @@ export function findPortalUser(identifier: string): PortalUserRecord | undefined
 }
 
 export function isPortalAuthConfigured(): boolean {
-  const secret = process.env.PORTAL_SESSION_SECRET?.trim() ?? "";
+  const secret = readPortalSessionSecret();
   if (secret.length < 32) return false;
   if (getPortalUsers().length > 0) return true;
   return Boolean(process.env.DATABASE_URL?.trim());
