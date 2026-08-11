@@ -2,8 +2,17 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  SITE_CLIENTE_BASE,
+  SITE_CLIENTE_MOBILE_BASE,
+} from "@/lib/site-cliente/mobileDetect";
 
-export function SiteClienteLoginForm() {
+type Props = {
+  /** Prefixo da rota após login (desktop ou /m/). */
+  basePath?: string;
+};
+
+export function SiteClienteLoginForm({ basePath = SITE_CLIENTE_BASE }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loginEmail, setLoginEmail] = useState("");
@@ -30,8 +39,10 @@ export function SiteClienteLoginForm() {
         );
         return;
       }
-      const next = searchParams.get("next") || "/site-cliente";
-      router.push(next.startsWith("/site-cliente") ? next : "/site-cliente");
+      const next = searchParams.get("next") || basePath;
+      const allowed =
+        next.startsWith(SITE_CLIENTE_BASE) || next.startsWith(SITE_CLIENTE_MOBILE_BASE);
+      router.push(allowed ? next : basePath);
       router.refresh();
     } catch {
       setError("Erro de conexão. Tente novamente.");

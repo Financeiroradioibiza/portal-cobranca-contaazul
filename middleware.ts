@@ -12,6 +12,10 @@ import {
   SITE_CLIENTE_SESSION_COOKIE,
   verifySiteClienteSessionToken,
 } from "@/lib/site-cliente/session";
+import {
+  SITE_CLIENTE_MOBILE_BASE,
+  resolveSiteClienteVariantRedirect,
+} from "@/lib/site-cliente/mobileDetect";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
@@ -77,23 +81,37 @@ export async function middleware(request: NextRequest) {
   }
 
   /** Site Clientes — auth separada do portal (somente leitura via cloud2). */
-  if (
+  const isSiteClienteLogin =
     pathname === "/site-cliente/login" ||
     pathname.startsWith("/site-cliente/login/") ||
+    pathname === "/m/site-cliente/login" ||
+    pathname.startsWith("/m/site-cliente/login/");
+
+  const isSiteClienteAuthApi =
     pathname === "/api/site-cliente/auth/login" ||
     pathname.startsWith("/api/site-cliente/auth/login/") ||
     pathname === "/api/site-cliente/auth/logout" ||
-    pathname.startsWith("/api/site-cliente/auth/logout/")
-  ) {
+    pathname.startsWith("/api/site-cliente/auth/logout/");
+
+  if (isSiteClienteLogin || isSiteClienteAuthApi) {
+    if (isSiteClienteLogin) {
+      const variant = resolveSiteClienteVariantRedirect(request);
+      if (variant) return variant;
+    }
     return NextResponse.next();
   }
 
-  if (pathname.startsWith("/site-cliente")) {
+  if (pathname.startsWith("/site-cliente") || pathname.startsWith("/m/site-cliente")) {
+    const variant = resolveSiteClienteVariantRedirect(request);
+    if (variant) return variant;
+
     const rawSc = request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value;
     const scSession = await verifySiteClienteSessionToken(rawSc);
     if (!scSession) {
       const u = request.nextUrl.clone();
-      u.pathname = "/site-cliente/login";
+      u.pathname = pathname.startsWith(SITE_CLIENTE_MOBILE_BASE)
+        ? "/m/site-cliente/login"
+        : "/site-cliente/login";
       u.searchParams.set("next", safeInternalPath(pathname + request.nextUrl.search));
       return NextResponse.redirect(u);
     }

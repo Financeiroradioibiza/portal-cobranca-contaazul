@@ -414,7 +414,8 @@ export function SiteClientesAdminPanel() {
             </button>
           </div>
           <p className="mt-3 text-xs text-zinc-500">
-            O cliente acessa em <strong>/site-cliente/login</strong> — não precisa «criar site»; basta
+            O cliente acessa em <strong>/site-cliente/login</strong> (celular/tablet abre em{" "}
+            <strong>/m/site-cliente/login</strong>) — não precisa «criar site»; basta
             grupo + usuário.
           </p>
         </section>

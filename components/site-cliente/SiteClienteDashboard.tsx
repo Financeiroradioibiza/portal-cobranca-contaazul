@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PDV_STATUS_META, type PdvPlayStatus } from "@/lib/site-cliente/pdvStatus";
 import type { SiteClienteDashboardPayload, SiteClientePdvRow } from "@/lib/site-cliente/siteClienteDashboardService";
 import { SiteClienteSemanaChart } from "@/components/site-cliente/SiteClienteSemanaChart";
+import { RadioIbizaRMark } from "@/components/site-cliente/RadioIbizaRMark";
 
 const DOW_FULL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -28,6 +29,90 @@ function fmtDt(iso: string | null): string {
   } catch {
     return iso;
   }
+}
+
+function PdvCard({
+  pdv,
+  expanded,
+  onToggle,
+}: {
+  pdv: SiteClientePdvRow;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const meta = PDV_STATUS_META[pdv.status as PdvPlayStatus] ?? PDV_STATUS_META.offline;
+  const cache = pdv.cachePercent ?? 0;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/20">
+      <button
+        type="button"
+        className="w-full px-4 py-3 text-left"
+        onClick={onToggle}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">{pdv.nome}</div>
+            {pdv.cnpj ? <div className="mt-0.5 text-xs text-white/50">{pdv.cnpj}</div> : null}
+          </div>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${meta.className}`}>
+            {meta.label}
+          </span>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/70">
+          <div>
+            <span className="text-white/40">Cache </span>
+            {cache != null ? `${cache}%` : "—"}
+          </div>
+          <div>
+            <span className="text-white/40">Versão </span>
+            {pdv.playerVersion ?? "—"}
+          </div>
+          <div className="col-span-2">
+            <span className="text-white/40">Estilo agora </span>
+            <span className="font-medium text-fuchsia-200">{pdv.estiloAgora ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-white/40">1ª conexão </span>
+            {fmtDt(pdv.firstPingAt)}
+          </div>
+          <div>
+            <span className="text-white/40">Último ping </span>
+            {fmtDt(pdv.lastPingAt)}
+          </div>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-400"
+            style={{ width: `${cache}%` }}
+          />
+        </div>
+        {pdv.agendamentos.length > 0 ? (
+          <div className="mt-2 text-xs text-cyan-300/80">
+            {expanded ? "Ocultar playlist" : "Ver playlist e horários"}
+          </div>
+        ) : null}
+      </button>
+      {expanded && pdv.agendamentos.length > 0 ? (
+        <div className="border-t border-white/10 px-4 py-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-white/50">Playlist</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {pdv.agendamentos.map((a, i) => (
+              <span
+                key={`${a.pastaNome}-${i}`}
+                className="inline-flex flex-col gap-0.5 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs"
+              >
+                <span className="font-medium">{a.pastaNome}</span>
+                <span className="text-white/60">
+                  {formatDiasSemana(a.diasSemana)} · {a.horaInicio}–{a.horaFim}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function PdvRow({ pdv, expanded, onToggle }: { pdv: SiteClientePdvRow; expanded: boolean; onToggle: () => void }) {
@@ -91,7 +176,7 @@ function PdvRow({ pdv, expanded, onToggle }: { pdv: SiteClientePdvRow; expanded:
   );
 }
 
-export function SiteClienteDashboard() {
+export function SiteClienteDashboard({ mobile = false }: { mobile?: boolean }) {
   const [data, setData] = useState<SiteClienteDashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -125,7 +210,7 @@ export function SiteClienteDashboard() {
 
   async function logout() {
     await fetch("/api/site-cliente/auth/logout", { method: "POST" });
-    window.location.href = "/site-cliente/login";
+    window.location.href = mobile ? "/m/site-cliente/login" : "/site-cliente/login";
   }
 
   async function openMoodboard(rioLinhaId: string) {
@@ -160,23 +245,36 @@ export function SiteClienteDashboard() {
   }
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-sm text-white/60">{data.grupoNome}</p>
-          <h1 className="text-2xl font-bold">Olá, {data.usuarioNome}</h1>
-          <p className="text-xs text-white/50">
-            Atualizado {fmtDt(data.geradoEm)} · somente leitura
-          </p>
+    <div className={mobile ? "space-y-6" : "space-y-8"}>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          {mobile ? (
+            <RadioIbizaRMark size={40} className="mt-0.5" />
+          ) : null}
+          <div className="min-w-0">
+            <p className="text-sm text-white/60">{data.grupoNome}</p>
+            <h1 className={`font-bold ${mobile ? "text-xl" : "text-2xl"}`}>Olá, {data.usuarioNome}</h1>
+            <p className="text-xs text-white/50">
+              Atualizado {fmtDt(data.geradoEm)} · somente leitura
+            </p>
+          </div>
         </div>
         <button
           type="button"
           onClick={() => void logout()}
-          className="rounded-lg border border-white/20 px-4 py-2 text-sm hover:bg-white/10"
+          className="shrink-0 rounded-lg border border-white/20 px-3 py-2 text-sm hover:bg-white/10"
         >
           Sair
         </button>
       </header>
+
+      {mobile ? (
+        <p className="text-center text-xs text-white/40">
+          <a href="/site-cliente?desktop=1" className="underline hover:text-white/70">
+            Ver versão desktop
+          </a>
+        </p>
+      ) : null}
 
       {data.clientes.map((cliente) => (
         <section
@@ -253,35 +351,50 @@ export function SiteClienteDashboard() {
           ) : null}
 
           {data.permissoes.verStatusPdvs && cliente.pdvs.length > 0 ? (
-            <div className="overflow-x-auto px-2 py-4">
-              <table className="w-full min-w-[900px] text-left text-sm">
-                <thead>
-                  <tr className="text-xs uppercase text-white/50">
-                    <th className="px-3 py-2">PDV</th>
-                    <th className="px-3 py-2">CNPJ</th>
-                    <th className="px-3 py-2">Cache</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">1ª conexão</th>
-                    <th className="px-3 py-2">Último ping</th>
-                    <th className="px-3 py-2">Versão</th>
-                    <th className="px-3 py-2">Estilo agora</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cliente.pdvs.map((pdv) => (
-                    <PdvRow
-                      key={pdv.rioPdvKey}
-                      pdv={pdv}
-                      expanded={expandedPdv === pdv.rioPdvKey}
-                      onToggle={() =>
-                        setExpandedPdv((k) => (k === pdv.rioPdvKey ? null : pdv.rioPdvKey))
-                      }
-                    />
-                  ))}
-                </tbody>
-              </table>
-              <p className="px-3 text-xs text-white/40">Clique na linha para ver a playlist e horários.</p>
-            </div>
+            mobile ? (
+              <div className="space-y-3 px-4 py-4">
+                {cliente.pdvs.map((pdv) => (
+                  <PdvCard
+                    key={pdv.rioPdvKey}
+                    pdv={pdv}
+                    expanded={expandedPdv === pdv.rioPdvKey}
+                    onToggle={() =>
+                      setExpandedPdv((k) => (k === pdv.rioPdvKey ? null : pdv.rioPdvKey))
+                    }
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="overflow-x-auto px-2 py-4">
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase text-white/50">
+                      <th className="px-3 py-2">PDV</th>
+                      <th className="px-3 py-2">CNPJ</th>
+                      <th className="px-3 py-2">Cache</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">1ª conexão</th>
+                      <th className="px-3 py-2">Último ping</th>
+                      <th className="px-3 py-2">Versão</th>
+                      <th className="px-3 py-2">Estilo agora</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cliente.pdvs.map((pdv) => (
+                      <PdvRow
+                        key={pdv.rioPdvKey}
+                        pdv={pdv}
+                        expanded={expandedPdv === pdv.rioPdvKey}
+                        onToggle={() =>
+                          setExpandedPdv((k) => (k === pdv.rioPdvKey ? null : pdv.rioPdvKey))
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
+                <p className="px-3 text-xs text-white/40">Clique na linha para ver a playlist e horários.</p>
+              </div>
+            )
           ) : null}
 
           {data.permissoes.verGraficoSemana && cliente.semanaBlocos.length > 0 ? (
@@ -358,9 +471,9 @@ export function SiteClienteDashboard() {
       ))}
 
       {moodOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-gradient-to-br from-fuchsia-600 to-violet-700 p-1 shadow-2xl">
-            <div className="rounded-[14px] bg-slate-900 p-6 text-white">
+        <div className={`fixed inset-0 z-50 flex bg-black/60 ${mobile ? "items-end" : "items-center justify-center p-4"}`}>
+          <div className={`w-full bg-gradient-to-br from-fuchsia-600 to-violet-700 p-1 shadow-2xl ${mobile ? "rounded-t-2xl" : "max-w-md rounded-2xl"}`}>
+            <div className={`rounded-[14px] bg-slate-900 p-6 text-white ${mobile ? "max-h-[85vh] overflow-y-auto rounded-t-[14px]" : ""}`}>
               <h3 className="text-lg font-bold">Moodboard estratégico</h3>
               {moodData ? (
                 <dl className="mt-4 space-y-3 text-sm">

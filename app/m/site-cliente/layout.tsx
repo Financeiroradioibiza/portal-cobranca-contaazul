@@ -12,13 +12,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 5,
   themeColor: "#0f172a",
 };
 
-export default function SiteClienteLayout({ children }: { children: React.ReactNode }) {
+export default function SiteClienteMobileLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 text-white">
-      <div className="mx-auto max-w-6xl px-4 py-8">{children}</div>
+    <div className="min-h-[100dvh] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 text-white">
+      <div className="mx-auto max-w-lg px-3 py-4 pb-8 safe-area-pb">{children}</div>
     </div>
   );
 }
