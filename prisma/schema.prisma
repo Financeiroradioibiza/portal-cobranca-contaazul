@@ -1592,6 +1592,7 @@ model SiteClienteMoodboard {
   estiloMusicalPrincipal String   @default("") @map("estilo_musical_principal") @db.VarChar(120)
   objetivoPeriodo        String   @default("") @map("objetivo_periodo") @db.Text
   notasInternas          String   @default("") @map("notas_internas") @db.Text
+  logoJpegBase64         String   @default("") @map("logo_jpeg_base64") @db.Text
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 

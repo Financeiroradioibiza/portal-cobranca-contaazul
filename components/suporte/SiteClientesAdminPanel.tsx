@@ -99,6 +99,7 @@ export function SiteClientesAdminPanel() {
     objetivoPeriodo: "",
     notasInternas: "",
   });
+  const [moodLogoPreview, setMoodLogoPreview] = useState<string | null>(null);
 
   const loadGrupos = useCallback(async () => {
     const res = await fetch("/api/suporte/site-clientes");
@@ -309,6 +310,51 @@ export function SiteClientesAdminPanel() {
     }
   }
 
+  async function salvarLogoCliente(rioLinhaId: string, portalClienteId: number | null, dataUrl: string) {
+    if (!detail) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/suporte/site-clientes/${detail.id}/logo/${encodeURIComponent(rioLinhaId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl, portalClienteId }),
+        },
+      );
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
+      setMoodLogoPreview(dataUrl);
+      setMsg("Logo do cliente salvo.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao salvar logo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removerLogoCliente(rioLinhaId: string, portalClienteId: number | null) {
+    if (!detail) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const q = portalClienteId ? `?portalClienteId=${portalClienteId}` : "";
+      const res = await fetch(
+        `/api/suporte/site-clientes/${detail.id}/logo/${encodeURIComponent(rioLinhaId)}${q}`,
+        { method: "DELETE" },
+      );
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
+      setMoodLogoPreview(null);
+      setMsg("Logo removido.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao remover logo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function salvarMoodboard(rioLinhaId: string, portalClienteId: number | null) {
     if (!detail) return;
     setBusy(true);
@@ -350,6 +396,20 @@ export function SiteClientesAdminPanel() {
     setMoodClienteId(c.rioLinhaId);
     setMoodClienteNome(c.nome);
     setMoodPortalClienteId(c.portalClienteId);
+    setMoodLogoPreview(null);
+    if (detail) {
+      const q = c.portalClienteId ? `?portalClienteId=${c.portalClienteId}` : "";
+      void fetch(
+        `/api/suporte/site-clientes/${detail.id}/logo/${encodeURIComponent(c.rioLinhaId)}${q}`,
+      )
+        .then((r) => r.json())
+        .then((data: { ok?: boolean; jpegBase64?: string | null }) => {
+          if (data.ok && data.jpegBase64) {
+            setMoodLogoPreview(`data:image/jpeg;base64,${data.jpegBase64}`);
+          }
+        })
+        .catch(() => null);
+    }
   }
 
   const loginUrl =
@@ -504,7 +564,7 @@ export function SiteClientesAdminPanel() {
                           className="rounded-full bg-gradient-to-r from-pink-500 to-violet-500 px-2 py-0.5 text-xs font-semibold text-white"
                           onClick={() => openMoodboardCliente(c)}
                         >
-                          Moodboard
+                          Configurar
                         </button>
                         <button
                           type="button"
@@ -700,8 +760,67 @@ export function SiteClientesAdminPanel() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-gradient-to-br from-fuchsia-600 via-violet-600 to-cyan-500 p-1 shadow-2xl">
             <div className="rounded-[14px] bg-white p-5 dark:bg-zinc-900">
-              <h3 className="text-lg font-bold">Moodboard — {moodClienteNome}</h3>
-              <div className="mt-4 space-y-3">
+              <h3 className="text-lg font-bold">Cliente — {moodClienteNome}</h3>
+
+              <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <p className="text-xs font-semibold uppercase text-zinc-500">Logo do cliente</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  JPEG até 400 KB. Aparece no site do cliente ao lado do nome, com «by Radio Ibiza».
+                  {moodPortalClienteId ? " Também sincroniza com o Player 5." : ""}
+                </p>
+                {moodLogoPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={moodLogoPreview}
+                    alt="Preview logo"
+                    className="mt-3 max-h-16 rounded border border-zinc-200 dark:border-zinc-600"
+                  />
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <label className="portal-btn portal-btn-primary cursor-pointer text-sm">
+                    Enviar JPEG
+                    <input
+                      type="file"
+                      accept="image/jpeg,.jpg"
+                      className="hidden"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !moodClienteId) return;
+                        if (file.size > 400_000) {
+                          setMsg("Arquivo grande demais (máx. ~400 KB).");
+                          return;
+                        }
+                        void new Promise<string>((resolve, reject) => {
+                          const r = new FileReader();
+                          r.onload = () => resolve(String(r.result ?? ""));
+                          r.onerror = () => reject(new Error("leitura_falhou"));
+                          r.readAsDataURL(file);
+                        }).then((dataUrl) =>
+                          salvarLogoCliente(moodClienteId, moodPortalClienteId, dataUrl),
+                        );
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {moodLogoPreview ? (
+                    <button
+                      type="button"
+                      className="portal-btn text-sm text-rose-600"
+                      disabled={busy}
+                      onClick={() =>
+                        moodClienteId &&
+                        void removerLogoCliente(moodClienteId, moodPortalClienteId)
+                      }
+                    >
+                      Remover logo
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <p className="mt-4 text-xs font-semibold uppercase text-zinc-500">Moodboard</p>
+              <div className="mt-2 space-y-3">
                 <textarea
                   className="portal-input min-h-[80px] w-full text-sm"
                   placeholder="Perfil do público"

@@ -5,6 +5,7 @@ import { PDV_STATUS_META, type PdvPlayStatus } from "@/lib/site-cliente/pdvStatu
 import type { SiteClienteDashboardPayload, SiteClientePdvRow } from "@/lib/site-cliente/siteClienteDashboardService";
 import { SiteClienteSemanaChart } from "@/components/site-cliente/SiteClienteSemanaChart";
 import { RadioIbizaRMark } from "@/components/site-cliente/RadioIbizaRMark";
+import { SiteClienteClienteBranding } from "@/components/site-cliente/SiteClienteClienteBranding";
 
 const DOW_FULL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -281,22 +282,24 @@ export function SiteClienteDashboard({ mobile = false }: { mobile?: boolean }) {
           key={cliente.key}
           className="overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-indigo-950/80 via-violet-950/60 to-fuchsia-950/50 shadow-xl"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-white/5 px-5 py-4">
-            <div>
-              <h2 className="text-xl font-bold">{cliente.nome}</h2>
-              {cliente.documento ? (
-                <p className="text-sm text-white/60">{cliente.documento}</p>
-              ) : null}
-            </div>
-            {data.permissoes.verMoodboard ? (
-              <button
-                type="button"
-                onClick={() => void openMoodboard(cliente.rioLinhaId)}
-                className="rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500 px-4 py-2 text-sm font-bold text-white shadow-lg"
-              >
-                Moodboard
-              </button>
-            ) : null}
+          <div className="border-b border-white/10 bg-white/5 px-5 py-4">
+            <SiteClienteClienteBranding
+              clienteNome={cliente.nome}
+              logoUrl={cliente.logoUrl}
+              documento={cliente.documento}
+              compact={mobile}
+              moodboardSlot={
+                data.permissoes.verMoodboard ? (
+                  <button
+                    type="button"
+                    onClick={() => void openMoodboard(cliente.rioLinhaId)}
+                    className="rounded-full bg-gradient-to-r from-pink-500 via-fuchsia-500 to-violet-500 px-4 py-2 text-sm font-bold text-white shadow-lg"
+                  >
+                    Moodboard
+                  </button>
+                ) : undefined
+              }
+            />
           </div>
 
           {cliente.programacao && data.permissoes.verResumoProgramacao ? (
@@ -336,15 +339,34 @@ export function SiteClienteDashboard({ mobile = false }: { mobile?: boolean }) {
 
           {cliente.programacao && data.permissoes.verResumoProgramacao ? (
             <div className="border-b border-white/10 px-5 py-4">
-              <div className="mb-2 text-xs font-semibold uppercase text-white/50">Estilos (pastas)</div>
-              <div className="flex flex-wrap gap-2">
+              <div className="mb-3 text-xs font-semibold uppercase text-white/50">Estilos (pastas)</div>
+              <div className="space-y-3">
                 {cliente.programacao.pastas.map((p) => (
-                  <span
+                  <div
                     key={p.nome}
-                    className="rounded-lg bg-violet-500/20 px-3 py-1 text-sm ring-1 ring-violet-400/30"
+                    className="rounded-xl bg-violet-500/15 px-4 py-3 ring-1 ring-violet-400/25"
                   >
-                    {p.nome} · {p.faixas} faixas · {p.duracaoMinutos} min
-                  </span>
+                    <div className="font-semibold text-violet-100">
+                      {p.nome}{" "}
+                      <span className="text-sm font-normal text-white/55">
+                        · {p.faixas} faixas · {p.duracaoMinutos} min
+                      </span>
+                    </div>
+                    <ul className="mt-2 space-y-1.5 text-sm text-white/75">
+                      {p.horarios.map((h, i) => (
+                        <li key={`${p.nome}-${i}`} className="flex flex-wrap gap-x-2 gap-y-0.5">
+                          <span className="text-white/50">{h.diasLabel}</span>
+                          <span
+                            className={
+                              h.tocandoSempre ? "font-medium text-emerald-300" : "text-cyan-200"
+                            }
+                          >
+                            {h.horarioLabel}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
               </div>
             </div>

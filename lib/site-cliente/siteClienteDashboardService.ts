@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getProducaoDashboard, type DashboardPdvRow } from "@/lib/cadastros/producaoDashboardService";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { getProgramacao } from "@/lib/criacao/programacaoService";
-import { listAgendamentos } from "@/lib/criacao/agendamentoService";
+import { listAgendamentos, type AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { listVotosFeed } from "@/lib/criacao/musicaVotoService";
 import { listClienteAtualizacaoArquivo } from "@/lib/criacao/atualizacaoArquivoService";
 import type { SiteClienteSessionPayload } from "@/lib/site-cliente/session";
@@ -16,6 +16,8 @@ import {
   computePdvPlayStatus,
   type PdvPlayStatus,
 } from "@/lib/site-cliente/pdvStatus";
+import { horariosParaPasta, type PastaHorarioView } from "@/lib/site-cliente/pastaHorarios";
+import { siteClienteHasLogo } from "@/lib/site-cliente/clienteLogoService";
 
 export type SiteClientePdvRow = {
   rioPdvKey: string;
@@ -45,7 +47,12 @@ export type SiteClienteProgramacaoResumo = {
   nome: string;
   totalFaixas: number;
   totalHoras: number;
-  pastas: Array<{ nome: string; faixas: number; duracaoMinutos: number }>;
+  pastas: Array<{
+    nome: string;
+    faixas: number;
+    duracaoMinutos: number;
+    horarios: PastaHorarioView[];
+  }>;
   percentNovasAtl: number | null;
   ultimaAtualizacao: string | null;
   ultimaAtualizacaoRotulo: string | null;
@@ -88,6 +95,7 @@ export type SiteClienteClienteBlock = {
   nome: string;
   rioLinhaId: string;
   documento: string | null;
+  logoUrl: string | null;
   pdvs: SiteClientePdvRow[];
   programacao: SiteClienteProgramacaoResumo | null;
   feedbacks: SiteClienteFeedbackRow[];
@@ -149,7 +157,10 @@ function filterPdvs(
   return pdvs.filter((p) => pdvKeys.has(p.rioPdvKey));
 }
 
-async function buildProgramacaoResumo(programacaoId: string): Promise<SiteClienteProgramacaoResumo | null> {
+async function buildProgramacaoResumo(
+  programacaoId: string,
+  agendamentos: AgendamentoRow[] = [],
+): Promise<SiteClienteProgramacaoResumo | null> {
   const prog = await getProgramacao(programacaoId);
   if (!prog) return null;
 
@@ -166,6 +177,7 @@ async function buildProgramacaoResumo(programacaoId: string): Promise<SiteClient
       nome: pasta.nome,
       faixas: pasta.musicas.length,
       duracaoMinutos: Math.round(dur / 60000),
+      horarios: horariosParaPasta(pasta.nome, agendamentos),
     };
   });
 
@@ -244,7 +256,7 @@ export async function buildSiteClienteDashboard(
     const agendamentos = agCache.get(pid) ?? [];
 
     if (perm.verResumoProgramacao && !programacaoCache.has(pid)) {
-      programacaoCache.set(pid, await buildProgramacaoResumo(pid));
+      programacaoCache.set(pid, await buildProgramacaoResumo(pid, agendamentos));
     }
 
     return {
@@ -368,11 +380,13 @@ export async function buildSiteClienteDashboard(
     }
 
     const mood = moodByKey.get(c.key) ?? (c.rioLinhaId ? moodByKey.get(c.rioLinhaId) : undefined);
+    const hasLogo = await siteClienteHasLogo(session.grupoId, c.key, portalClienteId);
     blocks.push({
       key: c.key,
       nome: c.nome,
       rioLinhaId: c.rioLinhaId,
       documento: c.detail.documento,
+      logoUrl: hasLogo ? `/api/site-cliente/logo/${encodeURIComponent(c.key)}` : null,
       pdvs: pdvRows,
       programacao: perm.verResumoProgramacao ? clienteProgramacao : null,
       feedbacks,
