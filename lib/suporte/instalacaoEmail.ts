@@ -5,7 +5,6 @@ import { renderInstalacaoElectronEmailHtml } from "@/lib/suporte/instalacaoElect
 import { renderInstalacaoPlay5EmailHtml } from "@/lib/suporte/instalacaoPlay5EmailTemplate";
 import {
   buildElectronInstallerExeUrl,
-  buildElectronInstallerGuiaUrl,
   GOOGLE_PLAY_PLAYER5_URL,
   type ElectronAuthModo,
   type InstalacaoPlataforma,
@@ -75,8 +74,9 @@ function passosWindows(tipo: InstalacaoTipo, senha?: string): string[] {
 
 function passosElectron(auth: ElectronAuthModo, senha?: string): string[] {
   const passosList = [
-    "Baixe e execute o instalador .exe (link «Baixar instalador» neste e-mail). Aceite as permissões de administrador se o Windows pedir.",
-    "Abra o Player instalado no menu Iniciar ou atalho «Radio Ibiza Player».",
+    "Clique em «Baixar instalador (.exe)» neste e-mail e execute o arquivo. Aceite as permissões de administrador se o Windows pedir.",
+    "Abra o link de preparação do PDV (guia TI) enviado pelo suporte, se ainda não abriu — ele associa este computador ao PDV.",
+    "Abra o Player no Menu Iniciar (atalho «Radio Ibiza»).",
   ];
   if (auth === "temp") {
     passosList.push(
@@ -116,8 +116,6 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
     senhaTemporaria,
     codigoPlay,
     electronAuth = "temp",
-    portalClienteId,
-    portalPdvId,
   } = input;
 
   const isPlay5 = tipo === "pdv_play5";
@@ -126,10 +124,6 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
   const subject = subjectForTipo(tipo, pdvNome);
 
   const exeUrl = buildElectronInstallerExeUrl();
-  const guiaUrl =
-    isElectron && portalClienteId != null && portalPdvId != null
-      ? buildElectronInstallerGuiaUrl({ portalClienteId, portalPdvId }, electronAuth)
-      : link;
 
   const linhas = isPlay5 && codigoPlay
     ? passosPlay(codigoPlay)
@@ -168,9 +162,6 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
       ``,
       `Instalador (.exe):`,
       exeUrl,
-      ``,
-      `Guia de instalação:`,
-      guiaUrl,
       ``,
     );
     if (electronAuth === "temp" && senhaTemporaria) {
@@ -222,27 +213,32 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
         })
       : null;
 
-  const html = play5Rendered?.html
-    ?? (isElectron
-      ? renderInstalacaoElectronEmailHtml({
-          clienteNome,
-          pdvNome,
-          codigoDisplay,
-          guiaUrl,
-          exeUrl,
-          electronAuth,
-          senhaTemporaria,
-          passos: linhas,
-        })
-      : renderInstalacaoDesktopEmailHtml({
-          tipo,
-          clienteNome,
-          pdvNome,
-          codigoDisplay,
-          link,
-          senhaTemporaria,
-          passos: linhas,
-        }));
+  const electronRendered = isElectron
+    ? renderInstalacaoElectronEmailHtml({
+        clienteNome,
+        pdvNome,
+        codigoDisplay,
+        exeUrl,
+        electronAuth,
+        senhaTemporaria,
+        passos: linhas,
+      })
+    : null;
 
-  return { subject, text, html, attachments: play5Rendered?.attachments };
+  const html =
+    play5Rendered?.html
+    ?? electronRendered?.html
+    ?? renderInstalacaoDesktopEmailHtml({
+      tipo,
+      clienteNome,
+      pdvNome,
+      codigoDisplay,
+      link,
+      senhaTemporaria,
+      passos: linhas,
+    });
+
+  const attachments = play5Rendered?.attachments ?? electronRendered?.attachments;
+
+  return { subject, text, html, attachments };
 }
