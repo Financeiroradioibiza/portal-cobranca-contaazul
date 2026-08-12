@@ -65,6 +65,8 @@ export type RioPdvCb = {
   tagCobranca?: RioTagCobranca;
   /** ISO — espelho do cadastro Primeiro ping (somente leitura). */
   primeiroPingEm?: string | null;
+  /** Data de saída manual (encerramento). */
+  dataSaidaTexto?: string;
 };
 
 export type RioGrupoCb = {
@@ -95,6 +97,10 @@ export type RioLinhaCb = {
   observacoesLinha: string;
   sortOrder: number;
   pdvs: RioPdvCb[];
+  /** 1º ping quando o cliente é também o PDV (sem filhos na planilha). */
+  primeiroPingEm?: string | null;
+  /** Data de saída quando o cliente é também o PDV. */
+  dataSaidaTexto?: string;
 };
 
 export function badgeMov(m: MovRioCb) {
@@ -158,7 +164,12 @@ function SortClientRow(props: {
   ym: number;
   setLinhas: Dispatch<SetStateAction<RioLinhaCb[]>>;
   addPdv: (linhaId: string) => void;
-  patchPdv: (pdvId: string, patch: { nome?: string; documento?: string | null }) => void;
+  patchPdv: (pdvId: string, patch: {
+    nome?: string;
+    documento?: string | null;
+    tagCobranca?: RioTagCobranca;
+    dataSaidaTexto?: string;
+  }) => void;
   delPdv: (pdvId: string) => void;
   onDeleteLinha?: (r: RioLinhaCb) => void;
   monthClosed?: boolean;
@@ -199,6 +210,7 @@ function SortClientRow(props: {
     r.pdvs.filter((p) => (p.movimento ?? "estavel") !== "saida"),
   );
   const temPdvs = r.pdvs.length > 0;
+  const showPingOnLinha = pdvsSorted.length === 0;
   const linhaTag = r.tagCobranca ?? "cobrando";
   const linhaTagClass = rioTagCobrancaTextClass(linhaTag);
 
@@ -434,13 +446,36 @@ function SortClientRow(props: {
             />
           </div>
         </td>
+        <td
+          className="max-w-[8.5rem] truncate px-1 text-[10px] tabular-nums text-slate-700 dark:text-slate-300"
+          title={showPingOnLinha ? (r.primeiroPingEm ?? undefined) : undefined}
+        >
+          {showPingOnLinha ? formatRioPrimeiroPing(r.primeiroPingEm) : "—"}
+        </td>
+        <td className="max-w-[6.5rem] px-0.5">
+          {showPingOnLinha ?
+            <input
+              key={`saida-linha-${r.id}-${r.dataSaidaTexto ?? ""}`}
+              className="box-border h-7 w-full min-w-[5.5rem] rounded border border-slate-200 bg-transparent px-1 text-[10px] dark:border-slate-700"
+              placeholder="Saída"
+              defaultValue={r.dataSaidaTexto ?? ""}
+              title="Data de saída (encerramento)"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v !== (r.dataSaidaTexto ?? "").trim()) {
+                  void props.patchLinha(r.id, { dataSaidaTexto: v });
+                }
+              }}
+            />
+          : "—"}
+        </td>
         <td className="max-w-[14rem] truncate px-1 text-[10px] text-slate-600 dark:text-slate-400" title={r.razaoSocial}>
           {r.razaoSocial || "—"}
         </td>
       </tr>
       {isOpen ?
         <tr className="border-b border-slate-100 bg-slate-50 dark:border-slate-900 dark:bg-amber-950/15">
-          <td colSpan={12} className="px-3 py-2">
+          <td colSpan={14} className="px-3 py-2">
             <div
               className={
                 "rounded-lg border-2 border-dashed p-2 transition-colors " +
@@ -529,6 +564,7 @@ function SortClientRow(props: {
                   <span className="w-[11rem] shrink-0">CNPJ do PDV</span>
                   <span className="w-[8.5rem] shrink-0">1º ping</span>
                   <span className="w-[9.5rem] shrink-0">Cobrando</span>
+                  <span className="w-[6.5rem] shrink-0">Saída</span>
                   <span className="w-[3.5rem] shrink-0" />
                 </li>
               : null}
@@ -620,7 +656,12 @@ function SortClientRow(props: {
 function PdvMini(props: {
   indexVis: number;
   p: RioPdvCb;
-  patchPdv: (pdvId: string, patch: { nome?: string; documento?: string | null; tagCobranca?: RioTagCobranca }) => void;
+  patchPdv: (pdvId: string, patch: {
+    nome?: string;
+    documento?: string | null;
+    tagCobranca?: RioTagCobranca;
+    dataSaidaTexto?: string;
+  }) => void;
   del: (pdvId: string) => void;
 }) {
   const { indexVis } = props;
@@ -678,6 +719,19 @@ function PdvMini(props: {
         value={pdvTag}
         onChange={(tagCobranca) => void props.patchPdv(props.p.id, { tagCobranca })}
       />
+      <input
+        key={`${props.p.id}-saida-${props.p.dataSaidaTexto ?? ""}`}
+        className="w-[6.5rem] shrink-0 rounded border border-transparent bg-transparent px-1 py-0 text-[10px] hover:border-amber-800/52 dark:hover:border-amber-600"
+        placeholder="Saída"
+        defaultValue={props.p.dataSaidaTexto ?? ""}
+        title="Data de saída (encerramento)"
+        onBlur={(ev) => {
+          const v = ev.target.value.trim();
+          if (v !== (props.p.dataSaidaTexto ?? "").trim()) {
+            void props.patchPdv(props.p.id, { dataSaidaTexto: v });
+          }
+        }}
+      />
       <button type="button" className="w-[3.5rem] shrink-0 text-right text-rose-600 underline" onClick={() => void props.del(props.p.id)}>
         remover
       </button>
@@ -707,7 +761,12 @@ export function ClienteMarcaBlock(props: {
   patchLinha: (id: string, body: Record<string, unknown>) => void;
   setLinhas: Dispatch<SetStateAction<RioLinhaCb[]>>;
   addPdv: (linhaId: string) => void;
-  patchPdv: (id: string, patch: { nome?: string; documento?: string | null }) => void;
+  patchPdv: (id: string, patch: {
+    nome?: string;
+    documento?: string | null;
+    tagCobranca?: RioTagCobranca;
+    dataSaidaTexto?: string;
+  }) => void;
   delPdv: (id: string) => void;
   onDeleteLinha?: (r: RioLinhaCb) => void;
   monthClosed?: boolean;
@@ -772,7 +831,7 @@ export function ClienteMarcaBlock(props: {
   return (
     <tbody className={"group-marca-" + (marca?.id ?? "none")}>
       <tr className={"border-x border-slate-800/85 " + bannerCls}>
-        <td colSpan={12} className="px-3 py-1">
+        <td colSpan={14} className="px-3 py-1">
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold">
             <span className="truncate tracking-wide">MARCA — {headerTitle}</span>
             {marca && typeof grupoIndex === "number" && typeof grupoCount === "number" && grupoCount > 1 ?
@@ -866,7 +925,7 @@ export function ClienteMarcaBlock(props: {
       </DndContext>
       {marca && linhasOrdered.length === 0 ?
         <tr className="border-b border-emerald-900/25 bg-emerald-950/10 dark:bg-emerald-950/25">
-          <td colSpan={12} className="px-3 py-2 text-[11px] italic text-emerald-900/90 dark:text-emerald-200/85">
+          <td colSpan={14} className="px-3 py-2 text-[11px] italic text-emerald-900/90 dark:text-emerald-200/85">
             Nenhum cliente neste bloco — na coluna «Marca bloco» escolha esta MARCA ou arraste clientes de «Sem
             MARCA» para aqui (≡).
           </td>

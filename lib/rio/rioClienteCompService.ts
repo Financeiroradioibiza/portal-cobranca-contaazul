@@ -980,6 +980,7 @@ export async function patchRioCompClienteLinha(
     valorPdvUnitarioTexto: string;
     origemCliente: string;
     tagCobranca: RioTagCobranca;
+    dataSaidaTexto: string;
   }>,
 ) {
   const current = await prisma.rioCompClienteLinha.findUnique({
@@ -1013,6 +1014,10 @@ export async function patchRioCompClienteLinha(
 
   if (payload.tagCobranca != null) {
     payload.tagCobranca = normalizeRioTagCobranca(payload.tagCobranca);
+  }
+
+  if (typeof payload.dataSaidaTexto === "string") {
+    payload.dataSaidaTexto = payload.dataSaidaTexto.trim().slice(0, 80);
   }
 
   await prisma.rioCompClienteLinha.update({
@@ -1387,6 +1392,7 @@ export async function patchRioCompPdv(
     notes: string;
     sortOrder: number;
     tagCobranca: RioTagCobranca;
+    dataSaidaTexto: string;
   }>,
 ) {
   const patch: Partial<{
@@ -1395,12 +1401,16 @@ export async function patchRioCompPdv(
     notes: string;
     sortOrder: number;
     tagCobranca: RioTagCobranca;
+    dataSaidaTexto: string;
   }> = { ...data };
   if ("documento" in data) {
     patch.documento = normalizeBrazilianTaxIdForStorage(data.documento);
   }
   if (patch.tagCobranca != null) {
     patch.tagCobranca = normalizeRioTagCobranca(patch.tagCobranca);
+  }
+  if (typeof patch.dataSaidaTexto === "string") {
+    patch.dataSaidaTexto = patch.dataSaidaTexto.trim().slice(0, 80);
   }
   await prisma.rioCompPdv.update({ where: { id: pdvId }, data: patch });
 

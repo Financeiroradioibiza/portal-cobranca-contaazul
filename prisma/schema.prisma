@@ -298,6 +298,9 @@ model RioCompClienteLinha {
   observacoesLinha String @default("") @map("observacoes_linha") @db.Text
   sortOrder        Int    @default(0) @map("sort_order")
 
+  /// Data de saída manual (encerramento) — texto livre, ex. dd/mm/aaaa.
+  dataSaidaTexto String @default("") @map("data_saida_texto") @db.VarChar(80)
+
   /// ID numérico do cliente no Player (100, 101, … — ordem alfabética).
   portalClienteId Int? @unique @map("portal_cliente_id")
 
@@ -323,6 +326,9 @@ model RioCompPdv {
 
   /// ID numérico do PDV no Player (ex. 100001 → exibido 100.001).
   portalPdvId Int? @unique @map("portal_pdv_id")
+
+  /// Data de saída manual (encerramento) — texto livre, ex. dd/mm/aaaa.
+  dataSaidaTexto String @default("") @map("data_saida_texto") @db.VarChar(80)
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -419,6 +425,28 @@ model PdvInstalacaoPlayCodigo {
   @@index([portalClienteId, portalPdvId])
   @@index([codigoHash])
   @@map("pdv_instalacao_play_codigo")
+}
+
+/// Registo «Tô Instalado» — cada conclusão de instalação no Player (Suporte).
+model PdvInstalacaoConcluidaLog {
+  id                  String    @id @default(cuid())
+  rioPdvKey           String    @map("rio_pdv_key") @db.VarChar(80)
+  portalClienteId     Int       @map("portal_cliente_id")
+  portalPdvId         Int       @map("portal_pdv_id")
+  clienteNome         String    @default("") @map("cliente_nome") @db.Text
+  pdvNome             String    @default("") @map("pdv_nome") @db.Text
+  cnpj                String    @default("") @db.VarChar(64)
+  contatoLojaNome     String    @default("") @map("contato_loja_nome") @db.Text
+  contatoLojaTelefone String    @default("") @map("contato_loja_telefone") @db.VarChar(64)
+  contatoLojaEmail    String    @default("") @map("contato_loja_email") @db.Text
+  codigoDisplay       String    @default("") @map("codigo_display") @db.VarChar(24)
+  instaladoEm         DateTime  @map("instalado_em")
+  primeiroPingEm      DateTime? @map("primeiro_ping_em")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@unique([rioPdvKey, instaladoEm])
+  @@index([instaladoEm(sort: Desc)])
+  @@map("pdv_instalacao_concluida_log")
 }
 
 /// Logotipo JPEG do cliente no Player 5 (sync → gateway `clientes.logotipo_jpeg`).

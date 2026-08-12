@@ -27,17 +27,63 @@ export async function registerUpdatePdvInstaladoRoutes(
 
     /** Espelha no Neon para o sync-registry não reabrir a licença (`instaladoPlayer: S`). */
     try {
-      const rio = await pool.query<{ origem_rio_pdv_id: string | null }>(
-        `SELECT origem_rio_pdv_id FROM pdvs WHERE id = $1 LIMIT 1`,
+      const meta = await pool.query<{
+        origem_rio_pdv_id: string | null;
+        pdv_nome: string | null;
+        cliente_nome: string | null;
+      }>(
+        `SELECT p.origem_rio_pdv_id, p.nome AS pdv_nome, c.nome AS cliente_nome
+         FROM pdvs p
+         INNER JOIN clientes c ON c.id = p.cliente_id
+         WHERE p.id = $1
+         LIMIT 1`,
         [pdvId],
       );
-      const rioKey = String(rio.rows[0]?.origem_rio_pdv_id ?? '').trim();
+      const row = meta.rows[0];
+      const rioKey = String(row?.origem_rio_pdv_id ?? '').trim();
       if (rioKey) {
         await portalQuery(
           `UPDATE producao_pdv_cadastro
               SET player_instalado_em = NOW()
             WHERE rio_pdv_key = $1`,
           [rioKey],
+        );
+
+        const seq = pdvId % 1000;
+        const clienteId = Math.floor(pdvId / 1000);
+        const codigoDisplay = `${clienteId}.${String(seq).padStart(3, '0')}`;
+        await portalQuery(
+          `INSERT INTO pdv_instalacao_concluida_log (
+             id, rio_pdv_key, portal_cliente_id, portal_pdv_id,
+             cliente_nome, pdv_nome, cnpj,
+             contato_loja_nome, contato_loja_telefone, contato_loja_email,
+             codigo_display, instalado_em, created_at
+           )
+           SELECT
+             gen_random_uuid()::text,
+             c.rio_pdv_key,
+             $2::int,
+             $3::int,
+             COALESCE(NULLIF(TRIM($4::text), ''), 'Cliente'),
+             COALESCE(NULLIF(TRIM(c.nome), ''), NULLIF(TRIM($5::text), ''), 'PDV'),
+             COALESCE(c.cnpj, ''),
+             COALESCE(c.contato_loja_nome, ''),
+             COALESCE(c.contato_loja_telefone, ''),
+             COALESCE(c.contato_loja_email, ''),
+             $6::text,
+             NOW(),
+             NOW()
+           FROM producao_pdv_cadastro c
+           WHERE c.rio_pdv_key = $1
+           ON CONFLICT (rio_pdv_key, instalado_em) DO NOTHING`,
+          [
+            rioKey,
+            session.cliente_id,
+            pdvId,
+            String(row?.cliente_nome ?? '').trim(),
+            String(row?.pdv_nome ?? '').trim(),
+            codigoDisplay,
+          ],
         );
       }
     } catch {

@@ -114,6 +114,7 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
       { href: "/suporte/site-clientes", icon: "🌐", label: "Site clientes" },
       { href: "/suporte/avisos-player", icon: "📢", label: "Avisos player" },
       { href: "/suporte/instalacao", icon: "📦", label: "Instalação" },
+      { href: "/suporte/to-instalado", icon: "✅", label: "Tô Instalado" },
     ],
   },
   chamados: {

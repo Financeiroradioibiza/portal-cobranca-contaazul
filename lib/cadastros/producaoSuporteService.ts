@@ -73,6 +73,7 @@ export async function getProducaoSuporte(options?: {
         contatoLojaTelefone: true,
         contatoLojaEmail: true,
         createdAt: true,
+        playerInstaladoEm: true,
         playerInstalacaoToken: true,
         programacaoId: true,
         programacaoMusical: true,
@@ -143,7 +144,9 @@ export async function getProducaoSuporte(options?: {
       const cad = cadastroByKey.get(pdv.rioPdvKey);
       const link = linkByKey.get(pdv.rioPdvKey);
       const rioCreated = rioCreatedByKey.get(pdv.rioPdvKey);
-      const instaladoAt = (cad?.createdAt ?? rioCreated ?? new Date(0)).toISOString();
+      const instaladoAt = (
+        cad?.playerInstaladoEm ?? cad?.createdAt ?? rioCreated ?? new Date(0)
+      ).toISOString();
       const maps = buildGoogleMapsFromPdvAddress({
         nome: pdv.nome,
         endereco: cad?.endereco ?? "",

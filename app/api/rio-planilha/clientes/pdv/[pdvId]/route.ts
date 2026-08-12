@@ -38,6 +38,7 @@ export async function PATCH(request: Request, context: Ctx) {
     notes: string;
     sortOrder: number;
     tagCobranca: RioTagCobranca;
+    dataSaidaTexto: string;
   }> = {};
   if (typeof body.nome === "string") data.nome = body.nome.slice(0, 500);
   if (typeof body.documento === "string") data.documento = body.documento.slice(0, 64);
@@ -48,6 +49,9 @@ export async function PATCH(request: Request, context: Ctx) {
   }
   if ("tagCobranca" in body) {
     data.tagCobranca = normalizeRioTagCobranca(body.tagCobranca);
+  }
+  if (typeof body.dataSaidaTexto === "string") {
+    data.dataSaidaTexto = body.dataSaidaTexto.trim().slice(0, 80);
   }
 
   await patchRioCompPdv(pdvId, data);

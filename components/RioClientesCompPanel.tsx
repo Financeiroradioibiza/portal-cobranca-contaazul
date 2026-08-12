@@ -960,7 +960,13 @@ export function RioClientesCompPanel() {
       if (!res.ok || !data?.linha) return;
       setLinhas((prev) =>
         prev.map((x) =>
-          x.id === id ? { ...data.linha!, pdvs: data.linha!.pdvs ?? x.pdvs } : x,
+          x.id === id ?
+            {
+              ...data.linha!,
+              pdvs: data.linha!.pdvs ?? x.pdvs,
+              primeiroPingEm: x.primeiroPingEm,
+            }
+          : x,
         ),
       );
     },
@@ -1112,7 +1118,12 @@ export function RioClientesCompPanel() {
   const patchPdv = useCallback(
     async (
       pdvId: string,
-      patch: { nome?: string; documento?: string | null; tagCobranca?: import("@/lib/rio/rioTagCobranca").RioTagCobranca },
+      patch: {
+        nome?: string;
+        documento?: string | null;
+        tagCobranca?: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
+        dataSaidaTexto?: string;
+      },
     ) => {
       const res = await fetch(`/api/rio-planilha/clientes/pdv/${pdvId}`, {
         method: "PATCH",
@@ -1145,6 +1156,7 @@ export function RioClientesCompPanel() {
                   nome: data.pdv!.nome,
                   documento: data.pdv!.documento ?? null,
                   tagCobranca: data.pdv!.tagCobranca ?? p.tagCobranca,
+                  dataSaidaTexto: data.pdv!.dataSaidaTexto ?? p.dataSaidaTexto,
                 }
               : p,
             ),
@@ -2270,7 +2282,7 @@ export function RioClientesCompPanel() {
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
         <div className="rio-planilha-scroll max-h-[min(78vh,calc(100dvh-9rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-        <table className="min-w-[1180px] w-full border-separate border-spacing-0 text-sm">
+        <table className="min-w-[1320px] w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
               <th className="rio-sticky-drag sticky top-0 border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900 dark:shadow-[0_1px_0_0_rgb(51_65_85)]">
@@ -2307,6 +2319,12 @@ export function RioClientesCompPanel() {
                 E-mail cobrança
               </th>
               <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                1º ping
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
+                Saída
+              </th>
+              <th className="sticky top-0 z-[2] border-b border-slate-200 bg-slate-50 px-1 py-1 shadow-[0_1px_0_0_rgb(226_232_240)] dark:border-slate-800 dark:bg-slate-900">
                 Razão social
               </th>
             </tr>
@@ -2314,7 +2332,7 @@ export function RioClientesCompPanel() {
           {loading ?
             <tbody>
               <tr>
-                <td colSpan={12} className="px-3 py-8 text-center text-sm text-slate-500">
+                <td colSpan={14} className="px-3 py-8 text-center text-sm text-slate-500">
                   Carregando…
                 </td>
               </tr>
@@ -2322,7 +2340,7 @@ export function RioClientesCompPanel() {
           : linhas.length === 0 ?
             <tbody>
               <tr>
-                <td colSpan={12} className="px-3 py-8 text-center text-sm text-slate-500">
+                <td colSpan={14} className="px-3 py-8 text-center text-sm text-slate-500">
                   Nenhuma linha. Use <strong>Importar CSV / Excel</strong> ou <strong>Sincronizar Conta Azul</strong>.
                   Depois crie MARCA («Nova MARCA») e distribua os clientes.
                 </td>

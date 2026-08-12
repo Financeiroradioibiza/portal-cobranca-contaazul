@@ -52,6 +52,7 @@ export async function PATCH(request: Request, context: Ctx) {
     valorPdvUnitarioTexto: string;
     origemCliente: string;
     tagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
+    dataSaidaTexto: string;
   }> = {};
 
   if ("origemCliente" in body) {
@@ -86,6 +87,9 @@ export async function PATCH(request: Request, context: Ctx) {
   }
   if (typeof body.valorPdvUnitarioTexto === "string") {
     patch.valorPdvUnitarioTexto = body.valorPdvUnitarioTexto.slice(0, 200);
+  }
+  if (typeof body.dataSaidaTexto === "string") {
+    patch.dataSaidaTexto = body.dataSaidaTexto.trim().slice(0, 80);
   }
 
   if (typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)) {
