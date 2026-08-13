@@ -67,6 +67,30 @@ async function createChamadoFeedback({ clienteNome, pdvNome, mensagem, clienteId
   return id;
 }
 
+function portalPublicOrigin() {
+  const raw =
+    String(process.env.PORTAL_PUBLIC_ORIGIN ?? process.env.NEXT_PUBLIC_SITE_URL ?? '').trim() ||
+    'https://portal.radioibiza.app.br';
+  return raw.replace(/\/$/, '');
+}
+
+/** Dispara e-mail cadastro@ via portal (fire-and-forget). Requer PLAYER_INGEST_SECRET no cloud2. */
+function queuePortalCadastroNotifyEmail(ingestId) {
+  const secret = String(process.env.PLAYER_INGEST_SECRET ?? '').trim();
+  if (!secret || !ingestId) return;
+  const url = `${portalPublicOrigin()}/api/player/ingest/cadastro/notify`;
+  void fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-player-ingest-secret': secret,
+    },
+    body: JSON.stringify({ id: ingestId }),
+  }).catch((e) => {
+    console.error('[player-cadastro] notify email', e instanceof Error ? e.message : e);
+  });
+}
+
 async function insertPlayerIngest(row) {
   await portalQuery(
     `INSERT INTO player_ingest
@@ -188,6 +212,8 @@ export async function registerPlayerCadastroRoutes(app, prefix = '/api') {
       } else if (secao === 'financeiro') {
         await resolverAvisoAutomatizadoPorGatewayPdv(pdvGatewayId, 'cadastro_financeiro');
       }
+
+      queuePortalCadastroNotifyEmail(id);
 
       return reply.send({ ok: true, id, mensagem: 'cadastro_recebido' });
     } catch (e) {
