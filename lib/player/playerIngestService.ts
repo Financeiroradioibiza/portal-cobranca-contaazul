@@ -295,11 +295,7 @@ export async function ingestPlayerCadastro(input: {
     },
   });
 
-  const view = rowToView(row);
-  const { queuePlayerCadastroNotifyEmail } = await import("@/lib/player/playerCadastroNotifyEmail");
-  queuePlayerCadastroNotifyEmail(view);
-
-  return view;
+  return rowToView(row);
 }
 
 export async function listPlayerIngest(opts: {

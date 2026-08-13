@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { queuePlayerCadastroNotifyEmail } from "@/lib/player/playerCadastroNotifyEmail";
 import { ingestPlayerCadastro } from "@/lib/player/playerIngestService";
 
 function authorizeIngest(request: Request): boolean {
@@ -43,6 +44,8 @@ export async function POST(request: Request) {
       pdvGatewayId: Number.isFinite(pdvGatewayId) ? pdvGatewayId : null,
       payload,
     });
+
+    queuePlayerCadastroNotifyEmail(row);
 
     return NextResponse.json({ ok: true, id: row.id });
   } catch (e) {
