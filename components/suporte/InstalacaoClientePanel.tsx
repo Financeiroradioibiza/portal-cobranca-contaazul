@@ -57,7 +57,12 @@ function mapErr(data: unknown, httpStatus?: number): string {
   const err = (data as { error?: unknown })?.error;
   if (err === "unauthorized") return "Sessão expirada. Entre novamente no portal.";
   if (err === "cliente_sem_pdvs") return "Este cliente não tem PDVs com ID Player.";
-  if (err === "server_error") return "Erro no servidor ao carregar PDVs. Tente de novo.";
+  if (err === "server_error") {
+    const detail = (data as { detail?: unknown })?.detail;
+    return typeof detail === "string" && detail.trim()
+      ? `Erro no servidor: ${detail.trim()}`
+      : "Erro no servidor. Tente de novo.";
+  }
   if (err === "pdv_com_player_instalado") {
     return "PDV com player instalado — regenerar chave serial antes de gerar código Play.";
   }

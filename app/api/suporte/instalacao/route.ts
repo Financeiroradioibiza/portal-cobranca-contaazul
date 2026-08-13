@@ -376,11 +376,14 @@ export async function POST(request: Request) {
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[suporte/instalacao POST]", e);
+    console.error("[suporte/instalacao POST]", action, body.portalClienteId, body.portalPdvId, e);
     const smtpHint =
-      /SMTP|ECONNREFUSED|ETIMEDOUT|EAUTH|nodemailer|ENOENT/i.test(msg) ? msg.slice(0, 200) : undefined;
+      /SMTP|ECONNREFUSED|ETIMEDOUT|EAUTH|nodemailer|ENOENT|550 |554 |421 |mailbox|recipient/i.test(msg)
+        ? msg.slice(0, 200)
+        : undefined;
+    const detail = smtpHint ?? msg.slice(0, 200);
     return NextResponse.json(
-      { ok: false, error: smtpHint ? "envio_falhou" : "server_error", detail: smtpHint },
+      { ok: false, error: smtpHint ? "envio_falhou" : "server_error", detail },
       { status: 500 },
     );
   }

@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { listPortalPlayerRows } from "@/lib/player/listPortalPlayerRows";
 import { ensurePdvInstalacaoToken } from "@/lib/player/pdvInstalacaoToken";
-import { pdvLivreParaCodigoPlay } from "@/lib/suporte/instalacaoPlayService";
 import { formatPortalPdvIdDisplay, portalClienteIdFromPdvId } from "@/lib/player/portalPlayerIds";
 
 export type InstalacaoTipo =
@@ -41,11 +40,101 @@ export type InstalacaoPdvContext = {
   podeGerarCodigoPlay: boolean;
 };
 
+async function lookupRioPdvKeyFromLayout(portalPdvId: number): Promise<string | null> {
+  const layout = await prisma.cadastroProducaoLayout.findUnique({
+    where: { yearMonth: 0 },
+    select: { portalPdvIdsByRioPdvKey: true },
+  });
+  const map = layout?.portalPdvIdsByRioPdvKey;
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  for (const [key, rawId] of Object.entries(map)) {
+    const id = typeof rawId === "number" ? rawId : Number(rawId);
+    if (Number.isFinite(id) && id === portalPdvId) return key;
+  }
+  return null;
+}
+
+async function resolveNomesFromRioKey(rioPdvKey: string): Promise<{
+  clienteNome: string;
+  pdvNome: string;
+} | null> {
+  if (rioPdvKey.startsWith("linha:")) {
+    const linha = await prisma.rioCompClienteLinha.findUnique({
+      where: { id: rioPdvKey.slice(6) },
+      select: {
+        nomeFantasia: true,
+        razaoSocial: true,
+        rioGrupo: { select: { nome: true } },
+      },
+    });
+    if (!linha) return null;
+    const pdvNome = linha.nomeFantasia.trim() || linha.razaoSocial.trim() || "PDV";
+    const clienteNome = linha.rioGrupo?.nome?.trim() || pdvNome;
+    return { clienteNome, pdvNome };
+  }
+
+  const pdv = await prisma.rioCompPdv.findUnique({
+    where: { id: rioPdvKey },
+    select: {
+      nome: true,
+      cliente: {
+        select: {
+          nomeFantasia: true,
+          razaoSocial: true,
+          rioGrupo: { select: { nome: true } },
+        },
+      },
+    },
+  });
+  if (!pdv) return null;
+  const pdvNome = pdv.nome.trim() || "PDV";
+  const linha = pdv.cliente;
+  const clienteNome =
+    linha?.rioGrupo?.nome?.trim() ||
+    linha?.nomeFantasia?.trim() ||
+    linha?.razaoSocial?.trim() ||
+    "Cliente";
+  return { clienteNome, pdvNome };
+}
+
 /** Resolve um par cliente/PDV do Player em contexto completo (nomes, token, contato loja). */
 export async function resolveInstalacaoPdv(
   portalClienteId: number,
   portalPdvId: number,
 ): Promise<InstalacaoPdvContext | null> {
+  if (portalClienteIdFromPdvId(portalPdvId) !== portalClienteId) return null;
+
+  const rioPdvKeyFromLayout = await lookupRioPdvKeyFromLayout(portalPdvId);
+  if (rioPdvKeyFromLayout) {
+    const nomes = await resolveNomesFromRioKey(rioPdvKeyFromLayout);
+    if (nomes) {
+      const instalacaoToken = await ensurePdvInstalacaoToken(rioPdvKeyFromLayout);
+      const cadastro = await prisma.producaoPdvCadastro.findUnique({
+        where: { rioPdvKey: rioPdvKeyFromLayout },
+        select: {
+          contatoLojaNome: true,
+          contatoLojaEmail: true,
+          contatoLojaTelefone: true,
+          playerInstaladoEm: true,
+        },
+      });
+      return {
+        portalClienteId,
+        portalPdvId,
+        codigoDisplay: formatPortalPdvIdDisplay(portalPdvId),
+        clienteNome: nomes.clienteNome,
+        pdvNome: nomes.pdvNome,
+        rioPdvKey: rioPdvKeyFromLayout,
+        instalacaoToken,
+        contatoLojaNome: cadastro?.contatoLojaNome?.trim() ?? "",
+        contatoLojaEmail: cadastro?.contatoLojaEmail?.trim() ?? "",
+        contatoLojaTelefone: cadastro?.contatoLojaTelefone?.trim() ?? "",
+        playerInstaladoEm: cadastro?.playerInstaladoEm?.toISOString() ?? null,
+        podeGerarCodigoPlay: !cadastro?.playerInstaladoEm,
+      };
+    }
+  }
+
   const { rows } = await listPortalPlayerRows();
   const row = rows.find(
     (r) => r.portalPlayerId && r.portalPlayerId.portalPdvId === portalPdvId,
@@ -66,7 +155,7 @@ export async function resolveInstalacaoPdv(
     },
   });
 
-  const podeGerarCodigoPlay = await pdvLivreParaCodigoPlay(rioPdvKey);
+  const podeGerarCodigoPlay = !cadastro?.playerInstaladoEm;
 
   return {
     portalClienteId,

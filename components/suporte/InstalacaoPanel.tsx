@@ -76,6 +76,12 @@ function mapErr(data: unknown): string {
       ? `Falha ao enviar e-mail: ${detail.trim()}`
       : "Falha ao enviar e-mail (SMTP). Tente de novo ou avise o suporte.";
   }
+  if (err === "server_error") {
+    const detail = (data as { detail?: unknown })?.detail;
+    return typeof detail === "string" && detail.trim()
+      ? `Erro no servidor: ${detail.trim()}`
+      : "Erro no servidor ao enviar. Tente de novo.";
+  }
   if (typeof err === "string" && err.trim()) return err;
   return "Operação falhou.";
 }
