@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { isOcSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
+import {
+  formatDestinatarioEmails,
+  parseDestinatarioEmails,
+} from "@/lib/suporte/parseDestinatarioEmails";
 import { buildInstalacaoEmail } from "@/lib/suporte/instalacaoEmail";
 import {
   buildInstallLink,
@@ -23,8 +27,12 @@ import {
 
 export const runtime = "nodejs";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TEST_EMAIL = "rafael@radioibiza.com.br";
+
+function resolveDestinatarios(custom: string, fallback: string): string[] {
+  const raw = custom.trim() || fallback.trim();
+  return parseDestinatarioEmails(raw);
+}
 
 function parseId(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return Math.trunc(raw);
@@ -84,7 +92,8 @@ export async function POST(request: Request) {
       const testTipo = parseTipo(body.tipo) ?? "pdv_senha_temp";
       const testElectronAuth = parseElectronAuth(body.electronAuth);
       const customTest = typeof body.email === "string" ? body.email.trim() : "";
-      const testTo = customTest && EMAIL_RE.test(customTest) ? customTest : TEST_EMAIL;
+      const testDestinatarios = parseDestinatarioEmails(customTest);
+      const testTo = testDestinatarios.length ? testDestinatarios : [TEST_EMAIL];
       const email =
         testTipo === "pdv_play5"
           ? buildInstalacaoEmail({
@@ -125,14 +134,14 @@ export async function POST(request: Request) {
                 senhaTemporaria: "TESTE123",
               });
       await sendEmailViaSmtp({
-        to: [testTo],
+        to: testTo,
         subject: `[TESTE] ${email.subject}`,
         text: email.text,
         html: email.html,
         attachments: email.attachments,
         mailProfile: "suporte",
       });
-      return NextResponse.json({ ok: true, to: testTo });
+      return NextResponse.json({ ok: true, to: formatDestinatarioEmails(testTo) });
     }
 
     const portalClienteId = parseId(body.portalClienteId);
@@ -257,10 +266,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "smtp_nao_configurado" }, { status: 400 });
       }
       const custom = typeof body.email === "string" ? body.email.trim() : "";
-      const destino = custom || ctx.contatoLojaEmail;
-      if (!destino || !EMAIL_RE.test(destino)) {
+      const destinatarios = resolveDestinatarios(custom, ctx.contatoLojaEmail);
+      if (destinatarios.length === 0) {
         return NextResponse.json({ ok: false, error: "email_invalido" }, { status: 400 });
       }
+      const destinoLabel = formatDestinatarioEmails(destinatarios);
 
       if (tipo === "pdv_play5") {
         let codigoPlay =
@@ -297,7 +307,7 @@ export async function POST(request: Request) {
         });
 
         await sendEmailViaSmtp({
-          to: [destino],
+          to: destinatarios,
           subject: email.subject,
           text: email.text,
           html: email.html,
@@ -311,12 +321,12 @@ export async function POST(request: Request) {
           tipo: "pdv_play5",
           plataforma: "mobile",
           canal: "email",
-          destinoEmail: destino,
+          destinoEmail: destinoLabel,
           link: `codigo:${codigoPlay}`,
           enviadoPor: actorFrom(session),
         });
 
-        return NextResponse.json({ ok: true, to: destino, codigoPlay });
+        return NextResponse.json({ ok: true, to: destinoLabel, codigoPlay });
       }
 
       const senhaTemporaria =
@@ -340,7 +350,7 @@ export async function POST(request: Request) {
       });
 
       await sendEmailViaSmtp({
-        to: [destino],
+        to: destinatarios,
         subject: email.subject,
         text: email.text,
         html: email.html,
@@ -354,12 +364,12 @@ export async function POST(request: Request) {
         tipo,
         plataforma,
         canal: "email",
-        destinoEmail: destino,
+        destinoEmail: destinoLabel,
         link,
         enviadoPor: actorFrom(session),
       });
 
-      return NextResponse.json({ ok: true, to: destino, senhaTemporaria, link, exeUrl });
+      return NextResponse.json({ ok: true, to: destinoLabel, senhaTemporaria, link, exeUrl });
     }
 
     return NextResponse.json({ ok: false, error: "acao_desconhecida" }, { status: 400 });

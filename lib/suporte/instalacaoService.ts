@@ -102,31 +102,50 @@ export async function listInstalacaoPdvsForCliente(portalClienteId: number): Pro
   pdvs: InstalacaoClientePdvResumo[];
 }> {
   const { rows } = await listPortalPlayerRows();
-  const pdvIds = new Set<number>();
+  const matching = rows.filter((r) => r.portalPlayerId?.portalClienteId === portalClienteId);
+
   let clienteNome = "Cliente";
-
-  for (const r of rows) {
-    const link = r.portalPlayerId;
-    if (!link || link.portalClienteId !== portalClienteId) continue;
-    pdvIds.add(link.portalPdvId);
-    if (r.clienteNome.trim()) clienteNome = r.clienteNome.trim();
+  for (const r of matching) {
+    if (r.clienteNome.trim()) {
+      clienteNome = r.clienteNome.trim();
+      break;
+    }
   }
 
-  const pdvs: InstalacaoClientePdvResumo[] = [];
-  for (const portalPdvId of [...pdvIds].sort((a, b) => a - b)) {
-    const ctx = await resolveInstalacaoPdv(portalClienteId, portalPdvId);
-    if (!ctx) continue;
-    pdvs.push({
-      portalPdvId: ctx.portalPdvId,
-      codigoDisplay: ctx.codigoDisplay,
-      pdvNome: ctx.pdvNome,
-      contatoLojaNome: ctx.contatoLojaNome,
-      contatoLojaEmail: ctx.contatoLojaEmail,
-      contatoLojaTelefone: ctx.contatoLojaTelefone,
-      playerInstaladoEm: ctx.playerInstaladoEm,
-      podeGerarCodigoPlay: ctx.podeGerarCodigoPlay,
+  if (matching.length === 0) {
+    return { portalClienteId, clienteNome, pdvs: [] };
+  }
+
+  const rioPdvKeys = matching.map((r) => r.rioPdvId);
+  const cadastros = await prisma.producaoPdvCadastro.findMany({
+    where: { rioPdvKey: { in: rioPdvKeys } },
+    select: {
+      rioPdvKey: true,
+      contatoLojaNome: true,
+      contatoLojaEmail: true,
+      contatoLojaTelefone: true,
+      playerInstaladoEm: true,
+    },
+  });
+  const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
+
+  const pdvs: InstalacaoClientePdvResumo[] = matching
+    .slice()
+    .sort((a, b) => a.portalPlayerId!.portalPdvId - b.portalPlayerId!.portalPdvId)
+    .map((r) => {
+      const link = r.portalPlayerId!;
+      const cad = cadastroByKey.get(r.rioPdvId);
+      return {
+        portalPdvId: link.portalPdvId,
+        codigoDisplay: formatPortalPdvIdDisplay(link.portalPdvId),
+        pdvNome: r.rioPdvNome.trim() || formatPortalPdvIdDisplay(link.portalPdvId),
+        contatoLojaNome: cad?.contatoLojaNome?.trim() ?? "",
+        contatoLojaEmail: cad?.contatoLojaEmail?.trim() ?? "",
+        contatoLojaTelefone: cad?.contatoLojaTelefone?.trim() ?? "",
+        playerInstaladoEm: cad?.playerInstaladoEm?.toISOString() ?? null,
+        podeGerarCodigoPlay: !cad?.playerInstaladoEm,
+      };
     });
-  }
 
   return { portalClienteId, clienteNome, pdvs };
 }

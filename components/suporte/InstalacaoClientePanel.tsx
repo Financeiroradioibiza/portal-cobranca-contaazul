@@ -6,6 +6,7 @@ import {
   type ElectronAuthModo,
 } from "@/lib/suporte/instalacaoTipos";
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
+import { destinatarioEmailsValid } from "@/lib/suporte/parseDestinatarioEmails";
 
 type SelectedClient = {
   portalClienteId: number;
@@ -41,8 +42,6 @@ type Plataforma = "windows" | "mobile";
 const inputClass =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-fuchsia-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500/40";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 const BATCH_DELAY_MS = 450;
 
 const CLIENTE_TIPOS = INSTALACAO_TIPOS.filter((t) => t.id !== "padrao_cliente");
@@ -51,9 +50,14 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function mapErr(data: unknown): string {
+function mapErr(data: unknown, httpStatus?: number): string {
+  if (httpStatus === 504 || httpStatus === 502) {
+    return "A consulta demorou demais (timeout do servidor). Tente de novo.";
+  }
   const err = (data as { error?: unknown })?.error;
+  if (err === "unauthorized") return "Sessão expirada. Entre novamente no portal.";
   if (err === "cliente_sem_pdvs") return "Este cliente não tem PDVs com ID Player.";
+  if (err === "server_error") return "Erro no servidor ao carregar PDVs. Tente de novo.";
   if (err === "pdv_com_player_instalado") {
     return "PDV com player instalado — regenerar chave serial antes de gerar código Play.";
   }
@@ -120,7 +124,7 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setRows([]);
-        setStatus({ kind: "err", text: mapErr(data) });
+        setStatus({ kind: "err", text: mapErr(data, res.status) });
         return;
       }
       const d = data as { clienteNome?: string; pdvs?: PdvResumo[] };
@@ -261,8 +265,8 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
       );
       setRows(batchRows);
 
-      const destino = (r.emailOverride.trim() || r.contatoLojaEmail.trim());
-      if (!EMAIL_RE.test(destino)) {
+      const destino = r.emailOverride.trim() || r.contatoLojaEmail.trim();
+      if (!destinatarioEmailsValid(destino)) {
         batchRows = batchRows.map((row) =>
           row.portalPdvId === r.portalPdvId
             ? { ...row, emailStatus: "skip" as RowStatus, emailError: "Sem e-mail válido" }
@@ -342,9 +346,29 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-red-300">
-        Nenhum PDV com ID Player para este cliente.
-      </p>
+      <div className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5">
+        {status ? (
+          <p
+            className={
+              "text-sm " +
+              (status.kind === "ok" ? "text-emerald-200" : "text-red-200")
+            }
+          >
+            {status.text}
+          </p>
+        ) : (
+          <p className="text-sm text-red-300">
+            Nenhum PDV com ID Player para este cliente (cliente {client.portalClienteId}).
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => void loadPdvs()}
+          className="rounded-lg border border-zinc-600 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+        >
+          Tentar de novo
+        </button>
+      </div>
     );
   }
 
@@ -434,7 +458,8 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
         <h2 className="mb-3 text-sm font-semibold text-zinc-200">3. E-mail por loja</h2>
         <p className="mb-3 text-[12px] text-zinc-500">
-          Confira ou altere o e-mail de cada PDV. Envios também rodam um de cada vez.
+          Confira ou altere o e-mail de cada PDV. Vários destinatários: separe por vírgula (um e-mail
+          para todos). Envios rodam um de cada vez.
         </p>
 
         <div className="overflow-x-auto">
@@ -459,7 +484,7 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
                   </td>
                   <td className="py-2 pr-3">
                     <input
-                      type="email"
+                      type="text"
                       value={r.emailOverride}
                       disabled={busy}
                       onChange={(e) => {
@@ -470,7 +495,7 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
                           ),
                         );
                       }}
-                      placeholder={r.contatoLojaEmail || "loja@exemplo.com"}
+                      placeholder={r.contatoLojaEmail || "loja@exemplo.com, ti@exemplo.com"}
                       className={inputClass + " min-w-[180px] text-xs"}
                     />
                   </td>

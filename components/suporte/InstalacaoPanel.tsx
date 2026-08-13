@@ -9,6 +9,7 @@ import {
   type ElectronAuthModo,
 } from "@/lib/suporte/instalacaoTipos";
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
+import { destinatarioEmailsValid } from "@/lib/suporte/parseDestinatarioEmails";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
 
@@ -53,8 +54,6 @@ type Plataforma = "windows" | "mobile";
 
 const inputClass =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-fuchsia-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500/40";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const GOOGLE_PLAY_URL =
   "https://play.google.com/store/apps/details?id=br.com.radioibiza.player5.twa&pcampaignid=web_share";
@@ -382,7 +381,7 @@ export function InstalacaoPanel() {
       setContexto(ctx ?? null);
       const rows = (logData as { rows?: LogRow[] })?.rows;
       setLog(Array.isArray(rows) ? rows : []);
-      if (ctx && !ctx.contatoLojaEmail) setDestinatario("novo");
+      if (ctx && !destinatarioEmailsValid(ctx.contatoLojaEmail)) setDestinatario("novo");
       else setDestinatario("loja");
     } finally {
       setBusy(false);
@@ -514,8 +513,8 @@ export function InstalacaoPanel() {
   async function handleEnviarEmail() {
     if (!selected) return;
     const destino = destinatario === "loja" ? contexto?.contatoLojaEmail ?? "" : emailNovo.trim();
-    if (!EMAIL_RE.test(destino)) {
-      setStatus({ kind: "err", text: "E-mail de destino inválido." });
+    if (!destinatarioEmailsValid(destino)) {
+      setStatus({ kind: "err", text: "E-mail de destino inválido (use vírgula para mais de um)." });
       return;
     }
     setBusy(true);
@@ -870,7 +869,7 @@ export function InstalacaoPanel() {
                   type="radio"
                   name="destinatario"
                   checked={destinatario === "loja"}
-                  disabled={!contexto?.contatoLojaEmail}
+                  disabled={!contexto?.contatoLojaEmail || !destinatarioEmailsValid(contexto.contatoLojaEmail)}
                   onChange={() => setDestinatario("loja")}
                 />
                 Contato da loja (cadastro do PDV):{" "}
@@ -891,14 +890,17 @@ export function InstalacaoPanel() {
               </label>
               {destinatario === "novo" ? (
                 <input
-                  type="email"
+                  type="text"
                   value={emailNovo}
                   onChange={(e) => setEmailNovo(e.target.value)}
-                  placeholder="cliente@exemplo.com"
+                  placeholder="cliente@exemplo.com, ti@exemplo.com"
                   className={inputClass}
                 />
               ) : null}
             </div>
+            <p className="text-[11px] text-zinc-500">
+              Vários destinatários: separe por vírgula — um único e-mail para todos (campo Para).
+            </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
