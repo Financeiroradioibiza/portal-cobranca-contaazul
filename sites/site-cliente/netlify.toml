@@ -1,0 +1,42 @@
+# Site Cliente — Netlify separado do portal
+# Domínio produção: https://cliente.radioibiza.app.br
+# APIs: proxy same-origin → portal (cookie httpOnly no domínio cliente)
+#
+# Painel Netlify: desativar plugin Next.js (site estático Fase 1).
+# Site settings → Build & deploy → Continuous configuration → Build settings
+
+[build]
+  publish = "public"
+  # Fase 1: HTML estático + proxy API (sem build pesado)
+
+[build.environment]
+  NODE_VERSION = "22"
+  # URL do portal (APIs). Sobrescrever no painel Netlify se necessário.
+  SITE_CLIENTE_PORTAL_ORIGIN = "https://portal.radioibiza.app.br"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+# Proxy API → portal (same-origin no browser; cookie no domínio cliente)
+[[redirects]]
+  from = "/api/site-cliente/*"
+  to = "https://portal.radioibiza.app.br/api/site-cliente/:splat"
+  status = 200
+  force = true
+  headers = {X-Site-Cliente-Proxy = "1"}
+
+[[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200
+
+[[redirects]]
+  from = "/"
+  to = "/index.html"
+  status = 200

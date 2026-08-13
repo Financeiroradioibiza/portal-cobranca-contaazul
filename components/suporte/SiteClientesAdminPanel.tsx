@@ -67,7 +67,12 @@ function clienteJaNoGrupo(
   return clientes.some((x) => clienteEscopoCoincide(x.rioLinhaId, c));
 }
 
-export function SiteClientesAdminPanel() {
+type SiteClientesAdminPanelProps = {
+  /** URL pública de login (servidor lê SITE_CLIENTE_PUBLIC_ORIGIN). */
+  siteClienteLoginUrl: string;
+};
+
+export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdminPanelProps) {
   const [grupos, setGrupos] = useState<GrupoListItem[]>([]);
   const [buscaResultados, setBuscaResultados] = useState<CatalogCliente[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -412,10 +417,7 @@ export function SiteClientesAdminPanel() {
     }
   }
 
-  const loginUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/site-cliente/login`
-      : "/site-cliente/login";
+  const loginUrl = siteClienteLoginUrl;
 
   const grupoPronto =
     detail != null && detail.clientes.length + detail.pdvs.length > 0 && detail.usuarios.length > 0;
@@ -474,8 +476,8 @@ export function SiteClientesAdminPanel() {
             </button>
           </div>
           <p className="mt-3 text-xs text-zinc-500">
-            O cliente acessa em <strong>/site-cliente/login</strong> (celular/tablet abre em{" "}
-            <strong>/m/site-cliente/login</strong>) — não precisa «criar site»; basta
+            O cliente acessa pelo link do site cliente (ex.{" "}
+            <strong>cliente.radioibiza.app.br/login</strong>) — não precisa «criar site»; basta
             grupo + usuário.
           </p>
         </section>
@@ -509,7 +511,7 @@ export function SiteClientesAdminPanel() {
                     </code>
                     <CopyTextButton text={loginUrl} label="Copiar link" />
                     <a
-                      href="/site-cliente/login"
+                      href={loginUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="portal-btn portal-btn-primary text-sm"

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Entrar — Radio Ibiza Cliente</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: linear-gradient(135deg, #0f172a 0%, #312e81 50%, #581c87 100%);
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+      }
+      .card {
+        max-width: 400px;
+        width: 100%;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 1.25rem;
+        padding: 2rem;
+      }
+      h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+      label { display: block; font-size: 0.75rem; margin-bottom: 0.35rem; color: rgba(255,255,255,0.7); }
+      input {
+        width: 100%;
+        margin-bottom: 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(255,255,255,0.1);
+        color: white;
+      }
+      button {
+        width: 100%;
+        padding: 0.85rem;
+        border: none;
+        border-radius: 0.75rem;
+        background: linear-gradient(90deg, #ec4899, #a855f7);
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.6; cursor: wait; }
+      .err { background: rgba(244,63,94,0.25); padding: 0.65rem; border-radius: 0.5rem; font-size: 0.85rem; margin-bottom: 1rem; display: none; }
+      .ok { background: rgba(34,197,94,0.2); padding: 0.65rem; border-radius: 0.5rem; font-size: 0.85rem; margin-bottom: 1rem; display: none; }
+      a { color: #f0abfc; font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Entrar</h1>
+      <div id="err" class="err"></div>
+      <div id="ok" class="ok"></div>
+      <form id="form">
+        <label for="email">E-mail de acesso</label>
+        <input id="email" type="email" autocomplete="username" required />
+        <label for="password">Senha</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button type="submit" id="btn">Entrar</button>
+      </form>
+      <p style="margin-top:1rem"><a href="/">← Voltar</a></p>
+    </div>
+    <script>
+      (function () {
+        var form = document.getElementById("form");
+        var err = document.getElementById("err");
+        var ok = document.getElementById("ok");
+        var btn = document.getElementById("btn");
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          err.style.display = "none";
+          ok.style.display = "none";
+          btn.disabled = true;
+          fetch("/api/site-cliente/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({
+              loginEmail: document.getElementById("email").value.trim(),
+              password: document.getElementById("password").value,
+            }),
+          })
+            .then(function (r) {
+              return r.json().then(function (d) {
+                return { status: r.status, data: d };
+              });
+            })
+            .then(function (x) {
+              if (x.status === 429) {
+                err.textContent = "Muitas tentativas. Aguarde alguns minutos.";
+                err.style.display = "block";
+                return;
+              }
+              if (!x.data.ok) {
+                err.textContent =
+                  x.data.error === "credenciais_invalidas"
+                    ? "E-mail ou senha incorretos."
+                    : "Não foi possível entrar.";
+                err.style.display = "block";
+                return;
+              }
+              ok.textContent =
+                "Login OK (" +
+                (x.data.nome || "cliente") +
+                "). Dashboard completo em breve neste endereço.";
+              ok.style.display = "block";
+            })
+            .catch(function () {
+              err.textContent = "Erro de conexão.";
+              err.style.display = "block";
+            })
+            .finally(function () {
+              btn.disabled = false;
+            });
+        });
+      })();
+    </script>
+  </body>
+</html>

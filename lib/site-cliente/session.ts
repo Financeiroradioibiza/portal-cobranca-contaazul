@@ -66,19 +66,59 @@ export async function verifySiteClienteSessionToken(
   }
 }
 
-export function siteClienteSessionCookieOptions(): {
+export function siteClienteSessionCookieOptions(opts?: {
+  /** Host visível ao browser (ex.: cliente.radioibiza.app.br via proxy Netlify). */
+  requestHost?: string | null;
+}): {
   httpOnly: boolean;
   secure: boolean;
   sameSite: "lax";
   path: string;
   maxAge: number;
+  domain?: string;
 } {
   const secure = process.env.NODE_ENV === "production";
-  return {
+  const base = {
     httpOnly: true,
     secure,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: SITE_CLIENTE_SESSION_MAX_AGE,
   };
+
+  const explicit = process.env.SITE_CLIENTE_COOKIE_DOMAIN?.trim();
+  if (explicit) {
+    const domain = explicit.startsWith(".") ? explicit.slice(1) : explicit;
+    return { ...base, domain };
+  }
+
+  const publicOrigin = process.env.SITE_CLIENTE_PUBLIC_ORIGIN?.trim();
+  if (publicOrigin) {
+    try {
+      const host = new URL(publicOrigin).hostname;
+      if (host && host !== "localhost") {
+        return { ...base, domain: host };
+      }
+    } catch {
+      //
+    }
+  }
+
+  const forwarded = opts?.requestHost?.trim().toLowerCase();
+  if (forwarded && forwarded.includes("cliente.") && !forwarded.includes("portal.")) {
+    return { ...base, domain: forwarded };
+  }
+
+  return base;
+}
+
+/** Host do cliente quando o login vem via proxy Netlify (X-Forwarded-Host). */
+export function siteClienteCookieHostFromRequest(req: Request): string | null {
+  const xf = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  if (xf) return xf;
+  try {
+    return new URL(req.url).hostname;
+  } catch {
+    return null;
+  }
 }
