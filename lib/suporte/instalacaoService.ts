@@ -84,6 +84,53 @@ export async function resolveInstalacaoPdv(
   };
 }
 
+export type InstalacaoClientePdvResumo = {
+  portalPdvId: number;
+  codigoDisplay: string;
+  pdvNome: string;
+  contatoLojaNome: string;
+  contatoLojaEmail: string;
+  contatoLojaTelefone: string;
+  playerInstaladoEm: string | null;
+  podeGerarCodigoPlay: boolean;
+};
+
+/** Todos os PDVs com ID Player de um cliente — para envio em lote. */
+export async function listInstalacaoPdvsForCliente(portalClienteId: number): Promise<{
+  portalClienteId: number;
+  clienteNome: string;
+  pdvs: InstalacaoClientePdvResumo[];
+}> {
+  const { rows } = await listPortalPlayerRows();
+  const pdvIds = new Set<number>();
+  let clienteNome = "Cliente";
+
+  for (const r of rows) {
+    const link = r.portalPlayerId;
+    if (!link || link.portalClienteId !== portalClienteId) continue;
+    pdvIds.add(link.portalPdvId);
+    if (r.clienteNome.trim()) clienteNome = r.clienteNome.trim();
+  }
+
+  const pdvs: InstalacaoClientePdvResumo[] = [];
+  for (const portalPdvId of [...pdvIds].sort((a, b) => a - b)) {
+    const ctx = await resolveInstalacaoPdv(portalClienteId, portalPdvId);
+    if (!ctx) continue;
+    pdvs.push({
+      portalPdvId: ctx.portalPdvId,
+      codigoDisplay: ctx.codigoDisplay,
+      pdvNome: ctx.pdvNome,
+      contatoLojaNome: ctx.contatoLojaNome,
+      contatoLojaEmail: ctx.contatoLojaEmail,
+      contatoLojaTelefone: ctx.contatoLojaTelefone,
+      playerInstaladoEm: ctx.playerInstaladoEm,
+      podeGerarCodigoPlay: ctx.podeGerarCodigoPlay,
+    });
+  }
+
+  return { portalClienteId, clienteNome, pdvs };
+}
+
 /**
  * Monta o link de instalação.
  * - padrao_cliente → guia PWA padrão (instalar.html / m/instalar.html) — não embarca PDV.
@@ -118,6 +165,22 @@ export function buildInstallLink(
   }
   if (plataforma === "mobile") params.set("m", "1");
   return `${base}/instalar-pdv.html?${params.toString()}`;
+}
+
+/** Login directo com PDV na URL — fallback quando PWA não herdou localStorage. */
+export function buildTempLoginLink(
+  ctx: { portalClienteId: number; portalPdvId: number },
+  opts?: { mode?: "temp" | "migrate" | "login"; shell?: "ti" | "pwa" },
+): string {
+  const base = player5Origin();
+  const params = new URLSearchParams({
+    auth: "temp",
+    c: String(ctx.portalClienteId),
+    p: String(ctx.portalPdvId),
+    mode: opts?.mode ?? "temp",
+  });
+  if (opts?.shell === "ti") params.set("shell", "ti");
+  return `${base}/login?${params.toString()}`;
 }
 
 /** URL fixa do instalador .exe (Electron TI) no host do Player 5. */

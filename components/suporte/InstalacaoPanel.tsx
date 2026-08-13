@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { InstalacaoClientePanel } from "@/components/suporte/InstalacaoClientePanel";
 import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
 import {
   INSTALACAO_TIPOS,
@@ -10,6 +11,13 @@ import {
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
+
+type TargetScope = "pdv" | "cliente";
+
+type SelectedClient = {
+  portalClienteId: number;
+  clienteNome: string;
+};
 
 type SelectedPdv = {
   portalClienteId: number;
@@ -55,6 +63,7 @@ function mapErr(data: unknown): string {
   const err = (data as { error?: unknown })?.error;
   if (err === "unauthorized") return "Sessão expirada. Entre novamente no portal.";
   if (err === "cliente_pdv_invalido") return "Selecione um PDV válido.";
+  if (err === "cliente_sem_pdvs") return "Este cliente não tem PDVs com ID Player.";
   if (err === "pdv_nao_encontrado") return "PDV não encontrado (sem ID Player?).";
   if (err === "tipo_plataforma_invalido") return "Escolha o tipo e a plataforma.";
   if (err === "email_invalido") return "E-mail de destino inválido.";
@@ -212,7 +221,139 @@ function PdvPicker({
   );
 }
 
+function ClientPicker({
+  selected,
+  onSelect,
+  disabled,
+}: {
+  selected: SelectedClient | null;
+  onSelect: (t: SelectedClient | null) => void;
+  disabled: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PlayerAvisoPdvTarget[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/suporte/player-avisos/pdv-search?q=${encodeURIComponent(q)}`, {
+        credentials: "same-origin",
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          const targets = (data as { targets?: PlayerAvisoPdvTarget[] })?.targets;
+          setResults(Array.isArray(targets) ? targets : []);
+        })
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  const clientResults = (() => {
+    const seen = new Set<number>();
+    const out: PlayerAvisoPdvTarget[] = [];
+    for (const t of results) {
+      if (seen.has(t.portalClienteId)) continue;
+      seen.add(t.portalClienteId);
+      out.push(t);
+    }
+    return out;
+  })();
+
+  return (
+    <div ref={wrapRef} className="space-y-2">
+      {selected ? (
+        <div className="flex items-start justify-between gap-2 rounded-lg border border-emerald-800/50 bg-emerald-950/30 px-3 py-2">
+          <div className="min-w-0 text-sm">
+            <p className="font-medium text-emerald-100">{selected.clienteNome}</p>
+            <p className="mt-1 font-mono text-[11px] text-zinc-500">
+              Cliente {selected.portalClienteId} · todos os PDVs
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(null)}
+            className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+          >
+            Trocar
+          </button>
+        </div>
+      ) : null}
+
+      <label className="block text-xs text-zinc-500">
+        Buscar por nome do cliente
+        <input
+          type="search"
+          value={query}
+          disabled={disabled || selected != null}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Ex.: Hering, shopping…"
+          className={inputClass + " mt-1"}
+        />
+      </label>
+
+      {open && !selected && query.trim().length >= 2 ? (
+        <div className="max-h-52 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 shadow-lg">
+          {searching ? (
+            <p className="px-3 py-2 text-xs text-zinc-500">Buscando…</p>
+          ) : clientResults.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-zinc-500">Nenhum resultado com ID Player.</p>
+          ) : (
+            clientResults.map((t) => (
+              <button
+                key={`c-${t.portalClienteId}`}
+                type="button"
+                className="block w-full border-b border-zinc-800 px-3 py-2 text-left text-sm last:border-0 hover:bg-zinc-900"
+                onClick={() => {
+                  onSelect({
+                    portalClienteId: t.portalClienteId,
+                    clienteNome: t.clienteNome,
+                  });
+                  setQuery("");
+                  setResults([]);
+                  setOpen(false);
+                }}
+              >
+                <span className="font-medium text-zinc-100">{t.clienteNome}</span>
+                <span className="mt-0.5 block text-[10px] text-zinc-500">
+                  Todos os PDVs · c{t.portalClienteId}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function InstalacaoPanel() {
+  const [scope, setScope] = useState<TargetScope>("pdv");
+  const [selectedClient, setSelectedClient] = useState<SelectedClient | null>(null);
   const [selected, setSelected] = useState<SelectedPdv | null>(null);
   const [contexto, setContexto] = useState<Contexto | null>(null);
   const [tipo, setTipo] = useState<Tipo>("pdv_senha_temp");
@@ -437,10 +578,52 @@ export function InstalacaoPanel() {
     <div className="space-y-6">
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
         <h2 className="mb-3 text-sm font-semibold text-zinc-200">1. Cliente e PDV</h2>
-        <PdvPicker selected={selected} onSelect={setSelected} disabled={busy} />
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setScope("pdv");
+              setSelectedClient(null);
+            }}
+            className={
+              "rounded-lg px-3 py-1.5 text-xs font-semibold transition " +
+              (scope === "pdv"
+                ? "bg-fuchsia-900/50 text-fuchsia-100 ring-1 ring-fuchsia-500/40"
+                : "border border-zinc-700 text-zinc-400 hover:text-zinc-200")
+            }
+          >
+            1 · PDV
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setScope("cliente");
+              setSelected(null);
+            }}
+            className={
+              "rounded-lg px-3 py-1.5 text-xs font-semibold transition " +
+              (scope === "cliente"
+                ? "bg-fuchsia-900/50 text-fuchsia-100 ring-1 ring-fuchsia-500/40"
+                : "border border-zinc-700 text-zinc-400 hover:text-zinc-200")
+            }
+          >
+            2 · Cliente
+          </button>
+        </div>
+        {scope === "pdv" ? (
+          <PdvPicker selected={selected} onSelect={setSelected} disabled={busy} />
+        ) : (
+          <ClientPicker selected={selectedClient} onSelect={setSelectedClient} disabled={busy} />
+        )}
       </section>
 
-      {selected ? (
+      {scope === "cliente" && selectedClient ? (
+        <InstalacaoClientePanel client={selectedClient} />
+      ) : null}
+
+      {scope === "pdv" && selected ? (
         <>
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <h2 className="mb-3 text-sm font-semibold text-zinc-200">2. Tipo de instalação</h2>
@@ -675,10 +858,10 @@ export function InstalacaoPanel() {
               </p>
             ) : tipo === "electron_ti" ? (
               <p className="mb-3 text-[12px] text-zinc-400">
-                O e-mail inclui link do instalador .exe, guia de instalação e{" "}
+                O e-mail inclui o botão para baixar o instalador .exe e{" "}
                 {electronAuth === "temp"
-                  ? "senha temporária (gerada ao enviar, se ainda não existir)."
-                  : "instruções para login e senha do cliente."}
+                  ? "a senha temporária (gerada ao enviar, se ainda não existir)."
+                  : "as instruções para login e senha do cliente."}
               </p>
             ) : null}
             <div className="space-y-2">
@@ -781,7 +964,7 @@ export function InstalacaoPanel() {
         </>
       ) : null}
 
-      {status ? (
+      {scope === "pdv" && status ? (
         <p
           className={
             "rounded-lg px-3 py-2 text-sm " +

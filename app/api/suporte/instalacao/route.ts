@@ -8,6 +8,7 @@ import {
   gerarSenhaTemporaria,
   GOOGLE_PLAY_PLAYER5_URL,
   listEnviosForPdv,
+  listInstalacaoPdvsForCliente,
   registrarEnvio,
   resolveInstalacaoPdv,
   type ElectronAuthModo,
@@ -135,6 +136,18 @@ export async function POST(request: Request) {
     }
 
     const portalClienteId = parseId(body.portalClienteId);
+
+    if (action === "contexto_cliente") {
+      if (portalClienteId == null) {
+        return NextResponse.json({ ok: false, error: "cliente_pdv_invalido" }, { status: 400 });
+      }
+      const data = await listInstalacaoPdvsForCliente(portalClienteId);
+      if (data.pdvs.length === 0) {
+        return NextResponse.json({ ok: false, error: "cliente_sem_pdvs" }, { status: 404 });
+      }
+      return NextResponse.json({ ok: true, ...data });
+    }
+
     const portalPdvId = parseId(body.portalPdvId);
     if (portalClienteId == null || portalPdvId == null) {
       return NextResponse.json({ ok: false, error: "cliente_pdv_invalido" }, { status: 400 });
