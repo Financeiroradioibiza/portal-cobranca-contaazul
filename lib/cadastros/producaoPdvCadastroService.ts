@@ -413,6 +413,7 @@ export async function updatePdvCadastro(
       ...(patch.controlarPlaylist !== undefined ?
         { controlarPlaylist: patch.controlarPlaylist }
       : {}),
+      ...(patch.controlarPlayer !== undefined ? { controlarPlayer: patch.controlarPlayer } : {}),
       ...(statusPlayer !== undefined ? { statusPlayer } : {}),
       ...(patch.contatoLojaNome !== undefined ? { contatoLojaNome: patch.contatoLojaNome } : {}),
       ...(patch.contatoLojaEmail !== undefined ? { contatoLojaEmail: patch.contatoLojaEmail } : {}),

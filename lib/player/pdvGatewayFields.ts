@@ -30,6 +30,7 @@ export function mapPdvCadastroToGatewayFields(
   cad?: {
     placaCarro?: boolean;
     controlarPlaylist?: boolean;
+    controlarPlayer?: boolean;
     statusPlayer?: "Ativo" | "Inativo";
     cidade?: string;
     estado?: string;
@@ -40,8 +41,8 @@ export function mapPdvCadastroToGatewayFields(
   const fields: PdvGatewayFields = cad ?
     {
       status: cad.statusPlayer === "Inativo" ? "I" : "A",
-      /** Player 5 — transporte sempre liberado; «controlar player» saiu do cadastro. */
-      ctrlPlayer: "S",
+      /** «Controle player» Sim (default) → avançar/voltar faixa no PWA. */
+      ctrlPlayer: cad.controlarPlayer ? "S" : "N",
       ctrlPlacaCarro: cad.placaCarro ? "S" : "N",
       /** «Aviso locução» no cadastro → vinheta por texto no Player. */
       ctrlPlaylists: cad.controlarPlaylist ? "S" : "N",

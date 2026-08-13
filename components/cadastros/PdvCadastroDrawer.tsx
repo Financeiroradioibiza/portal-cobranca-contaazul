@@ -183,7 +183,6 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
         rioPdvKey: _k,
         cobrancaFromCa: _c,
         programacaoMusical: _p,
-        controlarPlayer: _cp,
         playerContatoExtraCodigo: _ace,
         ...patch
       } = form;
@@ -350,6 +349,7 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
             <div className="grid grid-cols-2 gap-2">
               <Field label="Placa de carro">{boolSelect(form.placaCarro, (v) => setForm({ ...form!, placaCarro: v }), disabled)}</Field>
               <Field label="Aviso locução">{boolSelect(form.controlarPlaylist, (v) => setForm({ ...form!, controlarPlaylist: v }), disabled)}</Field>
+              <Field label="Controle player">{boolSelect(form.controlarPlayer, (v) => setForm({ ...form!, controlarPlayer: v }), disabled)}</Field>
               <Field label="Status player">
                 <select
                   className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
@@ -366,8 +366,9 @@ export function PdvCadastroDrawer({ rioPdvKey, editMode, onClose, onSaved }: Pro
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               <strong>Placa de carro</strong> libera o aviso de veículo no Player.{" "}
-              <strong>Aviso locução</strong> libera a vinheta por texto (TTS) em Avisos. Avisos
-              operacionais vêm do Suporte.
+              <strong>Aviso locução</strong> libera a vinheta por texto (TTS) em Avisos.{" "}
+              <strong>Controle player</strong> «Sim» libera avançar/voltar faixa; «Não» bloqueia pular
+              música (play/pause continua). Avisos operacionais vêm do Suporte.
             </p>
 
             <p className="text-[10px] font-bold uppercase text-slate-400">Contato loja (gerente principal)</p>

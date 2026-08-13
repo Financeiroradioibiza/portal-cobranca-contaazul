@@ -255,7 +255,7 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
       if (telemetry.downloadPercent != null) cacheSamples.push(telemetry.downloadPercent);
 
       const statusPlayer = cad?.statusPlayer ?? "Ativo";
-      const controlarPlayer = cad?.controlarPlayer ?? false;
+      const controlarPlayer = cad?.controlarPlayer ?? true;
       const controlarPlaylist = cad?.controlarPlaylist ?? false;
       const online = deriveOnlineStatus(statusPlayer, telemetry);
 
