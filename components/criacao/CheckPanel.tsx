@@ -99,7 +99,7 @@ export function CheckPanel() {
     void fetch(`/api/criacao/clientes/${encodeURIComponent(clienteSel.ref)}/arvore`)
       .then((r) => r.json())
       .then((d) => {
-        if (Array.isArray(d?.programacoes)) setArvore(d.programacoes);
+        if (Array.isArray(d?.arvore)) setArvore(d.arvore);
         else setArvore([]);
       })
       .catch(() => setArvore([]));
