@@ -657,20 +657,30 @@
     root.innerHTML = '<div class="error-box">' + esc(msg) + ' <a href="/login.html">Voltar ao login</a></div>';
   }
 
-  fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
-    .then(function (r) {
-      return r.json().then(function (d) {
-        return { status: r.status, data: d };
+  function loadDashboard(attempt) {
+    fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          return { status: r.status, data: d };
+        });
+      })
+      .then(function (x) {
+        if (x.status === 401 && attempt < 1) {
+          setTimeout(function () {
+            loadDashboard(attempt + 1);
+          }, 300);
+          return;
+        }
+        if (x.status === 401 || !x.data.ok) {
+          window.location.href = "/login.html";
+          return;
+        }
+        renderDashboard(x.data);
+      })
+      .catch(function () {
+        showError("Erro ao carregar o painel.");
       });
-    })
-    .then(function (x) {
-      if (x.status === 401 || !x.data.ok) {
-        window.location.href = "/login.html";
-        return;
-      }
-      renderDashboard(x.data);
-    })
-    .catch(function () {
-      showError("Erro ao carregar o painel.");
-    });
+  }
+
+  loadDashboard(0);
 })();

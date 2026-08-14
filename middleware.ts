@@ -9,6 +9,7 @@ import {
 import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
 import {
   SITE_CLIENTE_SESSION_COOKIE,
+  siteClienteSessionTokenFromCookieHeader,
   verifySiteClienteSessionToken,
 } from "@/lib/site-cliente/session";
 import {
@@ -105,7 +106,9 @@ export async function middleware(request: NextRequest) {
     const variant = resolveSiteClienteVariantRedirect(request);
     if (variant) return variant;
 
-    const rawSc = request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value;
+    const rawSc =
+      request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value ??
+      siteClienteSessionTokenFromCookieHeader(request.headers.get("cookie"));
     const scSession = await verifySiteClienteSessionToken(rawSc);
     if (!scSession) {
       const u = request.nextUrl.clone();
@@ -119,7 +122,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/api/site-cliente")) {
-    const rawSc = request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value;
+    const rawSc =
+      request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value ??
+      siteClienteSessionTokenFromCookieHeader(request.headers.get("cookie"));
     const scSession = await verifySiteClienteSessionToken(rawSc);
     if (!scSession) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });

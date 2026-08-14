@@ -1,6 +1,7 @@
 (function () {
   fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
     .then(function (r) {
+      if (!r.ok) return null;
       return r.json();
     })
     .then(function (d) {

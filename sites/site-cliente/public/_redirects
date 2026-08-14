@@ -1,0 +1,6 @@
+# Prioridade sobre functions legadas (plugin Next.js no painel).
+/api/site-cliente/*  https://portal.radioibiza.app.br/api/site-cliente/:splat  200!
+
+/app  /app.html  200
+/login  /login.html  200
+/  /index.html  200

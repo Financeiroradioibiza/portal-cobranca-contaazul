@@ -122,3 +122,18 @@ export function siteClienteCookieHostFromRequest(req: Request): string | null {
     return null;
   }
 }
+
+/** Lê cookie de sessão do jar ou do header bruto (proxy Netlify → portal). */
+export function siteClienteSessionTokenFromCookieHeader(
+  cookieHeader: string | null | undefined,
+): string | undefined {
+  if (!cookieHeader?.trim()) return undefined;
+  const match = cookieHeader.match(/(?:^|;\s*)site_cliente_session=([^;]*)/);
+  const raw = match?.[1]?.trim();
+  if (!raw) return undefined;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}

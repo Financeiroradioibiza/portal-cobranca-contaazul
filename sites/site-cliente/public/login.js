@@ -7,6 +7,7 @@
 
   fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
     .then(function (r) {
+      if (!r.ok) return null;
       return r.json();
     })
     .then(function (d) {
@@ -49,6 +50,19 @@
               : x.data.error === "server_error"
                 ? "Erro no servidor. Tente de novo em instantes."
                 : "Não foi possível entrar.";
+          err.style.display = "block";
+          return;
+        }
+        return fetch("/api/site-cliente/dashboard", { credentials: "same-origin" }).then(function (r) {
+          return r.json().then(function (d) {
+            return { status: r.status, data: d };
+          });
+        });
+      })
+      .then(function (x) {
+        if (!x) return;
+        if (x.status !== 200 || !x.data.ok) {
+          err.textContent = "Login OK, mas a sessão não persistiu. Limpe cookies e tente de novo.";
           err.style.display = "block";
           return;
         }

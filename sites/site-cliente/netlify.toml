@@ -7,7 +7,8 @@
 
 [build]
   publish = "public"
-  # Fase 1: HTML estático + proxy API (sem build pesado)
+  # Site 100% estático — sem build Next.js (remover plugin Next.js no painel Netlify se existir).
+  command = ""
 
 [build.environment]
   NODE_VERSION = "22"
