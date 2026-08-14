@@ -69,6 +69,8 @@ export async function verifySiteClienteSessionToken(
 export function siteClienteSessionCookieOptions(opts?: {
   /** Host visível ao browser (ex.: cliente.radioibiza.app.br via proxy Netlify). */
   requestHost?: string | null;
+  /** Proxy Netlify: cookie host-only (sem Domain explícito). */
+  omitDomain?: boolean;
 }): {
   httpOnly: boolean;
   secure: boolean;
@@ -87,13 +89,13 @@ export function siteClienteSessionCookieOptions(opts?: {
   };
 
   const explicit = process.env.SITE_CLIENTE_COOKIE_DOMAIN?.trim();
-  if (explicit) {
+  if (explicit && !opts?.omitDomain) {
     const domain = explicit.startsWith(".") ? explicit.slice(1) : explicit;
     return { ...base, domain };
   }
 
   const publicOrigin = process.env.SITE_CLIENTE_PUBLIC_ORIGIN?.trim();
-  if (publicOrigin) {
+  if (publicOrigin && !opts?.omitDomain) {
     try {
       const host = new URL(publicOrigin).hostname;
       if (host && host !== "localhost") {
@@ -105,11 +107,42 @@ export function siteClienteSessionCookieOptions(opts?: {
   }
 
   const forwarded = opts?.requestHost?.trim().toLowerCase();
-  if (forwarded && forwarded.includes("cliente.") && !forwarded.includes("portal.")) {
+  if (!opts?.omitDomain && forwarded && forwarded.includes("cliente.") && !forwarded.includes("portal.")) {
     return { ...base, domain: forwarded };
   }
 
   return base;
+}
+
+export const SITE_CLIENTE_SESSION_HEADER = "x-site-cliente-session";
+
+export function siteClienteSessionTokenFromAuthorization(
+  authorization: string | null | undefined,
+): string | undefined {
+  if (!authorization?.trim()) return undefined;
+  const m = authorization.match(/^Bearer\s+(.+)$/i);
+  const token = m?.[1]?.trim();
+  return token || undefined;
+}
+
+/** Header customizado — proxy Netlify cliente→portal pode não repassar Authorization. */
+export function siteClienteSessionTokenFromSessionHeader(
+  sessionHeader: string | null | undefined,
+): string | undefined {
+  const token = sessionHeader?.trim();
+  return token || undefined;
+}
+
+export function siteClienteSessionTokenFromRequestHeaders(opts: {
+  cookieHeader?: string | null;
+  authorization?: string | null;
+  sessionHeader?: string | null;
+}): string | undefined {
+  return (
+    siteClienteSessionTokenFromCookieHeader(opts.cookieHeader) ??
+    siteClienteSessionTokenFromSessionHeader(opts.sessionHeader) ??
+    siteClienteSessionTokenFromAuthorization(opts.authorization)
+  );
 }
 
 /** Host do cliente quando o login vem via proxy Netlify (X-Forwarded-Host). */

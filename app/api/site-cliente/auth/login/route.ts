@@ -35,15 +35,24 @@ export async function POST(req: Request) {
       permissoes: user.permissoes,
     });
 
+    const viaProxy =
+      req.headers.get("x-site-cliente-proxy") === "1" ||
+      siteClienteCookieHostFromRequest(req)?.includes("cliente.") === true;
+
     const res = NextResponse.json({
       ok: true,
       nome: user.nome,
       grupoNome: user.grupoNome,
+      // Sempre devolver token: proxy Netlify não persiste Set-Cookie no domínio cliente.
+      sessionToken: token,
     });
     res.cookies.set(
       SITE_CLIENTE_SESSION_COOKIE,
       token,
-      siteClienteSessionCookieOptions({ requestHost: siteClienteCookieHostFromRequest(req) }),
+      siteClienteSessionCookieOptions({
+        requestHost: siteClienteCookieHostFromRequest(req),
+        omitDomain: viaProxy,
+      }),
     );
     return res;
   } catch (e) {

@@ -25,6 +25,8 @@ export async function finishVerifiedPortalSession(
 ): Promise<NextResponse> {
   const session = await verifyPortalSessionToken(raw);
   if (!session) {
+    // Netlify Edge muitas vezes não tem PORTAL_SESSION_SECRET — Node valida no handler.
+    // Cookie inválido → requirePortalSession() nas APIs retorna 401.
     return passPortalCookieToNode(request, pathname);
   }
 

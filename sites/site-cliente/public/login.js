@@ -3,9 +3,10 @@
   var err = document.getElementById("err");
   var ok = document.getElementById("ok");
   var btn = document.getElementById("btn");
-  if (!form || !err || !ok || !btn) return;
+  var auth = window.SiteClienteAuth;
+  if (!form || !err || !ok || !btn || !auth) return;
 
-  fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
+  auth.apiFetch("/api/site-cliente/dashboard")
     .then(function (r) {
       if (!r.ok) return null;
       return r.json();
@@ -53,7 +54,13 @@
           err.style.display = "block";
           return;
         }
-        return fetch("/api/site-cliente/dashboard", { credentials: "same-origin" }).then(function (r) {
+        if (!x.data.sessionToken) {
+          err.textContent = "Resposta de login incompleta. Tente de novo.";
+          err.style.display = "block";
+          return;
+        }
+        auth.setToken(x.data.sessionToken);
+        return auth.apiFetch("/api/site-cliente/dashboard").then(function (r) {
           return r.json().then(function (d) {
             return { status: r.status, data: d };
           });
@@ -62,7 +69,8 @@
       .then(function (x) {
         if (!x) return;
         if (x.status !== 200 || !x.data.ok) {
-          err.textContent = "Login OK, mas a sessão não persistiu. Limpe cookies e tente de novo.";
+          auth.setToken(null);
+          err.textContent = "Não foi possível validar a sessão. Tente de novo.";
           err.style.display = "block";
           return;
         }

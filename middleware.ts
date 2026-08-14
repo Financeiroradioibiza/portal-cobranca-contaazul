@@ -9,7 +9,8 @@ import {
 import { verifyPortalSessionToken } from "@/lib/auth/sessionToken";
 import {
   SITE_CLIENTE_SESSION_COOKIE,
-  siteClienteSessionTokenFromCookieHeader,
+  SITE_CLIENTE_SESSION_HEADER,
+  siteClienteSessionTokenFromRequestHeaders,
   verifySiteClienteSessionToken,
 } from "@/lib/site-cliente/session";
 import {
@@ -108,7 +109,11 @@ export async function middleware(request: NextRequest) {
 
     const rawSc =
       request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value ??
-      siteClienteSessionTokenFromCookieHeader(request.headers.get("cookie"));
+      siteClienteSessionTokenFromRequestHeaders({
+        cookieHeader: request.headers.get("cookie"),
+        sessionHeader: request.headers.get(SITE_CLIENTE_SESSION_HEADER),
+        authorization: request.headers.get("authorization"),
+      });
     const scSession = await verifySiteClienteSessionToken(rawSc);
     if (!scSession) {
       const u = request.nextUrl.clone();
@@ -124,12 +129,16 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/api/site-cliente")) {
     const rawSc =
       request.cookies.get(SITE_CLIENTE_SESSION_COOKIE)?.value ??
-      siteClienteSessionTokenFromCookieHeader(request.headers.get("cookie"));
+      siteClienteSessionTokenFromRequestHeaders({
+        cookieHeader: request.headers.get("cookie"),
+        sessionHeader: request.headers.get(SITE_CLIENTE_SESSION_HEADER),
+        authorization: request.headers.get("authorization"),
+      });
     const scSession = await verifySiteClienteSessionToken(rawSc);
-    if (!scSession) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-    return NextResponse.next();
+    if (scSession) return NextResponse.next();
+    // Netlify Edge muitas vezes não tem PORTAL_SESSION_SECRET — Node valida no handler.
+    if (rawSc?.trim()) return NextResponse.next();
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   if (pathname === "/prototype.html" && process.env.NODE_ENV === "production") {

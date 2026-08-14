@@ -601,9 +601,7 @@
     moodBody.innerHTML = '<p style="color:rgba(255,255,255,0.6)">Carregando…</p>';
     moodModal.classList.remove("hidden");
     moodModal.setAttribute("aria-hidden", "false");
-    fetch("/api/site-cliente/moodboard/" + encodeURIComponent(rioLinhaId), {
-      credentials: "same-origin",
-    })
+    window.SiteClienteAuth.apiFetch("/api/site-cliente/moodboard/" + encodeURIComponent(rioLinhaId))
       .then(function (r) {
         return r.json();
       })
@@ -646,11 +644,9 @@
   });
 
   function logout() {
-    fetch("/api/site-cliente/auth/logout", { method: "POST", credentials: "same-origin" }).finally(
-      function () {
-        window.location.href = "/login.html";
-      },
-    );
+    window.SiteClienteAuth.logout().finally(function () {
+      window.location.href = "/login.html";
+    });
   }
 
   function showError(msg) {
@@ -658,7 +654,7 @@
   }
 
   function loadDashboard(attempt) {
-    fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
+    window.SiteClienteAuth.apiFetch("/api/site-cliente/dashboard")
       .then(function (r) {
         return r.json().then(function (d) {
           return { status: r.status, data: d };
@@ -672,6 +668,7 @@
           return;
         }
         if (x.status === 401 || !x.data.ok) {
+          window.SiteClienteAuth.setToken(null);
           window.location.href = "/login.html";
           return;
         }

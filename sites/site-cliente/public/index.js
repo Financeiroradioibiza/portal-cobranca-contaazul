@@ -1,5 +1,7 @@
 (function () {
-  fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
+  var auth = window.SiteClienteAuth;
+  if (!auth) return;
+  auth.apiFetch("/api/site-cliente/dashboard")
     .then(function (r) {
       if (!r.ok) return null;
       return r.json();
