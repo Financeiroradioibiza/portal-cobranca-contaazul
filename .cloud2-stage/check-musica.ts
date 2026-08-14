@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { analyzeCheckSession } from './criacao/checkAnalyze.js';
+import { analyzeCheckSession } from '../../criacao/checkAnalyze.js';
 import {
   appendCheckManifestEntry,
   deleteCheckSession,
@@ -12,10 +12,10 @@ import {
   isValidCheckFileId,
   isValidCheckSessionId,
   listCheckSessionFiles,
-} from './criacao/checkStorage.js';
-import { verifyCheckIngestToken, verifyCheckStreamToken } from './criacao/ingestToken.js';
-import { sendAudioReply } from './criacao/audioDelivery.js';
-import { criacaoConfig } from './criacao/config.js';
+} from '../../criacao/checkStorage.js';
+import { verifyCheckIngestToken, verifyCheckStreamToken } from '../../criacao/ingestToken.js';
+import { sendAudioReply } from '../../criacao/audioDelivery.js';
+import { criacaoConfig } from '../../criacao/config.js';
 
 function authSecret(req: { headers: Record<string, unknown> }): boolean {
   const secret = criacaoConfig.ingestSecret;
