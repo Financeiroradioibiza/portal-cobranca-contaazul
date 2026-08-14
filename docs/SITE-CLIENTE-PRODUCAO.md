@@ -128,7 +128,7 @@ Configurar em **portal.radioibiza.app.br** → Netlify → Environment variables
 | Fase | Entrega |
 |------|---------|
 | **1** (agora) | Netlify + domínio + login estático + proxy API |
-| **2** | Migrar UI Next (`SiteClienteDashboard`) para site cliente |
+| **2** (agora) | Dashboard estático em `cliente.radioibiza.app.br/app` + redirect pós-login |
 | **3** | 301 portal `/site-cliente` → domínio novo; limpar middleware portal |
 | **4** | Cobrança/boletos + 2FA + pentest formal |
 

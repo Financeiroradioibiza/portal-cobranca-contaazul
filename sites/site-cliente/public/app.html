@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Painel — Radio Ibiza Cliente</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <div id="root">
+        <div class="loading">Carregando painel…</div>
+      </div>
+    </div>
+
+    <div id="mood-modal" class="modal-backdrop hidden" aria-hidden="true">
+      <div class="modal" role="dialog" aria-labelledby="mood-title">
+        <div class="modal-inner">
+          <h3 id="mood-title">Moodboard estratégico</h3>
+          <div id="mood-body"></div>
+          <button type="button" class="btn-outline" id="mood-close" style="width: 100%; margin-top: 1.25rem">
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

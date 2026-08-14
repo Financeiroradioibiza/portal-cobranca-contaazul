@@ -5,6 +5,17 @@
   var btn = document.getElementById("btn");
   if (!form || !err || !ok || !btn) return;
 
+  fetch("/api/site-cliente/dashboard", { credentials: "same-origin" })
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (d) {
+      if (d && d.ok) window.location.replace("/app.html");
+    })
+    .catch(function () {
+      //
+    });
+
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     err.style.display = "none";
@@ -41,11 +52,7 @@
           err.style.display = "block";
           return;
         }
-        ok.textContent =
-          "Login OK (" +
-          (x.data.nome || "cliente") +
-          "). Dashboard completo em breve neste endereço.";
-        ok.style.display = "block";
+        window.location.replace("/app.html");
       })
       .catch(function () {
         err.textContent = "Erro de conexão. Verifique sua internet e tente de novo.";
