@@ -28,3 +28,15 @@ export function signTicket(itemId: string, jobId: string, ttlMs: number = TTL_MS
   const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
   return { token: `${base}.${sig}`, exp };
 }
+
+/** Ticket de upload para CHECK scratch (cloud2 /criacao/check/ingest). Formato: check.sessionId.fileId.exp.sig */
+export function signCheckUploadTicket(
+  sessionId: string,
+  fileId: string,
+  ttlMs: number = TTL_MS,
+): { token: string; exp: number } {
+  const exp = Date.now() + ttlMs;
+  const base = `check.${sessionId}.${fileId}.${exp}`;
+  const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
+  return { token: `${base}.${sig}`, exp };
+}

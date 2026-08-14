@@ -15,6 +15,7 @@ import { registerDownloadProcessRoutes } from "./download-process.js";
 import { registerIngestFromStagingRoutes } from "./ingest-from-staging.js";
 import { registerOpsStorageRoutes } from "./ops-storage.js";
 import { registerCleanupScratchRoutes } from "./cleanup-scratch.js";
+import { registerCheckMusicaRoutes } from "./check-musica.js";
 
 const CRIACAO_PREFIX = "/criacao";
 
@@ -36,4 +37,5 @@ export async function registerCriacaoRoutes(app: FastifyInstance): Promise<void>
   await registerPlayerRegistryRoutes(app, CRIACAO_PREFIX);
   await registerOpsStorageRoutes(app, CRIACAO_PREFIX);
   await registerCleanupScratchRoutes(app, CRIACAO_PREFIX);
+  await registerCheckMusicaRoutes(app, CRIACAO_PREFIX);
 }

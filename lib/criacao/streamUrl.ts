@@ -13,6 +13,7 @@ const SECRET = process.env.CRIACAO_INGEST_SECRET ?? "";
 const AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/audio");
 const UPLOAD_AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/upload-audio");
 const STAGING_AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/staging-audio");
+const CHECK_AUDIO_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/check-audio");
 
 /** Validade do link de preview: 8h (cobre uma jornada de trabalho do criativo). */
 const TTL_MS = 8 * 60 * 60 * 1000;
@@ -53,4 +54,18 @@ export function buildStagingPreviewUrl(downloadItemId: string, ttlMs: number = T
   const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
   const qs = new URLSearchParams({ exp: String(exp), token: sig });
   return `${STAGING_AUDIO_BASE}/${downloadItemId}?${qs.toString()}`;
+}
+
+/** Preview do MP3 temporário do CHECK (scratch cloud2). */
+export function buildCheckPreviewUrl(
+  sessionId: string,
+  fileId: string,
+  ttlMs: number = TTL_MS,
+): string | null {
+  if (!SECRET) return null;
+  const exp = Date.now() + ttlMs;
+  const base = `checkstream.${sessionId}.${fileId}.${exp}`;
+  const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
+  const qs = new URLSearchParams({ exp: String(exp), token: sig });
+  return `${CHECK_AUDIO_BASE}/${sessionId}/${fileId}?${qs.toString()}`;
 }

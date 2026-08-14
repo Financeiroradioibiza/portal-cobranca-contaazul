@@ -15,7 +15,7 @@ function pathDentroDe(baseDir: string, rel: string): string | null {
 }
 
 export function ensureStorageDirs(): void {
-  for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta', 'vinheta-trilha', 'download-staging']) {
+  for (const sub of ['upload', 'work', 'uso', 'master-local', 'vinheta', 'vinheta-trilha', 'download-staging', 'check-scratch']) {
     fs.mkdirSync(path.join(root(), sub), { recursive: true });
   }
 }

@@ -81,6 +81,47 @@ export function verifyVinhetaToken(token: string): { vinhetaId: string } | null 
   return { vinhetaId };
 }
 
+/** CHECK scratch ingest: check.sessionId.fileId.exp.sig */
+export function verifyCheckIngestToken(token: string): { sessionId: string; fileId: string } | null {
+  const secret = criacaoConfig.ingestSecret;
+  if (!secret || !token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 5 || parts[0] !== 'check') return null;
+  const [, sessionId, fileId, expStr, sig] = parts;
+  if (!sessionId || !fileId || !expStr || !sig) return null;
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || Date.now() > exp) return null;
+  const base = `check.${sessionId}.${fileId}.${expStr}`;
+  const expected = crypto.createHmac('sha256', secret).update(base).digest('hex');
+  if (expected.length !== sig.length) return null;
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
+  } catch {
+    return null;
+  }
+  return { sessionId, fileId };
+}
+
+/** Preview CHECK scratch: sessionId.fileId.exp */
+export function verifyCheckStreamToken(
+  sessionId: string,
+  fileId: string,
+  exp: number,
+  sig: string,
+): boolean {
+  const secret = criacaoConfig.ingestSecret;
+  if (!secret || !sessionId || !fileId || !sig) return false;
+  if (!Number.isFinite(exp) || Date.now() > exp) return false;
+  const base = `checkstream.${sessionId}.${fileId}.${exp}`;
+  const expected = crypto.createHmac('sha256', secret).update(base).digest('hex');
+  if (expected.length !== sig.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+  } catch {
+    return false;
+  }
+}
+
 /** Preview/stream vinheta: ?exp=&token= (sig de vinhetaId.exp). */
 export function verifyVinhetaStreamAccess(vinhetaId: string, exp: number, sig: string): boolean {
   const secret = criacaoConfig.ingestSecret;
