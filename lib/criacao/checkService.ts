@@ -98,12 +98,14 @@ type Cloud2CheckResult = {
 export async function analyzeCheckSession(input: {
   sessionId: string;
   pastaTracks: CheckPastaTrackInput[];
+  fileId?: string;
 }): Promise<CheckResultRow[]> {
   const res = await cloud2Fetch("/check/analyze", {
     method: "POST",
     body: JSON.stringify({
       sessionId: input.sessionId,
       pastaTracks: input.pastaTracks,
+      fileId: input.fileId?.trim() || undefined,
     }),
   });
   const data = await parseCloud2Json<{ ok?: boolean; results?: Cloud2CheckResult[]; error?: string }>(
@@ -111,10 +113,17 @@ export async function analyzeCheckSession(input: {
     "check_analyze",
   );
   if (!res.ok || !Array.isArray(data.results)) {
-    throw new Error(data.error || "check_analyze_falhou");
+    throw new Error(data.error || (res.status === 504 ? "check_analyze_timeout" : "check_analyze_falhou"));
   }
 
-  const matchedIds = [...new Set(data.results.map((r) => r.matchedMusicaId).filter(Boolean))] as string[];
+  return enrichCheckResults(data.results, input.sessionId);
+}
+
+async function enrichCheckResults(
+  rows: Cloud2CheckResult[],
+  sessionId: string,
+): Promise<CheckResultRow[]> {
+  const matchedIds = [...new Set(rows.map((r) => r.matchedMusicaId).filter(Boolean))] as string[];
   const musicas =
     matchedIds.length > 0
       ? await prisma.musicaBiblioteca.findMany({
@@ -130,7 +139,7 @@ export async function analyzeCheckSession(input: {
       : [];
   const musicaById = new Map(musicas.map((m) => [m.id, m]));
 
-  return data.results.map((row) => {
+  return rows.map((row) => {
     const musica = row.matchedMusicaId ? musicaById.get(row.matchedMusicaId) : null;
     const formato = musica ? pickLowestPreviewFormato(musica.versoes) : null;
     return {
@@ -145,7 +154,7 @@ export async function analyzeCheckSession(input: {
       verdict: row.verdict,
       checks: row.checks,
       uploadPreviewUrl:
-        streamEnabled() ? buildCheckPreviewUrl(input.sessionId, row.fileId) : null,
+        streamEnabled() ? buildCheckPreviewUrl(sessionId, row.fileId) : null,
       sistema:
         musica && row.matchedMusicaId
           ? {

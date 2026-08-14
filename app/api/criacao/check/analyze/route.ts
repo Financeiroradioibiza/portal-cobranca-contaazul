@@ -19,15 +19,21 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as {
       sessionId?: string;
       pastaId?: string;
+      fileId?: string;
     };
     const sessionId = body.sessionId?.trim() ?? "";
     const pastaId = body.pastaId?.trim() ?? "";
+    const fileId = body.fileId?.trim() ?? "";
     if (!sessionId || !pastaId) {
       return NextResponse.json({ ok: false, error: "parametros_invalidos" }, { status: 400 });
     }
 
     const pastaTracks = await loadPastaTracksForCheck(pastaId);
-    const results = await analyzeCheckSession({ sessionId, pastaTracks });
+    const results = await analyzeCheckSession({
+      sessionId,
+      pastaTracks,
+      fileId: fileId || undefined,
+    });
     return NextResponse.json({ ok: true, results, pastaTrackCount: pastaTracks.length });
   } catch (e) {
     if (e instanceof Response) return e;

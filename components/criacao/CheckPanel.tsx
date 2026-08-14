@@ -67,7 +67,7 @@ export function CheckPanel() {
   const [results, setResults] = useState<CheckResultRow[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; phase?: "upload" | "analyze" } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionRef = useRef<string | null>(null);
@@ -162,22 +162,36 @@ export function CheckPanel() {
       sid = sessData.sessionId as string;
       setSessionId(sid);
 
-      setProgress({ done: 0, total: files.length });
+      setProgress({ done: 0, total: files.length, phase: "upload" });
+      const uploaded: Array<{ fileId: string; arquivoNome: string }> = [];
       for (let i = 0; i < files.length; i += 1) {
-        await uploadCheckFile(sid, files[i]!);
-        setProgress({ done: i + 1, total: files.length });
+        uploaded.push(await uploadCheckFile(sid, files[i]!));
+        setProgress({ done: i + 1, total: files.length, phase: "upload" });
       }
 
-      const analyzeRes = await fetch("/api/criacao/check/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: sid, pastaId: pastaSel }),
-      });
-      const analyzeData = await analyzeRes.json().catch(() => null);
-      if (!analyzeRes.ok || !Array.isArray(analyzeData?.results)) {
-        throw new Error(analyzeData?.error || "analyze_falhou");
+      const allResults: CheckResultRow[] = [];
+      for (let i = 0; i < uploaded.length; i += 1) {
+        setProgress({ done: i, total: uploaded.length, phase: "analyze" });
+        const analyzeRes = await fetch("/api/criacao/check/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: sid,
+            pastaId: pastaSel,
+            fileId: uploaded[i]!.fileId,
+          }),
+        });
+        const analyzeData = await analyzeRes.json().catch(() => null);
+        if (!analyzeRes.ok || !Array.isArray(analyzeData?.results)) {
+          const err =
+            analyzeData?.error ||
+            (analyzeRes.status === 504 ? "analyze_timeout" : "analyze_falhou");
+          throw new Error(err);
+        }
+        allResults.push(...(analyzeData.results as CheckResultRow[]));
+        setProgress({ done: i + 1, total: uploaded.length, phase: "analyze" });
       }
-      setResults(analyzeData.results as CheckResultRow[]);
+      setResults(allResults);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "check_falhou");
       if (sid) cleanupSession(sid);
@@ -308,7 +322,7 @@ export function CheckPanel() {
           </div>
           {progress && (
             <p className="mt-2 text-xs text-slate-500">
-              Upload {progress.done}/{progress.total}…
+              {progress.phase === "analyze" ? "Analisando" : "Upload"} {progress.done}/{progress.total}…
             </p>
           )}
           {msg && <p className="mt-2 text-sm text-rose-600">{msg}</p>}

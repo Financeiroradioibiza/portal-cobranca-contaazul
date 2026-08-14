@@ -94,11 +94,16 @@ export async function registerCheckMusicaRoutes(app: FastifyInstance, prefix: st
     if (!authSecret(req)) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
     const body = (req.body ?? {}) as {
       sessionId?: string;
+      fileId?: string;
       pastaTracks?: Array<{ musicaId?: string; artista?: string; titulo?: string; durationMs?: number | null }>;
     };
     const sessionId = String(body.sessionId ?? '').trim();
     if (!isValidCheckSessionId(sessionId)) {
       return reply.code(400).send({ ok: false, error: 'session_id_invalido' });
+    }
+    const fileId = String(body.fileId ?? '').trim();
+    if (fileId && !isValidCheckFileId(fileId)) {
+      return reply.code(400).send({ ok: false, error: 'file_id_invalido' });
     }
     const pastaTracks = Array.isArray(body.pastaTracks)
       ? body.pastaTracks
@@ -111,7 +116,12 @@ export async function registerCheckMusicaRoutes(app: FastifyInstance, prefix: st
           .filter((t) => t.musicaId)
       : [];
     const files = listCheckSessionFiles(sessionId);
-    const results = await analyzeCheckSession({ sessionId, files, pastaTracks });
+    const results = await analyzeCheckSession({
+      sessionId,
+      files,
+      pastaTracks,
+      fileId: fileId || undefined,
+    });
     return reply.send({ ok: true, results });
   });
 

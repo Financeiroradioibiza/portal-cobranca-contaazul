@@ -53,25 +53,36 @@ type SistemaTrack = CheckPastaTrack & {
 
 async function tryChromaprint(filePath: string): Promise<string | null> {
   return new Promise((resolve) => {
-    const proc = spawn('fpcalc', ['-json', '-length', '120', filePath], {
+    const proc = spawn('fpcalc', ['-json', '-length', '90', filePath], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      finish(null);
+    }, 25_000);
     proc.stdout?.on('data', (d) => {
       out += String(d);
     });
-    proc.on('error', () => resolve(null));
+    proc.on('error', () => finish(null));
     proc.on('close', (code) => {
       if (code !== 0) {
-        resolve(null);
+        finish(null);
         return;
       }
       try {
         const j = JSON.parse(out) as { fingerprint?: string };
         const fp = j.fingerprint?.trim();
-        resolve(fp && fp.length > 20 ? fp.slice(0, 4000) : null);
+        finish(fp && fp.length > 20 ? fp.slice(0, 4000) : null);
       } catch {
-        resolve(null);
+        finish(null);
       }
     });
   });
@@ -217,12 +228,14 @@ async function analyzeUploadFile(
   }
 
   const fromName = parseMp3Filename(arquivoNome);
-  const tags = await probeArtistTitleFromFile(filePath).catch(() => null);
+  const [tags, durationMs, chromaprint, contentHash] = await Promise.all([
+    probeArtistTitleFromFile(filePath).catch(() => null),
+    probeDurationMs(filePath).catch(() => null),
+    tryChromaprint(filePath),
+    sha256File(filePath).catch(() => null),
+  ]);
   const uploadArtista = tags?.artista?.trim() || fromName.artista;
   const uploadTitulo = tags?.titulo?.trim() || fromName.titulo;
-  const durationMs = await probeDurationMs(filePath).catch(() => null);
-  const chromaprint = await tryChromaprint(filePath);
-  const contentHash = await sha256File(filePath).catch(() => null);
 
   const matched = findBestMetadataMatch(uploadArtista, uploadTitulo, sistemaTracks);
   const checks: CheckAnalyzeRow[] = [];
@@ -344,10 +357,15 @@ export async function analyzeCheckSession(input: {
   sessionId: string;
   files: Array<{ fileId: string; arquivoNome: string; ext?: string }>;
   pastaTracks: CheckPastaTrack[];
+  fileId?: string;
 }): Promise<CheckFileResult[]> {
   const sistemaTracks = await loadSistemaTracks(input.pastaTracks);
+  const fileIdFilter = input.fileId?.trim();
+  const targets = fileIdFilter
+    ? input.files.filter((f) => f.fileId === fileIdFilter)
+    : input.files;
   const out: CheckFileResult[] = [];
-  for (const f of input.files) {
+  for (const f of targets) {
     out.push(
       await analyzeUploadFile(input.sessionId, f.fileId, f.arquivoNome, f.ext || '.mp3', sistemaTracks),
     );
