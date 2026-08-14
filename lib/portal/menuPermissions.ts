@@ -31,9 +31,18 @@ export const PORTAL_MENU_MODULES = [
     id: "producao",
     icon: "🎵",
     label: "Produção",
+    subs: [{ id: "dashboard", label: "Dashboard" }],
+  },
+  {
+    id: "suporte",
+    icon: "🎧",
+    label: "Suporte",
     subs: [
-      { id: "dashboard", label: "Dashboard" },
-      { id: "suporte", label: "Suporte" },
+      { id: "central", label: "Central de suporte" },
+      { id: "logins-clientes", label: "Logins clientes" },
+      { id: "site-clientes", label: "Site clientes" },
+      { id: "avisos-player", label: "Avisos player" },
+      { id: "instalacao", label: "Instalação" },
     ],
   },
   {
@@ -142,7 +151,8 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     perm: {
       financeiro: ["consulta-painel"],
       cadastros: ["vinculos", "primeiro-ping"],
-      producao: "all",
+      producao: ["dashboard"],
+      suporte: "all",
       config: ["logs"],
     },
     roles: ["suporte", "producao"],
@@ -208,6 +218,13 @@ export function parseRolesJson(raw: string): string[] {
   }
 }
 
+/** Perfis antigos marcavam Suporte em producao.suporte — concede o módulo inteiro. */
+export function hasLegacySuporteModuleAccess(perm: PortalPermissionsMap): boolean {
+  const prod = perm.producao;
+  if (prod === "all") return true;
+  return Array.isArray(prod) && prod.includes("suporte");
+}
+
 export function countAccessibleSubs(
   moduleId: PortalMenuModuleId,
   perm: PortalPermissionsMap | "all",
@@ -229,6 +246,13 @@ export function isSubAllowed(
   perm: PortalPermissionsMap | "all",
 ): boolean {
   if (perm === "all") return true;
+  if (moduleId === "suporte") {
+    const p = (perm as PortalPermissionsMap).suporte;
+    if (p === "all") return true;
+    if (Array.isArray(p) && p.includes(subId)) return true;
+    if (hasLegacySuporteModuleAccess(perm as PortalPermissionsMap)) return true;
+    return false;
+  }
   const p = (perm as PortalPermissionsMap)[moduleId];
   if (p === "all") return true;
   if (Array.isArray(p)) return p.includes(subId);

@@ -1,6 +1,17 @@
 import type { PortalMenuModuleId } from "@/lib/portal/menuPermissions";
-import { isSubAllowed, type PortalPermissionsMap } from "@/lib/portal/menuPermissions";
+import {
+  hasLegacySuporteModuleAccess,
+  isSubAllowed,
+  type PortalPermissionsMap,
+} from "@/lib/portal/menuPermissions";
 import type { PortalModuleId } from "@/lib/portal/portalNav";
+
+function isSuporteModuleVisible(perm: PortalPermissionsMap): boolean {
+  const p = perm.suporte;
+  if (p === "all") return true;
+  if (Array.isArray(p) && p.length > 0) return true;
+  return hasLegacySuporteModuleAccess(perm);
+}
 
 /** Mapeia URL do portal para módulo + sub-id do painel Config → Usuários. */
 export function resolvePathMenuPermission(
@@ -33,7 +44,11 @@ export function resolvePathMenuPermission(
   }
 
   if (path.startsWith("/suporte") || path.startsWith("/producao/suporte")) {
-    return { module: "producao", subId: "suporte" };
+    if (path === "/suporte" || path === "/producao/suporte") {
+      return { module: "suporte", subId: "central" };
+    }
+    const sub = path.replace(/^\/producao\/suporte\/?/, "").replace(/^\/suporte\/?/, "").split("/")[0];
+    return sub ? { module: "suporte", subId: sub } : { module: "suporte", subId: "central" };
   }
 
   if (path.startsWith("/config/")) {
@@ -71,7 +86,7 @@ export function isTopNavModuleVisible(
     return isSubAllowed("producao", "dashboard", perm);
   }
   if (moduleId === "suporte") {
-    return isSubAllowed("producao", "suporte", perm);
+    return isSuporteModuleVisible(perm);
   }
   if (moduleId === "chamados") {
     return true;
