@@ -35,7 +35,7 @@ export function isAgendamentoTocandoSempre(ag: AgendamentoRow): boolean {
 }
 
 function formatHorarioLabel(ag: AgendamentoRow): string {
-  if (isAgendamentoTocandoSempre(ag)) return "Tocando sempre";
+  if (isAgendamentoTocandoSempre(ag)) return "TOCAR SEMPRE";
   return `${ag.horaInicio} – ${ag.horaFim}`;
 }
 
@@ -49,11 +49,20 @@ export function horariosParaPasta(
     (a) => a.ativo && a.alvoTipo === "pasta" && a.alvoNome === pastaNome,
   );
   if (slots.length === 0) {
+    if (selecionavel) {
+      return [
+        {
+          diasLabel: "—",
+          horarioLabel: "Pasta Selecionável",
+          tocandoSempre: false,
+        },
+      ];
+    }
     return [
       {
-        diasLabel: "—",
-        horarioLabel: selecionavel ? "Pasta Selecionável" : "Sem horário na agenda",
-        tocandoSempre: false,
+        diasLabel: "Todos os dias",
+        horarioLabel: "TOCAR SEMPRE",
+        tocandoSempre: true,
       },
     ];
   }
