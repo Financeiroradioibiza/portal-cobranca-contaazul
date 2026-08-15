@@ -1,0 +1,19 @@
+.safe-area-pt {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+
+.safe-area-pb {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.mobile-portal-panel {
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-portal-panel .portal-page {
+  min-height: auto;
+}
+
+.mobile-portal-panel .portal-page-header {
+  display: none;
+}

@@ -17,6 +17,7 @@ import {
   SITE_CLIENTE_MOBILE_BASE,
   resolveSiteClienteVariantRedirect,
 } from "@/lib/site-cliente/mobileDetect";
+import { resolvePortalMobileRedirect } from "@/lib/portal/mobileDetect";
 import { safeInternalPath } from "@/lib/auth/safeRedirect";
 import { isPortalAuthConfigured, isPortalAuthDisabled } from "@/lib/auth/users";
 import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatchAuth";
@@ -49,6 +50,8 @@ export async function middleware(request: NextRequest) {
   const configured = isPortalAuthConfigured();
 
   if (pathname === "/login" || pathname.startsWith("/login/")) {
+    const portalVariant = resolvePortalMobileRedirect(request);
+    if (portalVariant) return portalVariant;
     if (configured) {
       const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
       const session = await verifyPortalSessionToken(raw);
@@ -141,6 +144,30 @@ export async function middleware(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  /** Login mobile do portal staff — auth separada de /m/site-cliente. */
+  const isMobilePortalLogin =
+    pathname === "/m/login" || pathname.startsWith("/m/login/");
+
+  if (isMobilePortalLogin) {
+    if (configured) {
+      const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
+      const session = await verifyPortalSessionToken(raw);
+      if (session) {
+        const next = safeInternalPath(request.nextUrl.searchParams.get("next"));
+        return NextResponse.redirect(new URL(next || "/m", request.url));
+      }
+      if (raw?.trim()) {
+        return passPortalCookieToNode(request, pathname);
+      }
+    }
+    return NextResponse.next();
+  }
+
+  if (!pathname.startsWith("/api/")) {
+    const portalVariant = resolvePortalMobileRedirect(request);
+    if (portalVariant) return portalVariant;
+  }
+
   if (pathname === "/prototype.html" && process.env.NODE_ENV === "production") {
     return new NextResponse("Not Found", { status: 404 });
   }
@@ -167,7 +194,10 @@ export async function middleware(request: NextRequest) {
       );
     }
     const u = request.nextUrl.clone();
-    u.pathname = "/login";
+    u.pathname =
+      pathname === "/m" || (pathname.startsWith("/m/") && !pathname.startsWith("/m/site-cliente")) ?
+        "/m/login"
+      : "/login";
     const nextPath = safeInternalPath(pathname + request.nextUrl.search);
     u.searchParams.set("next", nextPath);
     return NextResponse.redirect(u);
