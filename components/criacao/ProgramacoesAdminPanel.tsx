@@ -298,6 +298,31 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
     if (clienteSel) await loadArvore(clienteSel.ref);
   }
 
+  async function duplicarProgramacao(id: string, nome: string) {
+    if (
+      !confirm(
+        `Duplicar “${nome}”?\n\nSerá criada “${nome}-copia” (ou nome disponível) com as mesmas pastas, faixas, vinhetas e cronogramas.`,
+      )
+    ) {
+      return;
+    }
+    const res = await fetch(`/api/criacao/programacoes/${id}/duplicar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = (await res.json()) as { error?: string; id?: string; nome?: string };
+    if (!res.ok) {
+      alert(data.error ?? "Falha ao duplicar programação.");
+      return;
+    }
+    if (clienteSel) await loadArvore(clienteSel.ref);
+    if (data.id) {
+      setFocusProgId(data.id);
+      setExpanded((prev) => new Set(prev).add(data.id!));
+    }
+  }
+
   async function excluirPasta(progId: string, id: string, nome: string) {
     if (!confirm(`Excluir pasta “${nome}”?`)) return;
     await marcarEdicaoProgramacao(progId);
@@ -452,6 +477,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
             refreshToken={pdvRefreshToken}
             assignNotice={pdvAssignNotice}
             onDismissAssignNotice={() => setPdvAssignNotice(null)}
+            onBulkAssignNotice={setPdvAssignNotice}
           />
         : null}
 
@@ -611,6 +637,13 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                             />
                             <button
                               type="button"
+                              onClick={() => void duplicarProgramacao(prog.id, prog.nome)}
+                              className="rounded border border-indigo-200 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                            >
+                              Duplicar
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => void excluirProgramacao(prog.id, prog.nome)}
                               className="rounded px-2 py-0.5 text-[10px] text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
                             >
@@ -767,6 +800,7 @@ function PdvProgramacaoColumn({
   refreshToken = 0,
   assignNotice,
   onDismissAssignNotice,
+  onBulkAssignNotice,
 }: {
   clienteRef: string;
   clienteNome: string;
@@ -775,12 +809,41 @@ function PdvProgramacaoColumn({
   refreshToken?: number;
   assignNotice?: string | null;
   onDismissAssignNotice?: () => void;
+  onBulkAssignNotice?: (message: string) => void;
 }) {
   const [pdvs, setPdvs] = useState<PdvProgramacaoRow[]>([]);
   const [programacoes, setProgramacoes] = useState<ProgOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
+
+  const elegivelKeys = useMemo(
+    () => new Set(pdvs.filter((p) => p.disparoElegivel).map((p) => p.rioPdvKey)),
+    [pdvs],
+  );
+
+  const programacaoGroups = useMemo(() => {
+    const map = new Map<string, { id: string | null; nome: string; keys: string[] }>();
+    for (const pdv of pdvs) {
+      if (!pdv.disparoElegivel) continue;
+      const id = pdv.programacaoId;
+      const nome = pdv.programacaoNome ?? "sem prog.";
+      const key = id ?? "__none__";
+      const row = map.get(key) ?? { id, nome, keys: [] };
+      row.keys.push(pdv.rioPdvKey);
+      map.set(key, row);
+    }
+    return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [pdvs]);
+
+  const selectedCount = selectedKeys.size;
+  const busy = bulkSaving || savingKey != null;
+
+  useEffect(() => {
+    setSelectedKeys(new Set());
+  }, [clienteRef, refreshToken]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -840,6 +903,66 @@ function PdvProgramacaoColumn({
     }
   }
 
+  function toggleSelected(rioPdvKey: string) {
+    if (busy) return;
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(rioPdvKey)) next.delete(rioPdvKey);
+      else next.add(rioPdvKey);
+      return next;
+    });
+  }
+
+  function selectGroup(keys: string[]) {
+    if (busy) return;
+    setSelectedKeys(new Set(keys.filter((k) => elegivelKeys.has(k))));
+  }
+
+  function selectAllElegiveis() {
+    if (busy) return;
+    setSelectedKeys(new Set(elegivelKeys));
+  }
+
+  function clearSelection() {
+    if (busy) return;
+    setSelectedKeys(new Set());
+  }
+
+  async function assignBulk(programacaoId: string | null) {
+    const keys = [...selectedKeys].filter((k) => elegivelKeys.has(k));
+    if (keys.length === 0) return;
+    setBulkSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/criacao/clientes/${encodeURIComponent(clienteRef)}/pdv-programacoes`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rioPdvKeys: keys, programacaoId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        hint?: string;
+        assigned?: number;
+        pdvs?: PdvProgramacaoRow[];
+        programacoes?: ProgOption[];
+      };
+      if (!res.ok) {
+        if (data.pdvs) setPdvs(data.pdvs);
+        if (data.programacoes) setProgramacoes(data.programacoes);
+        throw new Error(data.hint ?? data.error ?? "falha_salvar");
+      }
+      setPdvs(data.pdvs ?? []);
+      setProgramacoes(data.programacoes ?? []);
+      setSelectedKeys(new Set());
+      const msg = data.hint ?? `${data.assigned ?? keys.length} PDV(s) atualizado(s).`;
+      onBulkAssignNotice?.(msg);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao salvar em lote.");
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-auto lg:col-span-2 xl:col-span-1">
       <div className="border-b border-slate-200 bg-[#eef6ff] px-3 py-2.5 dark:border-slate-800 dark:bg-slate-800/80">
@@ -847,8 +970,8 @@ function PdvProgramacaoColumn({
           PDVs · {clienteNome}
         </div>
         <p className="mt-1 text-[10px] leading-snug text-slate-500">
-          Escolha qual programação musical fica amarrada em cada loja. Laranja = atualização aberta; verde = enviada e
-          atualizada.
+          Escolha qual programação musical fica amarrada em cada loja. Marque várias lojas e aplique a mesma programação
+          de uma vez. Laranja = atualização aberta; verde = enviada e atualizada.
         </p>
         {assignNotice ?
           <div className="mt-2 flex items-start justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
@@ -864,6 +987,81 @@ function PdvProgramacaoColumn({
             : null}
           </div>
         : null}
+        {!loading && pdvs.length > 0 ?
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={selectAllElegiveis}
+              className="rounded border border-slate-300 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 hover:bg-white disabled:opacity-50 dark:border-slate-600 dark:text-slate-300"
+            >
+              Sel. todos
+            </button>
+            {selectedCount > 0 ?
+              <button
+                type="button"
+                disabled={busy}
+                onClick={clearSelection}
+                className="rounded border border-slate-300 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 hover:bg-white disabled:opacity-50 dark:border-slate-600 dark:text-slate-300"
+              >
+                Limpar ({selectedCount})
+              </button>
+            : null}
+            {programacaoGroups.map((g) => (
+              <button
+                key={g.id ?? "__none__"}
+                type="button"
+                disabled={busy}
+                onClick={() => selectGroup(g.keys)}
+                className="rounded border border-slate-300 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 hover:bg-white disabled:opacity-50 dark:border-slate-600 dark:text-slate-300"
+                title={`Selecionar ${g.keys.length} loja(s) com ${g.nome}`}
+              >
+                Sel. {g.nome} ({g.keys.length})
+              </button>
+            ))}
+          </div>
+        : null}
+        {selectedCount > 0 ?
+          <div className="mt-2 rounded-lg border border-orange-200 bg-orange-50/90 p-2 dark:border-orange-900 dark:bg-orange-950/30">
+            <div className="mb-1.5 text-[10px] font-bold text-orange-900 dark:text-orange-200">
+              {bulkSaving ?
+                `Vinculando ${selectedCount} PDV${selectedCount === 1 ? "" : "s"}…`
+              : `${selectedCount} selecionado${selectedCount === 1 ? "" : "s"} — aplicar programação:`}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void assignBulk(null)}
+                className="rounded border border-slate-400 px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-white disabled:opacity-50 dark:border-slate-500 dark:text-slate-200"
+              >
+                Nenhuma
+              </button>
+              {programacoes.map((prog) => {
+                const aberta = openProgramacaoIds.has(prog.id);
+                const encerrada = encerradaProgramacaoIds.has(prog.id);
+                return (
+                  <button
+                    key={prog.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void assignBulk(prog.id)}
+                    className={
+                      "rounded border px-2 py-1 text-[10px] font-semibold transition disabled:opacity-50 " +
+                      (aberta ?
+                        "border-orange-500 bg-orange-500 text-white hover:bg-orange-600"
+                      : encerrada ?
+                        "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "border-slate-600 bg-slate-700 text-white hover:bg-slate-800 dark:bg-slate-300 dark:text-slate-900")
+                    }
+                  >
+                    {prog.nome}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {loading ?
@@ -876,30 +1074,48 @@ function PdvProgramacaoColumn({
             {pdvs.map((pdv) => {
               const pdvTagBg = rioTagCobrancaRowBgClass(pdv.tagCobranca);
               const proxySemDisparo = !pdv.disparoElegivel;
+              const isSelected = selectedKeys.has(pdv.rioPdvKey);
               return (
               <li
                 key={pdv.rioPdvKey}
                 className={
-                  "rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 dark:border-slate-700 dark:bg-slate-950/40 " +
+                  "rounded-lg border p-2.5 dark:border-slate-700 dark:bg-slate-950/40 " +
+                  (isSelected ?
+                    "border-orange-400 bg-orange-50/80 ring-1 ring-orange-300 dark:border-orange-800 dark:bg-orange-950/20"
+                  : "border-slate-200 bg-slate-50/80 ") +
                   (pdvTagBg ?? "") +
                   (proxySemDisparo ? " opacity-75" : "")
                 }
               >
                 <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      <RioTagCobrancaNome nome={pdv.nome} tag={pdv.tagCobranca} />
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      {pdv.codigoDisplay}
-                      {pdv.isLinhaProxy ?
-                        proxySemDisparo ?
-                          " · cliente = PDV · não dispara"
-                        : " · cliente = PDV"
-                      : ""}
+                  <div className="flex min-w-0 items-start gap-2">
+                    {pdv.disparoElegivel ?
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={busy}
+                        onChange={() => toggleSelected(pdv.rioPdvKey)}
+                        className="mt-1 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-orange-600 focus:ring-orange-500 disabled:opacity-50"
+                        aria-label={`Selecionar ${pdv.nome}`}
+                      />
+                    : null}
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        <RioTagCobrancaNome nome={pdv.nome} tag={pdv.tagCobranca} />
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {pdv.codigoDisplay}
+                        {pdv.isLinhaProxy ?
+                          proxySemDisparo ?
+                            " · cliente = PDV · não dispara"
+                          : " · cliente = PDV"
+                        : ""}
+                      </div>
                     </div>
                   </div>
-                  {savingKey === pdv.rioPdvKey ?
+                  {bulkSaving && isSelected ?
+                    <span className="shrink-0 text-[10px] text-orange-600">vinculando…</span>
+                  : savingKey === pdv.rioPdvKey ?
                     <span className="shrink-0 text-[10px] text-slate-400">salvando…</span>
                   : pdv.programacaoNome ?
                     (() => {
@@ -928,7 +1144,7 @@ function PdvProgramacaoColumn({
                 <div className="flex flex-wrap gap-1">
                   <button
                     type="button"
-                    disabled={savingKey === pdv.rioPdvKey || proxySemDisparo}
+                    disabled={busy || proxySemDisparo}
                     title={proxySemDisparo ? "Cliente Rio sem ID Player — ative o ID na produção antes de amarrar" : undefined}
                     onClick={() => void assign(pdv.rioPdvKey, null)}
                     className={
@@ -950,7 +1166,7 @@ function PdvProgramacaoColumn({
                       <button
                         key={prog.id}
                         type="button"
-                        disabled={savingKey === pdv.rioPdvKey || proxySemDisparo}
+                        disabled={busy || proxySemDisparo}
                         title={proxySemDisparo ? "Cliente Rio sem ID Player — ative o ID na produção antes de amarrar" : undefined}
                         onClick={() => void assign(pdv.rioPdvKey, prog.id)}
                         className={

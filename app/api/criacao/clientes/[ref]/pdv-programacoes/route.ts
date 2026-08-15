@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
   getClientePdvProgramacoes,
+  saveBulkPdvProgramacaoAssignments,
   savePdvProgramacaoAssignment,
   shouldDeferGatewayVerifyOnPdvAssignment,
   syncRegistryAfterPdvAssignment,
@@ -10,6 +11,7 @@ import type { SyncPdvProgramacaoResult } from "@/lib/criacao/pdvProgramacaoServi
 import { cloud2Enabled } from "@/lib/criacao/cloud2Client";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 type Ctx = { params: Promise<{ ref: string }> };
 
@@ -52,16 +54,50 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const clienteRef = decodeURIComponent(ref);
     const body = (await request.json().catch(() => ({}))) as {
       rioPdvKey?: string;
+      rioPdvKeys?: string[];
       programacaoId?: string | null;
     };
-    const rioPdvKey = String(body.rioPdvKey ?? "").trim();
-    if (!rioPdvKey) {
-      return NextResponse.json({ error: "parametros_invalidos" }, { status: 400 });
-    }
     const programacaoId =
       body.programacaoId === null || body.programacaoId === "" ?
         null
       : String(body.programacaoId).trim() || null;
+
+    const bulkKeys = Array.isArray(body.rioPdvKeys) ?
+      [...new Set(body.rioPdvKeys.map((k) => String(k ?? "").trim()).filter(Boolean))]
+    : [];
+    if (bulkKeys.length > 0) {
+      const bulk = await saveBulkPdvProgramacaoAssignments(clienteRef, bulkKeys, programacaoId);
+      const payload = await getClientePdvProgramacoes(clienteRef);
+      const deferGatewayVerify = programacaoId ?
+        await shouldDeferGatewayVerifyOnPdvAssignment(programacaoId, null)
+      : false;
+      const n = bulk.assigned;
+      const skippedProxy = bulk.skipped.filter((s) => s.reason === "pdv_proxy_nao_dispara").length;
+      let hint: string | undefined;
+      if (n > 0) {
+        hint =
+          deferGatewayVerify ?
+            `${n} PDV${n === 1 ? "" : "s"} vinculado${n === 1 ? "" : "s"} no portal. Programação destino ainda não publicada — sync com o Player no primeiro disparo.`
+          : `${n} PDV${n === 1 ? "" : "s"} vinculado${n === 1 ? "" : "s"} no portal. Sync com o Player ocorre no próximo disparo/publicação de cada programação.`;
+      }
+      if (skippedProxy > 0) {
+        hint = `${hint ?? ""}${hint ? " " : ""}${skippedProxy} ignorado${skippedProxy === 1 ? "" : "s"} (sem ID Player).`.trim();
+      }
+      return NextResponse.json({
+        ok: true,
+        bulk: true,
+        assigned: bulk.assigned,
+        skipped: bulk.skipped,
+        gatewaySyncDeferred: true,
+        ...(hint ? { hint } : {}),
+        ...payload,
+      });
+    }
+
+    const rioPdvKey = String(body.rioPdvKey ?? "").trim();
+    if (!rioPdvKey) {
+      return NextResponse.json({ error: "parametros_invalidos" }, { status: 400 });
+    }
 
     const payloadBefore = await getClientePdvProgramacoes(clienteRef);
     const pdvRowBefore = payloadBefore.pdvs.find((p) => p.rioPdvKey === rioPdvKey);

@@ -246,6 +246,73 @@ export async function savePdvProgramacaoAssignment(
   });
 }
 
+export type BulkPdvProgramacaoResult = {
+  assigned: number;
+  skipped: Array<{ rioPdvKey: string; reason: "pdv_nao_encontrado" | "pdv_proxy_nao_dispara" }>;
+};
+
+/** Várias lojas de uma vez — upserts em lotes (sem sync gateway; evita 504). */
+export async function saveBulkPdvProgramacaoAssignments(
+  clienteRef: string,
+  rioPdvKeys: string[],
+  programacaoId: string | null,
+): Promise<BulkPdvProgramacaoResult> {
+  const { ctx, bucket } = await findBucketForClienteRef(clienteRef);
+  if (!bucket) throw new Error("cliente_nao_encontrado");
+
+  const uniqueKeys = [...new Set(rioPdvKeys.map((k) => k.trim()).filter(Boolean))];
+  if (uniqueKeys.length === 0) return { assigned: 0, skipped: [] };
+
+  let programacaoMusical = "Padrão";
+  if (programacaoId) {
+    const prog = await prisma.programacao.findUnique({
+      where: { id: programacaoId },
+      select: { id: true, nome: true, clienteRef: true },
+    });
+    if (!prog || prog.clienteRef !== bucket.key) throw new Error("programacao_invalida");
+    programacaoMusical = prog.nome.trim() || "Padrão";
+  }
+
+  const skipped: BulkPdvProgramacaoResult["skipped"] = [];
+  const toAssign: Array<{ rioPdvKey: string; nome: string }> = [];
+
+  for (const rioPdvKey of uniqueKeys) {
+    const pdv = bucket.pdvs.find((p) => p.rioPdvId === rioPdvKey);
+    if (!pdv) {
+      skipped.push({ rioPdvKey, reason: "pdv_nao_encontrado" });
+      continue;
+    }
+    if (programacaoId && !pdvElegivelParaDisparo(pdv, bucket, ctx.pdvPortalIds)) {
+      skipped.push({ rioPdvKey, reason: "pdv_proxy_nao_dispara" });
+      continue;
+    }
+    toAssign.push({ rioPdvKey, nome: pdv.nome.trim() });
+  }
+
+  for (let i = 0; i < toAssign.length; i += ASSIGN_PDV_DB_BATCH) {
+    const chunk = toAssign.slice(i, i + ASSIGN_PDV_DB_BATCH);
+    await prisma.$transaction(
+      chunk.map(({ rioPdvKey, nome }) =>
+        prisma.producaoPdvCadastro.upsert({
+          where: { rioPdvKey },
+          create: {
+            rioPdvKey,
+            nome,
+            programacaoId,
+            programacaoMusical,
+          },
+          update: {
+            programacaoId,
+            programacaoMusical,
+          },
+        }),
+      ),
+    );
+  }
+
+  return { assigned: toAssign.length, skipped };
+}
+
 export async function getPortalPdvIdsForProgramacao(
   programacaoId: string,
 ): Promise<{ portalClienteId: number; portalPdvIds: number[] }> {
