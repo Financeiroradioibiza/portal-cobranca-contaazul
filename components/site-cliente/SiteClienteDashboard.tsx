@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PDV_STATUS_META, type PdvPlayStatus } from "@/lib/site-cliente/pdvStatus";
-import type { SiteClienteDashboardPayload, SiteClientePdvRow } from "@/lib/site-cliente/siteClienteDashboardService";
+import type {
+  SiteClienteDashboardPayload,
+  SiteClientePdvRow,
+  SiteClienteProgramacaoResumo,
+} from "@/lib/site-cliente/siteClienteDashboardService";
+import type { PastaHorarioView } from "@/lib/site-cliente/pastaHorarios";
 import { SiteClienteSemanaChart } from "@/components/site-cliente/SiteClienteSemanaChart";
 import { RadioIbizaRMark } from "@/components/site-cliente/RadioIbizaRMark";
 import { SiteClienteClienteBranding } from "@/components/site-cliente/SiteClienteClienteBranding";
@@ -30,6 +35,109 @@ function fmtDt(iso: string | null): string {
   } catch {
     return iso;
   }
+}
+
+const VINHETA_TIPO_LABEL: Record<string, string> = {
+  tts: "TTS",
+  audio: "Áudio",
+  ia: "IA",
+};
+
+function HorariosList({ horarios }: { horarios: PastaHorarioView[] }) {
+  return (
+    <ul className="mt-2 space-y-1.5 text-sm text-white/75">
+      {horarios.map((h, i) => (
+        <li key={i} className="flex flex-wrap gap-x-2 gap-y-0.5">
+          <span className="text-white/50">{h.diasLabel}</span>
+          <span className={h.tocandoSempre ? "font-medium text-emerald-300" : "text-cyan-200"}>
+            {h.horarioLabel}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ProgramacaoResumoBlock({ prog }: { prog: SiteClienteProgramacaoResumo }) {
+  return (
+    <div className="border-b border-white/10 px-5 py-4">
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl bg-white/5 p-4">
+          <div className="text-xs uppercase text-white/50">Programação</div>
+          <div className="mt-1 font-semibold">{prog.nome}</div>
+        </div>
+        <div className="rounded-xl bg-white/5 p-4">
+          <div className="text-xs uppercase text-white/50">Total de faixas</div>
+          <div className="mt-1 text-2xl font-bold text-cyan-300">{prog.totalFaixas}</div>
+        </div>
+        <div className="rounded-xl bg-white/5 p-4">
+          <div className="text-xs uppercase text-white/50">Duração total</div>
+          <div className="mt-1 text-2xl font-bold text-amber-300">{prog.totalHoras}h</div>
+        </div>
+        <div className="rounded-xl bg-white/5 p-4">
+          <div className="text-xs uppercase text-white/50">Músicas novas (ATL)</div>
+          <div className="mt-1 text-2xl font-bold text-emerald-300">
+            {prog.percentNovasAtl != null ? `${prog.percentNovasAtl}%` : "—"}
+          </div>
+          {prog.ultimaAtualizacaoRotulo ? (
+            <div className="mt-1 text-xs text-white/50">
+              {prog.ultimaAtualizacaoRotulo} · {fmtDt(prog.ultimaAtualizacao)}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {prog.pastas.length > 0 ? (
+        <div className="mb-4">
+          <div className="mb-3 text-xs font-semibold uppercase text-white/50">Estilos (pastas)</div>
+          <div className="space-y-3">
+            {prog.pastas.map((p) => (
+              <div
+                key={p.nome}
+                className="rounded-xl bg-violet-500/15 px-4 py-3 ring-1 ring-violet-400/25"
+              >
+                <div className="font-semibold text-violet-100">
+                  {p.nome}
+                  {p.selecionavel ? (
+                    <span className="ml-2 rounded-full bg-amber-500/25 px-2 py-0.5 text-xs font-bold text-amber-100">
+                      Selecionável
+                    </span>
+                  ) : null}
+                  <span className="text-sm font-normal text-white/55">
+                    {" "}
+                    · {p.faixas} faixas · {p.duracaoMinutos} min
+                  </span>
+                </div>
+                <HorariosList horarios={p.horarios} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {prog.vinhetas.length > 0 ? (
+        <div>
+          <div className="mb-3 text-xs font-semibold uppercase text-white/50">Vinhetas</div>
+          <div className="space-y-3">
+            {prog.vinhetas.map((v) => (
+              <div
+                key={v.nome}
+                className="rounded-xl bg-pink-500/15 px-4 py-3 ring-1 ring-pink-400/25"
+              >
+                <div className="font-semibold text-pink-100">
+                  {v.nome}
+                  <span className="ml-2 text-sm font-normal text-white/55">
+                    · {VINHETA_TIPO_LABEL[v.tipo] ?? v.tipo}
+                  </span>
+                </div>
+                <HorariosList horarios={v.horarios} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function PdvCard({
@@ -68,6 +176,10 @@ function PdvCard({
           <div>
             <span className="text-white/40">Versão </span>
             {pdv.playerVersion ?? "—"}
+          </div>
+          <div className="col-span-2">
+            <span className="text-white/40">Programação </span>
+            {pdv.programacaoNome ?? "—"}
           </div>
           <div className="col-span-2">
             <span className="text-white/40">Estilo agora </span>
@@ -144,6 +256,7 @@ function PdvRow({ pdv, expanded, onToggle }: { pdv: SiteClientePdvRow; expanded:
             {meta.label}
           </span>
         </td>
+        <td className="px-3 py-3 text-sm text-violet-200">{pdv.programacaoNome ?? "—"}</td>
         <td className="px-3 py-3 text-sm">{fmtDt(pdv.firstPingAt)}</td>
         <td className="px-3 py-3 text-sm">{fmtDt(pdv.lastPingAt)}</td>
         <td className="px-3 py-3 text-sm">{pdv.playerVersion ?? "—"}</td>
@@ -155,7 +268,7 @@ function PdvRow({ pdv, expanded, onToggle }: { pdv: SiteClientePdvRow; expanded:
       </tr>
       {expanded && pdv.agendamentos.length > 0 ? (
         <tr className="bg-black/20">
-          <td colSpan={8} className="px-4 py-4">
+          <td colSpan={9} className="px-4 py-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-white/50">Playlist</div>
             <div className="mt-2 flex flex-wrap gap-2">
               {pdv.agendamentos.map((a, i) => (
@@ -302,75 +415,11 @@ export function SiteClienteDashboard({ mobile = false }: { mobile?: boolean }) {
             />
           </div>
 
-          {cliente.programacao && data.permissoes.verResumoProgramacao ? (
-            <div className="grid gap-4 border-b border-white/10 p-5 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-xl bg-white/5 p-4">
-                <div className="text-xs uppercase text-white/50">Programação</div>
-                <div className="mt-1 font-semibold">{cliente.programacao.nome}</div>
-              </div>
-              <div className="rounded-xl bg-white/5 p-4">
-                <div className="text-xs uppercase text-white/50">Total de faixas</div>
-                <div className="mt-1 text-2xl font-bold text-cyan-300">
-                  {cliente.programacao.totalFaixas}
-                </div>
-              </div>
-              <div className="rounded-xl bg-white/5 p-4">
-                <div className="text-xs uppercase text-white/50">Duração total</div>
-                <div className="mt-1 text-2xl font-bold text-amber-300">
-                  {cliente.programacao.totalHoras}h
-                </div>
-              </div>
-              <div className="rounded-xl bg-white/5 p-4">
-                <div className="text-xs uppercase text-white/50">Músicas novas (ATL)</div>
-                <div className="mt-1 text-2xl font-bold text-emerald-300">
-                  {cliente.programacao.percentNovasAtl != null
-                    ? `${cliente.programacao.percentNovasAtl}%`
-                    : "—"}
-                </div>
-                {cliente.programacao.ultimaAtualizacaoRotulo ? (
-                  <div className="mt-1 text-xs text-white/50">
-                    {cliente.programacao.ultimaAtualizacaoRotulo} ·{" "}
-                    {fmtDt(cliente.programacao.ultimaAtualizacao)}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {cliente.programacao && data.permissoes.verResumoProgramacao ? (
-            <div className="border-b border-white/10 px-5 py-4">
-              <div className="mb-3 text-xs font-semibold uppercase text-white/50">Estilos (pastas)</div>
-              <div className="space-y-3">
-                {cliente.programacao.pastas.map((p) => (
-                  <div
-                    key={p.nome}
-                    className="rounded-xl bg-violet-500/15 px-4 py-3 ring-1 ring-violet-400/25"
-                  >
-                    <div className="font-semibold text-violet-100">
-                      {p.nome}{" "}
-                      <span className="text-sm font-normal text-white/55">
-                        · {p.faixas} faixas · {p.duracaoMinutos} min
-                      </span>
-                    </div>
-                    <ul className="mt-2 space-y-1.5 text-sm text-white/75">
-                      {p.horarios.map((h, i) => (
-                        <li key={`${p.nome}-${i}`} className="flex flex-wrap gap-x-2 gap-y-0.5">
-                          <span className="text-white/50">{h.diasLabel}</span>
-                          <span
-                            className={
-                              h.tocandoSempre ? "font-medium text-emerald-300" : "text-cyan-200"
-                            }
-                          >
-                            {h.horarioLabel}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          {cliente.programacoes.length > 0 && data.permissoes.verResumoProgramacao
+            ? cliente.programacoes.map((prog) => (
+                <ProgramacaoResumoBlock key={prog.programacaoId} prog={prog} />
+              ))
+            : null}
 
           {data.permissoes.verStatusPdvs && cliente.pdvs.length > 0 ? (
             mobile ? (
@@ -388,13 +437,14 @@ export function SiteClienteDashboard({ mobile = false }: { mobile?: boolean }) {
               </div>
             ) : (
               <div className="overflow-x-auto px-2 py-4">
-                <table className="w-full min-w-[900px] text-left text-sm">
+                <table className="w-full min-w-[980px] text-left text-sm">
                   <thead>
                     <tr className="text-xs uppercase text-white/50">
                       <th className="px-3 py-2">PDV</th>
                       <th className="px-3 py-2">CNPJ</th>
                       <th className="px-3 py-2">Cache</th>
                       <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Programação</th>
                       <th className="px-3 py-2">1ª conexão</th>
                       <th className="px-3 py-2">Último ping</th>
                       <th className="px-3 py-2">Versão</th>

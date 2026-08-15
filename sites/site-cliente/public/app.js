@@ -257,7 +257,7 @@
     var expanded = expandedPdv === pdv.rioPdvKey;
     var expandHtml =
       expanded && pdv.agendamentos && pdv.agendamentos.length
-        ? '<tr class="expand-row"><td colspan="8"><div class="section-title">Playlist</div>' +
+        ? '<tr class="expand-row"><td colspan="9"><div class="section-title">Playlist</div>' +
           renderAgendamentos(pdv.agendamentos) +
           "</td></tr>"
         : "";
@@ -282,6 +282,9 @@
       '">' +
       meta.label +
       "</span></td>" +
+      "<td>" +
+      esc(pdv.programacaoNome || "—") +
+      "</td>" +
       "<td>" +
       fmtDt(pdv.firstPingAt) +
       "</td>" +
@@ -339,6 +342,9 @@
           esc(pdv.estiloAgora || "—") +
           "</strong></div>"
         : "") +
+      '<div class="full"><span style="color:rgba(255,255,255,0.4)">Programação </span>' +
+      esc(pdv.programacaoNome || "—") +
+      "</div>" +
       "<div><span style=\"color:rgba(255,255,255,0.4)\">1ª conexão </span>" +
       fmtDt(pdv.firstPingAt) +
       "</div>" +
@@ -359,67 +365,102 @@
     );
   }
 
-  function renderCliente(cliente, perm) {
-    var prog = cliente.programacao;
-    var statsHtml = "";
-    if (prog && perm.verResumoProgramacao) {
-      statsHtml =
-        '<div class="stats-grid">' +
-        '<div class="stat-card"><div class="label">Programação</div><div class="value sm">' +
-        esc(prog.nome) +
-        "</div></div>" +
-        '<div class="stat-card"><div class="label">Total de faixas</div><div class="value c-cyan">' +
-        prog.totalFaixas +
-        "</div></div>" +
-        '<div class="stat-card"><div class="label">Duração total</div><div class="value c-amber">' +
-        prog.totalHoras +
-        "h</div></div>" +
-        '<div class="stat-card"><div class="label">Músicas novas (ATL)</div><div class="value c-emerald">' +
-        (prog.percentNovasAtl != null ? prog.percentNovasAtl + "%" : "—") +
-        "</div>" +
-        (prog.ultimaAtualizacaoRotulo
-          ? '<div class="sub">' +
-            esc(prog.ultimaAtualizacaoRotulo) +
-            " · " +
-            fmtDt(prog.ultimaAtualizacao) +
-            "</div>"
-          : "") +
-        "</div></div>";
-    }
+  var VINHETA_TIPO_LABEL = { tts: "TTS", audio: "Áudio", ia: "IA" };
+
+  function renderHorariosList(horarios) {
+    return (horarios || [])
+      .map(function (h) {
+        return (
+          "<li><span style=\"color:rgba(255,255,255,0.5)\">" +
+          esc(h.diasLabel) +
+          "</span> <span class=\"" +
+          (h.tocandoSempre ? "c-emerald" : "c-cyan") +
+          '">' +
+          esc(h.horarioLabel) +
+          "</span></li>"
+        );
+      })
+      .join("");
+  }
+
+  function renderProgramacaoResumo(prog) {
+    var statsHtml =
+      '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="label">Programação</div><div class="value sm">' +
+      esc(prog.nome) +
+      "</div></div>" +
+      '<div class="stat-card"><div class="label">Total de faixas</div><div class="value c-cyan">' +
+      prog.totalFaixas +
+      "</div></div>" +
+      '<div class="stat-card"><div class="label">Duração total</div><div class="value c-amber">' +
+      prog.totalHoras +
+      "h</div></div>" +
+      '<div class="stat-card"><div class="label">Músicas novas (ATL)</div><div class="value c-emerald">' +
+      (prog.percentNovasAtl != null ? prog.percentNovasAtl + "%" : "—") +
+      "</div>" +
+      (prog.ultimaAtualizacaoRotulo
+        ? '<div class="sub">' +
+          esc(prog.ultimaAtualizacaoRotulo) +
+          " · " +
+          fmtDt(prog.ultimaAtualizacao) +
+          "</div>"
+        : "") +
+      "</div></div>";
 
     var pastasHtml = "";
-    if (prog && perm.verResumoProgramacao && prog.pastas && prog.pastas.length) {
+    if (prog.pastas && prog.pastas.length) {
       pastasHtml =
         '<div class="pastas-block"><div class="section-title">Estilos (pastas)</div>' +
         prog.pastas
           .map(function (p) {
-            var horarios = (p.horarios || [])
-              .map(function (h) {
-                return (
-                  "<li><span style=\"color:rgba(255,255,255,0.5)\">" +
-                  esc(h.diasLabel) +
-                  "</span> <span class=\"" +
-                  (h.tocandoSempre ? "c-emerald" : "c-cyan") +
-                  '">' +
-                  esc(h.horarioLabel) +
-                  "</span></li>"
-                );
-              })
-              .join("");
             return (
               '<div class="pasta-item"><div class="nome">' +
               esc(p.nome) +
+              (p.selecionavel
+                ? ' <span class="badge-sel">Selecionável</span>'
+                : "") +
               ' <span class="meta-line">· ' +
               p.faixas +
               " faixas · " +
               p.duracaoMinutos +
               " min</span></div><ul>" +
-              horarios +
+              renderHorariosList(p.horarios) +
               "</ul></div>"
             );
           })
           .join("") +
         "</div>";
+    }
+
+    var vinhetasHtml = "";
+    if (prog.vinhetas && prog.vinhetas.length) {
+      vinhetasHtml =
+        '<div class="pastas-block"><div class="section-title">Vinhetas</div>' +
+        prog.vinhetas
+          .map(function (v) {
+            return (
+              '<div class="pasta-item vinheta-item"><div class="nome">' +
+              esc(v.nome) +
+              ' <span class="meta-line">· ' +
+              esc(VINHETA_TIPO_LABEL[v.tipo] || v.tipo) +
+              "</span></div><ul>" +
+              renderHorariosList(v.horarios) +
+              "</ul></div>"
+            );
+          })
+          .join("") +
+        "</div>";
+    }
+
+    return (
+      '<div class="programacao-block">' + statsHtml + pastasHtml + vinhetasHtml + "</div>"
+    );
+  }
+
+  function renderCliente(cliente, perm) {
+    var progsHtml = "";
+    if (perm.verResumoProgramacao && cliente.programacoes && cliente.programacoes.length) {
+      progsHtml = cliente.programacoes.map(renderProgramacaoResumo).join("");
     }
 
     var pdvHtml = "";
@@ -434,7 +475,7 @@
           .join("") +
         "</div>" +
         '<div class="pdv-table-wrap"><table class="pdv-table"><thead><tr>' +
-        "<th>PDV</th><th>CNPJ</th><th>Cache</th><th>Status</th><th>1ª conexão</th><th>Último ping</th><th>Versão</th><th>Estilo agora</th>" +
+        "<th>PDV</th><th>CNPJ</th><th>Cache</th><th>Status</th><th>Programação</th><th>1ª conexão</th><th>Último ping</th><th>Versão</th><th>Estilo agora</th>" +
         "</tr></thead><tbody>" +
         cliente.pdvs
           .map(function (p) {
@@ -543,8 +584,7 @@
       "</div></div>" +
       moodBtn +
       "</div>" +
-      statsHtml +
-      pastasHtml +
+      progsHtml +
       pdvHtml +
       chartHtml +
       logsHtml +
@@ -665,6 +705,10 @@
           setTimeout(function () {
             loadDashboard(attempt + 1);
           }, 300);
+          return;
+        }
+        if (x.status === 403 && x.data && x.data.error === "wrong_grupo_tipo") {
+          window.location.replace("/cobranca.html");
           return;
         }
         if (x.status === 401 || !x.data.ok) {

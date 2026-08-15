@@ -39,6 +39,19 @@ function formatHorarioLabel(ag: AgendamentoRow): string {
   return `${ag.horaInicio} – ${ag.horaFim}`;
 }
 
+function formatHorarioVinheta(ag: AgendamentoRow): string {
+  let base = formatHorarioLabel(ag);
+  const extras: string[] = [];
+  if (ag.frequenciaMin != null && ag.frequenciaMin > 0) {
+    extras.push(`a cada ${ag.frequenciaMin} min`);
+  }
+  if (ag.frequenciaMusicas != null && ag.frequenciaMusicas > 0) {
+    extras.push(`a cada ${ag.frequenciaMusicas} músicas`);
+  }
+  if (extras.length > 0) base += ` · ${extras.join(" · ")}`;
+  return base;
+}
+
 /** Horários de agenda para uma pasta (pode haver mais de um bloco). */
 export function horariosParaPasta(
   pastaNome: string,
@@ -69,6 +82,30 @@ export function horariosParaPasta(
   return slots.map((ag) => ({
     diasLabel: formatDiasLabel(ag.diasSemana),
     horarioLabel: formatHorarioLabel(ag),
+    tocandoSempre: isAgendamentoTocandoSempre(ag),
+  }));
+}
+
+/** Horários de agenda para uma vinheta. */
+export function horariosParaVinheta(
+  vinhetaNome: string,
+  agendamentos: AgendamentoRow[],
+): PastaHorarioView[] {
+  const slots = agendamentos.filter(
+    (a) => a.ativo && a.alvoTipo === "vinheta" && a.alvoNome === vinhetaNome,
+  );
+  if (slots.length === 0) {
+    return [
+      {
+        diasLabel: "—",
+        horarioLabel: "Sem horário na agenda",
+        tocandoSempre: false,
+      },
+    ];
+  }
+  return slots.map((ag) => ({
+    diasLabel: formatDiasLabel(ag.diasSemana),
+    horarioLabel: formatHorarioVinheta(ag),
     tocandoSempre: isAgendamentoTocandoSempre(ag),
   }));
 }

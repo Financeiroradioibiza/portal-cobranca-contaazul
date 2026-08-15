@@ -199,6 +199,36 @@ a {
   margin-bottom: 0;
 }
 
+.programacao-block {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1rem 1.25rem 0.25rem;
+}
+
+.programacao-block + .programacao-block {
+  padding-top: 0.5rem;
+}
+
+.pasta-item.vinheta-item {
+  background: rgba(236, 72, 153, 0.15);
+  border-color: rgba(244, 114, 182, 0.25);
+}
+
+.pasta-item.vinheta-item .nome {
+  color: #fce7f3;
+}
+
+.badge-sel {
+  display: inline-block;
+  margin-left: 0.35rem;
+  border-radius: 9999px;
+  background: rgba(245, 158, 11, 0.25);
+  padding: 0.1rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fde68a;
+  vertical-align: middle;
+}
+
 .pasta-item .nome {
   font-weight: 600;
   color: #ede9fe;

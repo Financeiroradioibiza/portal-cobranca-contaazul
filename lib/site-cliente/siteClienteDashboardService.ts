@@ -16,7 +16,7 @@ import {
   computePdvPlayStatus,
   type PdvPlayStatus,
 } from "@/lib/site-cliente/pdvStatus";
-import { horariosParaPasta, type PastaHorarioView } from "@/lib/site-cliente/pastaHorarios";
+import { horariosParaPasta, horariosParaVinheta, type PastaHorarioView } from "@/lib/site-cliente/pastaHorarios";
 import { siteClienteHasLogo } from "@/lib/site-cliente/clienteLogoService";
 
 export type SiteClientePdvRow = {
@@ -32,6 +32,7 @@ export type SiteClientePdvRow = {
   lastPingAt: string | null;
   playerVersion: string | null;
   programacaoMusical: string;
+  programacaoNome: string | null;
   estiloAgora: string | null;
   programacaoId: string | null;
   agendamentos: Array<{
@@ -51,6 +52,12 @@ export type SiteClienteProgramacaoResumo = {
     nome: string;
     faixas: number;
     duracaoMinutos: number;
+    selecionavel: boolean;
+    horarios: PastaHorarioView[];
+  }>;
+  vinhetas: Array<{
+    nome: string;
+    tipo: string;
     horarios: PastaHorarioView[];
   }>;
   percentNovasAtl: number | null;
@@ -97,7 +104,7 @@ export type SiteClienteClienteBlock = {
   documento: string | null;
   logoUrl: string | null;
   pdvs: SiteClientePdvRow[];
-  programacao: SiteClienteProgramacaoResumo | null;
+  programacoes: SiteClienteProgramacaoResumo[];
   feedbacks: SiteClienteFeedbackRow[];
   votos: SiteClienteVotoRow[];
   atualizacoes: SiteClienteAtualizacaoRow[];
@@ -177,9 +184,21 @@ async function buildProgramacaoResumo(
       nome: pasta.nome,
       faixas: pasta.musicas.length,
       duracaoMinutos: Math.round(dur / 60000),
+      selecionavel: pasta.selecionavel,
       horarios: horariosParaPasta(pasta.nome, agendamentos, pasta.selecionavel),
     };
   });
+
+  const vinhetasRows = await prisma.vinheta.findMany({
+    where: { programacaoId },
+    select: { nome: true, tipo: true },
+    orderBy: { nome: "asc" },
+  });
+  const vinhetas = vinhetasRows.map((v) => ({
+    nome: v.nome,
+    tipo: v.tipo,
+    horarios: horariosParaVinheta(v.nome, agendamentos),
+  }));
 
   const [ultAtl, ultAny] = await Promise.all([
     prisma.programacaoAtualizacao.findFirst({
@@ -211,6 +230,7 @@ async function buildProgramacaoResumo(
     totalFaixas,
     totalHoras: msToHours(totalMs),
     pastas,
+    vinhetas,
     percentNovasAtl,
     ultimaAtualizacao: ultAny?.disparadaEm.toISOString() ?? null,
     ultimaAtualizacaoRotulo: ultAny?.codigo ?? null,
@@ -226,7 +246,7 @@ export async function buildSiteClienteDashboard(
   const now = new Date();
 
   const cadastros =
-    perm.verStatusPdvs || perm.verEstiloAgora || perm.verProgramacao
+    perm.verStatusPdvs || perm.verEstiloAgora || perm.verProgramacao || perm.verResumoProgramacao
       ? await prisma.producaoPdvCadastro.findMany({
           select: { rioPdvKey: true, programacaoId: true },
         })
@@ -240,6 +260,19 @@ export async function buildSiteClienteDashboard(
 
   const programacaoCache = new Map<string, SiteClienteProgramacaoResumo | null>();
   const agCache = new Map<string, Awaited<ReturnType<typeof listAgendamentos>>>();
+  const programacaoNomeCache = new Map<string, string>();
+
+  async function programacaoNomeById(programacaoId: string): Promise<string | null> {
+    if (!programacaoNomeCache.has(programacaoId)) {
+      const row = await prisma.programacao.findUnique({
+        where: { id: programacaoId },
+        select: { nome: true },
+      });
+      programacaoNomeCache.set(programacaoId, row?.nome ?? "");
+    }
+    const nome = programacaoNomeCache.get(programacaoId) ?? "";
+    return nome.trim() || null;
+  }
 
   async function programacaoForPdv(pdvKey: string): Promise<{
     id: string | null;
@@ -298,15 +331,20 @@ export async function buildSiteClienteDashboard(
     const pdvsRaw = filterPdvs(c.pdvs, clienteKeys, pdvKeys, c.key, c.rioLinhaId);
     const pdvRows: SiteClientePdvRow[] = [];
 
-    let clienteProgramacao: SiteClienteProgramacaoResumo | null = null;
+    const programacaoIds = new Set<string>();
+    for (const p of pdvsRaw) {
+      const pid = cadastroByKey.get(p.rioPdvKey)?.programacaoId;
+      if (pid) programacaoIds.add(pid);
+    }
+
     let semanaBlocos: SemanaBloco[] = [];
 
     for (const p of pdvsRaw) {
       const progInfo = await programacaoForPdv(p.rioPdvKey);
-      if (!clienteProgramacao && progInfo.resumo) clienteProgramacao = progInfo.resumo;
-      if (perm.verGraficoSemana && semanaBlocos.length === 0 && progInfo.agendamentos.length > 0) {
-        semanaBlocos = buildSemanaBlocos(progInfo.agendamentos);
-      }
+      const programacaoNome =
+        progInfo.id != null
+          ? (progInfo.resumo?.nome ?? (await programacaoNomeById(progInfo.id)))
+          : null;
 
       pdvRows.push({
         rioPdvKey: p.rioPdvKey,
@@ -321,6 +359,7 @@ export async function buildSiteClienteDashboard(
         lastPingAt: p.telemetry.lastPingAt,
         playerVersion: p.telemetry.playerVersion,
         programacaoMusical: p.programacaoMusical,
+        programacaoNome,
         estiloAgora:
           perm.verEstiloAgora ? resolveEstiloAgora(progInfo.agendamentos, now) : null,
         programacaoId: progInfo.id,
@@ -336,6 +375,36 @@ export async function buildSiteClienteDashboard(
                 }))
             : [],
       });
+    }
+
+    const programacoes: SiteClienteProgramacaoResumo[] = [];
+    if (perm.verResumoProgramacao) {
+      for (const pid of programacaoIds) {
+        if (!agCache.has(pid)) {
+          agCache.set(pid, await listAgendamentos(pid));
+        }
+        const agendamentos = agCache.get(pid) ?? [];
+        if (!programacaoCache.has(pid)) {
+          programacaoCache.set(pid, await buildProgramacaoResumo(pid, agendamentos));
+        }
+        const resumo = programacaoCache.get(pid);
+        if (resumo) programacoes.push(resumo);
+      }
+      programacoes.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    }
+
+    if (perm.verGraficoSemana) {
+      const blocoKey = new Set<string>();
+      for (const pid of programacaoIds) {
+        const agendamentos = agCache.get(pid) ?? [];
+        for (const b of buildSemanaBlocos(agendamentos)) {
+          const key = `${b.dia}|${b.horaInicio}|${b.pastaNome}`;
+          if (blocoKey.has(key)) continue;
+          blocoKey.add(key);
+          semanaBlocos.push(b);
+        }
+      }
+      semanaBlocos.sort((a, b) => a.dia - b.dia || a.horaInicio.localeCompare(b.horaInicio));
     }
 
     const portalClienteId = clienteIdMap[c.key] ?? null;
@@ -388,7 +457,7 @@ export async function buildSiteClienteDashboard(
       documento: c.detail.documento,
       logoUrl: hasLogo ? `/api/site-cliente/logo/${encodeURIComponent(c.key)}` : null,
       pdvs: pdvRows,
-      programacao: perm.verResumoProgramacao ? clienteProgramacao : null,
+      programacoes: perm.verResumoProgramacao ? programacoes : [],
       feedbacks,
       votos,
       atualizacoes,
