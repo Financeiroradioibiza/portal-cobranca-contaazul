@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompareTrack } from "@/components/criacao/waveform/CompareTrack";
 import {
   CriacaoClienteNomeComTag,
@@ -128,6 +128,11 @@ export function CheckPanel() {
 
   const prog = arvore.find((p) => p.id === progSel);
   const pasta = prog?.pastas.find((p) => p.id === pastaSel);
+
+  const resultsSorted = useMemo(() => {
+    if (!results?.length) return results;
+    return [...results].sort((a, b) => a.matchScore - b.matchScore);
+  }, [results]);
 
   const onPickFiles = (list: FileList | null) => {
     if (!list?.length) return;
@@ -335,10 +340,10 @@ export function CheckPanel() {
         </p>
       )}
 
-      {results && (
+      {resultsSorted && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold">Resultado ({results.length})</h2>
-          {results.map((row) => (
+          <h2 className="text-sm font-semibold">Resultado ({resultsSorted.length})</h2>
+          {resultsSorted.map((row) => (
             <article
               key={row.fileId}
               className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
