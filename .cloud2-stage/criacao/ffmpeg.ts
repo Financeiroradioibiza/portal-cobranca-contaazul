@@ -39,11 +39,17 @@ function runFfmpeg(args: string[]): Promise<void> {
 }
 
 function parseLoudnormJson(stderrOrStdout: string): LoudnormMeasured | null {
-  const start = stderrOrStdout.indexOf('{');
-  const end = stderrOrStdout.lastIndexOf('}');
+  // loudnorm JSON vem após [Parsed_loudnorm_*]; ID3 (ex. AverageLevel: {…) também imprime '{' no log.
+  const marker = '[Parsed_loudnorm_';
+  const markerIdx = stderrOrStdout.lastIndexOf(marker);
+  const slice = markerIdx >= 0 ? stderrOrStdout.slice(markerIdx) : stderrOrStdout;
+  const inputIdx = slice.indexOf('"input_i"');
+  if (inputIdx < 0) return null;
+  const start = slice.lastIndexOf('{', inputIdx);
+  const end = slice.lastIndexOf('}');
   if (start < 0 || end <= start) return null;
   try {
-    const j = JSON.parse(stderrOrStdout.slice(start, end + 1)) as Record<string, unknown>;
+    const j = JSON.parse(slice.slice(start, end + 1)) as Record<string, unknown>;
     const input = (j.input_i != null ? j : (j as { input?: Record<string, unknown> }).input) as Record<
       string,
       unknown
