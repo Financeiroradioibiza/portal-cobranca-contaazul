@@ -1576,6 +1576,8 @@ model FinanceiroDiarioEntry {
 model SiteClienteGrupo {
   id        String   @id @default(cuid())
   nome      String   @db.VarChar(120)
+  /// producao = PDVs/programação (default); cobranca = parcelas CA vinculadas.
+  tipo      String   @default("producao") @db.VarChar(20)
   active    Boolean  @default(true)
   createdBy String   @default("") @map("created_by") @db.VarChar(120)
   createdAt DateTime @default(now()) @map("created_at")
@@ -1585,6 +1587,7 @@ model SiteClienteGrupo {
   clientes   SiteClienteGrupoCliente[]
   pdvs       SiteClienteGrupoPdv[]
   moodboards SiteClienteMoodboard[]
+  caClientes SiteClienteGrupoCaCliente[]
 
   @@map("site_cliente_grupo")
 }
@@ -1656,4 +1659,23 @@ model SiteClienteMoodboard {
 
   @@unique([grupoId, rioLinhaId])
   @@map("site_cliente_moodboard")
+}
+
+/// Unidades de cobrança (Conta Azul / planilha Rio) visíveis no grupo cobrança.
+model SiteClienteGrupoCaCliente {
+  id            String  @id @default(cuid())
+  grupoId       String  @map("grupo_id")
+  caPersonId    String  @map("ca_person_id") @db.VarChar(120)
+  documento     String? @db.VarChar(64)
+  razaoSocial   String  @default("") @map("razao_social") @db.Text
+  nomeFantasia  String  @default("") @map("nome_fantasia") @db.Text
+  emailCobranca String? @map("email_cobranca") @db.Text
+  /// Referência opcional à linha Rio (competência vigente no cadastro).
+  rioLinhaId    String? @map("rio_linha_id") @db.VarChar(80)
+
+  grupo SiteClienteGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, caPersonId])
+  @@index([grupoId])
+  @@map("site_cliente_grupo_ca_cliente")
 }

@@ -4,17 +4,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import {
   SITE_CLIENTE_PERMISSAO_LABELS,
+  SITE_CLIENTE_PERMISSOES_COBRANCA,
   SITE_CLIENTE_PERMISSOES_DEFAULT,
   type SiteClientePermissoes,
 } from "@/lib/site-cliente/permissions";
+import {
+  SITE_CLIENTE_GRUPO_TIPO_LABELS,
+  type SiteClienteGrupoTipo,
+} from "@/lib/site-cliente/grupoTipo";
 
 type GrupoListItem = {
   id: string;
   nome: string;
+  tipo: SiteClienteGrupoTipo;
   active: boolean;
   usuarioCount: number;
   clienteCount: number;
   pdvCount: number;
+  caClienteCount: number;
 };
 
 type CatalogCliente = {
@@ -36,13 +43,34 @@ type Usuario = {
   permissoes: SiteClientePermissoes;
 };
 
+type CatalogCobrancaCliente = {
+  caPersonId: string;
+  documento: string | null;
+  razaoSocial: string;
+  nomeFantasia: string;
+  emailCobranca: string | null;
+  rioLinhaId: string;
+  competenciaYm: number;
+  label: string;
+};
+
 type GrupoDetail = {
   id: string;
   nome: string;
+  tipo: SiteClienteGrupoTipo;
   active: boolean;
   usuarios: Usuario[];
   clientes: Array<{ rioLinhaId: string; portalClienteId: number | null; nome: string }>;
   pdvs: Array<{ rioPdvKey: string; portalPdvId: number | null; nome: string; clienteNome: string }>;
+  caClientes: Array<{
+    caPersonId: string;
+    documento: string | null;
+    razaoSocial: string;
+    nomeFantasia: string;
+    emailCobranca: string | null;
+    rioLinhaId: string | null;
+    label: string;
+  }>;
   moodboards: Array<{
     rioLinhaId: string;
     perfilPublico: string;
@@ -54,6 +82,13 @@ type GrupoDetail = {
 };
 
 const PERM_KEYS = Object.keys(SITE_CLIENTE_PERMISSOES_DEFAULT) as (keyof SiteClientePermissoes)[];
+
+const PERM_KEYS_PRODUCAO = PERM_KEYS.filter(
+  (k) => k !== "verCobrancas" && k !== "baixarBoleto" && k !== "baixarNota",
+);
+const PERM_KEYS_COBRANCA = PERM_KEYS.filter(
+  (k) => k === "verCobrancas" || k === "baixarBoleto" || k === "baixarNota",
+);
 
 /** Escopo grava `c.key` do bucket em `rioLinhaId` (legado: alguns registros usam rioLinhaId Rio). */
 function clienteEscopoCoincide(storedId: string, c: CatalogCliente): boolean {
@@ -75,6 +110,8 @@ type SiteClientesAdminPanelProps = {
 export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdminPanelProps) {
   const [grupos, setGrupos] = useState<GrupoListItem[]>([]);
   const [buscaResultados, setBuscaResultados] = useState<CatalogCliente[]>([]);
+  const [buscaCobrancaResultados, setBuscaCobrancaResultados] = useState<CatalogCobrancaCliente[]>([]);
+  const [competenciaYm, setCompetenciaYm] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<GrupoDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +119,7 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
   const [buscando, setBuscando] = useState(false);
   const [msg, setMsg] = useState("");
   const [novoGrupoNome, setNovoGrupoNome] = useState("");
+  const [novoGrupoTipo, setNovoGrupoTipo] = useState<SiteClienteGrupoTipo>("producao");
   const [buscaCliente, setBuscaCliente] = useState("");
 
   const [usuarioForm, setUsuarioForm] = useState({
@@ -135,16 +173,59 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
     }
   }, [buscaCliente]);
 
+  const buscarClientesCobranca = useCallback(async (termo?: string) => {
+    const q = (termo ?? buscaCliente).trim();
+    if (q.length < 2) {
+      setBuscaCobrancaResultados([]);
+      setMsg("Digite pelo menos 2 letras para buscar.");
+      return;
+    }
+    setBuscando(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/suporte/site-clientes/catalog-cobranca?q=${encodeURIComponent(q)}`,
+      );
+      const data = (await res.json()) as {
+        ok?: boolean;
+        clientes?: CatalogCobrancaCliente[];
+        competenciaYm?: number | null;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
+      setBuscaCobrancaResultados(data.clientes ?? []);
+      setCompetenciaYm(data.competenciaYm ?? null);
+      if ((data.clientes ?? []).length === 0) {
+        setMsg(
+          data.competenciaYm == null
+            ? "Nenhuma competência Rio importada. Importe a planilha em Financeiro → Planilha Rio."
+            : "Nenhum cliente de cobrança encontrado. Tente CNPJ, razão social ou nome fantasia.",
+        );
+      }
+    } catch (e) {
+      setBuscaCobrancaResultados([]);
+      setMsg(e instanceof Error ? e.message : "Falha na busca.");
+    } finally {
+      setBuscando(false);
+    }
+  }, [buscaCliente]);
+
   const loadDetail = useCallback(async (grupoId: string) => {
     const res = await fetch(`/api/suporte/site-clientes/${grupoId}`);
     const data = (await res.json()) as { ok?: boolean; grupo?: GrupoDetail };
-    if (data.ok && data.grupo) setDetail(data.grupo);
+    if (data.ok && data.grupo) {
+      setDetail(data.grupo);
+      if (data.grupo.tipo === "cobranca") {
+        setUsuarioForm((f) => ({ ...f, permissoes: { ...SITE_CLIENTE_PERMISSOES_COBRANCA } }));
+      }
+    }
   }, []);
 
   const selectGrupo = useCallback(
     (id: string | null) => {
       setSelectedId(id);
       setBuscaResultados([]);
+      setBuscaCobrancaResultados([]);
       setBuscaCliente("");
       if (!id) {
         setDetail(null);
@@ -202,7 +283,7 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
       const res = await fetch("/api/suporte/site-clientes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nome }),
+        body: JSON.stringify({ nome, tipo: novoGrupoTipo }),
       });
       const data = (await res.json()) as { ok?: boolean; id?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
@@ -212,6 +293,35 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
       setMsg("Grupo criado.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao criar grupo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function excluirGrupo() {
+    if (!detail) return;
+    const nomeGrupo = detail.nome;
+    const usuarios = detail.usuarios.length;
+    const escopo =
+      detail.tipo === "cobranca"
+        ? `${detail.caClientes.length} CNPJ(s)`
+        : `${detail.clientes.length} cliente(s) e ${detail.pdvs.length} PDV(s)`;
+    const ok = window.confirm(
+      `Excluir permanentemente o grupo «${nomeGrupo}»?\n\n` +
+        `Isso remove ${usuarios} usuário(s), ${escopo} e moodboards vinculados. Não dá para desfazer.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/suporte/site-clientes/${detail.id}`, { method: "DELETE" });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
+      selectGrupo(null);
+      await loadGrupos();
+      setMsg(`Grupo «${nomeGrupo}» excluído.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao excluir grupo.");
     } finally {
       setBusy(false);
     }
@@ -284,6 +394,66 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
     }
   }
 
+  async function saveEscopoCobranca(caClientes: GrupoDetail["caClientes"]) {
+    if (!detail) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/suporte/site-clientes/${detail.id}/escopo-cobranca`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caClientes: caClientes.map((c) => ({
+            caPersonId: c.caPersonId,
+            documento: c.documento,
+            razaoSocial: c.razaoSocial,
+            nomeFantasia: c.nomeFantasia,
+            emailCobranca: c.emailCobranca,
+            rioLinhaId: c.rioLinhaId,
+          })),
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
+      await loadDetail(detail.id);
+      await loadGrupos();
+      setMsg("Clientes de cobrança atualizados.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao salvar escopo cobrança.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addCaCliente(c: CatalogCobrancaCliente) {
+    if (!detail) return;
+    if (detail.caClientes.some((x) => x.caPersonId === c.caPersonId)) return;
+    const caClientes = [
+      ...detail.caClientes,
+      {
+        caPersonId: c.caPersonId,
+        documento: c.documento,
+        razaoSocial: c.razaoSocial,
+        nomeFantasia: c.nomeFantasia,
+        emailCobranca: c.emailCobranca,
+        rioLinhaId: c.rioLinhaId,
+        label: c.label,
+      },
+    ];
+    await saveEscopoCobranca(caClientes);
+  }
+
+  async function removeCaCliente(caPersonId: string) {
+    if (!detail) return;
+    await saveEscopoCobranca(detail.caClientes.filter((c) => c.caPersonId !== caPersonId));
+  }
+
+  async function limparEscopoCobranca() {
+    if (!detail) return;
+    if (!window.confirm(`Remover todos os CNPJs do grupo «${detail.nome}»?`)) return;
+    await saveEscopoCobranca([]);
+  }
+
   async function criarUsuario() {
     if (!detail) return;
     setBusy(true);
@@ -303,7 +473,10 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
         funcao: "",
         loginEmail: "",
         password: "",
-        permissoes: { ...SITE_CLIENTE_PERMISSOES_DEFAULT },
+        permissoes:
+          detail.tipo === "cobranca"
+            ? { ...SITE_CLIENTE_PERMISSOES_COBRANCA }
+            : { ...SITE_CLIENTE_PERMISSOES_DEFAULT },
       });
       await loadDetail(detail.id);
       await loadGrupos();
@@ -420,7 +593,14 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
   const loginUrl = siteClienteLoginUrl;
 
   const grupoPronto =
-    detail != null && detail.clientes.length + detail.pdvs.length > 0 && detail.usuarios.length > 0;
+    detail != null &&
+    detail.usuarios.length > 0 &&
+    (detail.tipo === "cobranca"
+      ? detail.caClientes.length > 0
+      : detail.clientes.length + detail.pdvs.length > 0);
+
+  const permKeysUi =
+    detail?.tipo === "cobranca" ? PERM_KEYS_COBRANCA : PERM_KEYS_PRODUCAO;
 
   return (
     <div className="space-y-6">
@@ -452,28 +632,41 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                   >
                     <div>{g.nome}</div>
                     <div className="text-xs text-zinc-500">
-                      {g.usuarioCount} usuário(s) · {g.clienteCount} cliente(s)
+                      {SITE_CLIENTE_GRUPO_TIPO_LABELS[g.tipo]} · {g.usuarioCount} usuário(s)
+                      {g.tipo === "cobranca"
+                        ? ` · ${g.caClienteCount} CNPJ(s)`
+                        : ` · ${g.clienteCount} cliente(s)`}
                     </div>
                   </button>
                 </li>
               ))}
             </ul>
           )}
-          <div className="mt-4 flex gap-2">
-            <input
-              className="portal-input flex-1 text-sm"
-              placeholder="Ex.: Grupo Soma"
-              value={novoGrupoNome}
-              onChange={(e) => setNovoGrupoNome(e.target.value)}
-            />
-            <button
-              type="button"
-              className="portal-btn portal-btn-primary text-sm"
-              disabled={busy}
-              onClick={() => void criarGrupo()}
+          <div className="mt-4 flex flex-col gap-2">
+            <select
+              className="portal-input text-sm"
+              value={novoGrupoTipo}
+              onChange={(e) => setNovoGrupoTipo(e.target.value as SiteClienteGrupoTipo)}
             >
-              +
-            </button>
+              <option value="producao">Grupo produção (PDVs / programação)</option>
+              <option value="cobranca">Grupo cobrança (CNPJs / parcelas)</option>
+            </select>
+            <div className="flex gap-2">
+              <input
+                className="portal-input flex-1 text-sm"
+                placeholder={novoGrupoTipo === "cobranca" ? "Ex.: Grupo Ofner" : "Ex.: Grupo Soma"}
+                value={novoGrupoNome}
+                onChange={(e) => setNovoGrupoNome(e.target.value)}
+              />
+              <button
+                type="button"
+                className="portal-btn portal-btn-primary text-sm"
+                disabled={busy}
+                onClick={() => void criarGrupo()}
+              >
+                +
+              </button>
+            </div>
           </div>
           <p className="mt-3 text-xs text-zinc-500">
             O cliente acessa pelo link do site cliente (ex.{" "}
@@ -490,11 +683,25 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
           ) : (
             <>
               <div className="rounded-xl border border-zinc-200 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-amber-500/10 p-5 dark:border-zinc-700">
-                <h2 className="text-xl font-bold">{detail.nome}</h2>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                  {detail.usuarios.length} usuário(s) · {detail.clientes.length} cliente(s) ·{" "}
-                  {detail.pdvs.length} PDV(s) avulsos
-                </p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-bold">{detail.nome}</h2>
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                      {SITE_CLIENTE_GRUPO_TIPO_LABELS[detail.tipo]} · {detail.usuarios.length} usuário(s)
+                      {detail.tipo === "cobranca"
+                        ? ` · ${detail.caClientes.length} CNPJ(s) de cobrança`
+                        : ` · ${detail.clientes.length} cliente(s) · ${detail.pdvs.length} PDV(s) avulsos`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="portal-btn text-sm text-rose-700 ring-1 ring-rose-300 hover:bg-rose-50 dark:text-rose-300 dark:ring-rose-800 dark:hover:bg-rose-950/40"
+                    disabled={busy}
+                    onClick={() => void excluirGrupo()}
+                  >
+                    Excluir grupo
+                  </button>
+                </div>
               </div>
 
               {grupoPronto ? (
@@ -533,6 +740,104 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                 </div>
               ) : null}
 
+              {detail.tipo === "cobranca" ? (
+                <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-semibold">CNPJs de cobrança no grupo</h3>
+                    {detail.caClientes.length > 0 ? (
+                      <button
+                        type="button"
+                        className="text-xs text-rose-600 hover:underline dark:text-rose-400"
+                        disabled={busy}
+                        onClick={() => void limparEscopoCobranca()}
+                      >
+                        Remover todos
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="mb-3 text-xs text-zinc-500">
+                    Unidades da planilha Rio (Conta Azul). O cliente verá parcelas dos últimos 12 meses
+                    — ponte segura no servidor, sem acesso direto à Conta Azul.
+                  </p>
+                  {detail.caClientes.length === 0 ? (
+                    <p className="mb-4 text-sm text-zinc-500">
+                      Nenhum CNPJ selecionado. Busque abaixo pelo nome ou CNPJ.
+                    </p>
+                  ) : (
+                    <ul className="mb-4 space-y-2">
+                      {detail.caClientes.map((c) => (
+                        <li
+                          key={c.caPersonId}
+                          className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm dark:bg-amber-950/30"
+                        >
+                          <span className="font-medium">{c.label}</span>
+                          {c.emailCobranca ? (
+                            <span className="text-xs text-zinc-500">{c.emailCobranca}</span>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="ml-auto text-xs text-rose-600 hover:underline"
+                            disabled={busy}
+                            onClick={() => void removeCaCliente(c.caPersonId)}
+                          >
+                            Remover
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <h4 className="mb-1 text-sm font-medium">Adicionar cliente de cobrança</h4>
+                  <p className="mb-2 text-xs text-zinc-500">
+                    Busca na competência Rio mais recente
+                    {competenciaYm
+                      ? ` (${String(competenciaYm).slice(0, 4)}-${String(competenciaYm).slice(4)})`
+                      : ""}
+                    . Mín. 2 caracteres.
+                  </p>
+                  <div className="mb-3 flex gap-2">
+                    <input
+                      className="portal-input flex-1 text-sm"
+                      placeholder="Ex.: Ofner ou CNPJ"
+                      value={buscaCliente}
+                      onChange={(e) => setBuscaCliente(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void buscarClientesCobranca();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="portal-btn portal-btn-primary text-sm"
+                      disabled={busy || buscando}
+                      onClick={() => void buscarClientesCobranca()}
+                    >
+                      {buscando ? "…" : "Buscar"}
+                    </button>
+                  </div>
+                  {buscaCobrancaResultados.length > 0 ? (
+                    <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-zinc-100 p-2 dark:border-zinc-800">
+                      {buscaCobrancaResultados.map((c) => {
+                        const ja = detail.caClientes.some((x) => x.caPersonId === c.caPersonId);
+                        return (
+                          <div
+                            key={c.caPersonId}
+                            className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-100 p-3 dark:border-zinc-800"
+                          >
+                            <button
+                              type="button"
+                              className="portal-btn text-sm"
+                              disabled={busy || ja}
+                              onClick={() => void addCaCliente(c)}
+                            >
+                              {ja ? "Já no grupo" : "Adicionar"}
+                            </button>
+                            <span className="font-medium">{c.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
               <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-semibold">Clientes no grupo</h3>
@@ -667,6 +972,7 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                   </div>
                 ) : null}
               </div>
+              )}
 
               <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
                 <h3 className="mb-3 font-semibold">Usuários do grupo</h3>
@@ -727,7 +1033,7 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                 </div>
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {PERM_KEYS.map((key) => (
+                  {permKeysUi.map((key) => (
                     <label key={key} className="flex items-start gap-2 text-xs">
                       <input
                         type="checkbox"

@@ -9,6 +9,9 @@ export type SiteClientePermissoes = {
   verGraficoSemana: boolean;
   exportarPdf: boolean;
   verMoodboard: boolean;
+  verCobrancas: boolean;
+  baixarBoleto: boolean;
+  baixarNota: boolean;
 };
 
 export const SITE_CLIENTE_PERMISSOES_DEFAULT: SiteClientePermissoes = {
@@ -22,6 +25,26 @@ export const SITE_CLIENTE_PERMISSOES_DEFAULT: SiteClientePermissoes = {
   verGraficoSemana: true,
   exportarPdf: true,
   verMoodboard: true,
+  verCobrancas: false,
+  baixarBoleto: false,
+  baixarNota: false,
+};
+
+/** Preset para usuário exclusivo de grupo cobrança. */
+export const SITE_CLIENTE_PERMISSOES_COBRANCA: SiteClientePermissoes = {
+  verStatusPdvs: false,
+  verProgramacao: false,
+  verEstiloAgora: false,
+  verResumoProgramacao: false,
+  verAtualizacoes: false,
+  verFeedback: false,
+  verLikes: false,
+  verGraficoSemana: false,
+  exportarPdf: false,
+  verMoodboard: false,
+  verCobrancas: true,
+  baixarBoleto: true,
+  baixarNota: true,
 };
 
 export const SITE_CLIENTE_PERMISSAO_LABELS: Record<keyof SiteClientePermissoes, string> = {
@@ -35,6 +58,9 @@ export const SITE_CLIENTE_PERMISSAO_LABELS: Record<keyof SiteClientePermissoes, 
   verGraficoSemana: "Gráfico da semana",
   exportarPdf: "Exportar agenda em PDF",
   verMoodboard: "Moodboard estratégico",
+  verCobrancas: "Cobranças e parcelas (12 meses)",
+  baixarBoleto: "Download de boleto",
+  baixarNota: "Download de nota fiscal",
 };
 
 export function parseSiteClientePermissoes(raw: unknown): SiteClientePermissoes {

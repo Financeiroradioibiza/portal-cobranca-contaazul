@@ -4,16 +4,24 @@ import { getProducaoDashboard } from "@/lib/cadastros/producaoDashboardService";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import {
   parseSiteClientePermissoes,
+  SITE_CLIENTE_PERMISSOES_COBRANCA,
   type SiteClientePermissoes,
 } from "@/lib/site-cliente/permissions";
+import {
+  parseSiteClienteGrupoTipo,
+  isSiteClienteCaPersonIdLinkable,
+  type SiteClienteGrupoTipo,
+} from "@/lib/site-cliente/grupoTipo";
 
 export type SiteClienteGrupoListItem = {
   id: string;
   nome: string;
+  tipo: SiteClienteGrupoTipo;
   active: boolean;
   usuarioCount: number;
   clienteCount: number;
   pdvCount: number;
+  caClienteCount: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -34,12 +42,22 @@ export type SiteClienteUsuarioView = {
 export type SiteClienteGrupoDetail = {
   id: string;
   nome: string;
+  tipo: SiteClienteGrupoTipo;
   active: boolean;
   createdAt: string;
   updatedAt: string;
   usuarios: SiteClienteUsuarioView[];
   clientes: Array<{ rioLinhaId: string; portalClienteId: number | null; nome: string }>;
   pdvs: Array<{ rioPdvKey: string; portalPdvId: number | null; nome: string; clienteNome: string }>;
+  caClientes: Array<{
+    caPersonId: string;
+    documento: string | null;
+    razaoSocial: string;
+    nomeFantasia: string;
+    emailCobranca: string | null;
+    rioLinhaId: string | null;
+    label: string;
+  }>;
   moodboards: Array<{
     rioLinhaId: string;
     portalClienteId: number | null;
@@ -91,16 +109,18 @@ export async function listSiteClienteGrupos(): Promise<SiteClienteGrupoListItem[
   const rows = await prisma.siteClienteGrupo.findMany({
     orderBy: { updatedAt: "desc" },
     include: {
-      _count: { select: { usuarios: true, clientes: true, pdvs: true } },
+      _count: { select: { usuarios: true, clientes: true, pdvs: true, caClientes: true } },
     },
   });
   return rows.map((g) => ({
     id: g.id,
     nome: g.nome,
+    tipo: parseSiteClienteGrupoTipo(g.tipo),
     active: g.active,
     usuarioCount: g._count.usuarios,
     clienteCount: g._count.clientes,
     pdvCount: g._count.pdvs,
+    caClienteCount: g._count.caClientes,
     createdAt: g.createdAt.toISOString(),
     updatedAt: g.updatedAt.toISOString(),
   }));
@@ -142,6 +162,7 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
       usuarios: { orderBy: { nome: "asc" } },
       clientes: true,
       pdvs: true,
+      caClientes: true,
       moodboards: true,
     },
   });
@@ -179,6 +200,7 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
   return {
     id: g.id,
     nome: g.nome,
+    tipo: parseSiteClienteGrupoTipo(g.tipo),
     active: g.active,
     createdAt: g.createdAt.toISOString(),
     updatedAt: g.updatedAt.toISOString(),
@@ -197,6 +219,19 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
         clienteNome: meta?.clienteNome ?? "",
       };
     }),
+    caClientes: g.caClientes.map((c) => {
+      const nome = c.nomeFantasia.trim() || c.razaoSocial.trim() || c.caPersonId;
+      const doc = c.documento?.trim();
+      return {
+        caPersonId: c.caPersonId,
+        documento: c.documento,
+        razaoSocial: c.razaoSocial,
+        nomeFantasia: c.nomeFantasia,
+        emailCobranca: c.emailCobranca,
+        rioLinhaId: c.rioLinhaId,
+        label: doc ? `${nome} · ${doc}` : nome,
+      };
+    }),
     moodboards: g.moodboards.map((m) => ({
       rioLinhaId: m.rioLinhaId,
       portalClienteId: m.portalClienteId,
@@ -211,13 +246,16 @@ export async function getSiteClienteGrupo(grupoId: string): Promise<SiteClienteG
 
 export async function createSiteClienteGrupo(input: {
   nome: string;
+  tipo?: SiteClienteGrupoTipo;
   createdBy?: string;
 }): Promise<{ id: string }> {
   const nome = input.nome.trim();
   if (!nome) throw new Error("nome_obrigatorio");
+  const tipo = parseSiteClienteGrupoTipo(input.tipo);
   const g = await prisma.siteClienteGrupo.create({
     data: {
       nome,
+      tipo,
       createdBy: input.createdBy?.trim() ?? "",
     },
     select: { id: true },
@@ -279,6 +317,54 @@ export async function setSiteClienteGrupoEscopo(
   ]);
 }
 
+export async function setSiteClienteGrupoCobrancaEscopo(
+  grupoId: string,
+  input: {
+    caClientes: Array<{
+      caPersonId: string;
+      documento?: string | null;
+      razaoSocial?: string;
+      nomeFantasia?: string;
+      emailCobranca?: string | null;
+      rioLinhaId?: string | null;
+    }>;
+  },
+): Promise<void> {
+  const grupo = await prisma.siteClienteGrupo.findUnique({
+    where: { id: grupoId },
+    select: { tipo: true },
+  });
+  if (!grupo) throw new Error("grupo_nao_encontrado");
+  if (parseSiteClienteGrupoTipo(grupo.tipo) !== "cobranca") {
+    throw new Error("grupo_nao_e_cobranca");
+  }
+
+  const seen = new Set<string>();
+  const rows = input.caClientes
+    .map((c) => {
+      const caPersonId = c.caPersonId.trim();
+      if (!isSiteClienteCaPersonIdLinkable(caPersonId) || seen.has(caPersonId)) return null;
+      seen.add(caPersonId);
+      return {
+        grupoId,
+        caPersonId,
+        documento: c.documento?.trim() || null,
+        razaoSocial: c.razaoSocial?.trim() ?? "",
+        nomeFantasia: c.nomeFantasia?.trim() ?? "",
+        emailCobranca: c.emailCobranca?.trim() || null,
+        rioLinhaId: c.rioLinhaId?.trim() || null,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
+
+  await prisma.$transaction([
+    prisma.siteClienteGrupoCaCliente.deleteMany({ where: { grupoId } }),
+    ...(rows.length > 0
+      ? [prisma.siteClienteGrupoCaCliente.createMany({ data: rows })]
+      : []),
+  ]);
+}
+
 export async function createSiteClienteUsuario(
   grupoId: string,
   input: {
@@ -297,6 +383,18 @@ export async function createSiteClienteUsuario(
   if (!loginEmail || !password) throw new Error("login_senha_obrigatorios");
   if (password.length < 6) throw new Error("senha_curta");
 
+  const grupo = await prisma.siteClienteGrupo.findUnique({
+    where: { id: grupoId },
+    select: { tipo: true },
+  });
+  if (!grupo) throw new Error("grupo_nao_encontrado");
+
+  const permissoes =
+    input.permissoes ??
+    (parseSiteClienteGrupoTipo(grupo.tipo) === "cobranca"
+      ? SITE_CLIENTE_PERMISSOES_COBRANCA
+      : undefined);
+
   const existing = await prisma.siteClienteUsuario.findUnique({
     where: { loginEmail },
     select: { id: true },
@@ -312,7 +410,7 @@ export async function createSiteClienteUsuario(
       funcao: input.funcao?.trim() ?? "",
       loginEmail,
       passwordHash: bcrypt.hashSync(password, 12),
-      permissoes: input.permissoes ?? {},
+      permissoes: permissoes ?? {},
       active: input.active ?? true,
     },
     select: { id: true },
@@ -408,6 +506,7 @@ export async function authenticateSiteClienteUser(
   id: string;
   grupoId: string;
   grupoNome: string;
+  grupoTipo: SiteClienteGrupoTipo;
   nome: string;
   loginEmail: string;
   permissoes: SiteClientePermissoes;
@@ -417,7 +516,7 @@ export async function authenticateSiteClienteUser(
 
   const u = await prisma.siteClienteUsuario.findUnique({
     where: { loginEmail: email },
-    include: { grupo: { select: { id: true, nome: true, active: true } } },
+    include: { grupo: { select: { id: true, nome: true, active: true, tipo: true } } },
   });
   if (!u || !u.active || !u.grupo.active) return null;
   if (!bcrypt.compareSync(password, u.passwordHash)) return null;
@@ -426,6 +525,7 @@ export async function authenticateSiteClienteUser(
     id: u.id,
     grupoId: u.grupoId,
     grupoNome: u.grupo.nome,
+    grupoTipo: parseSiteClienteGrupoTipo(u.grupo.tipo),
     nome: u.nome,
     loginEmail: u.loginEmail,
     permissoes: parseSiteClientePermissoes(u.permissoes),

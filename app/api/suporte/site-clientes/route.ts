@@ -22,9 +22,10 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const portal = requirePortalSession(await getPortalSession());
-    const body = (await req.json()) as { nome?: string };
+    const body = (await req.json()) as { nome?: string; tipo?: string };
     const created = await createSiteClienteGrupo({
       nome: body.nome ?? "",
+      tipo: body.tipo === "cobranca" ? "cobranca" : "producao",
       createdBy: portal.displayName ?? portal.email ?? "",
     });
     return NextResponse.json({ ok: true, ...created });
