@@ -4,7 +4,12 @@ import {
   cronogramaLacunasErrorMessage,
   validateProgramacaoMusicaCoverage,
 } from "@/lib/criacao/cronogramaCoverage";
-import { publicarProgramacao } from "@/lib/criacao/publicarService";
+import {
+  linkProgramacaoPdvsBatches,
+  PUBLICAR_PDV_BATCH_SIZE,
+  publicarProgramacao,
+  type LinkProgramacaoPdvsResult,
+} from "@/lib/criacao/publicarService";
 import { getClientePdvProgramacoes, prepareDisparoProgramacao } from "@/lib/criacao/pdvProgramacaoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { appendFechamentoPainel } from "@/lib/criacao/atualizacaoPainelService";
@@ -547,8 +552,17 @@ export type DispararAtualizacaoResult = {
   vinhetasSemAudio: number;
   clienteGatewayNome: string;
   pdvsDisparados: number;
+  pdvAmarracaoLotes: number;
   logResumo: string;
 };
+
+export async function amarrarPdvsDisparoBatch(
+  programacaoId: string,
+  batchIndex: number,
+): Promise<LinkProgramacaoPdvsResult> {
+  const { portalClienteId, portalPdvIds } = await prepareDisparoProgramacao(programacaoId);
+  return linkProgramacaoPdvsBatches(programacaoId, portalClienteId, portalPdvIds, { batchIndex });
+}
 
 export async function dispararAtualizacao(
   programacaoId: string,
@@ -590,7 +604,11 @@ export async function dispararAtualizacao(
   }
 
   const codigo = rotulo;
-  const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds);
+  const pub = await publicarProgramacao(programacaoId, gatewayId, portalPdvIds, {
+    skipPdvLink: true,
+  });
+  const pdvAmarracaoLotes =
+    portalPdvIds.length === 0 ? 0 : Math.ceil(portalPdvIds.length / PUBLICAR_PDV_BATCH_SIZE);
   const revision = prog.revisionAtual + 1;
   const hasAberta = await hasAtualizacaoAbertaColumn();
 
@@ -665,6 +683,7 @@ export async function dispararAtualizacao(
     vinhetasSemAudio: pub.vinhetasSemAudio,
     clienteGatewayNome: pub.clienteGatewayNome,
     pdvsDisparados: portalPdvIds.length,
+    pdvAmarracaoLotes,
     logResumo,
   };
 }

@@ -1535,6 +1535,11 @@ export const DISPARO_ERROR: Record<string, string> = {
     "Há dias da semana sem música programada. Use uma pasta «Tocar sempre» ou complete o cronograma antes de fechar.",
   server_error: "Erro interno ao disparar. Veja o log do portal ou tente de novo.",
   disparo_falhou: "Falha ao disparar a atualização.",
+  gateway_timeout:
+    "A operação demorou demais no servidor (timeout). Tente de novo; se a atualização já foi registrada, pode faltar amarrar algumas lojas.",
+  amarrar_pdv_falhou:
+    "A atualização foi registrada, mas falhou ao amarrar lojas no gateway — tente fechar de novo ou contate suporte.",
+  batch_index_invalido: "Erro interno ao amarrar lojas (lote inválido).",
 };
 
 export function FecharAtualizacaoModal({
@@ -1565,6 +1570,7 @@ export function FecharAtualizacaoModal({
   const [loadingInfo, setLoadingInfo] = useState(true);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<string | null>(null);
   const [tipoSubida, setTipoSubida] = useState<"atl" | "especial" | "off">("atl");
@@ -1622,7 +1628,9 @@ export function FecharAtualizacaoModal({
     }
     setBusy(true);
     setError(null);
+    setProgress(null);
     try {
+      setProgress("Publicando no gateway…");
       const res = await fetch(`/api/criacao/programacoes/${programacaoId}/disparar-atualizacao`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1635,6 +1643,7 @@ export function FecharAtualizacaoModal({
             },
         ),
       });
+      if (res.status === 504) throw new Error("gateway_timeout");
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         rotuloLog?: string;
@@ -1647,8 +1656,26 @@ export function FecharAtualizacaoModal({
         semArquivo?: number;
         vinhetasSemAudio?: number;
         pdvsDisparados?: number;
+        pdvAmarracaoLotes?: number;
       };
       if (!res.ok) throw new Error(data.error ?? "disparo_falhou");
+
+      const lotes = data.pdvAmarracaoLotes ?? 0;
+      for (let i = 0; i < lotes; i++) {
+        setProgress(`Amarrando lojas ${i + 1}/${lotes}…`);
+        const resAm = await fetch(
+          `/api/criacao/programacoes/${programacaoId}/disparar-atualizacao/amarrar-pdvs`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ batchIndex: i }),
+          },
+        );
+        if (resAm.status === 504) throw new Error("gateway_timeout");
+        const amData = (await resAm.json().catch(() => ({}))) as { error?: string; done?: boolean };
+        if (!resAm.ok) throw new Error(amData.error ?? "amarrar_pdv_falhou");
+      }
+
       const ent = data.diff?.entraram?.length ?? 0;
       const sai = data.diff?.sairam?.length ?? 0;
       const cEnt = data.diff?.cronogramasEntraram?.length ?? 0;
@@ -1669,12 +1696,16 @@ export function FecharAtualizacaoModal({
           (code === "pdv_proxy_nao_dispara" ? DISPARO_ERROR.pdv_proxy_nao_dispara
           : code.startsWith("cronograma_lacunas_semana") ?
             `${DISPARO_ERROR.cronograma_lacunas_semana} Dias: ${code.replace(/^cronograma_lacunas_semana:?/, "")}`
-          : code.startsWith("sync_registry") ? DISPARO_ERROR.sync_registry_falhou
+          : code.startsWith("sync_registry") || code.startsWith("sync_") ?
+            DISPARO_ERROR.sync_registry_falhou
+          : code.startsWith("link_pdv") || code.startsWith("programa_gateway_desalinhado") ?
+            DISPARO_ERROR.amarrar_pdv_falhou
           : code.startsWith("falha_publicacao") || code.startsWith("publicar_falhou") ?
             (code.includes(":") ? code.replace(/^[^:]+:\s*/, "Erro ao publicar: ") : DISPARO_ERROR.falha_publicacao)
           : code),
       );
     } finally {
+      setProgress(null);
       setBusy(false);
     }
   }
@@ -1799,6 +1830,9 @@ export function FecharAtualizacaoModal({
           {error ?
             <div className="mb-2 text-sm text-red-600">{error}</div>
           : null}
+          {progress ?
+            <div className="mb-2 text-sm text-slate-600 dark:text-slate-300">{progress}</div>
+          : null}
           {resultado ?
             <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
               {resultado}
@@ -1818,7 +1852,11 @@ export function FecharAtualizacaoModal({
             }
             className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-50"
           >
-            {busy ? "Fechando…" : info?.isInstall ? "Fechar INSTALL" : "Fechar atualização"}
+            {busy ?
+              progress ?? "Fechando…"
+            : info?.isInstall ?
+              "Fechar INSTALL"
+            : "Fechar atualização"}
           </button>
         </div>
       </div>

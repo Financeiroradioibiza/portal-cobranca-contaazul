@@ -78,16 +78,105 @@ async function linkProgramacaoPdvsBatch(
   return data.pdvsLinked ?? pdvIds.length;
 }
 
+export type LinkProgramacaoPdvsResult = {
+  totalPdvs: number;
+  totalBatches: number;
+  batchIndex: number;
+  linkedThisBatch: number;
+  totalLinked: number;
+  done: boolean;
+};
+
+/** Amarra PDVs no gateway em lotes (10). Com `batchIndex`, processa só um lote (evita 504 Netlify). */
+export async function linkProgramacaoPdvsBatches(
+  programacaoId: string,
+  clienteIdGateway: number,
+  pdvIds: number[],
+  opts?: { batchIndex?: number },
+): Promise<LinkProgramacaoPdvsResult> {
+  const batches = chunkPdvIds(pdvIds);
+  const totalPdvs = [...new Set(pdvIds.filter((id) => Number.isFinite(id) && id > 0))].length;
+  if (batches.length === 0) {
+    const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
+    await signalPlayerProgramacaoUpdate(clienteIdGateway);
+    return {
+      totalPdvs: 0,
+      totalBatches: 0,
+      batchIndex: 0,
+      linkedThisBatch: 0,
+      totalLinked: 0,
+      done: true,
+    };
+  }
+
+  async function linkOneBatch(batchIndex: number): Promise<number> {
+    const batch = batches[batchIndex]!;
+    const linked = await linkProgramacaoPdvsBatch(programacaoId, clienteIdGateway, batch);
+    await syncProgramacaoPdvsToGateway({
+      portalClienteId: clienteIdGateway,
+      portalPdvIds: batch,
+      programacaoPortalId: programacaoId,
+    });
+    return linked;
+  }
+
+  if (opts?.batchIndex === undefined) {
+    let totalLinked = 0;
+    for (let i = 0; i < batches.length; i++) {
+      totalLinked += await linkOneBatch(i);
+    }
+    if (totalPdvs > 0 && totalLinked < totalPdvs) {
+      throw new Error(`pdv_programa_nao_amarrado: esperados ${totalPdvs}, amarrados ${totalLinked}`);
+    }
+    return {
+      totalPdvs,
+      totalBatches: batches.length,
+      batchIndex: batches.length - 1,
+      linkedThisBatch: batches[batches.length - 1]!.length,
+      totalLinked,
+      done: true,
+    };
+  }
+
+  const batchIndex = opts.batchIndex;
+  if (batchIndex < 0 || batchIndex >= batches.length) {
+    throw new Error("batch_index_invalido");
+  }
+
+  const linkedThisBatch = await linkOneBatch(batchIndex);
+
+  let totalLinked = linkedThisBatch;
+  for (let i = 0; i < batchIndex; i++) {
+    totalLinked += batches[i]!.length;
+  }
+
+  const done = batchIndex >= batches.length - 1;
+  if (done && totalLinked < totalPdvs) {
+    throw new Error(`pdv_programa_nao_amarrado: esperados ${totalPdvs}, amarrados ${totalLinked}`);
+  }
+
+  return {
+    totalPdvs,
+    totalBatches: batches.length,
+    batchIndex,
+    linkedThisBatch,
+    totalLinked,
+    done,
+  };
+}
+
 /**
  * Publica a programação no gateway do Player 5 (cloud2) e marca como publicada no Neon.
  * O áudio continua sendo servido direto pelo cloud2 — nada passa pelo Netlify.
  *
  * PDVs: publica faixas/cronograma uma vez; amarra lojas em lotes de {@link PUBLICAR_PDV_BATCH_SIZE}.
+ * `skipPdvLink`: só `/publicar` (disparo com muitos PDVs — amarração via `/amarrar-pdvs`).
  */
 export async function publicarProgramacao(
   programacaoId: string,
   clienteIdGateway: number,
   pdvIds?: number[],
+  opts?: { skipPdvLink?: boolean },
 ): Promise<PublicarResultado> {
   if (!cloud2Enabled()) throw new Error("cloud2_desabilitado");
 
@@ -134,24 +223,9 @@ export async function publicarProgramacao(
     );
   }
 
-  let totalLinked = 0;
-  const batches = chunkPdvIds(portalPdvIdsToSync);
-  for (const batch of batches) {
-    totalLinked += await linkProgramacaoPdvsBatch(programacaoId, clienteIdGateway, batch);
-    await syncProgramacaoPdvsToGateway({
-      portalClienteId: clienteIdGateway,
-      portalPdvIds: batch,
-      programacaoPortalId: programacaoId,
-    });
-  }
-
-  if (portalPdvIdsToSync.length > 0 && totalLinked < portalPdvIdsToSync.length) {
-    throw new Error(
-      `pdv_programa_nao_amarrado: esperados ${portalPdvIdsToSync.length}, amarrados ${totalLinked}`,
-    );
-  }
-
-  if (portalPdvIdsToSync.length === 0) {
+  if (!opts?.skipPdvLink) {
+    await linkProgramacaoPdvsBatches(programacaoId, clienteIdGateway, portalPdvIdsToSync);
+  } else if (portalPdvIdsToSync.length === 0) {
     const { signalPlayerProgramacaoUpdate } = await import("@/lib/player/signalPlayerProgramacaoUpdate");
     await signalPlayerProgramacaoUpdate(clienteIdGateway);
   }
