@@ -1138,7 +1138,7 @@ export async function renameRioCompGrupo(monthId: string, grupoId: string, nomeR
   });
 }
 
-/** Atualiza `numero_pdv_site` para bater com PDVs cobráveis (exclui só tag cancelado). */
+/** Atualiza `numero_pdv_site` para bater com PDVs cobráveis (exclui cancelado e cortesia). */
 export async function syncRioCompNumeroPdvSiteFromPdvs(linhaId: string): Promise<number> {
   const linha = await prisma.rioCompClienteLinha.findUnique({
     where: { id: linhaId },

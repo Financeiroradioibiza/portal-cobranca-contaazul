@@ -223,6 +223,7 @@ enum RioTagCobranca {
   cobrando
   cancelado
   bloqueio_financeiro
+  cortesia
 }
 
 model RioCompMonth {
