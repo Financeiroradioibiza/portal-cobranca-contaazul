@@ -2,6 +2,8 @@ import type { Chamado, ChamadoPrioridade, ChamadoStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
+import { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
+import { notifyChamadoCreatedEmail } from "@/lib/chamados/chamadoNotifyEmail";
 import type {
   ChamadoParticipant,
   ChamadoView,
@@ -32,19 +34,7 @@ function sortByPrioridadeThenUpdated(a: Chamado, b: Chamado): number {
   return b.updatedAt.getTime() - a.updatedAt.getTime();
 }
 
-export function parseStringArrayJson(raw: string): string[] {
-  try {
-    const v = JSON.parse(raw || "[]");
-    if (!Array.isArray(v)) return [];
-    return [...new Set(v.filter((x): x is string => typeof x === "string").map((s) => s.trim()).filter(Boolean))];
-  } catch {
-    return [];
-  }
-}
-
-export function serializeStringArray(arr: string[]): string {
-  return JSON.stringify([...new Set(arr.map((s) => s.trim()).filter(Boolean))]);
-}
+export { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
 
 function normalizeSetores(raw: string[]): string[] {
   return [...new Set(raw.map((s) => s.trim()).filter((s) => VALID_SETORES.has(s as typeof CHAMADO_SETORES[number]["id"])))];
@@ -52,28 +42,6 @@ function normalizeSetores(raw: string[]): string[] {
 
 function normalizeEmails(raw: string[]): string[] {
   return [...new Set(raw.map((e) => normalizePortalEmail(e)).filter((e) => e.includes("@")))];
-}
-
-export function chamadoToView(row: Chamado): ChamadoView {
-  return {
-    id: row.id,
-    titulo: row.titulo,
-    descricao: row.descricao,
-    status: row.status,
-    prioridade: row.prioridade,
-    setores: parseStringArrayJson(row.setoresJson),
-    responsaveis: parseStringArrayJson(row.responsaveisJson),
-    criadoPorEmail: row.criadoPorEmail,
-    criadoPorNome: row.criadoPorNome,
-    fechadoPorEmail: row.fechadoPorEmail,
-    fechadoPorNome: row.fechadoPorNome,
-    fechadoEm: row.fechadoEm?.toISOString() ?? null,
-    rioLinhaId: row.rioLinhaId,
-    rioPdvKey: row.rioPdvKey,
-    clienteNome: row.clienteNome,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
 }
 
 export function userParticipatesInChamado(
@@ -236,7 +204,13 @@ export async function createChamado(
       clienteNome,
     },
   });
-  return chamadoToView(row);
+  const view = chamadoToView(row);
+  try {
+    await notifyChamadoCreatedEmail(view);
+  } catch (e) {
+    console.error("[chamadoNotify] falha ao enviar e-mail", view.id, e instanceof Error ? e.message : e);
+  }
+  return view;
 }
 
 export async function updateChamado(

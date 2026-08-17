@@ -8,7 +8,7 @@ import {
 } from "@/lib/cadastros/contatosLojaExtras";
 import { loadMergedProducaoPlayerContext, resolvePortalPdvIdForPdv, type ProducaoPlayerBucket } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
-import { serializeStringArray } from "@/lib/chamados/chamadoService";
+import { serializeStringArray } from "@/lib/chamados/chamadoUtils";
 
 export type PlayerIngestView = {
   id: string;

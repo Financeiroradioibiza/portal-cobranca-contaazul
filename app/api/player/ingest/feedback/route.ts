@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { chamadoToView } from "@/lib/chamados/chamadoUtils";
+import { notifyChamadoCreatedEmail } from "@/lib/chamados/chamadoNotifyEmail";
+import { prisma } from "@/lib/prisma";
 import { ingestPlayerFeedback } from "@/lib/player/playerIngestService";
 
 function authorizeIngest(request: Request): boolean {
@@ -34,6 +37,17 @@ export async function POST(request: Request) {
       clienteGatewayId: Number.isFinite(clienteGatewayId) ? clienteGatewayId : null,
       pdvGatewayId: Number.isFinite(pdvGatewayId) ? pdvGatewayId : null,
     });
+
+    if (row.chamadoId) {
+      const chamado = await prisma.chamado.findUnique({ where: { id: row.chamadoId } });
+      if (chamado) {
+        try {
+          await notifyChamadoCreatedEmail(chamadoToView(chamado));
+        } catch (e) {
+          console.error("[player/ingest/feedback] e-mail chamado", e);
+        }
+      }
+    }
 
     return NextResponse.json({ ok: true, id: row.id, chamadoId: row.chamadoId });
   } catch (e) {

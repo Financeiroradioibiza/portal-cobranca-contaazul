@@ -10,6 +10,11 @@ import {
   setorMeta,
 } from "@/lib/chamados/chamadoConstants";
 import type { ChamadoParticipant, ChamadoView } from "@/lib/chamados/chamadoTypes";
+import {
+  CHAMADO_VINCULO_VAZIO,
+  ChamadoProducaoVinculoFields,
+  type ChamadoVinculoState,
+} from "@/components/chamados/ChamadoProducaoVinculoFields";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -74,6 +79,8 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
   const [creating, setCreating] = useState(false);
 
   const [formTitulo, setFormTitulo] = useState("");
+  const [formTituloManual, setFormTituloManual] = useState(false);
+  const [formVinculo, setFormVinculo] = useState<ChamadoVinculoState>(CHAMADO_VINCULO_VAZIO);
   const [formDesc, setFormDesc] = useState("");
   const [formPri, setFormPri] = useState<ChamadoPrioridade>("media");
   const [formSetores, setFormSetores] = useState<string[]>([]);
@@ -165,8 +172,16 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
   }
 
   async function createChamado() {
+    if (formVinculo.modo === "cliente" && !formVinculo.clienteKey) {
+      setMsg("Selecione um cliente da produção ou use «Assunto livre».");
+      return;
+    }
+    if (formVinculo.modo === "pdv" && !formVinculo.pdvKey) {
+      setMsg("Selecione um PDV da produção ou use «Assunto livre».");
+      return;
+    }
     if (!formTitulo.trim()) {
-      setMsg("Informe um título para o chamado.");
+      setMsg("Informe o assunto do chamado.");
       return;
     }
     setBusy(true);
@@ -182,6 +197,9 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
           prioridade: formPri,
           setores: formSetores,
           responsaveis: formResp,
+          rioLinhaId: formVinculo.rioLinhaId,
+          rioPdvKey: formVinculo.rioPdvKey,
+          clienteNome: formVinculo.clienteNome,
         }),
       });
       const data = res.ok ? await res.json() : null;
@@ -193,6 +211,8 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
       if (created) setChamados((prev) => [created, ...prev]);
       setCreating(false);
       setFormTitulo("");
+      setFormTituloManual(false);
+      setFormVinculo(CHAMADO_VINCULO_VAZIO);
       setFormDesc("");
       setFormPri("media");
       setFormSetores([]);
@@ -208,6 +228,8 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
     setCreating(true);
     setSelected(null);
     setFormTitulo("");
+    setFormTituloManual(false);
+    setFormVinculo(CHAMADO_VINCULO_VAZIO);
     setFormDesc("");
     setFormPri("media");
     setFormSetores([]);
@@ -331,12 +353,16 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
           title="Novo chamado"
           busy={busy}
           titulo={formTitulo}
+          tituloManual={formTituloManual}
+          vinculo={formVinculo}
           descricao={formDesc}
           prioridade={formPri}
           setores={formSetores}
           responsaveis={formResp}
           participants={participants}
           onTitulo={setFormTitulo}
+          onTituloManual={setFormTituloManual}
+          onVinculo={setFormVinculo}
           onDesc={setFormDesc}
           onPri={setFormPri}
           onToggleSetor={toggleSetor}
@@ -402,6 +428,12 @@ function ChamadoCard({ chamado, onOpen }: { chamado: ChamadoView; onOpen: () => 
       {chamado.descricao ?
         <p className="mb-2 line-clamp-2 text-xs text-slate-500">{chamado.descricao}</p>
       : null}
+      {chamado.clienteNome?.trim() || chamado.rioPdvKey ?
+        <p className="mb-2 truncate text-[10px] font-medium text-violet-600 dark:text-violet-300">
+          {chamado.clienteNome?.trim() || "Cliente"}
+          {chamado.rioPdvKey ? " · PDV" : ""}
+        </p>
+      : null}
       <div className="mb-2 flex flex-wrap gap-1">
         {chamado.setores.map((s) => {
           const m = setorMeta(s);
@@ -437,12 +469,16 @@ function FormModal({
   title,
   busy,
   titulo,
+  tituloManual,
+  vinculo,
   descricao,
   prioridade,
   setores,
   responsaveis,
   participants,
   onTitulo,
+  onTituloManual,
+  onVinculo,
   onDesc,
   onPri,
   onToggleSetor,
@@ -454,12 +490,16 @@ function FormModal({
   title: string;
   busy: boolean;
   titulo: string;
+  tituloManual: boolean;
+  vinculo: ChamadoVinculoState;
   descricao: string;
   prioridade: ChamadoPrioridade;
   setores: string[];
   responsaveis: string[];
   participants: ChamadoParticipant[];
   onTitulo: (v: string) => void;
+  onTituloManual: (v: boolean) => void;
+  onVinculo: (v: ChamadoVinculoState) => void;
   onDesc: (v: string) => void;
   onPri: (v: ChamadoPrioridade) => void;
   onToggleSetor: (id: string) => void;
@@ -470,16 +510,14 @@ function FormModal({
 }) {
   return (
     <ModalShell title={title} onClose={onClose}>
-      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
-        Título
-        <input
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-          value={titulo}
-          onChange={(e) => onTitulo(e.target.value)}
-          maxLength={200}
-          placeholder="Ex.: Trocar vinheta do cliente X"
-        />
-      </label>
+      <ChamadoProducaoVinculoFields
+        vinculo={vinculo}
+        titulo={titulo}
+        tituloManual={tituloManual}
+        onVinculoChange={onVinculo}
+        onTituloChange={onTitulo}
+        onTituloManualChange={onTituloManual}
+      />
       <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
         Descrição
         <textarea
@@ -612,6 +650,13 @@ function DetailModal({
           {pri.label}
         </span>
       </div>
+
+      {chamado.clienteNome?.trim() ?
+        <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
+          <span className="font-semibold">Produção:</span> {chamado.clienteNome}
+          {chamado.rioPdvKey ? " · PDV vinculado" : ""}
+        </p>
+      : null}
 
       <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
         Título
