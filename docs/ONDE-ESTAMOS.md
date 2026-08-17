@@ -2,9 +2,11 @@
 
 Documento de **handoff entre conversas**. Leia isto no início de um chat novo para continuar de onde paramos.
 
-**Última atualização:** 30/06/2026  
-**Branch:** `main` (limpa, em sync com `origin/main`)  
-**Último commit:** `11e06c4` — `fix(criacao): biblioteca slim, mix ATL CRICA, vinhetas lab e config admin`
+**Última atualização:** 17/08/2026 (ver também registro de deploy abaixo)  
+**Branch:** `main` — **produção Netlify** pode estar **atrás** do último commit (ver deploy `ready` vs `error`)  
+**Registro detalhado ago/2026:** [`docs/REGISTRO-PORTAL-2026-08.md`](REGISTRO-PORTAL-2026-08.md) — commits, WIP local, chamados, disparo 504, checklist deploy  
+**Último commit GitHub:** `32052f2` — chamados e-mail + Cliente/PDV (**deploy Netlify falhou** em 17/08)  
+**Último deploy `ready`:** `61f9c67` — disparo fechar atualização em lotes (504)
 
 ---
 
@@ -12,14 +14,15 @@ Documento de **handoff entre conversas**. Leia isto no início de um chat novo p
 
 Cole algo neste formato:
 
-> Estamos no repo `portal-cobranca-contaazul`. Leia `docs/ONDE-ESTAMOS.md` e continue de onde paramos.  
+> Estamos no repo `portal-cobranca-contaazul`. Leia `docs/REGISTRO-PORTAL-2026-08.md` e `docs/ONDE-ESTAMOS.md`.  
 > [descreva a tarefa do dia]
 
 **Arquivos que o agente deve ler primeiro:**
 
 | Prioridade | Arquivo | Por quê |
 |------------|---------|---------|
-| 1 | Este arquivo | Estado geral e pendências |
+| 1 | [`docs/REGISTRO-PORTAL-2026-08.md`](REGISTRO-PORTAL-2026-08.md) | Deploy, WIP, o que sumiu e por quê |
+| 2 | Este arquivo | Estado geral e pendências |
 | 2 | `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload → biblioteca (cloud2) |
 | 3 | `docs/CRIACAO-ATUALIZACAO-PROGRAMACAO.md` | Publicação / atualização de programações |
 | 4 | `AGENTS.md` | Next.js deste repo tem APIs diferentes do training data |
