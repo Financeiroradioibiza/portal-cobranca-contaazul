@@ -1,6 +1,6 @@
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import { COMPANY_NAME } from "@/lib/brand";
-import { renderInstalacaoDesktopEmailHtml } from "@/lib/suporte/instalacaoDesktopEmailTemplate";
+import { renderInstalacaoDesktopEmailHtml, INSTALACAO_PLAYER5_GUIA_URL } from "@/lib/suporte/instalacaoDesktopEmailTemplate";
 import { renderInstalacaoElectronEmailHtml } from "@/lib/suporte/instalacaoElectronEmailTemplate";
 import { renderInstalacaoPlay5EmailHtml } from "@/lib/suporte/instalacaoPlay5EmailTemplate";
 import {
@@ -196,8 +196,12 @@ export function buildInstalacaoEmail(input: InstalacaoEmailInput): InstalacaoEma
     }
   }
 
-  textParts.push(`Passo a passo:`);
-  linhas.forEach((l, i) => textParts.push(`${i + 1}. ${l}`));
+  if (tipo === "pdv_senha_temp") {
+    textParts.push(`Guia para instalação:`, INSTALACAO_PLAYER5_GUIA_URL);
+  } else {
+    textParts.push(`Passo a passo:`);
+    linhas.forEach((l, i) => textParts.push(`${i + 1}. ${l}`));
+  }
   textParts.push(``, `Qualquer dúvida, é só responder este e-mail.`, ``, `Equipe ${COMPANY_NAME}`);
 
   const text = textParts.join("\n");

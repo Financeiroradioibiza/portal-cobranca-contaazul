@@ -1,5 +1,8 @@
 /** Template v3 (estilo escuro) — instalação Windows (tipos 1–4), sem Google Play/Android. */
+import { portalPublicAsset } from "@/lib/brand";
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
+
+export const INSTALACAO_PLAYER5_GUIA_URL = portalPublicAsset("/guia-instalacao-player5.html");
 
 function esc(s: string): string {
   return s
@@ -284,10 +287,14 @@ ${DESKTOP_EMAIL_STYLES}
     <a class="cta-btn" href="${esc(input.link)}">Abrir instalação</a>
     <div class="cta-link">${esc(input.link)}</div>
 
-    <div class="steps-title">Passo a passo</div>
+    ${
+      input.tipo === "pdv_senha_temp"
+        ? `<a class="cta-btn" href="${esc(INSTALACAO_PLAYER5_GUIA_URL)}" style="margin-top:4px;background:linear-gradient(135deg,#ff4d8d,#a855f7);box-shadow:0 6px 18px rgba(255,77,141,0.35);">Guia para instalação</a>`
+        : `<div class="steps-title">Passo a passo</div>
     <ul class="steps">
       ${stepsHtml(input.passos)}
-    </ul>
+    </ul>`
+    }
   </div>
 
   <div class="footer">
