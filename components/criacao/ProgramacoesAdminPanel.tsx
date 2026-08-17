@@ -1688,18 +1688,21 @@ export function FecharAtualizacaoModal({
     : info?.atlSugerido ?? "ATL";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
+        className="flex w-full max-w-md max-h-[min(90vh,calc(100dvh-2rem))] flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
           <h2 className="text-sm font-bold">Fechar atualização</h2>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
             ✕
           </button>
         </div>
-        <div className="p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <p className="mb-1 text-xs font-semibold text-slate-700 dark:text-slate-200">{programacaoNome}</p>
           <p className="mb-1 text-[10px] text-slate-500">Cliente: {clienteNome}</p>
           {loadingInfo ?
@@ -1714,7 +1717,16 @@ export function FecharAtualizacaoModal({
             </div>
           : <>
               <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200">
-                {info.pdvsAmarrados} PDV(s): {info.pdvsNomes.join(", ") || "—"}
+                <p className="font-semibold">{info.pdvsAmarrados} PDV(s)</p>
+                <div className="mt-1 max-h-36 overflow-y-auto text-[11px] leading-relaxed">
+                  {info.pdvsNomes.length > 0 ?
+                    <ul className="space-y-0.5">
+                      {info.pdvsNomes.map((nome) => (
+                        <li key={nome}>{nome}</li>
+                      ))}
+                    </ul>
+                  : "—"}
+                </div>
               </div>
               {!info.cronogramaOk ?
                 <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
@@ -1782,6 +1794,8 @@ export function FecharAtualizacaoModal({
               </div>
             </>
           }
+        </div>
+        <div className="shrink-0 border-t border-slate-200 p-4 dark:border-slate-800">
           {error ?
             <div className="mb-2 text-sm text-red-600">{error}</div>
           : null}
