@@ -1039,6 +1039,7 @@ model Programacao {
   pastas       Pasta[]
   vinhetas     Vinheta[]
   agendamentos Agendamento[]
+  cronogramaShuffles CronogramaShuffle[]
   atualizacoes     ProgramacaoAtualizacao[]
   pdvCadastros     ProducaoPdvCadastro[]
   painelAtualizacao CriacaoAtualizacaoPainel[]
@@ -1170,6 +1171,30 @@ model Agendamento {
   @@map("agendamento")
 }
 
+/// Cronograma Shuffle (portal): gera regras de agendamento normais por mês, com timer informativo.
+model CronogramaShuffle {
+  id                String   @id @default(cuid())
+  programacaoId     String   @map("programacao_id")
+  pastaId           String   @map("pasta_id")
+  /// Meses 1–12 como CSV (ex.: "1,4,8,12").
+  meses             String   @db.VarChar(32)
+  diasSemana        String   @default("") @map("dias_semana") @db.VarChar(32)
+  horaInicio        String   @default("00:00") @map("hora_inicio") @db.VarChar(5)
+  horaFim           String   @default("23:59") @map("hora_fim") @db.VarChar(5)
+  frequenciaMusicas Int?     @map("frequencia_musicas")
+  expiraEm          DateTime @map("expira_em") @db.Date
+  criadoEm          DateTime @default(now()) @map("criado_em")
+  /// IDs das regras de agendamento geradas (somente registro portal).
+  agendamentoIds    String[] @default([]) @map("agendamento_ids")
+
+  programacao Programacao @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
+  pasta       Pasta       @relation(fields: [pastaId], references: [id], onDelete: Cascade)
+
+  @@index([programacaoId])
+  @@index([pastaId])
+  @@map("cronograma_shuffle")
+}
+
 /// Pasta/playlist dentro de uma programação.
 model Pasta {
   id            String   @id @default(cuid())
@@ -1184,6 +1209,7 @@ model Pasta {
 
   programacao Programacao   @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
   musicas     PastaMusica[]
+  cronogramaShuffles CronogramaShuffle[]
 
   @@index([programacaoId, sortOrder])
   @@map("pasta")

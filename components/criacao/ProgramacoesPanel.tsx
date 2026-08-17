@@ -12,6 +12,7 @@ import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaCl
 import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { CronogramaAlvoBadges, DOW, diasLabel, formatPeriodoAgendamento } from "@/components/criacao/CronogramaAlvoBadges";
+import { CronogramaShufflePanel } from "@/components/criacao/CronogramaShufflePanel";
 import { AgendaSemanaChart } from "@/components/criacao/AgendaSemanaChart";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { buildSemanaBlocos } from "@/lib/site-cliente/estiloAgora";
@@ -905,6 +906,13 @@ function ProgramacaoEditor({
         onAgendamentosChange={setAgs}
         onEdit={registrarEdicao}
         onRefreshTargets={reloadPastasParaCronograma}
+      />
+
+      <CronogramaShufflePanel
+        programacaoId={id}
+        pastas={prog.pastas.map((p) => ({ id: p.id, nome: p.nome }))}
+        onAgendamentosChange={setAgs}
+        onEdit={registrarEdicao}
       />
 
       <div className="mt-6">
