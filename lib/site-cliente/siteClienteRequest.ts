@@ -6,6 +6,7 @@ import {
   verifySiteClienteSessionToken,
   type SiteClienteSessionPayload,
 } from "@/lib/site-cliente/session";
+import { enrichSiteClienteSessionGrupoTipo } from "@/lib/site-cliente/resolveSessionGrupoTipo";
 
 export async function getSiteClienteSession(): Promise<SiteClienteSessionPayload | null> {
   const jar = await cookies();
@@ -17,7 +18,9 @@ export async function getSiteClienteSession(): Promise<SiteClienteSessionPayload
       sessionHeader: hdrs.get(SITE_CLIENTE_SESSION_HEADER),
       authorization: hdrs.get("authorization"),
     });
-  return verifySiteClienteSessionToken(raw);
+  const session = await verifySiteClienteSessionToken(raw);
+  if (!session) return null;
+  return enrichSiteClienteSessionGrupoTipo(session);
 }
 
 export function requireSiteClienteSession(session: SiteClienteSessionPayload | null): SiteClienteSessionPayload {
