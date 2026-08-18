@@ -80,13 +80,33 @@ export type FecharAtualizacaoInfo = {
   cronogramaMissingDays: string[];
 };
 
+/** Limite da coluna `pdvs_log` (VarChar(500)) — clientes com muitos PDVs estouravam no fechamento. */
+const PDVS_LOG_MAX = 500;
+
+function formatPdvsLog(nomes: string[]): string {
+  if (nomes.length === 0) return "";
+  const full = nomes.join(", ");
+  if (full.length <= PDVS_LOG_MAX) return full;
+  const suffix = ` (+${nomes.length} PDVs)`;
+  let budget = PDVS_LOG_MAX - suffix.length;
+  if (budget < 24) return `${nomes.length} PDVs`.slice(0, PDVS_LOG_MAX);
+  let out = "";
+  for (const nome of nomes) {
+    const next = out ? `${out}, ${nome}` : nome;
+    if (next.length > budget) break;
+    out = next;
+  }
+  if (!out) out = nomes[0]!.slice(0, budget);
+  return (out + suffix).slice(0, PDVS_LOG_MAX);
+}
+
 async function pdvsLogForProgramacao(programacaoId: string, clienteRef: string): Promise<string> {
   const payload = await getClientePdvProgramacoes(clienteRef);
   const nomes = payload.pdvs
     .filter((p) => p.disparoElegivel && p.programacaoId === programacaoId)
     .map((p) => p.nome.trim() || p.codigoDisplay)
     .filter(Boolean);
-  return nomes.join(", ");
+  return formatPdvsLog(nomes);
 }
 
 async function pdvsNomesForProgramacao(programacaoId: string, clienteRef: string): Promise<string[]> {
