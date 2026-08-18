@@ -30,6 +30,7 @@ export async function POST(req: Request) {
       userId: user.id,
       grupoId: user.grupoId,
       grupoNome: user.grupoNome,
+      grupoTipo: user.grupoTipo,
       nome: user.nome,
       loginEmail: user.loginEmail,
       permissoes: user.permissoes,
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
       ok: true,
       nome: user.nome,
       grupoNome: user.grupoNome,
+      grupoTipo: user.grupoTipo,
       // Sempre devolver token: proxy Netlify não persiste Set-Cookie no domínio cliente.
       sessionToken: token,
     });

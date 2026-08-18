@@ -53,11 +53,34 @@
     });
   }
 
+  function homePathForGrupoTipo(grupoTipo) {
+    return grupoTipo === "cobranca" ? "/cobranca.html" : "/app.html";
+  }
+
+  function redirectIfLoggedIn() {
+    return fetch("/api/site-cliente/auth/session", {
+      credentials: "same-origin",
+      headers: authHeaders({}),
+    })
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (s) {
+        if (s && s.ok) window.location.replace(homePathForGrupoTipo(s.grupoTipo));
+      })
+      .catch(function () {
+        //
+      });
+  }
+
   global.SiteClienteAuth = {
     getToken: getToken,
     setToken: setToken,
     authHeaders: authHeaders,
     apiFetch: apiFetch,
     logout: logout,
+    homePathForGrupoTipo: homePathForGrupoTipo,
+    redirectIfLoggedIn: redirectIfLoggedIn,
   };
 })(window);

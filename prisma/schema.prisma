@@ -1679,3 +1679,27 @@ model SiteClienteGrupoCaCliente {
   @@index([grupoId])
   @@map("site_cliente_grupo_ca_cliente")
 }
+
+/// Comprovante enviado pelo site cliente (grupo cobrança) → chamado financeiro.
+model SiteClienteCobrancaComprovante {
+  id              String   @id @default(cuid())
+  chamadoId       String   @unique @map("chamado_id")
+  grupoId         String   @map("grupo_id")
+  parcelaId       String   @map("parcela_id")
+  caPersonId      String   @map("ca_person_id") @db.VarChar(120)
+  clienteNome     String   @default("") @map("cliente_nome") @db.Text
+  cnpj            String   @default("") @db.VarChar(64)
+  parcelaDue      String   @default("") @map("parcela_due") @db.VarChar(20)
+  parcelaSummary  String   @default("") @map("parcela_summary") @db.Text
+  parcelaValue    Float    @default(0) @map("parcela_value")
+  fileName        String   @default("") @map("file_name") @db.VarChar(255)
+  mimeType        String   @default("") @map("mime_type") @db.VarChar(120)
+  fileBase64      String   @default("") @map("file_base64") @db.Text
+  enviadoPorNome  String   @default("") @map("enviado_por_nome") @db.VarChar(200)
+  enviadoPorEmail String   @default("") @map("enviado_por_email") @db.VarChar(200)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([grupoId])
+  @@index([caPersonId])
+  @@map("site_cliente_cobranca_comprovante")
+}

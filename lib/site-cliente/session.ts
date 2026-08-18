@@ -9,6 +9,7 @@ export type SiteClienteSessionPayload = {
   userId: string;
   grupoId: string;
   grupoNome: string;
+  grupoTipo: "producao" | "cobranca";
   nome: string;
   loginEmail: string;
   permissoes: SiteClientePermissoes;
@@ -32,6 +33,7 @@ export async function signSiteClienteSession(
     uid: payload.userId,
     gid: payload.grupoId,
     gname: payload.grupoNome,
+    gtipo: payload.grupoTipo,
     name: payload.nome,
     email: payload.loginEmail,
     perm: payload.permissoes,
@@ -57,6 +59,7 @@ export async function verifySiteClienteSessionToken(
       userId,
       grupoId,
       grupoNome: typeof payload.gname === "string" ? payload.gname : "",
+      grupoTipo: payload.gtipo === "cobranca" ? "cobranca" : "producao",
       nome: typeof payload.name === "string" ? payload.name : "",
       loginEmail: typeof payload.email === "string" ? payload.email : "",
       permissoes: parseSiteClientePermissoes(payload.perm),

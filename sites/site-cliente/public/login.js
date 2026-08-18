@@ -6,17 +6,7 @@
   var auth = window.SiteClienteAuth;
   if (!form || !err || !ok || !btn || !auth) return;
 
-  auth.apiFetch("/api/site-cliente/dashboard")
-    .then(function (r) {
-      if (!r.ok) return null;
-      return r.json();
-    })
-    .then(function (d) {
-      if (d && d.ok) window.location.replace("/app.html");
-    })
-    .catch(function () {
-      //
-    });
+  auth.redirectIfLoggedIn();
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -60,9 +50,14 @@
           return;
         }
         auth.setToken(x.data.sessionToken);
-        return auth.apiFetch("/api/site-cliente/dashboard").then(function (r) {
+        var home = auth.homePathForGrupoTipo(x.data.grupoTipo);
+        var dashUrl =
+          x.data.grupoTipo === "cobranca"
+            ? "/api/site-cliente/cobranca/dashboard"
+            : "/api/site-cliente/dashboard";
+        return auth.apiFetch(dashUrl).then(function (r) {
           return r.json().then(function (d) {
-            return { status: r.status, data: d };
+            return { status: r.status, data: d, home: home };
           });
         });
       })
@@ -74,7 +69,7 @@
           err.style.display = "block";
           return;
         }
-        window.location.replace("/app.html");
+        window.location.replace(x.home);
       })
       .catch(function () {
         err.textContent = "Erro de conexão. Verifique sua internet e tente de novo.";
