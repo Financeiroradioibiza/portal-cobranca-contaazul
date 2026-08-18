@@ -62,6 +62,48 @@ export function tituloMatchesForDedupe(a: string, b: string): boolean {
   return normalizeTitleForDedupe(a) === normalizeTitleForDedupe(b);
 }
 
+/** Remove sufixos de versão no fim — antes de normalizar (só CHECK, não altera dedupe da fila). */
+export function stripTitleVersionSuffixesRaw(s: string): string {
+  let t = s.trim().replace(/~(\d{1,2})$/i, "").trim();
+  for (let i = 0; i < 5; i += 1) {
+    const next = t.replace(/\s*\([^)]{1,80}\)\s*$/i, "").trim();
+    if (next === t) break;
+    t = next;
+  }
+  return t;
+}
+
+/** Título núcleo para CHECK: pasta limpa vs upload com (Single Version), (Live), etc. */
+export function tituloCoreForCheck(s: string): string {
+  return normalizeTitleForDedupe(stripTitleVersionSuffixesRaw(s));
+}
+
+export function tituloMatchesForCheck(a: string, b: string): boolean {
+  const ca = tituloCoreForCheck(a);
+  const cb = tituloCoreForCheck(b);
+  return ca.length >= 2 && cb.length >= 2 && ca === cb;
+}
+
+/** Artista equivalente ou subconjunto (ex. «The Police» vs «The Police/Police»). */
+export function artistaMatchesForCheck(a: string, b: string): boolean {
+  if (artistaMatchesForDedupe(a, b)) return true;
+  const ta = new Set(artistaTokensForDedupe(a));
+  const tb = new Set(artistaTokensForDedupe(b));
+  if (ta.size < 1 || tb.size < 1) return false;
+  const [smaller, larger] = ta.size <= tb.size ? [ta, tb] : [tb, ta];
+  return [...smaller].every((t) => larger.has(t));
+}
+
+export function metadataMatchesForCheck(
+  uploadArtista: string,
+  uploadTitulo: string,
+  existArtista: string,
+  existTitulo: string,
+): boolean {
+  if (!tituloMatchesForCheck(uploadTitulo, existTitulo)) return false;
+  return artistaMatchesForCheck(uploadArtista, existArtista);
+}
+
 /** Mesmo artista com e/&/and ou ordem de tokens equivalente (+ typo leve, ex. Mendez/Mendes). */
 export function artistaMatchesForDedupe(a: string, b: string): boolean {
   const na = normalizeArtistaForDedupe(a);

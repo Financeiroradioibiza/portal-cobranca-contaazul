@@ -4,11 +4,11 @@ import { sha256File } from './hash.js';
 import { probeDurationMs, probeArtistTitleFromFile } from './ffmpeg.js';
 import { parseMp3Filename } from './parseFilename.js';
 import {
-  artistaMatchesForDedupe,
-  metadataMatchesForDedupe,
+  artistaMatchesForCheck,
+  metadataMatchesForCheck,
   normalizeArtistaForDedupe,
-  normalizeTitleForDedupe,
-  tituloMatchesForDedupe,
+  tituloCoreForCheck,
+  tituloMatchesForCheck,
 } from './dedupe.js';
 import { checkFilePath } from './checkStorage.js';
 import { spawn } from 'node:child_process';
@@ -116,21 +116,21 @@ function metadataScore(
   uploadTitulo: string,
   sistema: SistemaTrack,
 ): { score: number; detail: string; ok: boolean } {
-  const metaOk = metadataMatchesForDedupe(uploadArtista, uploadTitulo, sistema.artista, sistema.titulo);
-  const tituloOk = tituloMatchesForDedupe(uploadTitulo, sistema.titulo);
-  const artistaOk = artistaMatchesForDedupe(uploadArtista, sistema.artista);
+  const metaOk = metadataMatchesForCheck(uploadArtista, uploadTitulo, sistema.artista, sistema.titulo);
+  const tituloOk = tituloMatchesForCheck(uploadTitulo, sistema.titulo);
+  const artistaOk = artistaMatchesForCheck(uploadArtista, sistema.artista);
   if (metaOk) {
-    return { score: 30, detail: 'Artista e título equivalentes', ok: true };
+    return { score: 30, detail: 'Artista e título equivalentes (núcleo da faixa)', ok: true };
   }
   if (tituloOk && artistaOk) {
-    return { score: 28, detail: 'Artista e título equivalentes (normalização)', ok: true };
+    return { score: 28, detail: 'Artista e título equivalentes (normalização CHECK)', ok: true };
   }
   if (tituloOk) {
     return { score: 12, detail: 'Só o título bate — artista diferente', ok: false };
   }
   return {
     score: 0,
-    detail: `Metadados distintos (${normalizeArtistaForDedupe(uploadArtista)} — ${normalizeTitleForDedupe(uploadTitulo)} vs ${normalizeArtistaForDedupe(sistema.artista)} — ${normalizeTitleForDedupe(sistema.titulo)})`,
+    detail: `Metadados distintos (${normalizeArtistaForDedupe(uploadArtista)} — ${tituloCoreForCheck(uploadTitulo)} vs ${normalizeArtistaForDedupe(sistema.artista)} — ${tituloCoreForCheck(sistema.titulo)})`,
     ok: false,
   };
 }
@@ -141,15 +141,15 @@ function findBestMetadataMatch(
   tracks: SistemaTrack[],
 ): SistemaTrack | null {
   for (const t of tracks) {
-    if (metadataMatchesForDedupe(uploadArtista, uploadTitulo, t.artista, t.titulo)) return t;
+    if (metadataMatchesForCheck(uploadArtista, uploadTitulo, t.artista, t.titulo)) return t;
   }
   for (const t of tracks) {
-    if (tituloMatchesForDedupe(uploadTitulo, t.titulo) && artistaMatchesForDedupe(uploadArtista, t.artista)) {
+    if (tituloMatchesForCheck(uploadTitulo, t.titulo) && artistaMatchesForCheck(uploadArtista, t.artista)) {
       return t;
     }
   }
   for (const t of tracks) {
-    if (tituloMatchesForDedupe(uploadTitulo, t.titulo)) return t;
+    if (tituloMatchesForCheck(uploadTitulo, t.titulo)) return t;
   }
   return null;
 }
