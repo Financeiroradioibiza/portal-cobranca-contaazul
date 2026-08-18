@@ -13,7 +13,7 @@ import {
   isValidCheckSessionId,
   listCheckSessionFiles,
 } from '../../criacao/checkStorage.js';
-import { verifyCheckIngestToken, verifyCheckStreamToken } from '../../criacao/ingestToken.js';
+import { verifyCheckIngestToken, verifyCheckAnalyzeToken, verifyCheckStreamToken } from '../../criacao/ingestToken.js';
 import { sendAudioReply } from '../../criacao/audioDelivery.js';
 import { criacaoConfig } from '../../criacao/config.js';
 
@@ -91,19 +91,32 @@ export async function registerCheckMusicaRoutes(app: FastifyInstance, prefix: st
   });
 
   app.post(`${prefix}/check/analyze`, async (req, reply) => {
-    if (!authSecret(req)) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
     const body = (req.body ?? {}) as {
       sessionId?: string;
       fileId?: string;
+      fileIds?: string[];
+      analyzeToken?: string;
       pastaTracks?: Array<{ musicaId?: string; artista?: string; titulo?: string; durationMs?: number | null }>;
     };
     const sessionId = String(body.sessionId ?? '').trim();
+    const portalAuth = authSecret(req);
+    const tokenAuth = verifyCheckAnalyzeToken(String(body.analyzeToken ?? '').trim());
+    if (!portalAuth && !tokenAuth) return reply.code(401).send({ ok: false, error: 'nao_autorizado' });
+    if (tokenAuth && tokenAuth.sessionId !== sessionId) {
+      return reply.code(401).send({ ok: false, error: 'token_sessao_invalido' });
+    }
     if (!isValidCheckSessionId(sessionId)) {
       return reply.code(400).send({ ok: false, error: 'session_id_invalido' });
     }
     const fileId = String(body.fileId ?? '').trim();
     if (fileId && !isValidCheckFileId(fileId)) {
       return reply.code(400).send({ ok: false, error: 'file_id_invalido' });
+    }
+    const fileIds = Array.isArray(body.fileIds)
+      ? body.fileIds.map((id) => String(id ?? '').trim()).filter((id) => isValidCheckFileId(id))
+      : [];
+    if (fileIds.length > 15) {
+      return reply.code(400).send({ ok: false, error: 'lote_grande' });
     }
     const pastaTracks = Array.isArray(body.pastaTracks)
       ? body.pastaTracks
@@ -121,6 +134,7 @@ export async function registerCheckMusicaRoutes(app: FastifyInstance, prefix: st
       files,
       pastaTracks,
       fileId: fileId || undefined,
+      fileIds: fileIds.length > 0 ? fileIds : undefined,
     });
     return reply.send({ ok: true, results });
   });

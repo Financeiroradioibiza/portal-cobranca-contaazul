@@ -40,3 +40,19 @@ export function signCheckUploadTicket(
   const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
   return { token: `${base}.${sig}`, exp };
 }
+
+/** Ticket de análise CHECK (browser → cloud2 /criacao/check/analyze, lotes). Formato: checkanalyze.sessionId.exp.sig */
+export function signCheckAnalyzeTicket(
+  sessionId: string,
+  ttlMs: number = TTL_MS,
+): { token: string; exp: number } {
+  const exp = Date.now() + ttlMs;
+  const base = `checkanalyze.${sessionId}.${exp}`;
+  const sig = crypto.createHmac("sha256", SECRET).update(base).digest("hex");
+  return { token: `${base}.${sig}`, exp };
+}
+
+export const CHECK_ANALYZE_URL = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/check/analyze");
+
+/** Faixas por lote na análise CHECK (cloud2 direto; evita timeout Netlify). */
+export const CHECK_ANALYZE_BATCH_SIZE = 10;

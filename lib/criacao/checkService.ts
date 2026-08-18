@@ -3,7 +3,13 @@ import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { cloud2Enabled, cloud2Fetch, parseCloud2Json } from "@/lib/criacao/cloud2Client";
 import type { CheckVerdict } from "@/lib/criacao/checkLabels";
 import { buildCheckPreviewUrl, buildPreviewUrl, streamEnabled } from "@/lib/criacao/streamUrl";
-import { CRIACAO_INGEST_URL, ingestEnabled, signCheckUploadTicket } from "@/lib/criacao/ingestTicket";
+import {
+  CHECK_ANALYZE_URL,
+  CRIACAO_INGEST_URL,
+  ingestEnabled,
+  signCheckAnalyzeTicket,
+  signCheckUploadTicket,
+} from "@/lib/criacao/ingestTicket";
 
 export type { CheckVerdict } from "@/lib/criacao/checkLabels";
 
@@ -61,6 +67,15 @@ export function checkIngestUrl(): string {
   return CHECK_INGEST_URL;
 }
 
+export function buildCheckAnalyzeTicket(sessionId: string): {
+  token: string;
+  exp: number;
+  analyzeUrl: string;
+} {
+  const { token, exp } = signCheckAnalyzeTicket(sessionId);
+  return { token, exp, analyzeUrl: CHECK_ANALYZE_URL };
+}
+
 export async function loadPastaTracksForCheck(pastaId: string): Promise<CheckPastaTrackInput[]> {
   const links = await prisma.pastaMusica.findMany({
     where: { pastaId },
@@ -79,7 +94,7 @@ export async function loadPastaTracksForCheck(pastaId: string): Promise<CheckPas
   }));
 }
 
-type Cloud2CheckResult = {
+export type Cloud2CheckResult = {
   fileId: string;
   arquivoNome: string;
   uploadArtista: string;
@@ -119,7 +134,7 @@ export async function analyzeCheckSession(input: {
   return enrichCheckResults(data.results, input.sessionId);
 }
 
-async function enrichCheckResults(
+export async function enrichCheckResults(
   rows: Cloud2CheckResult[],
   sessionId: string,
 ): Promise<CheckResultRow[]> {

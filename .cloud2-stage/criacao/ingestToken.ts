@@ -102,6 +102,27 @@ export function verifyCheckIngestToken(token: string): { sessionId: string; file
   return { sessionId, fileId };
 }
 
+/** Análise CHECK em lote (browser → cloud2): checkanalyze.sessionId.exp.sig */
+export function verifyCheckAnalyzeToken(token: string): { sessionId: string } | null {
+  const secret = criacaoConfig.ingestSecret;
+  if (!secret || !token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 4 || parts[0] !== 'checkanalyze') return null;
+  const [, sessionId, expStr, sig] = parts;
+  if (!sessionId || !expStr || !sig) return null;
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || Date.now() > exp) return null;
+  const base = `checkanalyze.${sessionId}.${expStr}`;
+  const expected = crypto.createHmac('sha256', secret).update(base).digest('hex');
+  if (expected.length !== sig.length) return null;
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
+  } catch {
+    return null;
+  }
+  return { sessionId };
+}
+
 /** Preview CHECK scratch: sessionId.fileId.exp */
 export function verifyCheckStreamToken(
   sessionId: string,

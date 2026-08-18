@@ -8,6 +8,7 @@ import {
   type CriacaoClienteRow,
 } from "@/components/criacao/CriacaoClienteTag";
 import type { CheckResultRow } from "@/lib/criacao/checkService";
+import { CHECK_ANALYZE_BATCH_SIZE } from "@/lib/criacao/ingestTicket";
 import { verdictClass, verdictLabel } from "@/lib/criacao/checkLabels";
 
 type Cliente = CriacaoClienteRow & { pdvCount: number };
@@ -174,16 +175,39 @@ export function CheckPanel() {
         setProgress({ done: i + 1, total: files.length, phase: "upload" });
       }
 
+      setProgress({ done: files.length, total: files.length, phase: "upload" });
+
+      const pastaRes = await fetch(
+        `/api/criacao/check/pasta-tracks?pastaId=${encodeURIComponent(pastaSel)}`,
+      );
+      const pastaData = await pastaRes.json().catch(() => null);
+      if (!pastaRes.ok || !Array.isArray(pastaData?.pastaTracks)) {
+        throw new Error(pastaData?.error || "pasta_tracks_falhou");
+      }
+
+      const ticketRes = await fetch("/api/criacao/check/analyze-ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sid }),
+      });
+      const ticketData = await ticketRes.json().catch(() => null);
+      if (!ticketRes.ok || !ticketData?.analyzeUrl || !ticketData?.token) {
+        throw new Error(ticketData?.error || "analyze_ticket_falhou");
+      }
+
       const allResults: CheckResultRow[] = [];
-      for (let i = 0; i < uploaded.length; i += 1) {
+      for (let i = 0; i < uploaded.length; i += CHECK_ANALYZE_BATCH_SIZE) {
+        const batch = uploaded.slice(i, i + CHECK_ANALYZE_BATCH_SIZE);
         setProgress({ done: i, total: uploaded.length, phase: "analyze" });
-        const analyzeRes = await fetch("/api/criacao/check/analyze", {
+
+        const analyzeRes = await fetch(ticketData.analyzeUrl as string, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sessionId: sid,
-            pastaId: pastaSel,
-            fileId: uploaded[i]!.fileId,
+            analyzeToken: ticketData.token,
+            fileIds: batch.map((f) => f.fileId),
+            pastaTracks: pastaData.pastaTracks,
           }),
         });
         const analyzeData = await analyzeRes.json().catch(() => null);
@@ -193,8 +217,23 @@ export function CheckPanel() {
             (analyzeRes.status === 504 ? "analyze_timeout" : "analyze_falhou");
           throw new Error(err);
         }
-        allResults.push(...(analyzeData.results as CheckResultRow[]));
-        setProgress({ done: i + 1, total: uploaded.length, phase: "analyze" });
+
+        const enrichRes = await fetch("/api/criacao/check/enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: sid, results: analyzeData.results }),
+        });
+        const enrichData = await enrichRes.json().catch(() => null);
+        if (!enrichRes.ok || !Array.isArray(enrichData?.results)) {
+          throw new Error(enrichData?.error || "enrich_falhou");
+        }
+
+        allResults.push(...(enrichData.results as CheckResultRow[]));
+        setProgress({
+          done: Math.min(i + batch.length, uploaded.length),
+          total: uploaded.length,
+          phase: "analyze",
+        });
       }
       setResults(allResults);
     } catch (e) {

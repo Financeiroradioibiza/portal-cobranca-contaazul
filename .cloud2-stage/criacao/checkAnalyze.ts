@@ -358,11 +358,16 @@ export async function analyzeCheckSession(input: {
   files: Array<{ fileId: string; arquivoNome: string; ext?: string }>;
   pastaTracks: CheckPastaTrack[];
   fileId?: string;
+  fileIds?: string[];
 }): Promise<CheckFileResult[]> {
   const sistemaTracks = await loadSistemaTracks(input.pastaTracks);
+  const fileIdsFilter = input.fileIds?.map((id) => id.trim()).filter(Boolean);
   const fileIdFilter = input.fileId?.trim();
-  const targets = fileIdFilter
-    ? input.files.filter((f) => f.fileId === fileIdFilter)
+  const targets =
+    fileIdsFilter?.length ?
+      input.files.filter((f) => fileIdsFilter.includes(f.fileId))
+    : fileIdFilter ?
+      input.files.filter((f) => f.fileId === fileIdFilter)
     : input.files;
   const out: CheckFileResult[] = [];
   for (const f of targets) {
