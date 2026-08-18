@@ -104,6 +104,12 @@ export function metadataMatchesForCheck(
   return artistaMatchesForCheck(uploadArtista, existArtista);
 }
 
+/** Mesmo núcleo, mas um lado traz sufixo de versão (Live, Remix, Remaster, etc.) que o outro não. */
+export function isCheckVersionVariantPair(a: string, b: string): boolean {
+  if (!tituloMatchesForCheck(a, b)) return false;
+  return normalizeTitleForDedupe(a) !== normalizeTitleForDedupe(b);
+}
+
 /** Mesmo artista com e/&/and ou ordem de tokens equivalente (+ typo leve, ex. Mendez/Mendes). */
 export function artistaMatchesForDedupe(a: string, b: string): boolean {
   const na = normalizeArtistaForDedupe(a);

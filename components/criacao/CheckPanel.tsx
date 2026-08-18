@@ -9,7 +9,7 @@ import {
 } from "@/components/criacao/CriacaoClienteTag";
 import type { CheckResultRow } from "@/lib/criacao/checkService";
 import { CHECK_ANALYZE_BATCH_SIZE } from "@/lib/criacao/ingestTicket";
-import { verdictClass, verdictLabel } from "@/lib/criacao/checkLabels";
+import { verdictClass, verdictLabel, checkVerdictSortOrder } from "@/lib/criacao/checkLabels";
 
 type Cliente = CriacaoClienteRow & { pdvCount: number };
 type ArvorePasta = { id: string; nome: string; musicasCount: number };
@@ -69,6 +69,9 @@ export function CheckPanel() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; phase?: "upload" | "analyze" } | null>(null);
+  const [pastaAction, setPastaAction] = useState<
+    Record<string, { kind: "pasta" | "biblioteca"; status: "loading" | "done" | "error"; msg?: string }>
+  >({});
   const [msg, setMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sessionRef = useRef<string | null>(null);
@@ -132,8 +135,67 @@ export function CheckPanel() {
 
   const resultsSorted = useMemo(() => {
     if (!results?.length) return results;
-    return [...results].sort((a, b) => a.matchScore - b.matchScore);
+    return [...results].sort((a, b) => {
+      const byVerdict = checkVerdictSortOrder(a.verdict) - checkVerdictSortOrder(b.verdict);
+      if (byVerdict !== 0) return byVerdict;
+      return a.matchScore - b.matchScore;
+    });
   }, [results]);
+
+  const runPastaAction = async (row: CheckResultRow, kind: "pasta" | "biblioteca") => {
+    const musicaId = row.matchedMusicaId ?? row.sistema?.musicaId;
+    if (!musicaId) return;
+    setPastaAction((prev) => ({ ...prev, [row.fileId]: { kind, status: "loading" } }));
+    try {
+      const url =
+        kind === "pasta"
+          ? `/api/criacao/pastas/${encodeURIComponent(pastaSel)}/musicas/${encodeURIComponent(musicaId)}`
+          : `/api/criacao/biblioteca/${encodeURIComponent(musicaId)}`;
+      const res = await fetch(url, { method: "DELETE" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "acao_falhou");
+      setResults((prev) =>
+        prev?.map((r) =>
+          r.fileId === row.fileId
+            ? {
+                ...r,
+                matchedMusicaId: null,
+                sistema: null,
+                checks: [
+                  ...r.checks.filter((c) => c.id !== "par"),
+                  {
+                    id: "par",
+                    ok: false,
+                    label: "Par na pasta",
+                    detail:
+                      kind === "pasta"
+                        ? "Faixa removida desta pasta"
+                        : "Faixa removida da biblioteca",
+                  },
+                ],
+              }
+            : r,
+        ) ?? null,
+      );
+      setPastaAction((prev) => ({
+        ...prev,
+        [row.fileId]: {
+          kind,
+          status: "done",
+          msg: kind === "pasta" ? "Removida da pasta" : "Removida da biblioteca",
+        },
+      }));
+    } catch (e) {
+      setPastaAction((prev) => ({
+        ...prev,
+        [row.fileId]: {
+          kind,
+          status: "error",
+          msg: e instanceof Error ? e.message : "acao_falhou",
+        },
+      }));
+    }
+  };
 
   const onPickFiles = (list: FileList | null) => {
     if (!list?.length) return;
@@ -436,6 +498,37 @@ export function CheckPanel() {
                       accentClass="border-violet-200 bg-violet-50/80 dark:border-violet-900 dark:bg-violet-950/30"
                     />
                   </div>
+                  {row.sistema && pastaSel && (
+                    <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4 dark:border-slate-800">
+                      <button
+                        type="button"
+                        disabled={pastaAction[row.fileId]?.status === "loading" || busy}
+                        onClick={() => void runPastaAction(row, "pasta")}
+                        className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-medium text-rose-800 hover:bg-rose-50 disabled:opacity-40 dark:border-rose-800 dark:text-rose-200 dark:hover:bg-rose-950/40"
+                      >
+                        Apagar só desta pasta
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pastaAction[row.fileId]?.status === "loading" || busy}
+                        onClick={() => void runPastaAction(row, "biblioteca")}
+                        className="rounded-lg border border-rose-500 px-3 py-1.5 text-xs font-medium text-rose-900 hover:bg-rose-50 disabled:opacity-40 dark:border-rose-700 dark:text-rose-100 dark:hover:bg-rose-950/40"
+                      >
+                        Apagar da biblioteca
+                      </button>
+                      {pastaAction[row.fileId]?.status === "loading" && (
+                        <span className="text-xs text-slate-500">Pensando…</span>
+                      )}
+                      {pastaAction[row.fileId]?.status === "done" && (
+                        <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                          Ok, feito — {pastaAction[row.fileId]?.msg}
+                        </span>
+                      )}
+                      {pastaAction[row.fileId]?.status === "error" && (
+                        <span className="text-xs text-rose-600">{pastaAction[row.fileId]?.msg}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </article>

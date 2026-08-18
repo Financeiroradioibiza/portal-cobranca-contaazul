@@ -5,6 +5,7 @@ import { probeDurationMs, probeArtistTitleFromFile } from './ffmpeg.js';
 import { parseMp3Filename } from './parseFilename.js';
 import {
   artistaMatchesForCheck,
+  isCheckVersionVariantPair,
   metadataMatchesForCheck,
   normalizeArtistaForDedupe,
   tituloCoreForCheck,
@@ -38,7 +39,13 @@ export type CheckFileResult = {
   chromaprint: string | null;
   matchedMusicaId: string | null;
   matchScore: number;
-  verdict: 'mesma_gravacao' | 'provavelmente_mesma' | 'revisar_possivel_versao' | 'diferente' | 'sem_par_na_pasta';
+  verdict:
+    | 'mesma_gravacao'
+    | 'provavelmente_mesma'
+    | 'possivel_versao_ao_vivo_ou_diferente'
+    | 'revisar_possivel_versao'
+    | 'diferente'
+    | 'sem_par_na_pasta';
   checks: CheckAnalyzeRow[];
   sistemaArtista: string | null;
   sistemaTitulo: string | null;
@@ -189,12 +196,33 @@ function verdictFromScore(
   chromaprintExact: boolean,
   metadataOk: boolean,
   hasMatch: boolean,
+  versionVariant: boolean,
 ): CheckFileResult['verdict'] {
   if (!hasMatch) return 'sem_par_na_pasta';
   if (chromaprintExact || score >= 85) return 'mesma_gravacao';
   if (score >= 60) return 'provavelmente_mesma';
+  if (versionVariant) return 'possivel_versao_ao_vivo_ou_diferente';
   if (score >= 30 || metadataOk) return 'revisar_possivel_versao';
   return 'diferente';
+}
+
+function patchRevisarDurationCheck(
+  checks: CheckAnalyzeRow[],
+  verdict: CheckFileResult['verdict'],
+  uploadMs: number | null,
+  sistemaMs: number | null,
+): void {
+  if (verdict !== 'revisar_possivel_versao') return;
+  if (uploadMs == null || uploadMs <= 0 || sistemaMs == null || sistemaMs <= 0) return;
+  const delta = Math.abs(uploadMs - sistemaMs);
+  if (delta > 10_000) return;
+  const idx = checks.findIndex((c) => c.id === 'duration');
+  if (idx < 0) return;
+  checks[idx] = {
+    ...checks[idx]!,
+    ok: true,
+    detail: `Duração parecida (Δ ${(delta / 1000).toFixed(1)}s)`,
+  };
 }
 
 async function analyzeUploadFile(
@@ -331,7 +359,9 @@ async function analyzeUploadFile(
     detail: `${Math.round(stat.size / 1024)} KB`,
   });
 
-  const verdict = verdictFromScore(score, chromaprintExact, meta.ok, true);
+  const versionVariant = isCheckVersionVariantPair(uploadTitulo, matched.titulo);
+  let verdict = verdictFromScore(score, chromaprintExact, meta.ok, true, versionVariant);
+  patchRevisarDurationCheck(checks, verdict, durationMs, matched.durationMs);
 
   return {
     fileId,

@@ -1,6 +1,7 @@
 export type CheckVerdict =
   | "mesma_gravacao"
   | "provavelmente_mesma"
+  | "possivel_versao_ao_vivo_ou_diferente"
   | "revisar_possivel_versao"
   | "diferente"
   | "sem_par_na_pasta";
@@ -11,6 +12,8 @@ export function verdictLabel(verdict: CheckVerdict): string {
       return "Mesma gravação";
     case "provavelmente_mesma":
       return "Provavelmente a mesma";
+    case "possivel_versao_ao_vivo_ou_diferente":
+      return "Possível versão ao vivo ou diferente";
     case "revisar_possivel_versao":
       return "Revisar — possível versão diferente";
     case "diferente":
@@ -20,12 +23,34 @@ export function verdictLabel(verdict: CheckVerdict): string {
   }
 }
 
+/** Ordem de exibição: OK primeiro; depois 1 diferente, 2 versão ao vivo, 3 revisar, 4 sem par. */
+export function checkVerdictSortOrder(verdict: CheckVerdict): number {
+  switch (verdict) {
+    case "mesma_gravacao":
+      return 0;
+    case "provavelmente_mesma":
+      return 1;
+    case "diferente":
+      return 2;
+    case "possivel_versao_ao_vivo_ou_diferente":
+      return 3;
+    case "revisar_possivel_versao":
+      return 4;
+    case "sem_par_na_pasta":
+      return 5;
+    default:
+      return 9;
+  }
+}
+
 export function verdictClass(verdict: CheckVerdict): string {
   switch (verdict) {
     case "mesma_gravacao":
       return "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200";
     case "provavelmente_mesma":
       return "bg-lime-100 text-lime-900 dark:bg-lime-950 dark:text-lime-200";
+    case "possivel_versao_ao_vivo_ou_diferente":
+      return "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-200";
     case "revisar_possivel_versao":
       return "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200";
     case "diferente":
