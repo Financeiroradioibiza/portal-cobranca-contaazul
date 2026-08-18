@@ -43,6 +43,39 @@ export function checkVerdictSortOrder(verdict: CheckVerdict): number {
   }
 }
 
+export function checkDurationDeltaMs(
+  uploadMs: number | null,
+  sistemaMs: number | null | undefined,
+): number {
+  if (uploadMs == null || uploadMs <= 0 || sistemaMs == null || sistemaMs <= 0) return -1;
+  return Math.abs(uploadMs - sistemaMs);
+}
+
+type CheckResultSortRow = {
+  verdict: CheckVerdict;
+  matchScore: number;
+  durationMs: number | null;
+  sistema?: { durationMs: number | null } | null;
+};
+
+/** Ordenação global + dentro de Revisar: menor % primeiro; mesmo % → maior Δ duração primeiro. */
+export function compareCheckResultRows(a: CheckResultSortRow, b: CheckResultSortRow): number {
+  const byVerdict = checkVerdictSortOrder(a.verdict) - checkVerdictSortOrder(b.verdict);
+  if (byVerdict !== 0) return byVerdict;
+
+  const byScore = a.matchScore - b.matchScore;
+  if (byScore !== 0) return byScore;
+
+  if (a.verdict === "revisar_possivel_versao" && b.verdict === "revisar_possivel_versao") {
+    return (
+      checkDurationDeltaMs(b.durationMs, b.sistema?.durationMs) -
+      checkDurationDeltaMs(a.durationMs, a.sistema?.durationMs)
+    );
+  }
+
+  return 0;
+}
+
 export function verdictClass(verdict: CheckVerdict): string {
   switch (verdict) {
     case "mesma_gravacao":

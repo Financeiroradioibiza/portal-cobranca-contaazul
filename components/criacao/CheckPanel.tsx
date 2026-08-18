@@ -9,7 +9,7 @@ import {
 } from "@/components/criacao/CriacaoClienteTag";
 import type { CheckResultRow } from "@/lib/criacao/checkService";
 import { CHECK_ANALYZE_BATCH_SIZE } from "@/lib/criacao/ingestTicket";
-import { verdictClass, verdictLabel, checkVerdictSortOrder } from "@/lib/criacao/checkLabels";
+import { verdictClass, verdictLabel, compareCheckResultRows } from "@/lib/criacao/checkLabels";
 
 type Cliente = CriacaoClienteRow & { pdvCount: number };
 type ArvorePasta = { id: string; nome: string; musicasCount: number };
@@ -135,11 +135,7 @@ export function CheckPanel() {
 
   const resultsSorted = useMemo(() => {
     if (!results?.length) return results;
-    return [...results].sort((a, b) => {
-      const byVerdict = checkVerdictSortOrder(a.verdict) - checkVerdictSortOrder(b.verdict);
-      if (byVerdict !== 0) return byVerdict;
-      return a.matchScore - b.matchScore;
-    });
+    return [...results].sort(compareCheckResultRows);
   }, [results]);
 
   const runPastaAction = async (row: CheckResultRow, kind: "pasta" | "biblioteca") => {
