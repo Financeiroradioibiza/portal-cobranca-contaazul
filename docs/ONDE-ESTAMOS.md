@@ -2,11 +2,11 @@
 
 Documento de **handoff entre conversas**. Leia isto no início de um chat novo para continuar de onde paramos.
 
-**Última atualização:** 17/08/2026 (ver também registro de deploy abaixo)  
-**Branch:** `main` — **produção Netlify** pode estar **atrás** do último commit (ver deploy `ready` vs `error`)  
-**Registro detalhado ago/2026:** [`docs/REGISTRO-PORTAL-2026-08.md`](REGISTRO-PORTAL-2026-08.md) — commits, WIP local, chamados, disparo 504, checklist deploy  
-**Último commit GitHub:** `32052f2` — chamados e-mail + Cliente/PDV (**deploy Netlify falhou** em 17/08)  
-**Último deploy `ready`:** `61f9c67` — disparo fechar atualização em lotes (504)
+**Última atualização:** 18/08/2026 (ver também registro de deploy abaixo)  
+**Branch:** `main`  
+**Registro detalhado ago/2026:** [`docs/REGISTRO-PORTAL-2026-08.md`](REGISTRO-PORTAL-2026-08.md) — commits, WIP local, chamados, CHECK, checklist deploy  
+**Último commit GitHub:** `9034c03` — CHECK veredito ao vivo, ordem, ações pasta  
+**Último deploy `ready`:** `6a84e01e` — portal Netlify (18/08)
 
 ---
 
@@ -22,10 +22,11 @@ Cole algo neste formato:
 | Prioridade | Arquivo | Por quê |
 |------------|---------|---------|
 | 1 | [`docs/REGISTRO-PORTAL-2026-08.md`](REGISTRO-PORTAL-2026-08.md) | Deploy, WIP, o que sumiu e por quê |
-| 2 | Este arquivo | Estado geral e pendências |
-| 2 | `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload → biblioteca (cloud2) |
-| 3 | `docs/CRIACAO-ATUALIZACAO-PROGRAMACAO.md` | Publicação / atualização de programações |
-| 4 | `AGENTS.md` | Next.js deste repo tem APIs diferentes do training data |
+| 2 | [`docs/CRIACAO-CHECK.md`](CRIACAO-CHECK.md) | CHECK: pareamento, vereditos, ações pasta (18/08) |
+| 3 | Este arquivo | Estado geral e pendências |
+| 4 | `docs/CRIACAO-PROCESSAMENTO-MUSICAL.md` | Pipeline upload → biblioteca (cloud2) |
+| 5 | `docs/CRIACAO-ATUALIZACAO-PROGRAMACAO.md` | Publicação / atualização de programações |
+| 6 | `AGENTS.md` | Next.js deste repo tem APIs diferentes do training data |
 
 **Transcript da conversa que gerou este estado:**  
 `.cursor/projects/.../agent-transcripts/ce8978ef-4b2f-4219-90be-4c1aa8ab60be.jsonl`
@@ -73,6 +74,7 @@ Portal único (Next.js + Neon) com várias áreas:
 | **Biblioteca musical** | Acervo processado; view completa e **lista slim** (play + tags coloridas) |
 | **Upload** | Enfileira MP3 por pasta ou biblioteca |
 | **Fila** | Revisão de duplicatas chromaprint, status do worker |
+| **CHECK** | Comparar MP3s locais com pasta do cliente — ver [`docs/CRIACAO-CHECK.md`](CRIACAO-CHECK.md) |
 | **ATL CRICA** | Fluxo mensal por competência: upload por cliente/pasta, export/import hierarquia ZIP |
 | **Vinhetas IA** | ElevenLabs + trilha ambiente; lab de rascunho/preview/aprovação |
 
@@ -107,6 +109,18 @@ Portal único (Next.js + Neon) com várias áreas:
 
 - `pasta_musica.added_at` vs `programacao.atualizacao_aberta_em` — ver `lib/criacao/pastaMusicaUi.ts`, poll em `ProgramacoesPanel.tsx`.
 - Caixa **ATL CRICA — atualizações abertas** (violeta) no topo da Central; laranja só aberturas manuais.
+
+### CHECK — comparar pasta local (18/08/2026)
+
+Rota `/criacao/check`. Documentação completa: **`docs/CRIACAO-CHECK.md`**.
+
+- Pareia upload com faixa da pasta por **título núcleo** (ignora `(Single Version)`, `(Live)`, etc.) — **não** altera dedupe da fila.
+- Vereditos: mesma gravação · provavelmente · **faixa diferente** · **possível versão ao vivo** (roxo) · revisar · sem par.
+- No Revisar: duração ≤10s → verde “parecida”.
+- Ordem na lista: diferente → ao vivo → revisar → sem par.
+- No painel expandido: apagar só da pasta ou da biblioteca.
+
+Commits: `48173b3`, `9034c03`. Cloud2 + portal deploy 18/08.
 
 ---
 

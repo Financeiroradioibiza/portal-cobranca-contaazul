@@ -3,7 +3,7 @@
 Documento para **não perder** o que foi feito, o que está no ar e o que ainda só existe no Mac.  
 Leia no início de chat novo junto com `docs/ONDE-ESTAMOS.md`.
 
-**Última atualização:** 17/08/2026  
+**Última atualização:** 18/08/2026  
 **Repositório:** `Financeiroradioibiza/portal-cobranca-contaazul` · branch `main`  
 **Portal produção:** https://portal.radioibiza.app.br  
 **Netlify site:** `site-vencidos-ibiza` (`0107bc8a-2d4c-4c8f-a33f-8132779d9aee`)
@@ -31,26 +31,20 @@ Preferir **push no GitHub** (CI Netlify ligado ao repo). O script `scripts/deplo
 
 ---
 
-## O que está NO AR agora (17/08/2026 ~16h)
+## O que está NO AR agora (18/08/2026)
 
 Último deploy Netlify **bem-sucedido (`ready`)**:
 
 | Campo | Valor |
 |-------|--------|
-| **Commit** | `61f9c67` |
-| **Mensagem** | `fix(criacao): disparo em lotes para evitar 504 com muitos PDVs` |
-| **Inclui** | Publicar no gateway numa request; amarrar PDVs em `/disparar-atualizacao/amarrar-pdvs` por lote de 10; modal com progresso |
+| **Commit** | `9034c03` |
+| **Mensagem** | `feat(criacao): CHECK veredito versão ao vivo, ordem e ações na pasta` |
+| **Deploy ID** | `6a84e01e` |
+| **Inclui** | CHECK: categoria roxa “Possível versão ao vivo ou diferente”; duração parecida ≤10s no Revisar; ordem dos resultados; botões apagar pasta/biblioteca; site-cliente cobrança (commits `97ae616`–`f798785`) |
 
-**Não está no ar** (commit no GitHub, deploy **falhou**):
+**Cloud2** (mesmo dia): deploy OK com `48173b3` + `9034c03` — `checkAnalyze.ts`, `dedupe.ts` (pareamento título núcleo + vereditos CHECK).
 
-| Campo | Valor |
-|-------|--------|
-| **Commit** | `32052f2` |
-| **Mensagem** | `feat(chamados): e-mail na criação e vínculo opcional Cliente/PDV` |
-| **Netlify** | `error` — build exit code 2 (~18:39 UTC 17/08) |
-| **Sintoma** | Modal “Novo chamado” ainda mostra só **Título** (versão antiga), sem **Vínculo (Produção)** |
-
-Build limpo do `32052f2` **passa** localmente (`npm ci && npm run build` em worktree). Falha provavelmente intermitente ou ambiente Netlify — **redeploy necessário**.
+Doc completa do CHECK: **`docs/CRIACAO-CHECK.md`**
 
 ---
 
@@ -58,16 +52,36 @@ Build limpo do `32052f2` **passa** localmente (`npm ci && npm run build` em work
 
 | Commit | Resumo | Deploy Netlify |
 |--------|--------|----------------|
-| `32052f2` | Chamados: e-mail `chamados@` + Assunto livre / Cliente / PDV | **error** |
+| `9034c03` | CHECK: veredito ao vivo/diferente, ordem, apagar pasta/biblioteca | ready (`6a84e01e`) |
+| `48173b3` | CHECK: pareia título núcleo vs `(Single Version)` etc. (só CHECK) | cloud2 |
+| `97ae616` | Site-cliente: `grupoTipo` pelo banco (Ofner cobrança) | ready |
+| `f798785` | Site-cliente Fase B cobrança | ready |
+| `32052f2` | Chamados: e-mail `chamados@` + Assunto livre / Cliente / PDV | (verificar) |
 | `61f9c67` | Disparo fechar atualização em lotes (504) | ready |
 | `c87d905` | Cronograma Shuffle (pastas por mês) | ready |
 | `9b54d8b` | API `POST programacoes/:id/duplicar` | ready |
 | `a7ff43c` | E-mail instalação 3: botão guia Player 5 | ready |
 | `e58e82d` | Tag Rio **CORTESIA** (não bloqueia player) | ready |
 | `c3aea56` | Modal fechar atualização scroll (muitos PDVs) | ready (houve 1 error antes, rebuild OK) |
-| `4208482` | CHECK: ordenar “Faixa diferente” acima de “Revisar” | (ver histórico Netlify) |
+| `4208482` | CHECK: ordenar “Faixa diferente” acima de “Revisar” (primeira iteração) | (supersedido por `9034c03`) |
 
 Histórico completo: `git log --oneline -20 origin/main`
+
+---
+
+## CHECK — aperfeiçoamentos (18/08/2026)
+
+Ver **`docs/CRIACAO-CHECK.md`** (documento canônico).
+
+Resumo do que entrou em produção (`48173b3` + `9034c03`):
+
+1. **Pareamento título núcleo** — upload `(Single Version)` / `(Live)` / `(7" Version)` pareia com pasta limpa; artista tolerante (`The Police/Police`).
+2. **Nova categoria roxa** — “Possível versão ao vivo ou diferente” quando só um lado tem Live, Remix, Remaster, Reloaded, etc.
+3. **Revisar** — duração ≤10s → check verde “Duração parecida”.
+4. **Ordem** — Faixa diferente → versão ao vivo → Revisar → Sem par (OK no topo).
+5. **Ações** — apagar só da pasta ou da biblioteca no card expandido (Pensando… → Ok, feito).
+
+**Não altera** dedupe da fila nem player.
 
 ---
 
@@ -156,11 +170,11 @@ Cole:
 
 ---
 
-## Pendências imediatas (17/08/2026)
+## Pendências imediatas (18/08/2026)
 
-1. **Redeploy / corrigir build** do commit `32052f2` (chamados e-mail + Cliente/PDV).  
-2. Validar chamado teste → e-mail `chamados@` + UI vínculo.  
-3. Commits separados quando for deployar WIP site-cliente / comprovante (não misturar com criação/player).
+1. Validar CHECK em cliente real (ex. Depeche Mode, Caetano) após deploy `9034c03`.  
+2. Conferir se chamados `32052f2` (e-mail + Cliente/PDV) já estão no ar no deploy `6a84e01e`.  
+3. Commits separados para WIP restante (comprovante → chamado, etc.) — não misturar com criação/player.
 
 ---
 
@@ -169,6 +183,7 @@ Cole:
 | Doc | Conteúdo |
 |-----|----------|
 | `docs/ONDE-ESTAMOS.md` | Visão geral módulos (atualizar datas quando possível) |
+| `docs/CRIACAO-CHECK.md` | CHECK: pareamento, vereditos, UI, deploy |
 | `docs/CRIACAO-ATUALIZACAO-PROGRAMACAO.md` | Fechar/publicar programação |
 | `docs/SITE-CLIENTE-PRODUCAO.md` | Site cliente Netlify separado |
 | `.cursor/rules/producao-segura-player.mdc` | Não regredir player/cronogramas |
