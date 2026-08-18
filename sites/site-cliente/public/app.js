@@ -723,5 +723,20 @@
       });
   }
 
-  loadDashboard(0);
+  window.SiteClienteAuth.apiFetch("/api/site-cliente/auth/session")
+    .then(function (r) {
+      return r.json().then(function (d) {
+        return { status: r.status, data: d };
+      });
+    })
+    .then(function (x) {
+      if (x.status === 200 && x.data.ok && x.data.grupoTipo === "cobranca") {
+        window.location.replace("/cobranca.html");
+        return;
+      }
+      loadDashboard(0);
+    })
+    .catch(function () {
+      loadDashboard(0);
+    });
 })();

@@ -240,6 +240,10 @@ async function buildProgramacaoResumo(
 export async function buildSiteClienteDashboard(
   session: SiteClienteSessionPayload,
 ): Promise<SiteClienteDashboardPayload> {
+  if (session.grupoTipo === "cobranca") {
+    throw new Response(JSON.stringify({ error: "wrong_grupo_tipo" }), { status: 403 });
+  }
+
   const { clienteKeys, pdvKeys } = await loadGrupoScope(session.grupoId);
   const dash = await getProducaoDashboard();
   const perm = session.permissoes;
