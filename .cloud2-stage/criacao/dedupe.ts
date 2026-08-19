@@ -60,6 +60,13 @@ export function stripTitleVersionSuffixesRaw(s: string): string {
     if (next === t) break;
     t = next;
   }
+  /** Sufixos com hífen no fim (ex. « - EDIT », « - REDUX », « - MONO - REDUX »). */
+  const dashSuffix = /\s*[-–—]\s*(?:edit|redux|mono)\s*$/i;
+  for (let i = 0; i < 5; i += 1) {
+    const next = t.replace(dashSuffix, '').trim();
+    if (next === t) break;
+    t = next;
+  }
   return t;
 }
 
