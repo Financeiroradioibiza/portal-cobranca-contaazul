@@ -3,6 +3,8 @@ import {
   getOrCreatePdvCadastro,
   updatePdvCadastro,
 } from "@/lib/cadastros/producaoPdvCadastroService";
+import { sanitizePdvCadastroForApi } from "@/lib/cadastros/sanitizePdvCadastroApi";
+import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 
 export const runtime = "nodejs";
 
@@ -27,6 +29,7 @@ function scheduleGatewaySyncForPdv(rioPdvKey: string) {
 }
 
 export async function GET(req: Request, context: Ctx) {
+  const session = requirePortalSession(await getPortalSession());
   const { rioPdvKey: raw } = await context.params;
   const rioPdvKey = decodeURIComponent(raw ?? "").trim();
   if (!rioPdvKey) return NextResponse.json({ error: "invalid_key" }, { status: 400 });
@@ -37,7 +40,7 @@ export async function GET(req: Request, context: Ctx) {
 
   try {
     const cadastro = await getOrCreatePdvCadastro(rioPdvKey, { refreshCobranca, forceCaContatos });
-    return NextResponse.json({ ok: true, cadastro });
+    return NextResponse.json({ ok: true, cadastro: sanitizePdvCadastroForApi(cadastro, session) });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "erro" },
@@ -47,6 +50,7 @@ export async function GET(req: Request, context: Ctx) {
 }
 
 export async function PATCH(req: Request, context: Ctx) {
+  const session = requirePortalSession(await getPortalSession());
   const { rioPdvKey: raw } = await context.params;
   const rioPdvKey = decodeURIComponent(raw ?? "").trim();
   if (!rioPdvKey) return NextResponse.json({ error: "invalid_key" }, { status: 400 });
@@ -61,7 +65,10 @@ export async function PATCH(req: Request, context: Ctx) {
   try {
     const cadastro = await updatePdvCadastro(rioPdvKey, body as never);
     scheduleGatewaySyncForPdv(rioPdvKey);
-    return NextResponse.json({ ok: true, cadastro });
+    void import("@/lib/cadastros/producaoSuporteEspelhoService").then(({ scheduleProducaoSuporteEspelhoPatch }) => {
+      scheduleProducaoSuporteEspelhoPatch(rioPdvKey);
+    });
+    return NextResponse.json({ ok: true, cadastro: sanitizePdvCadastroForApi(cadastro, session) });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "erro" },

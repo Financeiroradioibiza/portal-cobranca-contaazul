@@ -11,6 +11,7 @@ import {
 import { matchesSuporteSearch } from "@/lib/cadastros/producaoSuporteSearch";
 import type {
   ProducaoSuportePayload,
+  SuporteClienteCancelado,
   SuporteClienteSummary,
   SuportePdvRow,
 } from "@/lib/cadastros/producaoSuporteTypes";
@@ -22,7 +23,7 @@ const BATCH_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_BATCH = BATCH_OPTIONS[0];
 type BatchSize = (typeof BATCH_OPTIONS)[number];
 
-type ListFilter = "todos" | "sem_ping";
+type ListFilter = "todos" | "sem_ping" | "instalados" | "sem_primeiro_ping";
 type ViewMode = "pdv" | "cliente";
 
 type SuporteClienteOption = {
@@ -458,18 +459,25 @@ function OverviewCard({
   subTone = "muted",
   icon,
   tone,
+  onClick,
+  active = false,
 }: {
   title: string;
   value: string;
   sub: string;
   subTone?: "muted" | "good" | "warn" | "bad";
   icon: string;
-  tone: "green" | "blue" | "orange";
+  tone: "green" | "blue" | "orange" | "violet" | "rose" | "slate";
+  onClick?: () => void;
+  active?: boolean;
 }) {
   const tones = {
     green: "bg-emerald-500",
     blue: "bg-sky-500",
     orange: "bg-amber-500",
+    violet: "bg-violet-500",
+    rose: "bg-rose-500",
+    slate: "bg-slate-500",
   };
   const subColors = {
     muted: "text-slate-500",
@@ -477,8 +485,19 @@ function OverviewCard({
     warn: "text-amber-600",
     bad: "text-rose-600",
   };
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <Tag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={
+        "rounded-xl border bg-white p-4 text-left shadow-sm transition dark:bg-slate-900 " +
+        (onClick ? "cursor-pointer hover:shadow-md " : "") +
+        (active
+          ? "border-fuchsia-400 ring-2 ring-fuchsia-400/40 dark:border-fuchsia-600"
+          : "border-slate-200 dark:border-slate-700")
+      }
+    >
       <div className="flex items-start gap-3">
         <div
           className={
@@ -494,7 +513,65 @@ function OverviewCard({
           <p className={"text-xs " + subColors[subTone]}>{sub}</p>
         </div>
       </div>
-    </div>
+    </Tag>
+  );
+}
+
+function ClientesCanceladosDialog({
+  open,
+  clientes,
+  onClose,
+}: {
+  open: boolean;
+  clientes: SuporteClienteCancelado[];
+  onClose: () => void;
+}) {
+  const dlgRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dlg = dlgRef.current;
+    if (!dlg) return;
+    if (open && !dlg.open) dlg.showModal();
+    else if (!open && dlg.open) dlg.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={dlgRef}
+      className="w-[min(560px,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-0 shadow-2xl backdrop:bg-slate-900/40 dark:border-slate-700 dark:bg-slate-900"
+      onClose={onClose}
+    >
+      <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white">Clientes cancelados</h2>
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          Saídas na Planilha Rio (fora do baseline de organização).
+        </p>
+      </div>
+      <ul className="max-h-[min(480px,60vh)] overflow-y-auto py-1">
+        {clientes.length === 0 ?
+          <li className="px-4 py-6 text-center text-sm text-slate-500">Nenhum cliente cancelado.</li>
+        : clientes.map((c) => (
+            <li key={c.rioLinhaId} className="border-b border-slate-100 px-4 py-2.5 last:border-0 dark:border-slate-800">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <RioTagCobrancaNome nome={c.nome} tag={c.tagCobranca} />
+              </p>
+              {c.dataSaidaTexto ?
+                <p className="text-[11px] text-slate-500">Saída: {c.dataSaidaTexto}</p>
+              : null}
+            </li>
+          ))
+        }
+      </ul>
+      <div className="flex justify-end border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+        <button
+          type="button"
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300"
+          onClick={onClose}
+        >
+          Fechar
+        </button>
+      </div>
+    </dialog>
   );
 }
 
@@ -895,13 +972,9 @@ function mapSuporteLoadErr(message: string): string {
 
 export function ProducaoSuportePanel() {
   const [data, setData] = useState<ProducaoSuportePayload | null>(null);
-  const [listPdvs, setListPdvs] = useState<SuportePdvRow[]>([]);
-  const [listActive, setListActive] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [listBusy, setListBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [q, setQ] = useState("");
-  const [debouncedQ, setDebouncedQ] = useState("");
   const [listFilter, setListFilter] = useState<ListFilter>("todos");
   const [batchSize, setBatchSize] = useState<BatchSize>(DEFAULT_BATCH);
   const [visibleCount, setVisibleCount] = useState<number>(DEFAULT_BATCH);
@@ -911,6 +984,8 @@ export function ProducaoSuportePanel() {
   const [viewMode, setViewMode] = useState<ViewMode>("pdv");
   const [selectedClienteKey, setSelectedClienteKey] = useState<string | null>(null);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [canceladosOpen, setCanceladosOpen] = useState(false);
+  const [forceLiveMode, setForceLiveMode] = useState(false);
 
   const clienteMode = viewMode === "cliente" && Boolean(selectedClienteKey);
   const colCount = suporteColCount(showIdentBlock, showPlayerBlock, showContatosBlock, clienteMode);
@@ -920,23 +995,26 @@ export function ProducaoSuportePanel() {
     (showIdentBlock && identColSpan > 1) || showPlayerBlock || showContatosBlock;
 
   const clienteOptions = useMemo(() => {
-    if (listPdvs.length > 0) return buildClienteOptionsFromRows(listPdvs);
+    if ((data?.pdvs?.length ?? 0) > 0) return buildClienteOptionsFromRows(data!.pdvs);
     return (data?.clientes ?? []).map(summaryToClienteOption);
-  }, [data?.clientes, listPdvs]);
+  }, [data?.clientes, data?.pdvs]);
 
   const selectedCliente = useMemo(
     () => clienteOptions.find((c) => c.key === selectedClienteKey) ?? null,
     [clienteOptions, selectedClienteKey],
   );
 
-  const loadOverview = useCallback(async () => {
+  const load = useCallback(async (opts?: { live?: boolean }) => {
     setBusy(true);
     setMsg("");
+    const live = opts?.live ?? forceLiveMode;
     try {
-      const res = await fetch("/api/producao/suporte");
+      const url = live ? "/api/producao/suporte?live=1" : "/api/producao/suporte";
+      const res = await fetch(url);
       const json = (await res.json()) as ProducaoSuportePayload & { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
       setData(json);
+      if (live) setForceLiveMode(true);
       setVisibleCount(DEFAULT_BATCH);
     } catch (e) {
       const raw = e instanceof Error ? e.message : "Erro ao carregar suporte.";
@@ -945,76 +1023,42 @@ export function ProducaoSuportePanel() {
     } finally {
       setBusy(false);
     }
-  }, []);
-
-  const loadList = useCallback(
-    async (opts?: { query?: string; filter?: ListFilter; clienteKey?: string | null }) => {
-      const query = opts?.query ?? debouncedQ;
-      const filter = opts?.filter ?? listFilter;
-      const ck = opts?.clienteKey !== undefined ? opts.clienteKey : selectedClienteKey;
-      const needsSearch = query.trim().length >= 2;
-      const needsFilter = filter === "sem_ping";
-      const needsCliente = viewMode === "cliente" && Boolean(ck);
-      if (!needsSearch && !needsFilter && !needsCliente) {
-        setListActive(false);
-        setListPdvs([]);
-        return;
-      }
-
-      setListBusy(true);
-      setMsg("");
-      try {
-        const params = new URLSearchParams({ mode: "list" });
-        if (query.trim().length >= 2) params.set("q", query.trim());
-        if (filter === "sem_ping") params.set("filter", "sem_ping");
-        if (needsCliente && ck) params.set("clienteKey", ck);
-        const res = await fetch(`/api/producao/suporte?${params.toString()}`);
-        const json = (await res.json()) as ProducaoSuportePayload & { ok?: boolean; error?: string };
-        if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
-        setData((prev) => (prev ? { ...prev, overview: json.overview } : json));
-        setListPdvs(json.pdvs);
-        setListActive(true);
-        setVisibleCount(DEFAULT_BATCH);
-      } catch (e) {
-        const raw = e instanceof Error ? e.message : "Erro ao buscar PDVs.";
-        setMsg(mapSuporteLoadErr(raw));
-        setListPdvs([]);
-        setListActive(false);
-      } finally {
-        setListBusy(false);
-      }
-    },
-    [debouncedQ, listFilter, selectedClienteKey, viewMode],
-  );
+  }, [forceLiveMode]);
 
   useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQ(q), 320);
-    return () => window.clearTimeout(timer);
-  }, [q]);
-
-  useEffect(() => {
-    void loadList();
-  }, [debouncedQ, listFilter, selectedClienteKey, viewMode, loadList]);
+    void load();
+  }, [load]);
 
   useEffect(() => {
     setVisibleCount((prev) => Math.max(batchSize, prev));
   }, [batchSize]);
 
   const filtered = useMemo(() => {
-    const list = listPdvs;
+    const list = data?.pdvs ?? [];
     return list.filter((row) => {
       if (listFilter === "sem_ping" && !row.semPing5Dias) return false;
+      if (listFilter === "instalados") {
+        if (
+          !(
+            row.playerInstalacaoToken &&
+            row.telemetry.firstPingAt &&
+            row.statusPlayer === "Ativo"
+          )
+        ) {
+          return false;
+        }
+      }
+      if (listFilter === "sem_primeiro_ping") {
+        if (!(row.portalPdvId != null && !row.telemetry.firstPingAt && row.statusPlayer === "Ativo")) {
+          return false;
+        }
+      }
       if (viewMode === "cliente" && selectedClienteKey && row.clienteKey !== selectedClienteKey) {
         return false;
       }
-      if (debouncedQ.trim().length >= 2 && !matchesSuporteSearch(row, debouncedQ)) return false;
-      return true;
+      return matchesSuporteSearch(row, q);
     });
-  }, [listPdvs, listFilter, debouncedQ, viewMode, selectedClienteKey]);
+  }, [data?.pdvs, listFilter, q, viewMode, selectedClienteKey]);
 
   function handleViewModeChange(mode: ViewMode) {
     setViewMode(mode);
@@ -1040,20 +1084,23 @@ export function ProducaoSuportePanel() {
   }
 
   function handleTokenRegenerated(rioPdvKey: string, newToken: string) {
-    setListPdvs((prev) => {
-      if (prev.length === 0) return prev;
-      const telemetriaOk = data?.overview.telemetriaDisponivel ?? false;
-      return prev.map((r) => {
-        if (r.rioPdvKey !== rioPdvKey) return r;
-        const semPing5Dias = telemetriaOk && r.statusPlayer === "Ativo";
-        return {
-          ...r,
-          playerInstalacaoToken: newToken,
-          playerVersion: null,
-          telemetry: { ...EMPTY_TELEMETRY },
-          semPing5Dias,
-        };
-      });
+    setData((prev) => {
+      if (!prev) return prev;
+      const telemetriaOk = prev.overview.telemetriaDisponivel;
+      return {
+        ...prev,
+        pdvs: prev.pdvs.map((r) => {
+          if (r.rioPdvKey !== rioPdvKey) return r;
+          const semPing5Dias = telemetriaOk && r.statusPlayer === "Ativo";
+          return {
+            ...r,
+            playerInstalacaoToken: newToken,
+            playerVersion: null,
+            telemetry: { ...EMPTY_TELEMETRY },
+            semPing5Dias,
+          };
+        }),
+      };
     });
   }
 
@@ -1088,20 +1135,106 @@ export function ProducaoSuportePanel() {
         <p className="mb-3 text-sm text-rose-700 dark:text-rose-400">{msg}</p>
       : null}
 
-      <section className="mb-4 grid gap-3 sm:grid-cols-3">
+      {data?.suporteFonte && data.suporteFonte !== "espelho" ?
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/60 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+          <div>
+            <p className="font-semibold">
+              {data.suporteFonte === "live" ?
+                "Modo ao vivo (espelho desligado ou forçado)"
+              : "Fallback ao vivo — espelho falhou"}
+            </p>
+            {data.suporteFonteErro ?
+              <p className="mt-0.5 text-[11px] opacity-90">{data.suporteFonteErro}</p>
+            : null}
+            <p className="mt-0.5 text-[11px] opacity-80">
+              Mais lento, porém seguro se o snapshot estiver quebrado. Env de emergência:{" "}
+              <code className="rounded bg-amber-100/80 px-1 dark:bg-amber-900/50">SUPORTE_ESPELHO=0</code>
+            </p>
+          </div>
+          {data.suporteFonte === "espelho_fallback" ?
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setForceLiveMode(false);
+                void load({ live: false });
+              }}
+              className="shrink-0 rounded-lg border border-amber-600 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-950 dark:text-amber-100"
+            >
+              Tentar espelho de novo
+            </button>
+          : null}
+        </div>
+      : null}
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void load({ live: true })}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+          title="Recalcula na hora (cloud2 + cadastros) — use se o espelho estiver estranho"
+        >
+          Recarregar ao vivo
+        </button>
+        {forceLiveMode ?
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setForceLiveMode(false);
+              void load({ live: false });
+            }}
+            className="rounded-lg border border-fuchsia-400 px-3 py-1.5 text-xs font-semibold text-fuchsia-800 hover:bg-fuchsia-50 disabled:opacity-50 dark:text-fuchsia-200"
+          >
+            Voltar ao espelho
+          </button>
+        : null}
+      </div>
+
+      <section className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <OverviewCard
           title="PDVs"
           value={String(ov?.totalPdvs ?? "—")}
           sub="Base cadastro produção"
           icon="📻"
           tone="green"
+          onClick={() => {
+            setListFilter("todos");
+            setVisibleCount(batchSize);
+          }}
+          active={listFilter === "todos"}
+        />
+        <OverviewCard
+          title="Players instalados"
+          value={String(ov?.playersInstalados ?? "—")}
+          sub="Token amarrado + 1º ping"
+          icon="✅"
+          tone="violet"
+          onClick={() => {
+            setListFilter("instalados");
+            setVisibleCount(batchSize);
+          }}
+          active={listFilter === "instalados"}
+        />
+        <OverviewCard
+          title="Sem 1º ping"
+          value={String(ov?.semPrimeiroPing ?? "—")}
+          sub="Com ID Player, aguardando instalação"
+          icon="⏳"
+          tone="slate"
+          onClick={() => {
+            setListFilter("sem_primeiro_ping");
+            setVisibleCount(batchSize);
+          }}
+          active={listFilter === "sem_primeiro_ping"}
         />
         <OverviewCard
           title="Sem ping 5 dias"
           value={telemetriaDisponivel ? String(ov?.semPing5Dias ?? "—") : "—"}
           sub={
             !telemetriaDisponivel ?
-              "Telemetria Player 5 indisponível"
+              "Telemetria indisponível"
             : ov && ov.semPing5Dias > 0 ?
               "Player ativo sem ping recente"
             : "Nenhum alerta no momento"
@@ -1113,6 +1246,11 @@ export function ProducaoSuportePanel() {
           }
           icon="⚠️"
           tone="orange"
+          onClick={() => {
+            setListFilter("sem_ping");
+            setVisibleCount(batchSize);
+          }}
+          active={listFilter === "sem_ping"}
         />
         <OverviewCard
           title="Cache médio"
@@ -1123,13 +1261,31 @@ export function ProducaoSuportePanel() {
           }
           sub={
             telemetriaDisponivel ?
-              `Pings hoje: ${ov?.pingsHoje ?? 0} · via cloud2`
+              `Pings hoje: ${ov?.pingsHoje ?? 0} · espelho suporte`
             : "Player 5 → cloud2 → portal"
           }
           icon="📡"
           tone="blue"
         />
+        <OverviewCard
+          title="Clientes cancelados"
+          value={String(ov?.clientesCancelados ?? "—")}
+          sub="Clique para ver a lista"
+          icon="🚫"
+          tone="rose"
+          onClick={() => setCanceladosOpen(true)}
+        />
       </section>
+
+      {data?.espelhoBuiltAt ?
+        <p className="mb-3 text-[10px] text-slate-500">
+          Espelho suporte: {new Date(data.espelhoBuiltAt).toLocaleString("pt-BR")}
+          {data.espelhoTelemetryAt ?
+            ` · telemetria ${new Date(data.espelhoTelemetryAt).toLocaleString("pt-BR")}`
+          : ""}
+          {" · ordenado por 1º ping (instalações recentes no topo)"}
+        </p>
+      : null}
 
       {!telemetriaDisponivel && data ?
         <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] leading-snug text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
@@ -1139,7 +1295,7 @@ export function ProducaoSuportePanel() {
         </p>
       : null}
 
-      <section className="mb-6 flex flex-col items-center px-2 py-6">
+      <section className="mb-4 flex flex-col items-center px-2 py-2">
         <label className="w-full max-w-2xl text-center">
           <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
             Buscar PDV ou cliente
@@ -1156,13 +1312,14 @@ export function ProducaoSuportePanel() {
             }}
           />
         </label>
-        <p className="mt-2 max-w-xl text-center text-[11px] text-slate-500">
-          Digite ao menos 2 caracteres para carregar a listagem — ou use «Sem ping 5d» / modo Cliente
-          abaixo. O dashboard acima carrega rápido; telemetria detalhada só na busca.
-        </p>
       </section>
 
-      {listActive || listBusy || listFilter === "sem_ping" || (viewMode === "cliente" && selectedClienteKey) ?
+      <ClientesCanceladosDialog
+        open={canceladosOpen}
+        clientes={data?.clientesCancelados ?? []}
+        onClose={() => setCanceladosOpen(false)}
+      />
+
       <section className="min-w-0 rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-700 dark:bg-slate-800/80">
           <div className="flex flex-wrap gap-1">
@@ -1365,23 +1522,10 @@ export function ProducaoSuportePanel() {
               </tr>
             </thead>
             <tbody>
-              {listBusy ?
+              {busy && !data ?
                 <tr>
                   <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
-                    Carregando listagem…
-                  </td>
-                </tr>
-              : busy && !data ?
-                <tr>
-                  <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
-                    Carregando dashboard…
-                  </td>
-                </tr>
-              : !listActive ?
-                <tr>
-                  <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-slate-500">
-                    Use a busca acima (mín. 2 caracteres), «Sem ping 5d» ou escolha um cliente para ver
-                    PDVs.
+                    Carregando espelho do suporte…
                   </td>
                 </tr>
               : filtered.length === 0 ?
@@ -1424,7 +1568,7 @@ export function ProducaoSuportePanel() {
             <span className="text-[11px] text-slate-500">
               {viewMode === "cliente" && selectedCliente ?
                 `Cliente ${selectedCliente.nome} · ${visible.length} de ${filtered.length} PDVs`
-              : `Mostrando ${visible.length} de ${filtered.length} PDVs · ordenados por instalação (mais recentes)`}
+              : `Mostrando ${visible.length} de ${filtered.length} PDVs · 1º ping mais recente no topo`}
             </span>
             {remaining > 0 ?
               <button
@@ -1448,12 +1592,10 @@ export function ProducaoSuportePanel() {
         : null}
 
         <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          Ordem: últimos cadastros/instalações primeiro. Versão, pings e cache vêm do Player 5 via cloud2
-          (`/api/ping/` + `/api/save_atualizadas/`). Busca aceita CNPJ, nome, ID Player (100.001) ou
-          programação. Maps usa endereço do cadastro.
+          Listagem pré-processada (espelho suporte). Ordem: 1º ping mais recente no topo. Telemetria
+          atualiza em background a cada ~12 min. Patch imediato ao regerar token ou editar cadastro.
         </p>
       </section>
-      : null}
     </div>
   );
 }

@@ -564,6 +564,17 @@ model ProducaoPdvCadastro {
   @@map("producao_pdv_cadastro")
 }
 
+/// Espelho pré-processado da Central de suporte (listagem + dashboard).
+model ProducaoSuporteEspelho {
+  id           String    @id @default("current")
+  payloadJson  Json      @map("payload_json")
+  builtAt      DateTime  @map("built_at")
+  telemetryAt  DateTime? @map("telemetry_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("producao_suporte_espelho")
+}
+
 /// Perfil de acesso (Admin, Financeiro, Suporte…) — permissões por menu.
 model PortalProfile {
   id              String   @id @default(cuid())
