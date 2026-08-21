@@ -10,7 +10,7 @@ import {
 } from "@/lib/player/playerGatewaySync";
 import { portalClienteIdFromPdvId } from "@/lib/player/portalPlayerIds";
 import { resetPlayerInstalacaoTelemetry } from "@/lib/player/resetPlayerInstalacaoTelemetry";
-import { scheduleProducaoSuporteEspelhoPatch } from "@/lib/cadastros/producaoSuporteEspelhoService";
+import { patchProducaoSuporteEspelhoPdv } from "@/lib/cadastros/producaoSuporteEspelhoService";
 
 export const runtime = "nodejs";
 
@@ -75,7 +75,11 @@ export async function POST(_req: Request, ctx: Ctx) {
       gatewaySyncError = "cloud2_desabilitado";
     }
 
-    scheduleProducaoSuporteEspelhoPatch(rioPdvKey);
+    try {
+      await patchProducaoSuporteEspelhoPdv(rioPdvKey, { resetTelemetry: true });
+    } catch (e) {
+      console.error("[suporte/regenerar-token] patch espelho falhou", { rioPdvKey, err: e });
+    }
 
     return NextResponse.json({
       ok: true,

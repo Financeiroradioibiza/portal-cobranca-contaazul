@@ -24,6 +24,19 @@ const TELEMETRY_STALE_MS = 12 * 60 * 1000;
 
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 
+const CLEARED_TELEMETRY: DashboardPdvTelemetry = {
+  playerVersion: null,
+  downloadPercent: null,
+  firstPingAt: null,
+  lastPingAt: null,
+  isOnline: null,
+};
+
+export type PatchEspelhoPdvOptions = {
+  /** Zera ping/cache no espelho (ex.: após regerar token). */
+  resetTelemetry?: boolean;
+};
+
 function isSemPing5Dias(
   telemetry: DashboardPdvTelemetry,
   statusPlayer: "Ativo" | "Inativo",
@@ -456,7 +469,10 @@ export async function refreshProducaoSuporteEspelhoTelemetry(): Promise<boolean>
 }
 
 /** Reprocessa um PDV no espelho (cadastro, token, telemetria). */
-export async function patchProducaoSuporteEspelhoPdv(rioPdvKey: string): Promise<void> {
+export async function patchProducaoSuporteEspelhoPdv(
+  rioPdvKey: string,
+  options?: PatchEspelhoPdvOptions,
+): Promise<void> {
   const row = await readEspelhoRow();
   if (!row) {
     await rebuildProducaoSuporteEspelho();
@@ -471,6 +487,16 @@ export async function patchProducaoSuporteEspelhoPdv(rioPdvKey: string): Promise
     return;
   }
 
+  if (options?.resetTelemetry) {
+    updated.telemetry = { ...CLEARED_TELEMETRY };
+    updated.playerVersion = null;
+    updated.semPing5Dias = isSemPing5Dias(
+      updated.telemetry,
+      updated.statusPlayer,
+      payload.overview.telemetriaDisponivel,
+    );
+  }
+
   const idx = payload.pdvs.findIndex((p) => p.rioPdvKey === rioPdvKey);
   if (idx >= 0) payload.pdvs[idx] = updated;
   else payload.pdvs.push(updated);
@@ -480,7 +506,7 @@ export async function patchProducaoSuporteEspelhoPdv(rioPdvKey: string): Promise
     payload.pdvs,
     payload.overview.telemetriaDisponivel,
     payload.overview.pingsHoje,
-    payload.overview.cacheMedioPercent,
+    options?.resetTelemetry ? null : payload.overview.cacheMedioPercent,
     payload.clientesCancelados?.length ?? fresh.clientesCancelados.length,
   );
   payload.clientes = buildClienteSummaries(
@@ -493,13 +519,20 @@ export async function patchProducaoSuporteEspelhoPdv(rioPdvKey: string): Promise
     })),
   );
   payload.espelhoBuiltAt = new Date().toISOString();
+  if (options?.resetTelemetry) {
+    payload.espelhoTelemetryAt = new Date().toISOString();
+  }
 
-  await saveEspelhoPayload(payload, row.telemetryAt);
+  const telemetryAt = options?.resetTelemetry ? new Date() : row.telemetryAt;
+  await saveEspelhoPayload(payload, telemetryAt);
 }
 
-export function scheduleProducaoSuporteEspelhoPatch(rioPdvKey: string): void {
+export function scheduleProducaoSuporteEspelhoPatch(
+  rioPdvKey: string,
+  options?: PatchEspelhoPdvOptions,
+): void {
   if (!isSuporteEspelhoEnabled()) return;
-  void patchProducaoSuporteEspelhoPdv(rioPdvKey).catch((e) => {
+  void patchProducaoSuporteEspelhoPdv(rioPdvKey, options).catch((e) => {
     console.error("[suporte/espelho] patch PDV falhou", { rioPdvKey, err: e });
   });
 }
