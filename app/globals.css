@@ -625,6 +625,64 @@ body {
   max-width: 100%;
 }
 
+.suporte-table-scroll--hbar-mirrored {
+  scrollbar-width: none;
+}
+
+.suporte-table-scroll--hbar-mirrored::-webkit-scrollbar {
+  height: 0;
+}
+
+.suporte-hscroll-fixed {
+  position: fixed;
+  bottom: 0;
+  z-index: 45;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 16px;
+  padding-bottom: 1px;
+  background: linear-gradient(to top, var(--ri-bg-page) 72%, transparent);
+  border-top: 1px solid var(--ri-border);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.75) rgba(241, 245, 249, 0.95);
+}
+
+.suporte-hscroll-fixed-track {
+  height: 1px;
+  pointer-events: none;
+}
+
+.suporte-hscroll-fixed::-webkit-scrollbar {
+  height: 10px;
+}
+
+.suporte-hscroll-fixed::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.95);
+}
+
+.suporte-hscroll-fixed::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.65);
+  border-radius: 999px;
+}
+
+.suporte-hscroll-fixed::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.85);
+}
+
+.dark .suporte-hscroll-fixed {
+  background: linear-gradient(to top, var(--ri-bg-page) 72%, transparent);
+  scrollbar-color: rgba(100, 116, 139, 0.8) rgba(30, 41, 59, 0.95);
+}
+
+.dark .suporte-hscroll-fixed::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.95);
+}
+
+.dark .suporte-hscroll-fixed::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+}
+
 .suporte-table-scroll::-webkit-scrollbar {
   height: 8px;
 }

@@ -982,6 +982,101 @@ function mapSuporteLoadErr(message: string): string {
   return message;
 }
 
+type FixedHScrollAnchor = { left: number; width: number };
+
+/** Barra horizontal fixa na base do browser, sincronizada com a tabela. */
+function useSuporteTableFixedHScroll(
+  tableScrollRef: React.RefObject<HTMLDivElement | null>,
+  fixedBarRef: React.RefObject<HTMLDivElement | null>,
+  sectionRef: React.RefObject<HTMLElement | null>,
+  enabled: boolean,
+  remeasureKey: string,
+) {
+  const [scrollWidth, setScrollWidth] = useState(0);
+  const [needsScroll, setNeedsScroll] = useState(false);
+  const [anchor, setAnchor] = useState<FixedHScrollAnchor>({ left: 0, width: 0 });
+  const [sectionVisible, setSectionVisible] = useState(false);
+  const syncing = useRef(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setNeedsScroll(false);
+      setSectionVisible(false);
+      return;
+    }
+
+    const tableEl = tableScrollRef.current;
+    const barEl = fixedBarRef.current;
+    const sectionEl = sectionRef.current;
+    if (!tableEl) return;
+
+    const mainEl = tableEl.closest(".portal-main") as HTMLElement | null;
+
+    const measure = () => {
+      const sw = tableEl.scrollWidth;
+      const cw = tableEl.clientWidth;
+      setScrollWidth(sw);
+      setNeedsScroll(sw > cw + 2);
+      if (mainEl) {
+        const r = mainEl.getBoundingClientRect();
+        setAnchor({ left: r.left, width: r.width });
+      }
+      if (barEl && !syncing.current) {
+        barEl.scrollLeft = tableEl.scrollLeft;
+      }
+    };
+
+    const syncFromTable = () => {
+      if (syncing.current || !barEl) return;
+      syncing.current = true;
+      barEl.scrollLeft = tableEl.scrollLeft;
+      syncing.current = false;
+    };
+
+    const syncFromBar = () => {
+      if (syncing.current) return;
+      syncing.current = true;
+      tableEl.scrollLeft = barEl!.scrollLeft;
+      syncing.current = false;
+    };
+
+    measure();
+    tableEl.addEventListener("scroll", syncFromTable, { passive: true });
+    barEl?.addEventListener("scroll", syncFromBar, { passive: true });
+    window.addEventListener("resize", measure);
+
+    const ro = new ResizeObserver(measure);
+    ro.observe(tableEl);
+    const innerTable = tableEl.querySelector("table");
+    if (innerTable) ro.observe(innerTable);
+    mainEl?.addEventListener("scroll", measure, { passive: true });
+
+    let io: IntersectionObserver | undefined;
+    if (sectionEl && mainEl) {
+      io = new IntersectionObserver(([entry]) => setSectionVisible(entry.isIntersecting), {
+        root: mainEl,
+        threshold: 0,
+      });
+      io.observe(sectionEl);
+    }
+
+    return () => {
+      tableEl.removeEventListener("scroll", syncFromTable);
+      barEl?.removeEventListener("scroll", syncFromBar);
+      window.removeEventListener("resize", measure);
+      mainEl?.removeEventListener("scroll", measure);
+      ro.disconnect();
+      io?.disconnect();
+    };
+  }, [enabled, tableScrollRef, fixedBarRef, sectionRef, remeasureKey]);
+
+  return {
+    scrollWidth,
+    showFixedBar: enabled && needsScroll && sectionVisible,
+    anchor,
+  };
+}
+
 export function ProducaoSuportePanel() {
   const [data, setData] = useState<ProducaoSuportePayload | null>(null);
   const [busy, setBusy] = useState(false);
@@ -998,6 +1093,9 @@ export function ProducaoSuportePanel() {
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [canceladosOpen, setCanceladosOpen] = useState(false);
   const [forceLiveMode, setForceLiveMode] = useState(false);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const fixedHScrollRef = useRef<HTMLDivElement>(null);
+  const tableSectionRef = useRef<HTMLElement>(null);
 
   const clienteMode = viewMode === "cliente" && Boolean(selectedClienteKey);
   const colCount = suporteColCount(showIdentBlock, showPlayerBlock, showContatosBlock, clienteMode);
@@ -1120,6 +1218,24 @@ export function ProducaoSuportePanel() {
   const remaining = filtered.length - visible.length;
   const ov = data?.overview;
   const telemetriaDisponivel = ov?.telemetriaDisponivel ?? false;
+  const tableListActive = !(viewMode === "cliente" && !selectedClienteKey);
+  const hScrollRemeasureKey = [
+    visible.length,
+    showIdentBlock,
+    showPlayerBlock,
+    showContatosBlock,
+    clienteMode,
+    listFilter,
+    q,
+  ].join("|");
+  const { scrollWidth: tableScrollWidth, showFixedBar, anchor: hScrollAnchor } =
+    useSuporteTableFixedHScroll(
+      tableScrollRef,
+      fixedHScrollRef,
+      tableSectionRef,
+      hasExtraColumns && tableListActive && filtered.length > 0,
+      hScrollRemeasureKey,
+    );
 
   return (
     <div className="min-w-0 w-full py-4">
@@ -1332,7 +1448,10 @@ export function ProducaoSuportePanel() {
         onClose={() => setCanceladosOpen(false)}
       />
 
-      <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section
+        ref={tableSectionRef}
+        className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900"
+      >
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-700 dark:bg-slate-800/80">
           <div className="flex flex-wrap gap-1">
             <button
@@ -1450,8 +1569,10 @@ export function ProducaoSuportePanel() {
         </div>
 
         <div
+          ref={tableScrollRef}
           className={
             "suporte-table-scroll w-full max-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] " +
+            (showFixedBar ? "suporte-table-scroll--hbar-mirrored " : "") +
             (hasExtraColumns ?
               "border-b border-slate-100 dark:border-slate-800"
             : "")
@@ -1572,7 +1693,9 @@ export function ProducaoSuportePanel() {
         {hasExtraColumns ?
           <p className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50/80 px-4 py-1.5 text-[10px] text-slate-400 dark:border-slate-800 dark:bg-slate-900/30">
             <span aria-hidden>↔</span>
-            Deslize horizontalmente para ver todas as colunas abertas
+            {showFixedBar ?
+              "Barra horizontal fixa na base da tela — deslize para ver Token, ping e demais colunas"
+            : "Deslize horizontalmente para ver todas as colunas abertas"}
           </p>
         : null}
 
@@ -1609,6 +1732,18 @@ export function ProducaoSuportePanel() {
           atualiza em background a cada ~12 min. Patch imediato ao regerar token ou editar cadastro.
         </p>
       </section>
+
+      {showFixedBar ?
+        <div
+          ref={fixedHScrollRef}
+          className="suporte-hscroll-fixed"
+          style={{ left: hScrollAnchor.left, width: hScrollAnchor.width }}
+          aria-label="Rolagem horizontal da tabela de suporte"
+          title="Deslize para ver colunas à direita"
+        >
+          <div className="suporte-hscroll-fixed-track" style={{ width: tableScrollWidth }} />
+        </div>
+      : null}
     </div>
   );
 }
