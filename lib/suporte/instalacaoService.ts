@@ -177,6 +177,7 @@ export type InstalacaoClientePdvResumo = {
   portalPdvId: number;
   codigoDisplay: string;
   pdvNome: string;
+  rioPdvKey: string;
   contatoLojaNome: string;
   contatoLojaEmail: string;
   contatoLojaTelefone: string;
@@ -228,6 +229,7 @@ export async function listInstalacaoPdvsForCliente(portalClienteId: number): Pro
         portalPdvId: link.portalPdvId,
         codigoDisplay: formatPortalPdvIdDisplay(link.portalPdvId),
         pdvNome: r.rioPdvNome.trim() || formatPortalPdvIdDisplay(link.portalPdvId),
+        rioPdvKey: r.rioPdvId,
         contatoLojaNome: cad?.contatoLojaNome?.trim() ?? "",
         contatoLojaEmail: cad?.contatoLojaEmail?.trim() ?? "",
         contatoLojaTelefone: cad?.contatoLojaTelefone?.trim() ?? "",

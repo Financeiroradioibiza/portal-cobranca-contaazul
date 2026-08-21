@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { InstalacaoClientePanel } from "@/components/suporte/InstalacaoClientePanel";
+import { InstalacaoPdvStatusCard } from "@/components/suporte/InstalacaoPdvStatusCard";
 import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
 import {
-  INSTALACAO_TIPOS,
+  INSTALACAO_TIPOS_VISIVEIS,
   instalacaoTipoLabel,
   type ElectronAuthModo,
 } from "@/lib/suporte/instalacaoTipos";
+import type { InstalacaoPdvStatus } from "@/lib/suporte/instalacaoPdvStatusService";
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
 import { destinatarioEmailsValid } from "@/lib/suporte/parseDestinatarioEmails";
 
@@ -32,12 +34,45 @@ type Contexto = {
   clienteNome: string;
   pdvNome: string;
   codigoDisplay: string;
+  rioPdvKey: string;
   contatoLojaNome: string;
   contatoLojaEmail: string;
   contatoLojaTelefone: string;
   playerInstaladoEm: string | null;
   podeGerarCodigoPlay: boolean;
 };
+
+function PlayerInstaladoAviso({
+  playerInstaladoEm,
+  pdvStatus,
+  canRegenerarToken,
+  onTokenRegenerated,
+}: {
+  playerInstaladoEm: string | null;
+  pdvStatus: InstalacaoPdvStatus | null;
+  canRegenerarToken: boolean;
+  onTokenRegenerated?: (newToken: string) => void;
+}) {
+  return (
+    <div className="mt-4 rounded-lg border border-amber-700/60 bg-amber-950/20 px-3 py-2.5 text-sm text-amber-100">
+      <p>
+        PDV com player instalado
+        {playerInstaladoEm ?
+          ` desde ${new Date(playerInstaladoEm).toLocaleString("pt-BR")}`
+        : ""}
+        . Regenerar a <strong>chave serial</strong> no Suporte (cadastro do PDV) antes de gerar
+        outro código.
+      </p>
+      {pdvStatus ?
+        <InstalacaoPdvStatusCard
+          status={pdvStatus}
+          canRegenerarToken={canRegenerarToken}
+          onTokenRegenerated={onTokenRegenerated}
+        />
+      : null}
+    </div>
+  );
+}
 
 type LogRow = {
   id: string;
@@ -361,6 +396,8 @@ export function InstalacaoPanel() {
   const [selectedClient, setSelectedClient] = useState<SelectedClient | null>(null);
   const [selected, setSelected] = useState<SelectedPdv | null>(null);
   const [contexto, setContexto] = useState<Contexto | null>(null);
+  const [pdvStatus, setPdvStatus] = useState<InstalacaoPdvStatus | null>(null);
+  const [canRegenerarToken, setCanRegenerarToken] = useState(false);
   const [tipo, setTipo] = useState<Tipo>("pdv_senha_temp");
   const [electronAuth, setElectronAuth] = useState<ElectronAuthModo>("temp");
 
@@ -385,6 +422,8 @@ export function InstalacaoPanel() {
       ]);
       const ctx = (ctxData as { contexto?: Contexto })?.contexto;
       setContexto(ctx ?? null);
+      setPdvStatus((ctxData as { pdvStatus?: InstalacaoPdvStatus | null })?.pdvStatus ?? null);
+      setCanRegenerarToken(Boolean((ctxData as { canRegenerarToken?: boolean })?.canRegenerarToken));
       const rows = (logData as { rows?: LogRow[] })?.rows;
       setLog(Array.isArray(rows) ? rows : []);
       if (ctx && !destinatarioEmailsValid(ctx.contatoLojaEmail)) setDestinatario("novo");
@@ -403,6 +442,7 @@ export function InstalacaoPanel() {
     if (selected) void loadContextoELog(selected);
     else {
       setContexto(null);
+      setPdvStatus(null);
       setLog([]);
     }
   }, [selected, loadContextoELog]);
@@ -633,7 +673,7 @@ export function InstalacaoPanel() {
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <h2 className="mb-3 text-sm font-semibold text-zinc-200">2. Tipo de instalação</h2>
             <div className="space-y-2">
-              {INSTALACAO_TIPOS.map((t) => (
+              {INSTALACAO_TIPOS_VISIVEIS.map((t) => (
                 <label
                   key={t.id}
                   className={
@@ -698,29 +738,29 @@ export function InstalacaoPanel() {
               </div>
             ) : null}
 
-            {tipo === "pdv_play5" && contexto ? (
-              <div
-                className={
-                  "mt-4 rounded-lg border px-3 py-2.5 text-sm " +
-                  (contexto.podeGerarCodigoPlay
-                    ? "border-emerald-700/60 bg-emerald-950/20 text-emerald-200"
-                    : "border-amber-700/60 bg-amber-950/20 text-amber-100")
-                }
-              >
-                {contexto.podeGerarCodigoPlay ? (
-                  <p>PDV livre para novo código Play (sem player instalado).</p>
-                ) : (
-                  <p>
-                    PDV com player instalado
-                    {contexto.playerInstaladoEm ?
-                      ` desde ${new Date(contexto.playerInstaladoEm).toLocaleString("pt-BR")}`
-                    : ""}
-                    . Regenerar a <strong>chave serial</strong> no Suporte (cadastro do PDV) antes de gerar
-                    outro código.
-                  </p>
-                )}
+            {contexto && !contexto.podeGerarCodigoPlay ?
+              <PlayerInstaladoAviso
+                playerInstaladoEm={contexto.playerInstaladoEm}
+                pdvStatus={pdvStatus}
+                canRegenerarToken={canRegenerarToken}
+                onTokenRegenerated={(newToken) => {
+                  setPdvStatus((prev) =>
+                    prev ? { ...prev, playerInstalacaoToken: newToken, telemetry: {
+                      playerVersion: null,
+                      downloadPercent: null,
+                      firstPingAt: null,
+                      lastPingAt: null,
+                      isOnline: null,
+                    } } : prev,
+                  );
+                  void loadContextoELog(selected!);
+                }}
+              />
+            : tipo === "pdv_play5" && contexto?.podeGerarCodigoPlay ?
+              <div className="mt-4 rounded-lg border border-emerald-700/60 bg-emerald-950/20 px-3 py-2.5 text-sm text-emerald-200">
+                <p>PDV livre para novo código Play (sem player instalado).</p>
               </div>
-            ) : null}
+            : null}
 
             {tipo !== "pdv_play5" ? (
               <p className="mt-3 text-[11px] text-zinc-500">
@@ -732,7 +772,7 @@ export function InstalacaoPanel() {
                   </>
                 ) : (
                   <>
-                    Instalação no <strong className="font-medium text-zinc-400">Windows Web</strong> (PWA no Chrome).
+                    Instalação no <strong className="font-medium text-zinc-400">Windows Web</strong> (PWA no Edge ou Chrome).
                     Para celular Android, use o tipo{" "}
                     <strong className="font-medium text-zinc-400">5 · Google Play</strong>.
                     Para .exe TI, use o tipo <strong className="font-medium text-zinc-400">6</strong>.

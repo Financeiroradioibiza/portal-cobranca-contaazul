@@ -46,11 +46,22 @@ export type SuporteOverview = {
   cacheMedioPercent: number | null;
 };
 
+export type SuporteClienteSummary = {
+  key: string;
+  nome: string;
+  tagCobranca: import("@/lib/rio/rioTagCobranca").RioTagCobranca;
+  portalClienteId: number | null;
+  pdvCount: number;
+  semPingCount: number;
+};
+
 export type ProducaoSuportePayload = {
   layoutYearMonth: number;
   rioSourceYearMonth: number;
   overview: SuporteOverview;
   pdvs: SuportePdvRow[];
+  /** Resumo por cliente (overview / picker). */
+  clientes?: SuporteClienteSummary[];
   /** Usuário pode regerar token (perfil suporte). */
   canRegenerarToken: boolean;
 };

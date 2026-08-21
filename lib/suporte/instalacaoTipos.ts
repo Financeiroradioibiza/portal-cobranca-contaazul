@@ -21,12 +21,12 @@ export const INSTALACAO_TIPOS: InstalacaoTipoMeta[] = [
   },
   {
     id: "pdv_senha_temp",
-    label: "3 · Instalação Windows Web com senha temporária (Padrão para cliente)",
-    desc: "PWA no Chrome com PDV embutido + senha de uso único. Recomendado para a maioria das lojas.",
+    label: "3 - INSTALA WINDOWS - Instalacao em EDGE ou CHROME . Senha Temporaria.",
+    desc: "PWA no Edge ou Chrome com PDV embutido + senha de uso único. Recomendado para a maioria das lojas.",
   },
   {
     id: "pdv_senha_temp_migracao",
-    label: "4 · Instalação Windows Web + remoção do Player antigo",
+    label: "4 - INSTALA WINDOWS + RETIRA PLAYER ANTIGO - Instalacao em EDGE ou CHROME . Senha Temporaria.",
     desc: "Igual ao tipo 3. Após instalar o Player 5, o cliente recebe passo para desinstalar a Rádio Ibiza antiga (.bat).",
   },
   {
@@ -40,6 +40,18 @@ export const INSTALACAO_TIPOS: InstalacaoTipoMeta[] = [
     desc: "Instalador .exe (Electron) para PC compartilhado. Escolha abaixo: login e senha do cliente ou senha temporária.",
   },
 ];
+
+/** Tipos visíveis no painel de instalação (1 e 2 ocultos por enquanto). */
+export const INSTALACAO_TIPOS_VISIVEIS = INSTALACAO_TIPOS.filter((t) =>
+  (
+    [
+      "pdv_senha_temp",
+      "pdv_senha_temp_migracao",
+      "pdv_play5",
+      "electron_ti",
+    ] as InstalacaoTipo[]
+  ).includes(t.id),
+);
 
 export function instalacaoTipoLabel(tipo: string): string {
   if (tipo === "electron_ti") return "Electron multisusuário (TI)";

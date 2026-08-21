@@ -11,6 +11,7 @@ import {
 import { matchesSuporteSearch } from "@/lib/cadastros/producaoSuporteSearch";
 import type {
   ProducaoSuportePayload,
+  SuporteClienteSummary,
   SuportePdvRow,
 } from "@/lib/cadastros/producaoSuporteTypes";
 import { displayBrazilianTaxId } from "@/lib/format";
@@ -79,7 +80,21 @@ function ProgramacaoCriacaoCell({ nome }: { nome: string | null }) {
   return <span className="text-slate-400">sem prog.</span>;
 }
 
-function buildClienteOptions(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
+function summaryToClienteOption(c: SuporteClienteSummary): SuporteClienteOption {
+  return {
+    key: c.key,
+    nome: c.nome,
+    tagCobranca: c.tagCobranca,
+    portalClienteId: c.portalClienteId,
+    clienteLoginEmail: null,
+    clienteLoginPassword: null,
+    clienteLoginPending: false,
+    pdvCount: c.pdvCount,
+    semPingCount: c.semPingCount,
+  };
+}
+
+function buildClienteOptionsFromRows(pdvs: SuportePdvRow[]): SuporteClienteOption[] {
   const map = new Map<string, SuporteClienteOption>();
   for (const row of pdvs) {
     let opt = map.get(row.clienteKey);
@@ -880,9 +895,13 @@ function mapSuporteLoadErr(message: string): string {
 
 export function ProducaoSuportePanel() {
   const [data, setData] = useState<ProducaoSuportePayload | null>(null);
+  const [listPdvs, setListPdvs] = useState<SuportePdvRow[]>([]);
+  const [listActive, setListActive] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [listBusy, setListBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
   const [listFilter, setListFilter] = useState<ListFilter>("todos");
   const [batchSize, setBatchSize] = useState<BatchSize>(DEFAULT_BATCH);
   const [visibleCount, setVisibleCount] = useState<number>(DEFAULT_BATCH);
@@ -900,17 +919,17 @@ export function ProducaoSuportePanel() {
   const hasExtraColumns =
     (showIdentBlock && identColSpan > 1) || showPlayerBlock || showContatosBlock;
 
-  const clienteOptions = useMemo(
-    () => buildClienteOptions(data?.pdvs ?? []),
-    [data?.pdvs],
-  );
+  const clienteOptions = useMemo(() => {
+    if (listPdvs.length > 0) return buildClienteOptionsFromRows(listPdvs);
+    return (data?.clientes ?? []).map(summaryToClienteOption);
+  }, [data?.clientes, listPdvs]);
 
   const selectedCliente = useMemo(
     () => clienteOptions.find((c) => c.key === selectedClienteKey) ?? null,
     [clienteOptions, selectedClienteKey],
   );
 
-  const load = useCallback(async () => {
+  const loadOverview = useCallback(async () => {
     setBusy(true);
     setMsg("");
     try {
@@ -928,24 +947,74 @@ export function ProducaoSuportePanel() {
     }
   }, []);
 
+  const loadList = useCallback(
+    async (opts?: { query?: string; filter?: ListFilter; clienteKey?: string | null }) => {
+      const query = opts?.query ?? debouncedQ;
+      const filter = opts?.filter ?? listFilter;
+      const ck = opts?.clienteKey !== undefined ? opts.clienteKey : selectedClienteKey;
+      const needsSearch = query.trim().length >= 2;
+      const needsFilter = filter === "sem_ping";
+      const needsCliente = viewMode === "cliente" && Boolean(ck);
+      if (!needsSearch && !needsFilter && !needsCliente) {
+        setListActive(false);
+        setListPdvs([]);
+        return;
+      }
+
+      setListBusy(true);
+      setMsg("");
+      try {
+        const params = new URLSearchParams({ mode: "list" });
+        if (query.trim().length >= 2) params.set("q", query.trim());
+        if (filter === "sem_ping") params.set("filter", "sem_ping");
+        if (needsCliente && ck) params.set("clienteKey", ck);
+        const res = await fetch(`/api/producao/suporte?${params.toString()}`);
+        const json = (await res.json()) as ProducaoSuportePayload & { ok?: boolean; error?: string };
+        if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
+        setData((prev) => (prev ? { ...prev, overview: json.overview } : json));
+        setListPdvs(json.pdvs);
+        setListActive(true);
+        setVisibleCount(DEFAULT_BATCH);
+      } catch (e) {
+        const raw = e instanceof Error ? e.message : "Erro ao buscar PDVs.";
+        setMsg(mapSuporteLoadErr(raw));
+        setListPdvs([]);
+        setListActive(false);
+      } finally {
+        setListBusy(false);
+      }
+    },
+    [debouncedQ, listFilter, selectedClienteKey, viewMode],
+  );
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadOverview();
+  }, [loadOverview]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQ(q), 320);
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
+  useEffect(() => {
+    void loadList();
+  }, [debouncedQ, listFilter, selectedClienteKey, viewMode, loadList]);
 
   useEffect(() => {
     setVisibleCount((prev) => Math.max(batchSize, prev));
   }, [batchSize]);
 
   const filtered = useMemo(() => {
-    const list = data?.pdvs ?? [];
+    const list = listPdvs;
     return list.filter((row) => {
       if (listFilter === "sem_ping" && !row.semPing5Dias) return false;
       if (viewMode === "cliente" && selectedClienteKey && row.clienteKey !== selectedClienteKey) {
         return false;
       }
-      return matchesSuporteSearch(row, q);
+      if (debouncedQ.trim().length >= 2 && !matchesSuporteSearch(row, debouncedQ)) return false;
+      return true;
     });
-  }, [data?.pdvs, listFilter, q, viewMode, selectedClienteKey]);
+  }, [listPdvs, listFilter, debouncedQ, viewMode, selectedClienteKey]);
 
   function handleViewModeChange(mode: ViewMode) {
     setViewMode(mode);
@@ -971,23 +1040,20 @@ export function ProducaoSuportePanel() {
   }
 
   function handleTokenRegenerated(rioPdvKey: string, newToken: string) {
-    setData((prev) => {
-      if (!prev) return prev;
-      const telemetriaOk = prev.overview.telemetriaDisponivel;
-      return {
-        ...prev,
-        pdvs: prev.pdvs.map((r) => {
-          if (r.rioPdvKey !== rioPdvKey) return r;
-          const semPing5Dias = telemetriaOk && r.statusPlayer === "Ativo";
-          return {
-            ...r,
-            playerInstalacaoToken: newToken,
-            playerVersion: null,
-            telemetry: { ...EMPTY_TELEMETRY },
-            semPing5Dias,
-          };
-        }),
-      };
+    setListPdvs((prev) => {
+      if (prev.length === 0) return prev;
+      const telemetriaOk = data?.overview.telemetriaDisponivel ?? false;
+      return prev.map((r) => {
+        if (r.rioPdvKey !== rioPdvKey) return r;
+        const semPing5Dias = telemetriaOk && r.statusPlayer === "Ativo";
+        return {
+          ...r,
+          playerInstalacaoToken: newToken,
+          playerVersion: null,
+          telemetry: { ...EMPTY_TELEMETRY },
+          semPing5Dias,
+        };
+      });
     });
   }
 
@@ -1073,6 +1139,30 @@ export function ProducaoSuportePanel() {
         </p>
       : null}
 
+      <section className="mb-6 flex flex-col items-center px-2 py-6">
+        <label className="w-full max-w-2xl text-center">
+          <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+            Buscar PDV ou cliente
+          </span>
+          <input
+            type="search"
+            autoComplete="off"
+            placeholder="CNPJ, nome da loja, cliente ou ID Player (ex. 316.001)…"
+            className="w-full rounded-xl border-2 border-fuchsia-300 bg-white px-5 py-3.5 text-center text-base shadow-sm placeholder:text-slate-400 focus:border-fuchsia-500 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/30 dark:border-fuchsia-800 dark:bg-slate-950 dark:text-white"
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setVisibleCount(batchSize);
+            }}
+          />
+        </label>
+        <p className="mt-2 max-w-xl text-center text-[11px] text-slate-500">
+          Digite ao menos 2 caracteres para carregar a listagem — ou use «Sem ping 5d» / modo Cliente
+          abaixo. O dashboard acima carrega rápido; telemetria detalhada só na busca.
+        </p>
+      </section>
+
+      {listActive || listBusy || listFilter === "sem_ping" || (viewMode === "cliente" && selectedClienteKey) ?
       <section className="min-w-0 rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-700 dark:bg-slate-800/80">
           <div className="flex flex-wrap gap-1">
@@ -1089,7 +1179,7 @@ export function ProducaoSuportePanel() {
                 setVisibleCount(batchSize);
               }}
             >
-              Todos ({data?.pdvs.length ?? 0})
+              Todos ({data?.overview.totalPdvs ?? 0})
             </button>
             <button
               type="button"
@@ -1110,16 +1200,6 @@ export function ProducaoSuportePanel() {
           </div>
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <BatchSizePicker value={batchSize} onChange={setBatchSize} />
-            <input
-              type="search"
-              placeholder="CNPJ, PDV, cliente ou ID…"
-              className="min-w-[200px] rounded-md border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-950"
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setVisibleCount(batchSize);
-              }}
-            />
           </div>
         </div>
 
@@ -1285,10 +1365,23 @@ export function ProducaoSuportePanel() {
               </tr>
             </thead>
             <tbody>
-              {busy && !data ?
+              {listBusy ?
                 <tr>
                   <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
-                    Carregando…
+                    Carregando listagem…
+                  </td>
+                </tr>
+              : busy && !data ?
+                <tr>
+                  <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
+                    Carregando dashboard…
+                  </td>
+                </tr>
+              : !listActive ?
+                <tr>
+                  <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-slate-500">
+                    Use a busca acima (mín. 2 caracteres), «Sem ping 5d» ou escolha um cliente para ver
+                    PDVs.
                   </td>
                 </tr>
               : filtered.length === 0 ?
@@ -1360,6 +1453,7 @@ export function ProducaoSuportePanel() {
           programação. Maps usa endereço do cadastro.
         </p>
       </section>
+      : null}
     </div>
   );
 }

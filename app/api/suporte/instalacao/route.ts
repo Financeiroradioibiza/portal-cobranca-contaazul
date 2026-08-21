@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { isOcSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
+import { userHasRole } from "@/lib/auth/roles";
+import { isOcSmtpConfigured, isSuporteSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
 import {
   formatDestinatarioEmails,
   parseDestinatarioEmails,
@@ -24,6 +25,10 @@ import {
   gerarCodigoPlayInstalacao,
   listCodigosPlayForPdv,
 } from "@/lib/suporte/instalacaoPlayService";
+import {
+  loadInstalacaoPdvStatus,
+  loadInstalacaoPdvStatusBatch,
+} from "@/lib/suporte/instalacaoPdvStatusService";
 
 export const runtime = "nodejs";
 
@@ -154,7 +159,30 @@ export async function POST(request: Request) {
       if (data.pdvs.length === 0) {
         return NextResponse.json({ ok: false, error: "cliente_sem_pdvs" }, { status: 404 });
       }
-      return NextResponse.json({ ok: true, ...data });
+      const instalados = data.pdvs.filter((p) => p.playerInstaladoEm);
+      const pdvStatusById =
+        instalados.length > 0
+          ? new Map(
+              (
+                await loadInstalacaoPdvStatusBatch(
+                  instalados.map((p) => ({
+                    rioPdvKey: p.rioPdvKey,
+                    portalPdvId: p.portalPdvId,
+                    pdvNome: p.pdvNome,
+                    codigoDisplay: p.codigoDisplay,
+                  })),
+                )
+              ).map((s) => [s.portalPdvId, s]),
+            )
+          : new Map();
+      const canRegenerarToken =
+        userHasRole(session.roles, "suporte") || userHasRole(session.roles, "master");
+      return NextResponse.json({
+        ok: true,
+        ...data,
+        canRegenerarToken,
+        pdvStatusByPortalId: Object.fromEntries(pdvStatusById),
+      });
     }
 
     const portalPdvId = parseId(body.portalPdvId);
@@ -165,20 +193,34 @@ export async function POST(request: Request) {
     if (action === "contexto") {
       const ctx = await resolveInstalacaoPdv(portalClienteId, portalPdvId);
       if (!ctx) return NextResponse.json({ ok: false, error: "pdv_nao_encontrado" }, { status: 404 });
+      const canRegenerarToken =
+        userHasRole(session.roles, "suporte") || userHasRole(session.roles, "master");
+      const pdvStatus =
+        ctx.playerInstaladoEm
+          ? await loadInstalacaoPdvStatus({
+              rioPdvKey: ctx.rioPdvKey,
+              portalPdvId: ctx.portalPdvId,
+              pdvNome: ctx.pdvNome,
+              codigoDisplay: ctx.codigoDisplay,
+            })
+          : null;
       return NextResponse.json({
         ok: true,
+        canRegenerarToken,
         contexto: {
           portalClienteId: ctx.portalClienteId,
           portalPdvId: ctx.portalPdvId,
           codigoDisplay: ctx.codigoDisplay,
           clienteNome: ctx.clienteNome,
           pdvNome: ctx.pdvNome,
+          rioPdvKey: ctx.rioPdvKey,
           contatoLojaNome: ctx.contatoLojaNome,
           contatoLojaEmail: ctx.contatoLojaEmail,
           contatoLojaTelefone: ctx.contatoLojaTelefone,
           playerInstaladoEm: ctx.playerInstaladoEm,
           podeGerarCodigoPlay: ctx.podeGerarCodigoPlay,
         },
+        pdvStatus,
       });
     }
 
@@ -378,10 +420,15 @@ export async function POST(request: Request) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[suporte/instalacao POST]", action, body.portalClienteId, body.portalPdvId, e);
     const smtpHint =
-      /SMTP|ECONNREFUSED|ETIMEDOUT|EAUTH|nodemailer|ENOENT|550 |554 |421 |mailbox|recipient/i.test(msg)
+      /SMTP|ECONNREFUSED|ETIMEDOUT|EAUTH|nodemailer|ENOENT|550 |554 |421 |451 |mailbox|recipient|queue file write/i.test(
+        msg,
+      )
         ? msg.slice(0, 200)
         : undefined;
-    const detail = smtpHint ?? msg.slice(0, 200);
+    let detail = smtpHint ?? msg.slice(0, 200);
+    if (/451|queue file write/i.test(msg) && !isSuporteSmtpConfigured()) {
+      detail = `${detail} — Configure OC_EMAIL_SMTP_USER_SUPORTE/PASS_SUPORTE (suporte@ Locaweb) no Netlify.`;
+    }
     return NextResponse.json(
       { ok: false, error: smtpHint ? "envio_falhou" : "server_error", detail },
       { status: 500 },

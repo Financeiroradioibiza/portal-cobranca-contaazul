@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  INSTALACAO_TIPOS,
+  INSTALACAO_TIPOS_VISIVEIS,
   type ElectronAuthModo,
 } from "@/lib/suporte/instalacaoTipos";
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
+import type { InstalacaoPdvStatus } from "@/lib/suporte/instalacaoPdvStatusService";
 import { destinatarioEmailsValid } from "@/lib/suporte/parseDestinatarioEmails";
+import { InstalacaoPdvStatusCard } from "@/components/suporte/InstalacaoPdvStatusCard";
 
 type SelectedClient = {
   portalClienteId: number;
@@ -17,6 +19,7 @@ type PdvResumo = {
   portalPdvId: number;
   codigoDisplay: string;
   pdvNome: string;
+  rioPdvKey: string;
   contatoLojaEmail: string;
   podeGerarCodigoPlay: boolean;
   playerInstaladoEm: string | null;
@@ -43,8 +46,6 @@ const inputClass =
   "w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-fuchsia-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500/40";
 
 const BATCH_DELAY_MS = 450;
-
-const CLIENTE_TIPOS = INSTALACAO_TIPOS.filter((t) => t.id !== "padrao_cliente");
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -116,6 +117,8 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
 
   const [tipo, setTipo] = useState<InstalacaoTipo>("pdv_senha_temp");
   const [electronAuth, setElectronAuth] = useState<ElectronAuthModo>("temp");
+  const [pdvStatusById, setPdvStatusById] = useState<Record<number, InstalacaoPdvStatus>>({});
+  const [canRegenerarToken, setCanRegenerarToken] = useState(false);
 
   const plataforma: Plataforma = tipo === "pdv_play5" ? "mobile" : "windows";
 
@@ -132,9 +135,22 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
         setStatus({ kind: "err", text: mapErr(data, res.status) });
         return;
       }
-      const d = data as { clienteNome?: string; pdvs?: PdvResumo[] };
+      const d = data as {
+        clienteNome?: string;
+        pdvs?: PdvResumo[];
+        pdvStatusByPortalId?: Record<string, InstalacaoPdvStatus>;
+        canRegenerarToken?: boolean;
+      };
       setClienteNome(d.clienteNome?.trim() || client.clienteNome);
       const pdvs = Array.isArray(d.pdvs) ? d.pdvs : [];
+      const statusMap: Record<number, InstalacaoPdvStatus> = {};
+      const rawStatus = d.pdvStatusByPortalId ?? {};
+      for (const [k, v] of Object.entries(rawStatus)) {
+        const id = Number(k);
+        if (Number.isFinite(id) && v) statusMap[id] = v;
+      }
+      setPdvStatusById(statusMap);
+      setCanRegenerarToken(Boolean(d.canRegenerarToken));
       setRows(
         pdvs.map((p) => ({
           ...p,
@@ -390,7 +406,7 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
           Um link (ou código Play) por PDV — processados um de cada vez para evitar timeout.
         </p>
         <div className="space-y-2">
-          {CLIENTE_TIPOS.map((t) => (
+          {INSTALACAO_TIPOS_VISIVEIS.map((t) => (
             <label
               key={t.id}
               className={
@@ -448,6 +464,35 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
           </div>
         ) : null}
 
+        {rows.some((r) => !r.podeGerarCodigoPlay) ?
+          <div className="mt-4 space-y-3">
+            {rows
+              .filter((r) => !r.podeGerarCodigoPlay)
+              .map((r) => (
+                <div
+                  key={`aviso-${r.portalPdvId}`}
+                  className="rounded-lg border border-amber-700/60 bg-amber-950/20 px-3 py-2.5 text-sm text-amber-100"
+                >
+                  <p>
+                    <span className="font-medium">{r.pdvNome}</span> ({r.codigoDisplay}) — player
+                    instalado
+                    {r.playerInstaladoEm ?
+                      ` desde ${new Date(r.playerInstaladoEm).toLocaleString("pt-BR")}`
+                    : ""}
+                    . Regenerar a chave serial antes de gerar outro código.
+                  </p>
+                  {pdvStatusById[r.portalPdvId] ?
+                    <InstalacaoPdvStatusCard
+                      status={pdvStatusById[r.portalPdvId]!}
+                      canRegenerarToken={canRegenerarToken}
+                      onTokenRegenerated={() => void loadPdvs()}
+                    />
+                  : null}
+                </div>
+              ))}
+          </div>
+        : null}
+
         <div className="mt-4">
           <button
             type="button"
@@ -483,9 +528,9 @@ export function InstalacaoClientePanel({ client }: { client: SelectedClient }) {
                   <td className="py-2 pr-3">
                     <p className="font-medium text-zinc-100">{r.pdvNome}</p>
                     <p className="font-mono text-[10px] text-zinc-500">{r.codigoDisplay}</p>
-                    {tipo === "pdv_play5" && !r.podeGerarCodigoPlay ? (
+                    {!r.podeGerarCodigoPlay ?
                       <p className="mt-1 text-[10px] text-amber-400">Player instalado</p>
-                    ) : null}
+                    : null}
                   </td>
                   <td className="py-2 pr-3">
                     <input

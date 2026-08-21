@@ -9,8 +9,10 @@ import { loadPortalPlayerIdMaps } from "@/lib/player/loadPortalPlayerIdMaps";
 import { clientePlayerPasswordForCliente } from "@/lib/player/clientePlayerLoginService";
 import type {
   ProducaoSuportePayload,
+  SuporteClienteSummary,
   SuportePdvRow,
 } from "@/lib/cadastros/producaoSuporteTypes";
+import { matchesSuporteSearch } from "@/lib/cadastros/producaoSuporteSearch";
 
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 
@@ -26,8 +28,59 @@ function isSemPing5Dias(
   return age > FIVE_DAYS_MS;
 }
 
+export async function getProducaoSuporteOverview(options?: {
+  canRegenerarToken?: boolean;
+}): Promise<ProducaoSuportePayload> {
+  const dash = await getProducaoDashboard();
+  const pdvKeys = dash.clientes.flatMap((c) => c.pdvs.map((p) => p.rioPdvKey));
+  const portalMaps =
+    pdvKeys.length > 0 ? await loadPortalPlayerIdMaps(pdvKeys) : { byRioPdvKey: new Map() };
+  const linkByKey = portalMaps.byRioPdvKey;
+  const telemetriaOk = dash.overview.telemetriaDisponivel;
+
+  const clientes: SuporteClienteSummary[] = dash.clientes.map((c) => {
+    let semPingCount = 0;
+    let portalClienteId: number | null = null;
+    for (const pdv of c.pdvs) {
+      const link = linkByKey.get(pdv.rioPdvKey);
+      if (link?.portalClienteId != null && portalClienteId == null) {
+        portalClienteId = link.portalClienteId;
+      }
+      if (isSemPing5Dias(pdv.telemetry, pdv.statusPlayer, telemetriaOk)) semPingCount += 1;
+    }
+    return {
+      key: c.key,
+      nome: c.nome,
+      tagCobranca: c.tagCobranca,
+      portalClienteId,
+      pdvCount: c.pdvCount,
+      semPingCount,
+    };
+  });
+
+  return {
+    layoutYearMonth: dash.layoutYearMonth,
+    rioSourceYearMonth: dash.rioSourceYearMonth,
+    overview: {
+      totalPdvs: dash.overview.totalPdvs,
+      semPing5Dias: dash.overview.semPingPdvs,
+      chamadosAbertos: dash.overview.chamadosAbertos,
+      telemetriaDisponivel: telemetriaOk,
+      pingsHoje: dash.overview.pingsHoje,
+      cacheMedioPercent: dash.overview.cacheMedioPercent,
+    },
+    pdvs: [],
+    clientes,
+    canRegenerarToken: options?.canRegenerarToken ?? false,
+  };
+}
+
 export async function getProducaoSuporte(options?: {
   canRegenerarToken?: boolean;
+  searchQuery?: string;
+  listFilter?: "sem_ping";
+  clienteKey?: string;
+  limit?: number;
 }): Promise<ProducaoSuportePayload> {
   const dash = await getProducaoDashboard();
   const pdvKeys = dash.clientes.flatMap((c) => c.pdvs.map((p) => p.rioPdvKey));
@@ -196,7 +249,42 @@ export async function getProducaoSuporte(options?: {
 
   rows.sort((a, b) => b.instaladoAt.localeCompare(a.instaladoAt));
 
+  let filtered = rows;
+  const q = options?.searchQuery?.trim() ?? "";
+  if (q) {
+    filtered = filtered.filter((row) => matchesSuporteSearch(row, q));
+  }
+  if (options?.listFilter === "sem_ping") {
+    filtered = filtered.filter((row) => row.semPing5Dias);
+  }
+  if (options?.clienteKey) {
+    filtered = filtered.filter((row) => row.clienteKey === options.clienteKey);
+  }
+  const limit = options?.limit ?? 200;
+  if (filtered.length > limit) filtered = filtered.slice(0, limit);
+
   const semPing5Dias = rows.filter((r) => r.semPing5Dias).length;
+
+  const clientes: SuporteClienteSummary[] = dash.clientes.map((c) => {
+    let semPingCount = 0;
+    let portalClienteId: number | null = null;
+    for (const pdv of c.pdvs) {
+      const link = linkByKey.get(pdv.rioPdvKey);
+      if (link?.portalClienteId != null && portalClienteId == null) {
+        portalClienteId = link.portalClienteId;
+      }
+      const row = rows.find((r) => r.rioPdvKey === pdv.rioPdvKey);
+      if (row?.semPing5Dias) semPingCount += 1;
+    }
+    return {
+      key: c.key,
+      nome: c.nome,
+      tagCobranca: c.tagCobranca,
+      portalClienteId,
+      pdvCount: c.pdvCount,
+      semPingCount,
+    };
+  });
 
   return {
     layoutYearMonth: dash.layoutYearMonth,
@@ -209,7 +297,8 @@ export async function getProducaoSuporte(options?: {
       pingsHoje: dash.overview.pingsHoje,
       cacheMedioPercent: dash.overview.cacheMedioPercent,
     },
-    pdvs: rows,
+    pdvs: filtered,
+    clientes,
     canRegenerarToken: options?.canRegenerarToken ?? false,
   };
 }
