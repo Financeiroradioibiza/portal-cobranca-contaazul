@@ -2,7 +2,7 @@ import { ProducaoSuportePanel } from "@/components/producao/ProducaoSuportePanel
 
 export default function SuportePage() {
   return (
-    <div className="portal-page">
+    <div className="portal-page min-w-0">
       <header className="portal-page-header">
         <div>
           <div className="portal-page-crumb">Suporte</div>

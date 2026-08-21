@@ -55,6 +55,8 @@ function suporteColCount(
 const STICKY_PDV_TH =
   "suporte-sticky-pdv min-w-[7rem] max-w-[9.5rem] border-r border-slate-200/90 bg-[#f5f0e8] px-2 py-1.5 dark:border-slate-600/80 dark:bg-slate-800/95";
 const STICKY_PDV_TD = "suporte-sticky-pdv min-w-[7rem] max-w-[9.5rem] border-r border-slate-200/90 px-2 py-1.5 dark:border-slate-600/80";
+const LOGIN_COL = "suporte-col-login min-w-[8.75rem] w-[9.5rem] max-w-[10.5rem] px-1.5 py-1.5 align-top";
+const SENHA_COL = "suporte-col-senha min-w-[4.75rem] w-[5.25rem] max-w-[6rem] px-1.5 py-1.5 align-top";
 
 function stickyPdvRowBg(tagBg: string | undefined, semPing: boolean): string {
   if (tagBg) return tagBg;
@@ -167,7 +169,7 @@ function ClienteLoginInfo({
 
   if (compact) {
     return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+      <div className="flex min-w-0 flex-col gap-1 text-[11px]">
         <CopyableCell text={email ?? ""} label="Copiar login do cliente" mono />
         <CopyableCell text={password ?? ""} label="Copiar senha do cliente" mono />
       </div>
@@ -622,12 +624,12 @@ function CopyableCell({
   const trimmed = text.trim();
   const display = trimmed || "—";
   return (
-    <div className={"flex min-w-0 items-center gap-0.5 " + className}>
+    <div className={"flex min-w-0 max-w-full items-center gap-0.5 " + className}>
       <span
         className={
           mono ?
-            "font-mono text-[10px] text-slate-500 dark:text-slate-400"
-          : "min-w-0 truncate text-slate-700 dark:text-slate-200"
+            "min-w-0 flex-1 truncate font-mono text-[10px] text-slate-500 dark:text-slate-400"
+          : "min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200"
         }
         title={display !== "—" ? display : undefined}
       >
@@ -881,15 +883,25 @@ function PdvRow({
                   <RioTagCobrancaNome nome={row.clienteNome} tag={row.clienteTagCobranca} />
                 </span>
               </td>
-              <td className="min-w-[6.5rem] max-w-[8.5rem] px-1.5 py-1.5 align-top">
-                <ClienteLoginInfo
-                  email={row.clienteLoginEmail}
-                  password={row.clienteLoginPassword}
-                  pending={row.clienteLoginPending}
-                  field="login"
-                />
+              <td className={LOGIN_COL}>
+                <div className="md:hidden">
+                  <ClienteLoginInfo
+                    email={row.clienteLoginEmail}
+                    password={row.clienteLoginPassword}
+                    pending={row.clienteLoginPending}
+                    compact
+                  />
+                </div>
+                <div className="hidden md:block">
+                  <ClienteLoginInfo
+                    email={row.clienteLoginEmail}
+                    password={row.clienteLoginPassword}
+                    pending={row.clienteLoginPending}
+                    field="login"
+                  />
+                </div>
               </td>
-              <td className="w-[4.25rem] max-w-[5.5rem] px-1.5 py-1.5 align-top">
+              <td className={SENHA_COL + " hidden md:table-cell"}>
                 <ClienteLoginInfo
                   email={row.clienteLoginEmail}
                   password={row.clienteLoginPassword}
@@ -1320,7 +1332,7 @@ export function ProducaoSuportePanel() {
         onClose={() => setCanceladosOpen(false)}
       />
 
-      <section className="min-w-0 rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-[#faf8f5] shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-[#f5f0e8] px-4 py-3 dark:border-slate-700 dark:bg-slate-800/80">
           <div className="flex flex-wrap gap-1">
             <button
@@ -1439,7 +1451,7 @@ export function ProducaoSuportePanel() {
 
         <div
           className={
-            "suporte-table-scroll w-full max-w-full overflow-x-scroll overscroll-x-contain [-webkit-overflow-scrolling:touch] " +
+            "suporte-table-scroll w-full max-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] " +
             (hasExtraColumns ?
               "border-b border-slate-100 dark:border-slate-800"
             : "")
@@ -1448,7 +1460,7 @@ export function ProducaoSuportePanel() {
           {viewMode === "cliente" && !selectedClienteKey ?
             null
           : <>
-          <table className="w-max min-w-full border-collapse text-left text-[11px]">
+          <table className="w-max border-collapse text-left text-[11px]">
             <thead className="bg-[#f5f0e8] text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:bg-slate-800/95">
               <tr className="text-[9px] font-semibold normal-case tracking-normal text-slate-400">
                 <th colSpan={identColSpan} className="px-2 pb-0 pt-2 text-left">
@@ -1482,10 +1494,11 @@ export function ProducaoSuportePanel() {
                       </th>
                     : <>
                         <th className="min-w-[5.5rem] px-1.5 py-1.5">Cliente</th>
-                        <th className="min-w-[6.5rem] px-1.5 py-1.5" title="E-mail de login no Player 5">
-                          Login
+                        <th className={LOGIN_COL + " md:max-w-[10.5rem]"} title="E-mail e senha de login no Player 5">
+                          <span className="md:hidden">Login / senha</span>
+                          <span className="hidden md:inline">Login</span>
                         </th>
-                        <th className="w-[4.25rem] px-1.5 py-1.5" title="Senha de login no Player 5">
+                        <th className={SENHA_COL + " hidden md:table-cell"} title="Senha de login no Player 5">
                           Senha
                         </th>
                       </>

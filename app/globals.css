@@ -608,9 +608,21 @@ body {
 }
 
 .suporte-table-scroll {
-  scrollbar-gutter: stable;
+  max-width: 100%;
+  scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.suporte-table-scroll .suporte-col-login,
+.suporte-table-scroll .suporte-col-senha {
+  overflow: hidden;
+  vertical-align: top;
+}
+
+.suporte-table-scroll .suporte-col-login > *,
+.suporte-table-scroll .suporte-col-senha > * {
+  max-width: 100%;
 }
 
 .suporte-table-scroll::-webkit-scrollbar {
