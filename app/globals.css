@@ -649,7 +649,11 @@ body {
 }
 
 .suporte-hscroll-fixed-track {
-  height: 1px;
+  height: 12px;
+}
+
+.suporte-hscroll-fixed--hidden {
+  visibility: hidden;
   pointer-events: none;
 }
 

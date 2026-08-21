@@ -1002,11 +1002,11 @@ function useSuporteTableFixedHScroll(
     if (!enabled) {
       setNeedsScroll(false);
       setSectionVisible(false);
+      setScrollWidth(0);
       return;
     }
 
     const tableEl = tableScrollRef.current;
-    const barEl = fixedBarRef.current;
     const sectionEl = sectionRef.current;
     if (!tableEl) return;
 
@@ -1021,28 +1021,22 @@ function useSuporteTableFixedHScroll(
         const r = mainEl.getBoundingClientRect();
         setAnchor({ left: r.left, width: r.width });
       }
+      const barEl = fixedBarRef.current;
       if (barEl && !syncing.current) {
         barEl.scrollLeft = tableEl.scrollLeft;
       }
     };
 
     const syncFromTable = () => {
+      const barEl = fixedBarRef.current;
       if (syncing.current || !barEl) return;
       syncing.current = true;
       barEl.scrollLeft = tableEl.scrollLeft;
       syncing.current = false;
     };
 
-    const syncFromBar = () => {
-      if (syncing.current) return;
-      syncing.current = true;
-      tableEl.scrollLeft = barEl!.scrollLeft;
-      syncing.current = false;
-    };
-
     measure();
     tableEl.addEventListener("scroll", syncFromTable, { passive: true });
-    barEl?.addEventListener("scroll", syncFromBar, { passive: true });
     window.addEventListener("resize", measure);
 
     const ro = new ResizeObserver(measure);
@@ -1062,7 +1056,6 @@ function useSuporteTableFixedHScroll(
 
     return () => {
       tableEl.removeEventListener("scroll", syncFromTable);
-      barEl?.removeEventListener("scroll", syncFromBar);
       window.removeEventListener("resize", measure);
       mainEl?.removeEventListener("scroll", measure);
       ro.disconnect();
@@ -1070,8 +1063,30 @@ function useSuporteTableFixedHScroll(
     };
   }, [enabled, tableScrollRef, fixedBarRef, sectionRef, remeasureKey]);
 
+  // Barra fixa monta depois do IntersectionObserver — listeners só aqui.
+  useEffect(() => {
+    if (!enabled || !needsScroll) return;
+
+    const tableEl = tableScrollRef.current;
+    const barEl = fixedBarRef.current;
+    if (!tableEl || !barEl) return;
+
+    barEl.scrollLeft = tableEl.scrollLeft;
+
+    const syncFromBar = () => {
+      if (syncing.current) return;
+      syncing.current = true;
+      tableEl.scrollLeft = barEl.scrollLeft;
+      syncing.current = false;
+    };
+
+    barEl.addEventListener("scroll", syncFromBar, { passive: true });
+    return () => barEl.removeEventListener("scroll", syncFromBar);
+  }, [enabled, needsScroll, sectionVisible, scrollWidth, remeasureKey, tableScrollRef, fixedBarRef]);
+
   return {
     scrollWidth,
+    barMounted: enabled && needsScroll,
     showFixedBar: enabled && needsScroll && sectionVisible,
     anchor,
   };
@@ -1228,7 +1243,7 @@ export function ProducaoSuportePanel() {
     listFilter,
     q,
   ].join("|");
-  const { scrollWidth: tableScrollWidth, showFixedBar, anchor: hScrollAnchor } =
+  const { scrollWidth: tableScrollWidth, barMounted, showFixedBar, anchor: hScrollAnchor } =
     useSuporteTableFixedHScroll(
       tableScrollRef,
       fixedHScrollRef,
@@ -1733,12 +1748,16 @@ export function ProducaoSuportePanel() {
         </p>
       </section>
 
-      {showFixedBar ?
+      {barMounted ?
         <div
           ref={fixedHScrollRef}
-          className="suporte-hscroll-fixed"
+          className={
+            "suporte-hscroll-fixed " +
+            (showFixedBar ? "" : "suporte-hscroll-fixed--hidden")
+          }
           style={{ left: hScrollAnchor.left, width: hScrollAnchor.width }}
           aria-label="Rolagem horizontal da tabela de suporte"
+          aria-hidden={!showFixedBar}
           title="Deslize para ver colunas à direita"
         >
           <div className="suporte-hscroll-fixed-track" style={{ width: tableScrollWidth }} />
