@@ -9,6 +9,10 @@ import { todayYmdLocal } from "@/lib/contaazul/types";
 import { defaultPeriodMonths } from "@/lib/format";
 import type { SiteClientePermissoes } from "@/lib/site-cliente/permissions";
 import { loadSiteClienteCobrancaEscopo } from "@/lib/site-cliente/siteClienteCobrancaEscopo";
+import {
+  loadSiteClienteCobrancaPdvInstalacao,
+  type SiteClienteCobrancaPdvInstalacaoRow,
+} from "@/lib/site-cliente/siteClienteCobrancaPdvInstalacao";
 import type { SiteClienteSessionPayload } from "@/lib/site-cliente/session";
 
 export type SiteClienteCobrancaParcelaRow = {
@@ -40,6 +44,8 @@ export type SiteClienteCobrancaDashboardPayload = {
   permissoes: SiteClientePermissoes;
   period: { start: string; end: string };
   geradoEm: string;
+  /** Status de instalação dos PDVs ligados aos CNPJs do grupo (produção). */
+  pdvsInstalacao: SiteClienteCobrancaPdvInstalacaoRow[];
   clientes: SiteClienteCobrancaClienteRow[];
 };
 
@@ -100,6 +106,8 @@ export async function buildSiteClienteCobrancaDashboard(
   const period = defaultPeriodMonths(12);
   const perm = session.permissoes;
 
+  const pdvsInstalacao = await loadSiteClienteCobrancaPdvInstalacao(session.grupoId);
+
   if (escopo.caPersonIds.size === 0) {
     return {
       ok: true,
@@ -108,6 +116,7 @@ export async function buildSiteClienteCobrancaDashboard(
       permissoes: perm,
       period,
       geradoEm: new Date().toISOString(),
+      pdvsInstalacao,
       clientes: [],
     };
   }
@@ -172,6 +181,7 @@ export async function buildSiteClienteCobrancaDashboard(
     permissoes: perm,
     period,
     geradoEm: new Date().toISOString(),
+    pdvsInstalacao,
     clientes,
   };
 }

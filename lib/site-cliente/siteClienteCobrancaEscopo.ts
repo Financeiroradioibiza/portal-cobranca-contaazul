@@ -7,6 +7,7 @@ export type SiteClienteCobrancaEscopoCliente = {
   razaoSocial: string;
   nomeFantasia: string;
   emailCobranca: string | null;
+  rioLinhaId: string | null;
 };
 
 export type SiteClienteCobrancaEscopo = {
@@ -26,6 +27,7 @@ export async function loadSiteClienteCobrancaEscopo(
       razaoSocial: true,
       nomeFantasia: true,
       emailCobranca: true,
+      rioLinhaId: true,
     },
   });
 
@@ -42,6 +44,7 @@ export async function loadSiteClienteCobrancaEscopo(
       razaoSocial: row.razaoSocial,
       nomeFantasia: row.nomeFantasia,
       emailCobranca: row.emailCobranca,
+      rioLinhaId: row.rioLinhaId,
     });
   }
 

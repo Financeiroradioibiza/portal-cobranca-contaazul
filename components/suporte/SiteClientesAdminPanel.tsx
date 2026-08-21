@@ -90,6 +90,43 @@ const PERM_KEYS_COBRANCA = PERM_KEYS.filter(
   (k) => k === "verCobrancas" || k === "baixarBoleto" || k === "baixarNota",
 );
 
+const GRUPO_TIPO_UI: Record<
+  SiteClienteGrupoTipo,
+  {
+    sectionTitle: string;
+    badge: string;
+    listSelected: string;
+    header: string;
+    escopoBorder: string;
+    permBox: string;
+  }
+> = {
+  producao: {
+    sectionTitle: "TI / Produção",
+    badge:
+      "bg-violet-100 text-violet-800 ring-1 ring-violet-200 dark:bg-violet-900/50 dark:text-violet-100 dark:ring-violet-800",
+    listSelected:
+      "bg-violet-100 font-medium text-violet-900 ring-1 ring-violet-200 dark:bg-violet-900/40 dark:text-violet-100 dark:ring-violet-800",
+    header:
+      "border-violet-200 bg-gradient-to-r from-violet-500/15 via-fuchsia-500/10 to-violet-500/5 dark:border-violet-800",
+    escopoBorder: "border-l-4 border-violet-500",
+    permBox:
+      "rounded-lg border border-violet-200 bg-violet-50/80 p-3 dark:border-violet-800 dark:bg-violet-950/25",
+  },
+  cobranca: {
+    sectionTitle: "Cobrança",
+    badge:
+      "bg-amber-100 text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-100 dark:ring-amber-800",
+    listSelected:
+      "bg-amber-100 font-medium text-amber-950 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-100 dark:ring-amber-800",
+    header:
+      "border-amber-200 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/5 dark:border-amber-800",
+    escopoBorder: "border-l-4 border-amber-500",
+    permBox:
+      "rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800 dark:bg-amber-950/25",
+  },
+};
+
 /** Escopo grava `c.key` do bucket em `rioLinhaId` (legado: alguns registros usam rioLinhaId Rio). */
 function clienteEscopoCoincide(storedId: string, c: CatalogCliente): boolean {
   return storedId === c.key || (!!c.rioLinhaId && storedId === c.rioLinhaId);
@@ -602,6 +639,69 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
   const permKeysUi =
     detail?.tipo === "cobranca" ? PERM_KEYS_COBRANCA : PERM_KEYS_PRODUCAO;
 
+  const gruposProducao = useMemo(
+    () => grupos.filter((g) => g.tipo === "producao"),
+    [grupos],
+  );
+  const gruposCobranca = useMemo(
+    () => grupos.filter((g) => g.tipo === "cobranca"),
+    [grupos],
+  );
+
+  function renderGrupoListItem(g: GrupoListItem) {
+    const ui = GRUPO_TIPO_UI[g.tipo];
+    const selected = selectedId === g.id;
+    return (
+      <li key={g.id}>
+        <button
+          type="button"
+          onClick={() => selectGrupo(g.id)}
+          className={`w-full rounded-lg border-l-4 px-3 py-2 text-left text-sm transition ${
+            g.tipo === "cobranca" ? "border-amber-500" : "border-violet-500"
+          } ${
+            selected
+              ? ui.listSelected
+              : "border-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{g.nome}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ui.badge}`}>
+              {ui.sectionTitle}
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-zinc-500">
+            {g.usuarioCount} usuário(s)
+            {g.tipo === "cobranca"
+              ? ` · ${g.caClienteCount} CNPJ(s)`
+              : ` · ${g.clienteCount} cliente(s)`}
+          </div>
+        </button>
+      </li>
+    );
+  }
+
+  function renderGrupoSection(
+    title: string,
+    tipo: SiteClienteGrupoTipo,
+    items: GrupoListItem[],
+  ) {
+    if (items.length === 0) return null;
+    const ui = GRUPO_TIPO_UI[tipo];
+    return (
+      <div className="mb-4">
+        <p
+          className={`mb-2 inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${ui.badge}`}
+        >
+          {title}
+        </p>
+        <ul className="space-y-1">{items.map(renderGrupoListItem)}</ul>
+      </div>
+    );
+  }
+
+  const detailUi = detail ? GRUPO_TIPO_UI[detail.tipo] : null;
+
   return (
     <div className="space-y-6">
       {msg ? (
@@ -618,29 +718,10 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
           {loading ? (
             <p className="text-sm text-zinc-500">Carregando…</p>
           ) : (
-            <ul className="space-y-1">
-              {grupos.map((g) => (
-                <li key={g.id}>
-                  <button
-                    type="button"
-                    onClick={() => selectGrupo(g.id)}
-                    className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
-                      selectedId === g.id
-                        ? "bg-violet-100 font-medium text-violet-900 dark:bg-violet-900/40 dark:text-violet-100"
-                        : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    <div>{g.nome}</div>
-                    <div className="text-xs text-zinc-500">
-                      {SITE_CLIENTE_GRUPO_TIPO_LABELS[g.tipo]} · {g.usuarioCount} usuário(s)
-                      {g.tipo === "cobranca"
-                        ? ` · ${g.caClienteCount} CNPJ(s)`
-                        : ` · ${g.clienteCount} cliente(s)`}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              {renderGrupoSection("Cobrança", "cobranca", gruposCobranca)}
+              {renderGrupoSection("TI / Produção", "producao", gruposProducao)}
+            </>
           )}
           <div className="mt-4 flex flex-col gap-2">
             <select
@@ -648,7 +729,7 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
               value={novoGrupoTipo}
               onChange={(e) => setNovoGrupoTipo(e.target.value as SiteClienteGrupoTipo)}
             >
-              <option value="producao">Grupo produção (PDVs / programação)</option>
+              <option value="producao">Grupo TI / produção (PDVs / programação)</option>
               <option value="cobranca">Grupo cobrança (CNPJs / parcelas)</option>
             </select>
             <div className="flex gap-2">
@@ -682,10 +763,21 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
             </div>
           ) : (
             <>
-              <div className="rounded-xl border border-zinc-200 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-amber-500/10 p-5 dark:border-zinc-700">
+              <div
+                className={`rounded-xl border p-5 dark:border-zinc-700 ${detailUi?.header ?? ""}`}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-bold">{detail.nome}</h2>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <h2 className="text-xl font-bold">{detail.nome}</h2>
+                      {detailUi ? (
+                        <span
+                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${detailUi.badge}`}
+                        >
+                          {detailUi.sectionTitle}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="text-sm text-zinc-600 dark:text-zinc-400">
                       {SITE_CLIENTE_GRUPO_TIPO_LABELS[detail.tipo]} · {detail.usuarios.length} usuário(s)
                       {detail.tipo === "cobranca"
@@ -741,9 +833,18 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
               ) : null}
 
               {detail.tipo === "cobranca" ? (
-                <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+                <div
+                  className={`rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900 ${detailUi?.escopoBorder ?? ""}`}
+                >
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="font-semibold">CNPJs de cobrança no grupo</h3>
+                    <div>
+                      <span
+                        className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${GRUPO_TIPO_UI.cobranca.badge}`}
+                      >
+                        Escopo cobrança
+                      </span>
+                      <h3 className="font-semibold">CNPJs de cobrança no grupo</h3>
+                    </div>
                     {detail.caClientes.length > 0 ? (
                       <button
                         type="button"
@@ -838,9 +939,18 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                   ) : null}
                 </div>
               ) : (
-              <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+              <div
+                className={`rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900 ${detailUi?.escopoBorder ?? ""}`}
+              >
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-semibold">Clientes no grupo</h3>
+                  <div>
+                    <span
+                      className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${GRUPO_TIPO_UI.producao.badge}`}
+                    >
+                      Escopo TI / produção
+                    </span>
+                    <h3 className="font-semibold">Clientes no grupo</h3>
+                  </div>
                   {detail.clientes.length + detail.pdvs.length > 0 ? (
                     <button
                       type="button"
@@ -1032,22 +1142,27 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                   />
                 </div>
 
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {permKeysUi.map((key) => (
-                    <label key={key} className="flex items-start gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={usuarioForm.permissoes[key]}
-                        onChange={(e) =>
-                          setUsuarioForm((f) => ({
-                            ...f,
-                            permissoes: { ...f.permissoes, [key]: e.target.checked },
-                          }))
-                        }
-                      />
-                      {SITE_CLIENTE_PERMISSAO_LABELS[key]}
-                    </label>
-                  ))}
+                <div className={`mt-4 ${detailUi?.permBox ?? ""}`}>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+                    Permissões — {detailUi?.sectionTitle ?? "grupo"}
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {permKeysUi.map((key) => (
+                      <label key={key} className="flex items-start gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={usuarioForm.permissoes[key]}
+                          onChange={(e) =>
+                            setUsuarioForm((f) => ({
+                              ...f,
+                              permissoes: { ...f.permissoes, [key]: e.target.checked },
+                            }))
+                          }
+                        />
+                        {SITE_CLIENTE_PERMISSAO_LABELS[key]}
+                      </label>
+                    ))}
+                  </div>
                 </div>
 
                 <button

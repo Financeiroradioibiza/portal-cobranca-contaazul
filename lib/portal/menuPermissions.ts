@@ -34,6 +34,12 @@ export const PORTAL_MENU_MODULES = [
     subs: [{ id: "dashboard", label: "Dashboard" }],
   },
   {
+    id: "atendimento",
+    icon: "💬",
+    label: "Atendimento",
+    subs: [{ id: "rela", label: "Rela" }],
+  },
+  {
     id: "suporte",
     icon: "🎧",
     label: "Suporte",
@@ -115,6 +121,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     perm: {
       cadastros: "all",
       producao: "all",
+      atendimento: "all",
       config: ["logs"],
     },
     roles: ["cadastros", "producao", "suporte"],
@@ -139,6 +146,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     perm: {
       financeiro: "all",
       cadastros: ["vinculos", "prospects", "solicitar-pdv"],
+      atendimento: "all",
       config: ["logs"],
     },
     roles: ["cobranca"],
@@ -152,6 +160,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
       financeiro: ["consulta-painel"],
       cadastros: ["vinculos", "primeiro-ping"],
       producao: ["dashboard"],
+      atendimento: ["rela"],
       suporte: "all",
       config: ["logs"],
     },
@@ -166,6 +175,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
       cadastros: ["prospects", "solicitar-pdv"],
       producao: ["dashboard"],
       financeiro: ["consulta-painel"],
+      atendimento: ["rela"],
     },
     roles: ["relacionamento"],
   },

@@ -24,6 +24,7 @@ export type PortalModuleId =
   | "financeiro"
   | "cadastros"
   | "criacao"
+  | "atendimento"
   | "suporte"
   | "chamados"
   | "config";
@@ -54,6 +55,7 @@ export const PORTAL_TOP_NAV: PortalTopNavItem[] = [
   { id: "financeiro", label: "Financeiro", icon: "💰", href: FINANCEIRO_HOME_HREF },
   { id: "cadastros", label: "Cadastros", icon: "📋", href: CADASTROS_HOME_HREF },
   { id: "criacao", label: "Criação", icon: "🎵", href: CRIACAO_HOME_HREF },
+  { id: "atendimento", label: "Atendimento", icon: "💬", href: "/atendimento/rela" },
   { id: "suporte", label: "Suporte", icon: "🎧", href: "/suporte" },
   { id: "chamados", label: "Chamados", icon: "🎫", href: "/chamados" },
   {
@@ -106,6 +108,10 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
           },
     ),
   },
+  atendimento: {
+    section: "Atendimento",
+    items: [{ href: "/atendimento/rela", icon: "📋", label: "Rela" }],
+  },
   suporte: {
     section: "Suporte",
     items: [
@@ -114,7 +120,6 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
       { href: "/suporte/site-clientes", icon: "🌐", label: "Site clientes" },
       { href: "/suporte/avisos-player", icon: "📢", label: "Avisos player" },
       { href: "/suporte/instalacao", icon: "📦", label: "Instalação" },
-      { href: "/suporte/to-instalado", icon: "✅", label: "Tô Instalado" },
     ],
   },
   chamados: {
@@ -136,6 +141,7 @@ export function resolvePortalModule(pathname: string): PortalModuleId {
   if (pathname.startsWith("/financeiro") || pathname.startsWith("/cobranca")) return "financeiro";
   if (pathname.startsWith("/cadastros")) return "cadastros";
   if (pathname.startsWith("/criacao")) return "criacao";
+  if (pathname.startsWith("/atendimento")) return "atendimento";
   if (pathname.startsWith("/suporte") || pathname.startsWith("/producao/suporte")) return "suporte";
   if (pathname.startsWith("/chamados")) return "chamados";
   if (pathname.startsWith("/config")) return "config";

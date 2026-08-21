@@ -45,6 +45,203 @@ body {
   margin-bottom: 1.75rem;
 }
 
+.brand-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+  padding: 1.25rem 1.35rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(236, 72, 153, 0.12));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+}
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brand-star {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #ec4899, #a855f7);
+  clip-path: polygon(
+    50% 0%,
+    61% 35%,
+    98% 35%,
+    68% 57%,
+    79% 91%,
+    50% 70%,
+    21% 91%,
+    32% 57%,
+    2% 35%,
+    39% 35%
+  );
+  box-shadow: 0 0 18px rgba(236, 72, 153, 0.45);
+}
+
+.brand-wordmark {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+
+.brand-name {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.brand-sub {
+  font-size: 0.65rem;
+  letter-spacing: 0.22em;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 0.15rem;
+}
+
+.brand-copy {
+  flex: 1;
+  min-width: 200px;
+}
+
+.brand-copy h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.brand-copy .grupo-nome {
+  font-weight: 600;
+  color: #f0abfc;
+}
+
+.brand-copy .meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.pdv-panel {
+  margin-bottom: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  background: linear-gradient(135deg, rgba(30, 27, 75, 0.75), rgba(88, 28, 135, 0.35));
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+}
+
+.pdv-panel-toggle {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 1rem 1.15rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pdv-panel-toggle:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.pdv-toggle-icon {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: #e9d5ff;
+  transition: transform 0.2s ease;
+}
+
+.pdv-toggle-icon.open {
+  transform: rotate(90deg);
+}
+
+.pdv-panel-hint {
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.85rem;
+}
+
+.pdv-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(167, 139, 250, 0.2);
+  color: #e9d5ff;
+}
+
+.pdv-panel-body {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.35rem 0.5rem 0.75rem;
+}
+
+.pdv-panel-body.hidden {
+  display: none;
+}
+
+.pdv-sub {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 0.15rem;
+}
+
+.pdv-table-wrap {
+  margin-top: 0.25rem;
+}
+
+.pdv-table {
+  min-width: 720px;
+}
+
+.badge-online {
+  background: rgba(34, 197, 94, 0.22);
+  color: #86efac;
+}
+
+.badge-hoje {
+  background: rgba(251, 191, 36, 0.22);
+  color: #fde68a;
+}
+
+.badge-offline {
+  background: rgba(244, 63, 94, 0.22);
+  color: #fecdd3;
+}
+
+.badge-sem_install {
+  background: rgba(167, 139, 250, 0.22);
+  color: #ddd6fe;
+}
+
+.cache-bar {
+  display: inline-block;
+  vertical-align: middle;
+  width: 3.5rem;
+  height: 0.35rem;
+  margin-right: 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.cache-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #a855f7, #ec4899);
+}
+
 .dash-header h1 {
   margin: 0.15rem 0 0;
   font-size: 1.65rem;

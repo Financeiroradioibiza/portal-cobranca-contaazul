@@ -43,6 +43,11 @@ export function resolvePathMenuPermission(
     return { module: "criacao", subId: sub };
   }
 
+  if (path.startsWith("/atendimento/")) {
+    const sub = path.slice("/atendimento/".length).split("/")[0];
+    return sub ? { module: "atendimento", subId: sub } : null;
+  }
+
   if (path.startsWith("/suporte") || path.startsWith("/producao/suporte")) {
     if (path === "/suporte" || path === "/producao/suporte") {
       return { module: "suporte", subId: "central" };

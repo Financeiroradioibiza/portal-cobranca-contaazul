@@ -4,7 +4,15 @@
   if (!root || !auth) return;
 
   var expanded = {};
+  var pdvPanelOpen = false;
   var toastTimer = null;
+
+  var STATUS_META = {
+    online: { label: "ONLINE", cls: "badge-online" },
+    hoje: { label: "HOJE", cls: "badge-hoje" },
+    offline: { label: "OFFLINE", cls: "badge-offline" },
+    sem_install: { label: "SEM INSTALL", cls: "badge-sem_install" },
+  };
 
   function esc(s) {
     if (s == null) return "";
@@ -199,23 +207,87 @@
     return t;
   }
 
-  function render(data) {
-    var perm = data.permissoes || {};
-    var clientes = data.clientes || [];
-    var period = data.period || {};
+  function fmtDt(iso) {
+    if (!iso) return "—";
+    try {
+      return new Intl.DateTimeFormat("pt-BR", {
+        dateStyle: "short",
+        timeStyle: "short",
+        timeZone: "America/Sao_Paulo",
+      }).format(new Date(iso));
+    } catch (e) {
+      return iso;
+    }
+  }
 
+  function renderBrandHeader(data) {
+    var grupo = data.grupoNome || "Grupo";
     var html = "";
-    html += '<header class="dash-header">';
-    html += "<div>";
-    html += '<p class="grupo">' + esc(data.grupoNome || "Grupo") + "</p>";
-    html += "<h1>Cobranças</h1>";
+    html += '<div class="brand-bar">';
+    html += '<div class="brand-logo" aria-hidden="true">';
+    html += '<span class="brand-star"></span>';
+    html += '<span class="brand-wordmark"><span class="brand-name">RADIO IBIZA</span>';
+    html += '<span class="brand-sub">CLIENTE</span></span>';
+    html += "</div>";
+    html += '<div class="brand-copy">';
+    html += '<h1>Portal de cobrança <span class="grupo-nome">(' + esc(grupo) + ")</span></h1>";
     html += '<p class="meta">Olá, ' + esc(data.usuarioNome || "") + "</p>";
     html += "</div>";
     html += '<div class="header-actions">';
     html += '<button type="button" class="btn-outline" id="btn-refresh">Atualizar</button>';
     html += '<button type="button" class="btn-outline" id="btn-logout">Sair</button>';
     html += "</div>";
-    html += "</header>";
+    html += "</div>";
+    return html;
+  }
+
+  function renderPdvInstalacao(pdvs) {
+    if (!pdvs || !pdvs.length) return "";
+    var html = "";
+    html += '<section class="pdv-panel">';
+    html += '<button type="button" class="pdv-panel-toggle" id="pdv-toggle" aria-expanded="' + (pdvPanelOpen ? "true" : "false") + '">';
+    html += '<span class="pdv-toggle-icon' + (pdvPanelOpen ? " open" : "") + '" aria-hidden="true">▶</span>';
+    html += "<span><strong>Mostrar lojas instaladas</strong>";
+    html += '<span class="pdv-panel-hint"> — status do player nas unidades do seu grupo</span></span>';
+    html += '<span class="pdv-count">' + pdvs.length + " loja(s)</span>";
+    html += "</button>";
+    html += '<div class="pdv-panel-body' + (pdvPanelOpen ? "" : " hidden") + '" id="pdv-panel-body">';
+    html += '<div class="table-wrap pdv-table-wrap"><table class="pdv-table"><thead><tr>';
+    html += "<th>Loja</th><th>CNPJ</th><th>Cache</th><th>Status</th><th>1º ping</th><th>Últ. ping</th><th>Versão</th>";
+    html += "</tr></thead><tbody>";
+    for (var i = 0; i < pdvs.length; i += 1) {
+      var p = pdvs[i];
+      var meta = STATUS_META[p.status] || STATUS_META.offline;
+      var cache = p.cachePercent != null ? p.cachePercent : 0;
+      html += "<tr>";
+      html += "<td><strong>" + esc(p.nome) + "</strong>";
+      if (p.clienteNome) {
+        html += '<div class="pdv-sub">' + esc(p.clienteNome) + "</div>";
+      }
+      html += "</td>";
+      html += "<td>" + esc(p.cnpj || "—") + "</td>";
+      html += '<td><span class="cache-bar"><span style="width:' + cache + '%"></span></span>' + cache + "%</td>";
+      html += '<td><span class="badge ' + meta.cls + '">' + meta.label + "</span></td>";
+      html += "<td>" + esc(fmtDt(p.firstPingAt)) + "</td>";
+      html += "<td>" + esc(fmtDt(p.lastPingAt)) + "</td>";
+      html += "<td>" + esc(p.playerVersion || "—") + "</td>";
+      html += "</tr>";
+    }
+    html += "</tbody></table></div>";
+    html += "</div></section>";
+    return html;
+  }
+
+  function render(data) {
+    var perm = data.permissoes || {};
+    var clientes = data.clientes || [];
+    var pdvs = data.pdvsInstalacao || [];
+    var period = data.period || {};
+
+    var html = "";
+    html += renderBrandHeader(data);
+
+    html += renderPdvInstalacao(pdvs);
 
     html +=
       '<p class="period-note">Parcelas dos últimos 12 meses (vencimento ' +
@@ -330,6 +402,18 @@
     if (btnRefresh) {
       btnRefresh.addEventListener("click", function () {
         load();
+      });
+    }
+
+    var pdvToggle = document.getElementById("pdv-toggle");
+    if (pdvToggle) {
+      pdvToggle.addEventListener("click", function () {
+        pdvPanelOpen = !pdvPanelOpen;
+        var body = document.getElementById("pdv-panel-body");
+        var icon = pdvToggle.querySelector(".pdv-toggle-icon");
+        if (body) body.classList.toggle("hidden", !pdvPanelOpen);
+        if (icon) icon.classList.toggle("open", pdvPanelOpen);
+        pdvToggle.setAttribute("aria-expanded", pdvPanelOpen ? "true" : "false");
       });
     }
 
