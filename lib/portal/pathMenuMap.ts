@@ -1,5 +1,6 @@
 import type { PortalMenuModuleId } from "@/lib/portal/menuPermissions";
 import {
+  hasLegacyAtendimentoModuleAccess,
   hasLegacySuporteModuleAccess,
   isSubAllowed,
   type PortalPermissionsMap,
@@ -19,8 +20,19 @@ export function resolvePathMenuPermission(
 ): { module: PortalMenuModuleId; subId: string } | null {
   const path = pathname.split("?")[0] ?? pathname;
 
-  if (path === "/" || path.startsWith("/clientes") || path.startsWith("/musicboard")) {
+  if (path === "/") {
     return { module: "producao", subId: "dashboard" };
+  }
+
+  if (path === "/clientes" || path.startsWith("/clientes/")) {
+    if (path === "/clientes/likes" || path.startsWith("/clientes/likes/")) {
+      return { module: "atendimento", subId: "likes" };
+    }
+    return { module: "atendimento", subId: "clientes" };
+  }
+
+  if (path.startsWith("/musicboard")) {
+    return { module: "atendimento", subId: "musicboard" };
   }
 
   if (path.startsWith("/financeiro/")) {
@@ -31,7 +43,10 @@ export function resolvePathMenuPermission(
   if (path.startsWith("/cadastros/")) {
     const sub = path.slice("/cadastros/".length).split("/")[0];
     if (!sub) return null;
-    if (sub === "cliente-pdv-novo") return { module: "cadastros", subId: "solicitar-pdv" };
+    if (sub === "cliente-pdv-novo" || sub === "solicitar-pdv") {
+      return { module: "atendimento", subId: "solicitar-pdv" };
+    }
+    if (sub === "prospects") return { module: "atendimento", subId: "prospects" };
     return { module: "cadastros", subId: sub };
   }
 
@@ -89,6 +104,13 @@ export function isTopNavModuleVisible(
 
   if (moduleId === "dashboard") {
     return isSubAllowed("producao", "dashboard", perm);
+  }
+  if (moduleId === "atendimento") {
+    const p = perm.atendimento;
+    if (p === "all") return true;
+    if (Array.isArray(p) && p.length > 0) return true;
+    if (hasLegacyAtendimentoModuleAccess(perm)) return true;
+    return false;
   }
   if (moduleId === "suporte") {
     return isSuporteModuleVisible(perm);

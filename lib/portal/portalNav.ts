@@ -70,12 +70,7 @@ export const PORTAL_TOP_NAV: PortalTopNavItem[] = [
 export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: PortalSidebarItem[] }> = {
   dashboard: {
     section: "Dashboard",
-    items: [
-      { href: PORTAL_HOME_HREF, icon: "🏠", label: "Visão geral" },
-      { href: "/clientes", icon: "👥", label: "Clientes", exact: true },
-      { href: "/clientes/likes", icon: "👍", label: "Likes" },
-      { href: "/musicboard", icon: "🎨", label: "MusicBoard" },
-    ],
+    items: [{ href: PORTAL_HOME_HREF, icon: "🏠", label: "Visão geral" }],
   },
   financeiro: {
     section: "Financeiro",
@@ -110,7 +105,14 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
   },
   atendimento: {
     section: "Atendimento",
-    items: [{ href: "/atendimento/rela", icon: "📋", label: "Rela" }],
+    items: [
+      { href: "/atendimento/rela", icon: "📋", label: "Rela" },
+      { href: "/clientes", icon: "👥", label: "Clientes", exact: true },
+      { href: "/clientes/likes", icon: "👍", label: "Likes" },
+      { href: "/musicboard", icon: "🎨", label: "MusicBoard" },
+      { href: "/cadastros/prospects", icon: "🆕", label: "Prospects" },
+      { href: "/cadastros/solicitar-pdv", icon: "📻", label: "Cadastrar PDV" },
+    ],
   },
   suporte: {
     section: "Suporte",
@@ -139,6 +141,15 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
 
 export function resolvePortalModule(pathname: string): PortalModuleId {
   if (pathname.startsWith("/financeiro") || pathname.startsWith("/cobranca")) return "financeiro";
+  if (
+    pathname.startsWith("/clientes") ||
+    pathname.startsWith("/musicboard") ||
+    pathname.startsWith("/cadastros/prospects") ||
+    pathname.startsWith("/cadastros/solicitar-pdv") ||
+    pathname.startsWith("/cadastros/cliente-pdv-novo")
+  ) {
+    return "atendimento";
+  }
   if (pathname.startsWith("/cadastros")) return "cadastros";
   if (pathname.startsWith("/criacao")) return "criacao";
   if (pathname.startsWith("/atendimento")) return "atendimento";

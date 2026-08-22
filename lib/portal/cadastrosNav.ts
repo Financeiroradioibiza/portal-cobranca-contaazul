@@ -4,8 +4,6 @@ export const CADASTROS_SIDEBAR = [
   { href: "/cadastros/vinculos", label: "IDs Player", icon: "🔢" },
   { href: "/cadastros/primeiro-ping", label: "Primeiro ping", icon: "📡" },
   { href: "/cadastros/atualizacoes", label: "Atl. cadastros", icon: "🔄" },
-  { href: "/cadastros/prospects", label: "Prospects", icon: "🆕" },
-  { href: "/cadastros/solicitar-pdv", label: "Cadastrar PDV", icon: "📻" },
 ] as const;
 
 /** Página principal ao clicar em Cadastros no topo. */

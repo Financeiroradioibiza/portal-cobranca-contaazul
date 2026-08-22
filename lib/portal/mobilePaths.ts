@@ -5,6 +5,7 @@ const DESKTOP_PORTAL_PREFIXES = [
   "/financeiro",
   "/cadastros",
   "/criacao",
+  "/atendimento",
   "/suporte",
   "/chamados",
   "/config",

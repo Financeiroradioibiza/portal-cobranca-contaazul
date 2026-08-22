@@ -23,8 +23,6 @@ export const PORTAL_MENU_MODULES = [
       { id: "vinculos", label: "Lista vínculos" },
       { id: "primeiro-ping", label: "Primeiro ping" },
       { id: "atualizacoes", label: "Atl. cadastros" },
-      { id: "prospects", label: "Prospects" },
-      { id: "solicitar-pdv", label: "Cadastrar PDV" },
     ],
   },
   {
@@ -37,7 +35,14 @@ export const PORTAL_MENU_MODULES = [
     id: "atendimento",
     icon: "💬",
     label: "Atendimento",
-    subs: [{ id: "rela", label: "Rela" }],
+    subs: [
+      { id: "rela", label: "Rela" },
+      { id: "clientes", label: "Clientes" },
+      { id: "likes", label: "Likes" },
+      { id: "musicboard", label: "MusicBoard" },
+      { id: "prospects", label: "Prospects" },
+      { id: "solicitar-pdv", label: "Cadastrar PDV" },
+    ],
   },
   {
     id: "suporte",
@@ -134,6 +139,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     perm: {
       cadastros: ["grupos"],
       producao: ["dashboard"],
+      atendimento: ["musicboard"],
       criacao: "all",
     },
     roles: ["criacao"],
@@ -145,7 +151,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     desc: "Cobrança e planilha Rio. Visualiza cadastros.",
     perm: {
       financeiro: "all",
-      cadastros: ["vinculos", "prospects", "solicitar-pdv"],
+      cadastros: ["vinculos"],
       atendimento: "all",
       config: ["logs"],
     },
@@ -160,7 +166,7 @@ export const DEFAULT_PORTAL_PROFILES: Record<
       financeiro: ["consulta-painel"],
       cadastros: ["vinculos", "primeiro-ping"],
       producao: ["dashboard"],
-      atendimento: ["rela"],
+      atendimento: ["rela", "clientes", "likes", "musicboard"],
       suporte: "all",
       config: ["logs"],
     },
@@ -172,10 +178,9 @@ export const DEFAULT_PORTAL_PROFILES: Record<
     sortOrder: 6,
     desc: "Prospects, pedidos de cliente novo e consulta operacional.",
     perm: {
-      cadastros: ["prospects", "solicitar-pdv"],
       producao: ["dashboard"],
       financeiro: ["consulta-painel"],
-      atendimento: ["rela"],
+      atendimento: ["rela", "clientes", "likes", "musicboard", "prospects", "solicitar-pdv"],
     },
     roles: ["relacionamento"],
   },
@@ -235,6 +240,19 @@ export function hasLegacySuporteModuleAccess(perm: PortalPermissionsMap): boolea
   return Array.isArray(prod) && prod.includes("suporte");
 }
 
+/** Perfis antigos: clientes/likes/musicboard em producao.dashboard; prospects/pdv em cadastros. */
+export function hasLegacyAtendimentoModuleAccess(perm: PortalPermissionsMap): boolean {
+  const prod = perm.producao;
+  if (prod === "all") return true;
+  if (Array.isArray(prod) && prod.includes("dashboard")) return true;
+
+  const cad = perm.cadastros;
+  if (cad === "all") return true;
+  if (Array.isArray(cad) && (cad.includes("prospects") || cad.includes("solicitar-pdv"))) return true;
+
+  return false;
+}
+
 export function countAccessibleSubs(
   moduleId: PortalMenuModuleId,
   perm: PortalPermissionsMap | "all",
@@ -265,6 +283,20 @@ export function isSubAllowed(
   }
   const p = (perm as PortalPermissionsMap)[moduleId];
   if (p === "all") return true;
-  if (Array.isArray(p)) return p.includes(subId);
+  if (Array.isArray(p) && p.includes(subId)) return true;
+
+  if (moduleId === "atendimento") {
+    if (["clientes", "likes", "musicboard"].includes(subId)) {
+      const prod = (perm as PortalPermissionsMap).producao;
+      if (prod === "all") return true;
+      if (Array.isArray(prod) && prod.includes("dashboard")) return true;
+    }
+    if (subId === "prospects" || subId === "solicitar-pdv") {
+      const cad = (perm as PortalPermissionsMap).cadastros;
+      if (cad === "all") return true;
+      if (Array.isArray(cad) && cad.includes(subId)) return true;
+    }
+  }
+
   return false;
 }
