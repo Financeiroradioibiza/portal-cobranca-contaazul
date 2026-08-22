@@ -11,12 +11,20 @@ import {
 } from "@/lib/cadastros/producaoHierarchy";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { loadRioLinhasForProducao } from "@/lib/cadastros/producaoMovimento";
+import { prisma } from "@/lib/prisma";
 import { listVinculosForMonth } from "@/lib/player/listPortalPlayerRows";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
 import { getRioCompMonthWithLinhas, type RioCompGrupoDto } from "@/lib/rio/rioClienteCompService";
 import type { RioCompLinhaEnriched } from "@/lib/rio/enrichRioLinhasPrimeiroPing";
-import { sortRioCompGruposForDisplay } from "@/lib/rio/sortRioCompLinhas";
-import { compareRioLinhasByNomeFantasia } from "@/lib/rio/sortRioCompLinhas";
+import {
+  compareRioLinhasByNomeFantasia,
+  sortRioCompGruposForDisplay,
+} from "@/lib/rio/sortRioCompLinhas";
+import {
+  effectiveRioTagCobranca,
+  type RioTagCobranca,
+} from "@/lib/rio/rioTagCobranca";
+import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
 
 export type RelaFinanceiroPdvRow = {
@@ -24,24 +32,38 @@ export type RelaFinanceiroPdvRow = {
   nome: string;
   documento: string | null;
   primeiroPingEm: string | null;
+  tagCobranca: RioTagCobranca;
 };
 
 export type RelaFinanceiroClienteRow = {
   id: string;
-  marcaBloco: string;
   cliente: string;
   cnpj: string;
   valor: string;
   nPdvs: number;
   emailCobranca: string;
   primeiroPingEm: string | null;
+  tagCobranca: RioTagCobranca;
+  temPdvs: boolean;
   pdvs: RelaFinanceiroPdvRow[];
+};
+
+export type RelaFinanceiroMarcaBlock = {
+  id: string;
+  nome: string;
+  clienteCount: number;
+  pdvTotal: number;
+  valorTotalLabel: string;
+  clientes: RelaFinanceiroClienteRow[];
 };
 
 export type RelaProducaoPdvRow = {
   rioPdvKey: string;
   nome: string;
   documento: string | null;
+  contatoLojaNome: string;
+  contatoLojaEmail: string;
+  contatoLojaTelefone: string;
   portalPdvId: number | null;
   portalPdvLabel: string | null;
   isLinhaProxy: boolean;
@@ -60,7 +82,7 @@ export type AtendimentoRelaPayload = {
   ok: true;
   yearMonth: number;
   geradoEm: string;
-  financeiro: RelaFinanceiroClienteRow[];
+  financeiro: RelaFinanceiroMarcaBlock[];
   producao: RelaProducaoClienteRow[];
 };
 
@@ -88,6 +110,11 @@ function formatEmail(raw: string | null | undefined): string {
   return t || "—";
 }
 
+function formatCampo(raw: string | null | undefined): string {
+  const t = raw?.trim();
+  return t || "—";
+}
+
 function activePdvs<T extends { movimento?: string | null }>(pdvs: T[]): T[] {
   return pdvs.filter((p) => (p.movimento ?? "estavel") !== "saida");
 }
@@ -103,16 +130,15 @@ function earliestIso(dates: Array<string | null | undefined>): string | null {
   return best != null ? new Date(best).toISOString() : null;
 }
 
-function mapFinanceiroLinha(
-  ln: RioCompLinhaEnriched,
-  marcaBloco: string,
-): RelaFinanceiroClienteRow {
+function mapFinanceiroLinha(ln: RioCompLinhaEnriched): RelaFinanceiroClienteRow {
+  const linhaTag = ln.tagCobranca ?? "cobrando";
   const pdvsVisiveis = activePdvs(ln.pdvs);
   const pdvs: RelaFinanceiroPdvRow[] = pdvsVisiveis.map((p) => ({
     id: p.id,
     nome: p.nome,
     documento: p.documento,
     primeiroPingEm: (p as { primeiroPingEm?: string | null }).primeiroPingEm ?? null,
+    tagCobranca: effectiveRioTagCobranca(p.tagCobranca, linhaTag),
   }));
 
   const primeiroPingEm =
@@ -125,24 +151,23 @@ function mapFinanceiroLinha(
 
   return {
     id: ln.id,
-    marcaBloco,
     cliente: ln.nomeFantasia?.trim() || ln.razaoSocial?.trim() || "—",
     cnpj: formatDoc(ln.documento),
     valor: linhaValorDisplay(ln),
     nPdvs,
     emailCobranca: formatEmail(ln.emailCobranca),
     primeiroPingEm,
+    tagCobranca: linhaTag,
+    temPdvs: pdvs.length > 0,
     pdvs,
   };
 }
 
-function buildFinanceiroRows(
+function buildFinanceiroBlocks(
   grupos: RioCompGrupoDto[],
   linhas: RioCompLinhaEnriched[],
-): RelaFinanceiroClienteRow[] {
-  const gruposOrd = sortRioCompGruposForDisplay(
-    grupos.filter((g) => !g.systemTag),
-  );
+): RelaFinanceiroMarcaBlock[] {
+  const gruposOrd = sortRioCompGruposForDisplay(grupos.filter((g) => !g.systemTag));
   const nomeByGrupoId = new Map(gruposOrd.map((g) => [g.id, g.nome]));
   const byGrupo = new Map<string, RioCompLinhaEnriched[]>();
   const orphans: RioCompLinhaEnriched[] = [];
@@ -159,17 +184,36 @@ function buildFinanceiroRows(
     }
   }
 
-  const rows: RelaFinanceiroClienteRow[] = [];
+  const blocks: RelaFinanceiroMarcaBlock[] = [];
+
   for (const g of gruposOrd) {
-    const list = (byGrupo.get(g.id) ?? []).sort(compareRioLinhasByNomeFantasia);
-    for (const ln of list) {
-      rows.push(mapFinanceiroLinha(ln, g.nome));
-    }
+    const raw = (byGrupo.get(g.id) ?? []).sort(compareRioLinhasByNomeFantasia);
+    if (raw.length === 0) continue;
+    const totals = sumRioLinhasTotals(raw);
+    blocks.push({
+      id: g.id,
+      nome: g.nome,
+      clienteCount: raw.length,
+      pdvTotal: totals.pdvTotal,
+      valorTotalLabel: formatRioValorTotal(totals.valorHasAny, totals.valorTotal),
+      clientes: raw.map(mapFinanceiroLinha),
+    });
   }
-  for (const ln of orphans.sort(compareRioLinhasByNomeFantasia)) {
-    rows.push(mapFinanceiroLinha(ln, "Sem marca"));
+
+  if (orphans.length > 0) {
+    const sorted = orphans.sort(compareRioLinhasByNomeFantasia);
+    const totals = sumRioLinhasTotals(sorted);
+    blocks.push({
+      id: "__sem_marca__",
+      nome: "Sem MARCA",
+      clienteCount: sorted.length,
+      pdvTotal: totals.pdvTotal,
+      valorTotalLabel: formatRioValorTotal(totals.valorHasAny, totals.valorTotal),
+      clientes: sorted.map(mapFinanceiroLinha),
+    });
   }
-  return rows;
+
+  return blocks;
 }
 
 function layoutFromPayload(layout: Awaited<ReturnType<typeof getProducaoCatalogLayout>>): ProducaoLayoutState {
@@ -199,7 +243,7 @@ export async function buildAtendimentoRelaPayload(): Promise<AtendimentoRelaPayl
     links.set(row.rioPdvId, row.link);
   }
 
-  const financeiro = buildFinanceiroRows(
+  const financeiro = buildFinanceiroBlocks(
     rioBundle?.grupos ?? [],
     (rioBundle?.linhas ?? []) as RioCompLinhaEnriched[],
   );
@@ -209,23 +253,45 @@ export async function buildAtendimentoRelaPayload(): Promise<AtendimentoRelaPayl
   const merged = mergeProducaoLayout(base, layoutFromPayload(layout), { caByLinhaId });
   const visiveis = filterProducaoClientesVisiveis(merged);
 
+  const pdvKeys = visiveis.flatMap((c) => c.pdvs.map((p) => p.rioPdvId));
+  const cadastros =
+    pdvKeys.length > 0 ?
+      await prisma.producaoPdvCadastro.findMany({
+        where: { rioPdvKey: { in: pdvKeys } },
+        select: {
+          rioPdvKey: true,
+          cnpj: true,
+          contatoLojaNome: true,
+          contatoLojaEmail: true,
+          contatoLojaTelefone: true,
+        },
+      })
+    : [];
+  const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
+
   const producao: RelaProducaoClienteRow[] = visiveis.map((c) => ({
     key: c.key,
     nome: c.nome,
     rioLinhaId: c.rioLinhaId,
     documento: c.documento,
     pdvCount: c.pdvCount,
-    pdvs: c.pdvs.map((p) => ({
-      rioPdvKey: p.rioPdvId,
-      nome: p.nome,
-      documento: p.documento,
-      portalPdvId: p.portalPlayerId?.portalPdvId ?? null,
-      portalPdvLabel:
-        p.portalPlayerId ?
-          formatPortalPdvIdDisplay(p.portalPlayerId.portalPdvId)
-        : null,
-      isLinhaProxy: Boolean(p.isLinhaProxy),
-    })),
+    pdvs: c.pdvs.map((p) => {
+      const cad = cadastroByKey.get(p.rioPdvId);
+      return {
+        rioPdvKey: p.rioPdvId,
+        nome: p.nome,
+        documento: cad?.cnpj?.trim() || p.documento,
+        contatoLojaNome: formatCampo(cad?.contatoLojaNome),
+        contatoLojaEmail: formatCampo(cad?.contatoLojaEmail),
+        contatoLojaTelefone: formatCampo(cad?.contatoLojaTelefone),
+        portalPdvId: p.portalPlayerId?.portalPdvId ?? null,
+        portalPdvLabel:
+          p.portalPlayerId ?
+            formatPortalPdvIdDisplay(p.portalPlayerId.portalPdvId)
+          : null,
+        isLinhaProxy: Boolean(p.isLinhaProxy),
+      };
+    }),
   }));
 
   return {
