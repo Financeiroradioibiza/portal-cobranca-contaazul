@@ -1107,7 +1107,7 @@ export function ProducaoSuportePanel() {
   const [selectedClienteKey, setSelectedClienteKey] = useState<string | null>(null);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
   const [canceladosOpen, setCanceladosOpen] = useState(false);
-  const [forceLiveMode, setForceLiveMode] = useState(false);
+  const [modoFonte, setModoFonte] = useState<"live" | "espelho">("live");
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const fixedHScrollRef = useRef<HTMLDivElement>(null);
   const tableSectionRef = useRef<HTMLElement>(null);
@@ -1129,17 +1129,17 @@ export function ProducaoSuportePanel() {
     [clienteOptions, selectedClienteKey],
   );
 
-  const load = useCallback(async (opts?: { live?: boolean }) => {
+  const load = useCallback(async (opts?: { fonte?: "live" | "espelho" }) => {
     setBusy(true);
     setMsg("");
-    const live = opts?.live ?? forceLiveMode;
+    const fonte = opts?.fonte ?? modoFonte;
     try {
-      const url = live ? "/api/producao/suporte?live=1" : "/api/producao/suporte";
+      const url = fonte === "live" ? "/api/producao/suporte?live=1" : "/api/producao/suporte";
       const res = await fetch(url);
       const json = (await res.json()) as ProducaoSuportePayload & { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "erro");
       setData(json);
-      if (live) setForceLiveMode(true);
+      setModoFonte(fonte);
       setVisibleCount(DEFAULT_BATCH);
     } catch (e) {
       const raw = e instanceof Error ? e.message : "Erro ao carregar suporte.";
@@ -1148,7 +1148,7 @@ export function ProducaoSuportePanel() {
     } finally {
       setBusy(false);
     }
-  }, [forceLiveMode]);
+  }, [modoFonte]);
 
   useEffect(() => {
     void load();
@@ -1278,35 +1278,29 @@ export function ProducaoSuportePanel() {
         <p className="mb-3 text-sm text-rose-700 dark:text-rose-400">{msg}</p>
       : null}
 
-      {data?.suporteFonte && data.suporteFonte !== "espelho" ?
+      {data?.suporteFonte === "espelho_fallback" ?
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/60 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
           <div>
-            <p className="font-semibold">
-              {data.suporteFonte === "live" ?
-                "Modo ao vivo (espelho desligado ou forçado)"
-              : "Fallback ao vivo — espelho falhou"}
-            </p>
+            <p className="font-semibold">Espelho indisponível — exibindo ao vivo</p>
             {data.suporteFonteErro ?
               <p className="mt-0.5 text-[11px] opacity-90">{data.suporteFonteErro}</p>
             : null}
-            <p className="mt-0.5 text-[11px] opacity-80">
-              Mais lento, porém seguro se o snapshot estiver quebrado. Env de emergência:{" "}
-              <code className="rounded bg-amber-100/80 px-1 dark:bg-amber-900/50">SUPORTE_ESPELHO=0</code>
-            </p>
           </div>
-          {data.suporteFonte === "espelho_fallback" ?
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setForceLiveMode(false);
-                void load({ live: false });
-              }}
-              className="shrink-0 rounded-lg border border-amber-600 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-950 dark:text-amber-100"
-            >
-              Tentar espelho de novo
-            </button>
-          : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void load({ fonte: "espelho" })}
+            className="shrink-0 rounded-lg border border-amber-600 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-950 dark:text-amber-100"
+          >
+            Tentar espelho de novo
+          </button>
+        </div>
+      : modoFonte === "espelho" && data?.suporteFonte === "espelho" ?
+        <div className="mb-3 rounded-lg border border-fuchsia-300/60 bg-fuchsia-50 px-3 py-2 text-sm text-fuchsia-950 dark:border-fuchsia-800 dark:bg-fuchsia-950/30 dark:text-fuchsia-100">
+          <p className="font-semibold">Modo espelho (pré-processado)</p>
+          <p className="mt-0.5 text-[11px] opacity-80">
+            Snapshot em cache — telemetria atualiza em background. Use ao vivo se algo parecer desatualizado.
+          </p>
         </div>
       : null}
 
@@ -1314,25 +1308,31 @@ export function ProducaoSuportePanel() {
         <button
           type="button"
           disabled={busy}
-          onClick={() => void load({ live: true })}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
-          title="Recalcula na hora (cloud2 + cadastros) — use se o espelho estiver estranho"
+          onClick={() => void load({ fonte: "live" })}
+          className={
+            "rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 " +
+            (modoFonte === "live" ?
+              "border-fuchsia-500 bg-fuchsia-600 text-white hover:bg-fuchsia-700 dark:border-fuchsia-500 dark:bg-fuchsia-700"
+            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200")
+          }
+          title="Recalcula na hora (cloud2 + cadastros)"
         >
           Recarregar ao vivo
         </button>
-        {forceLiveMode ?
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setForceLiveMode(false);
-              void load({ live: false });
-            }}
-            className="rounded-lg border border-fuchsia-400 px-3 py-1.5 text-xs font-semibold text-fuchsia-800 hover:bg-fuchsia-50 disabled:opacity-50 dark:text-fuchsia-200"
-          >
-            Voltar ao espelho
-          </button>
-        : null}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void load({ fonte: "espelho" })}
+          className={
+            "rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 " +
+            (modoFonte === "espelho" ?
+              "border-fuchsia-500 bg-fuchsia-600 text-white hover:bg-fuchsia-700 dark:border-fuchsia-500 dark:bg-fuchsia-700"
+            : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200")
+          }
+          title="Listagem pré-processada (espelho suporte) — em desenvolvimento"
+        >
+          Acessar por espelho
+        </button>
       </div>
 
       <section className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1404,7 +1404,7 @@ export function ProducaoSuportePanel() {
           }
           sub={
             telemetriaDisponivel ?
-              `Pings hoje: ${ov?.pingsHoje ?? 0} · espelho suporte`
+              `Pings hoje: ${ov?.pingsHoje ?? 0} · ${modoFonte === "espelho" ? "espelho suporte" : "ao vivo"}`
             : "Player 5 → cloud2 → portal"
           }
           icon="📡"
@@ -1420,7 +1420,7 @@ export function ProducaoSuportePanel() {
         />
       </section>
 
-      {data?.espelhoBuiltAt ?
+      {modoFonte === "espelho" && data?.espelhoBuiltAt ?
         <p className="mb-3 text-[10px] text-slate-500">
           Espelho suporte: {new Date(data.espelhoBuiltAt).toLocaleString("pt-BR")}
           {data.espelhoTelemetryAt ?
@@ -1674,7 +1674,9 @@ export function ProducaoSuportePanel() {
               {busy && !data ?
                 <tr>
                   <td colSpan={colCount} className="px-4 py-6 text-sm text-slate-500">
-                    Carregando espelho do suporte…
+                    {modoFonte === "espelho" ?
+                      "Carregando espelho do suporte…"
+                    : "Carregando dados ao vivo…"}
                   </td>
                 </tr>
               : filtered.length === 0 ?
@@ -1742,10 +1744,15 @@ export function ProducaoSuportePanel() {
           </div>
         : null}
 
-        <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          Listagem pré-processada (espelho suporte). Ordem: 1º ping mais recente no topo. Telemetria
-          atualiza em background a cada ~12 min. Patch imediato ao regerar token ou editar cadastro.
-        </p>
+        {modoFonte === "espelho" ?
+          <p className="border-t border-dashed border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            Listagem pré-processada (espelho suporte). Ordem: 1º ping mais recente no topo. Telemetria
+            atualiza em background a cada ~12 min. Patch imediato ao regerar token ou editar cadastro.
+          </p>
+        : <p className="border-t border-dashed border-slate-200 bg-slate-50/80 px-4 py-2 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-300">
+            Dados recalculados ao vivo (cloud2 + cadastros). Pode demorar um pouco mais que o espelho.
+          </p>
+        }
       </section>
 
       {barMounted ?
