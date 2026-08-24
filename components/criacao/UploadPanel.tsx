@@ -495,12 +495,7 @@ export function UploadPanel() {
           `${data.stagingPending} faixa(s) do Download link entram na fila em segundo plano (1–2 min no servidor).`,
         );
       }
-      if (pastasByProg.size === 1) {
-        sessionStorage.setItem("criacao-open-prog", [...pastasByProg.keys()][0]!);
-        router.push("/criacao/programacoes");
-      } else {
-        router.push("/criacao/fila");
-      }
+      router.push("/criacao/fila");
     } catch {
       setMsg(
         "Falha de rede ao criar os jobs. Se veio do Download link, confira a Fila — o envio pode ter sido criado mesmo assim.",
