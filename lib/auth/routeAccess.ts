@@ -10,6 +10,10 @@ const FINANCEIRO: PortalRole[] = ["cobranca"];
 const CONSULTA_PAINEL: PortalRole[] = ["cobranca", "suporte"];
 const CADASTROS_FULL: PortalRole[] = ["cadastros"];
 const CADASTROS_VINCULOS: PortalRole[] = ["cadastros", "cobranca", "suporte"];
+/** Espelho Rio × Produção (Cadastros → grupos): leitura do mês, sem menu Financeiro. */
+const RIO_PLANILHA_CADASTROS_READ: PortalRole[] = ["cobranca", "cadastros"];
+
+const RIO_PLANILHA_CLIENTES_MONTH_YM = /^\/api\/rio-planilha\/clientes\/month\/(\d{6})\/?$/;
 const CADASTROS_RELACIONAMENTO: PortalRole[] = ["relacionamento", "cadastros", "cobranca"];
 const PRODUCAO: PortalRole[] = ["producao", "suporte", "criacao", "relacionamento", "cadastros"];
 
@@ -31,6 +35,23 @@ export function isRouteAccessAllowed(rule: RouteAccessRule, roles: PortalRole[])
   }
 }
 
+/** GET espelho planilha Rio usado em Cadastros (Rio × Produção / lista de meses em vínculos). */
+function resolveRioPlanilhaCadastrosReadRule(
+  pathname: string,
+  method: string | undefined,
+): RouteAccessRule | null {
+  const verb = (method ?? "GET").toUpperCase();
+  if (verb !== "GET" && verb !== "HEAD") return null;
+
+  if (pathname === "/api/rio-planilha/clientes/months") {
+    return { kind: "roles", roles: CADASTROS_VINCULOS };
+  }
+  if (RIO_PLANILHA_CLIENTES_MONTH_YM.test(pathname)) {
+    return { kind: "roles", roles: RIO_PLANILHA_CADASTROS_READ };
+  }
+  return null;
+}
+
 function cadastrosApiRule(pathname: string): RouteAccessRule {
   if (
     pathname.includes("/prospects") ||
@@ -50,7 +71,13 @@ function cadastrosApiRule(pathname: string): RouteAccessRule {
 }
 
 /** Regra de acesso por caminho (páginas e APIs autenticadas). */
-export function resolveRouteAccessRule(pathname: string): RouteAccessRule | null {
+export function resolveRouteAccessRule(
+  pathname: string,
+  method?: string,
+): RouteAccessRule | null {
+  const rioCadastrosRead = resolveRioPlanilhaCadastrosReadRule(pathname, method);
+  if (rioCadastrosRead) return rioCadastrosRead;
+
   if (pathname.startsWith("/config") || pathname.startsWith("/api/config")) {
     return { kind: "master" };
   }

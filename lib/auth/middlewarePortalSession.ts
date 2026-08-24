@@ -49,7 +49,7 @@ export async function finishVerifiedPortalSession(
     }
   }
 
-  const accessRule = resolveRouteAccessRule(pathname);
+  const accessRule = resolveRouteAccessRule(pathname, request.method);
   if (accessRule && !isRouteAccessAllowed(accessRule, session.roles)) {
     return portalAccessDenied(request);
   }
