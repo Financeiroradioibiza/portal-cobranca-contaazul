@@ -16,6 +16,7 @@ import {
   hasProcessamentoPastaEspecialColumn,
 } from "@/lib/criacao/processamentoJobSchemaCompat";
 import { allocateFilaOrdemForBatch, allocateNextFilaOrdem } from "@/lib/criacao/filaOrdemService";
+import { CRIACAO_INGEST_URL, signTicket } from "@/lib/criacao/ingestTicket";
 
 export { recoverStagingForJob, recoverStagingForPendingItems, recoverStagingForActiveUploadJobs } from "@/lib/criacao/stagingRecoverService";
 
@@ -321,6 +322,7 @@ const UPLOAD_NAO_CONCLUIDO = "upload_nao_concluido";
 /**
  * Faixas que nunca receberam MP3 (upload falhou ou browser fechou) não devem
  * bloquear o lote quando o restante já terminou — marca como erro terminal.
+ * Grace: browser pode levar minutos enviando lote grande; nunca cancelar cedo.
  */
 export async function releaseMissingUploadItemsForJob(jobId: string): Promise<number> {
   const pendingNoUpload = await prisma.processamentoItem.count({
@@ -336,21 +338,52 @@ export async function releaseMissingUploadItemsForJob(jobId: string): Promise<nu
   });
   if (pendingReal > 0) return 0;
 
-  const concluidos = await prisma.processamentoItem.count({
-    where: { jobId, status: "concluido" },
+  const job = await prisma.processamentoJob.findUnique({
+    where: { id: jobId },
+    select: { createdAt: true, tipo: true },
   });
+  if (job?.tipo === "upload_pasta") {
+    const graceMs = Math.min(90 * 60 * 1000, Math.max(20 * 60 * 1000, pendingNoUpload * 8_000));
+    if (Date.now() - job.createdAt.getTime() < graceMs) return 0;
+  }
 
   const cutoff = new Date(Date.now() - 20 * 60 * 1000);
-  const where =
-    concluidos > 0 ?
-      { jobId, status: "aguardando" as const, rawStorageKey: null }
-    : { jobId, status: "aguardando" as const, rawStorageKey: null, updatedAt: { lt: cutoff } };
-
   const r = await prisma.processamentoItem.updateMany({
-    where,
+    where: { jobId, status: "aguardando", rawStorageKey: null, updatedAt: { lt: cutoff } },
     data: { status: "erro", etapaAtual: "upload", erroMsg: UPLOAD_NAO_CONCLUIDO },
   });
   return r.count;
+}
+
+/** Reabre faixas com upload_nao_concluido e devolve tickets para reenvio pelo browser. */
+export async function retryUploadFailuresForJob(jobId: string): Promise<{
+  reset: number;
+  ingestUrl: string;
+  tickets: Array<{ itemId: string; arquivoNome: string; token: string; exp: number }>;
+}> {
+  const failed = await prisma.processamentoItem.findMany({
+    where: { jobId, status: "erro", erroMsg: UPLOAD_NAO_CONCLUIDO },
+    select: { id: true, arquivoNome: true },
+    orderBy: { id: "asc" },
+  });
+  if (failed.length === 0) {
+    return { reset: 0, ingestUrl: CRIACAO_INGEST_URL, tickets: [] };
+  }
+
+  await prisma.processamentoItem.updateMany({
+    where: { id: { in: failed.map((f) => f.id) } },
+    data: { status: "aguardando", erroMsg: "", etapaAtual: "upload", updatedAt: new Date() },
+  });
+  await prisma.processamentoJob.update({
+    where: { id: jobId },
+    data: { status: "aguardando", finishedAt: null, etapaAtual: "upload", erroMsg: "" },
+  });
+
+  const tickets = failed.map((it) => {
+    const { token, exp } = signTicket(it.id, jobId);
+    return { itemId: it.id, arquivoNome: it.arquivoNome, token, exp };
+  });
+  return { reset: failed.length, ingestUrl: CRIACAO_INGEST_URL, tickets };
 }
 
 /** Varre jobs processando cujo único bloqueio são uploads ausentes. */

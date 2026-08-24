@@ -385,6 +385,19 @@ export function FilaPanel() {
                           {j.itensFeitos === 0 ? "Importar MP3" : "Recuperar MP3"}
                         </button>
                       : null}
+                      {j.erros > 0 && (j.status === "concluido" || j.status === "erro") ?
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sessionStorage.setItem("criacao-retry-job-id", j.id);
+                            sessionStorage.setItem("criacao-retry-job-label", `#${j.filaOrdem ?? "—"} · ${j.titulo}`);
+                            window.location.href = "/criacao/upload";
+                          }}
+                          className="shrink-0 rounded border border-amber-400 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                        >
+                          Retomar upload
+                        </button>
+                      : null}
                       <button
                         type="button"
                         onClick={() => void cancel(j.id)}
