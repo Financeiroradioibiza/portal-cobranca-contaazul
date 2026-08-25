@@ -165,7 +165,8 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
           ctrl_placa_carro CHAR(1) NOT NULL DEFAULT 'N',
           ctrl_playlists CHAR(1) NOT NULL DEFAULT 'N',
           atualizacao_pendente CHAR(1) NOT NULL DEFAULT 'N',
-          atualizacao_pendente_agenda CHAR(1) NOT NULL DEFAULT 'N'
+          atualizacao_pendente_agenda CHAR(1) NOT NULL DEFAULT 'N',
+          forcar_cache_completo CHAR(1) NOT NULL DEFAULT 'N'
         )
       `);
       await conn.query(`
@@ -197,6 +198,9 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
       await conn.query(`ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS atualizacao_pendente CHAR(1) NOT NULL DEFAULT 'N'`);
       await conn.query(
         `ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS atualizacao_pendente_agenda CHAR(1) NOT NULL DEFAULT 'N'`,
+      );
+      await conn.query(
+        `ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS forcar_cache_completo CHAR(1) NOT NULL DEFAULT 'N'`,
       );
       await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS status CHAR(1) NOT NULL DEFAULT 'A'`);
       await conn.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logotipo TEXT NOT NULL DEFAULT ''`);
@@ -419,6 +423,22 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
         await pulseAtualizacaoPendente(pool, { pdvIds })
       : await pulseAtualizacaoPendente(pool, { clienteId });
     return reply.send({ ok: true, pdvs: count });
+  });
+
+  /** Suporte — pedir retomada do cache incompleto no próximo ping do Player 5. */
+  app.post<{ Body: { pdvIds?: number[] } }>(`${PLAYER_PREFIX}/forcar-cache`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+    const pdvIdsRaw = Array.isArray(req.body?.pdvIds) ? req.body.pdvIds : [];
+    const pdvIds = pdvIdsRaw.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0);
+    if (pdvIds.length === 0) {
+      return reply.code(400).send({ ok: false, error: "parametros_invalidos" });
+    }
+    const pool = getPool();
+    const r = await pool.query(
+      `UPDATE pdvs SET forcar_cache_completo = 'S', updated_at = now() WHERE id = ANY($1::int[])`,
+      [pdvIds],
+    );
+    return reply.send({ ok: true, pdvs: r.rowCount ?? 0 });
   });
 
   /** Login cliente Player 5 — email + senha → cliente id + lista PDVs. */
@@ -680,6 +700,57 @@ export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix 
       return reply.send({ ok: true, syncedPdvIds, syncedClienteIds, pdvDetails });
     },
   );
+
+  /** PDVs com licença consumida (`instalado = S`) — Suporte → Tô Instalado. */
+  app.get(`${PLAYER_PREFIX}/instalacoes-concluidas`, async (req, reply) => {
+    if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
+
+    const pool = getPool();
+    const rows = await pool.query<{
+      pdv_id: number;
+      pdv_nome: string;
+      codigo_display: string | null;
+      cliente_id: number;
+      cliente_nome: string;
+      origem_rio_pdv_id: string | null;
+      instalado_em: Date;
+    }>(
+      `SELECT
+         p.id AS pdv_id,
+         p.nome AS pdv_nome,
+         p.codigo_display,
+         c.id AS cliente_id,
+         c.nome AS cliente_nome,
+         p.origem_rio_pdv_id,
+         COALESCE(p.updated_at, now()) AS instalado_em
+       FROM pdvs p
+       INNER JOIN clientes c ON c.id = p.cliente_id
+       WHERE COALESCE(p.instalado, 'N') = 'S'
+       ORDER BY instalado_em DESC
+       LIMIT 500`,
+    ).catch(() => ({ rows: [] as Array<{
+      pdv_id: number;
+      pdv_nome: string;
+      codigo_display: string | null;
+      cliente_id: number;
+      cliente_nome: string;
+      origem_rio_pdv_id: string | null;
+      instalado_em: Date;
+    }> }));
+
+    return reply.send({
+      ok: true,
+      rows: rows.rows.map((r) => ({
+        pdvId: r.pdv_id,
+        pdvNome: r.pdv_nome,
+        codigoDisplay: r.codigo_display,
+        clienteId: r.cliente_id,
+        clienteNome: r.cliente_nome,
+        rioPdvKey: r.origem_rio_pdv_id,
+        instaladoEm: r.instalado_em.toISOString(),
+      })),
+    });
+  });
 
   /** PDVs que já fizeram pelo menos um ping (primeiro ping registrado). */
   app.get(`${PLAYER_PREFIX}/first-pings`, async (req, reply) => {

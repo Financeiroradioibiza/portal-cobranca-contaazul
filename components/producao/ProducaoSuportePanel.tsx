@@ -732,13 +732,16 @@ function PlayerTelemetryHint({
 function PlayerTokenCell({
   row,
   canRegenerate,
+  canForcarBaixar,
   onRegenerated,
 }: {
   row: SuportePdvRow;
   canRegenerate: boolean;
+  canForcarBaixar: boolean;
   onRegenerated: (newToken: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [busyForcar, setBusyForcar] = useState(false);
   const token = row.playerInstalacaoToken;
 
   async function regerar() {
@@ -785,6 +788,37 @@ function PlayerTokenCell({
     }
   }
 
+  async function forcarBaixar() {
+    if (!canForcarBaixar || busyForcar || !row.telemetry.lastPingAt) return;
+    if (
+      !window.confirm(
+        "Pede ao player que baixe só as faixas que faltam no cache. Efeito no próximo ping (~60 min) ou ao reabrir o player. Continuar?",
+      )
+    ) {
+      return;
+    }
+    setBusyForcar(true);
+    try {
+      const res = await fetch(
+        `/api/suporte/pdv/${encodeURIComponent(row.rioPdvKey)}/forcar-baixar`,
+        { method: "POST" },
+      );
+      const data = (await res.json()) as { ok?: boolean; error?: string; gateway?: { pdvs?: number } };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? "falhou");
+      }
+      window.alert(
+        data.gateway?.pdvs ?
+          `Pedido enviado ao gateway (${data.gateway.pdvs} PDV). O player completa o cache no próximo ping ou ao reiniciar.`
+        : "Pedido enviado ao gateway.",
+      );
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Erro ao forçar baixar.");
+    } finally {
+      setBusyForcar(false);
+    }
+  }
+
   return (
     <div className="flex min-w-[7rem] flex-col gap-1">
       {token ?
@@ -806,6 +840,16 @@ function PlayerTokenCell({
           onClick={() => void regerar()}
         >
           {busy ? "…" : "Regerar"}
+        </button>
+      : null}
+      {canForcarBaixar && row.telemetry.lastPingAt ?
+        <button
+          type="button"
+          disabled={busyForcar}
+          className="rounded border border-sky-400 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-200"
+          onClick={() => void forcarBaixar()}
+        >
+          {busyForcar ? "…" : "Forçar baixar"}
         </button>
       : null}
     </div>
@@ -923,6 +967,7 @@ function PdvRow({
             <PlayerTokenCell
               row={row}
               canRegenerate={canRegenerarToken}
+              canForcarBaixar={canRegenerarToken}
               onRegenerated={(newToken) => onTokenRegenerated(row.rioPdvKey, newToken)}
             />
           </td>

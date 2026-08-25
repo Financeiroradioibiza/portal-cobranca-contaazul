@@ -13,6 +13,7 @@ function buildPingPdvPayload(row) {
     status: row.pdv_status ?? 'A',
     atualizacao_pendente: row.atualizacao_pendente ?? 'N',
     atualizacao_pendente_agenda: row.atualizacao_pendente_agenda ?? 'N',
+    forcar_cache_completo: row.forcar_cache_completo ?? 'N',
     ctrl_player: row.ctrl_player ?? 'N',
     ctrl_placa_carro: row.ctrl_placa_carro ?? 'N',
     ctrl_playlists: row.ctrl_playlists ?? 'N',
@@ -131,6 +132,13 @@ export async function registerPingRoutes(app, prefix) {
         .query(`UPDATE pdvs SET atualizacao_pendente = 'N' WHERE id = $1`, [rowAtivo.pdv_id])
         .catch(() => null);
       rowAtivo.atualizacao_pendente = 'N';
+    }
+
+    if (req.query.forcar_cache_ack === '1') {
+      await pool
+        .query(`UPDATE pdvs SET forcar_cache_completo = 'N' WHERE id = $1`, [rowAtivo.pdv_id])
+        .catch(() => null);
+      rowAtivo.forcar_cache_completo = 'N';
     }
 
     await gravarVotoMusicaPing(rowAtivo, req);
