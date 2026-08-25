@@ -127,6 +127,13 @@ async function resolveGatewayProgramaId(
 
 /** Sincroniza clientes/PDVs do portal Neon → gateway MySQL (IDs 100+, 100.001). */
 export async function registerPlayerRegistryRoutes(app: FastifyInstance, prefix = "/criacao"): Promise<void> {
+  const pool = getPool();
+  await pool
+    .query(
+      `ALTER TABLE pdvs ADD COLUMN IF NOT EXISTS forcar_cache_completo CHAR(1) NOT NULL DEFAULT 'N'`,
+    )
+    .catch(() => null);
+
   const PLAYER_PREFIX = `${prefix}/player`;
   app.post<{ Body: SyncBody }>(`${PLAYER_PREFIX}/sync-registry`, async (req, reply) => {
     if (!authorized(req)) return reply.code(401).send({ ok: false, error: "nao_autorizado" });
