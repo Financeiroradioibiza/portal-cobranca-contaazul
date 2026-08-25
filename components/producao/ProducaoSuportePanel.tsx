@@ -729,6 +729,89 @@ function PlayerTelemetryHint({
   return null;
 }
 
+function CacheTelemetryCell({
+  row,
+  telemetriaDisponivel,
+  onTelemetryRefreshed,
+}: {
+  row: SuportePdvRow;
+  telemetriaDisponivel: boolean;
+  onTelemetryRefreshed: (
+    rioPdvKey: string,
+    patch: {
+      telemetry: SuportePdvRow["telemetry"];
+      semPing5Dias: boolean;
+      playerVersion: string | null;
+    },
+  ) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const percent = row.telemetry.downloadPercent;
+  const barPercent = percent ?? 0;
+  const label = percent == null ? "—" : `${Math.round(barPercent)}%`;
+
+  async function refresh() {
+    if (busy || row.portalPdvId == null) return;
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/suporte/pdv/${encodeURIComponent(row.rioPdvKey)}/telemetria`,
+        { method: "POST" },
+      );
+      const data = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        telemetry?: SuportePdvRow["telemetry"];
+        semPing5Dias?: boolean;
+        playerVersion?: string | null;
+      } | null;
+      if (!res.ok || !data?.ok || !data.telemetry) {
+        throw new Error(data?.error ?? "Falha ao atualizar telemetria");
+      }
+      onTelemetryRefreshed(row.rioPdvKey, {
+        telemetry: data.telemetry,
+        semPing5Dias: Boolean(data.semPing5Dias),
+        playerVersion: data.playerVersion ?? null,
+      });
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Erro ao atualizar cache deste PDV");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="min-w-[5.25rem]">
+      <div className="flex items-center gap-0.5">
+        <div className="min-w-0 flex-1">
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+            <div
+              className="h-full rounded-full bg-fuchsia-500 transition-all"
+              style={{ width: `${Math.min(100, Math.max(0, barPercent))}%` }}
+            />
+          </div>
+        </div>
+        {row.portalPdvId != null ?
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={busy}
+            title="Atualizar cache e ping deste PDV"
+            aria-label="Atualizar cache e ping deste PDV"
+            className={
+              "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-fuchsia-300 bg-fuchsia-50 text-[11px] font-bold text-fuchsia-700 hover:bg-fuchsia-100 disabled:opacity-50 dark:border-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-300 dark:hover:bg-fuchsia-900/50"
+            }
+          >
+            {busy ? "…" : "↻"}
+          </button>
+        : null}
+      </div>
+      <span className="text-[10px] text-slate-500">{label}</span>
+      <PlayerTelemetryHint row={row} telemetriaDisponivel={telemetriaDisponivel} />
+    </div>
+  );
+}
+
 function PlayerTokenCell({
   row,
   canRegenerate,
@@ -865,6 +948,7 @@ function PdvRow({
   telemetriaDisponivel,
   canRegenerarToken,
   onTokenRegenerated,
+  onTelemetryRefreshed,
 }: {
   row: SuportePdvRow;
   showIdentBlock: boolean;
@@ -874,6 +958,14 @@ function PdvRow({
   telemetriaDisponivel: boolean;
   canRegenerarToken: boolean;
   onTokenRegenerated: (rioPdvKey: string, newToken: string) => void;
+  onTelemetryRefreshed: (
+    rioPdvKey: string,
+    patch: {
+      telemetry: SuportePdvRow["telemetry"];
+      semPing5Dias: boolean;
+      playerVersion: string | null;
+    },
+  ) => void;
 }) {
   const telHref =
     row.contatoLojaTelefone ?
@@ -959,9 +1051,12 @@ function PdvRow({
       : null}
       {showPlayerBlock ?
         <>
-          <td className={"w-[4.5rem] px-1.5 py-1.5 align-top " + BLOCK_DIVIDER}>
-            <DownloadBar percent={row.telemetry.downloadPercent} />
-            <PlayerTelemetryHint row={row} telemetriaDisponivel={telemetriaDisponivel} />
+          <td className={"w-[5.75rem] px-1.5 py-1.5 align-top " + BLOCK_DIVIDER}>
+            <CacheTelemetryCell
+              row={row}
+              telemetriaDisponivel={telemetriaDisponivel}
+              onTelemetryRefreshed={onTelemetryRefreshed}
+            />
           </td>
           <td className="w-[5rem] px-1.5 py-1.5 align-top">
             <PlayerTokenCell
@@ -1270,6 +1365,54 @@ export function ProducaoSuportePanel() {
             semPing5Dias,
           };
         }),
+      };
+    });
+  }
+
+  function handleTelemetryRefreshed(
+    rioPdvKey: string,
+    patch: {
+      telemetry: SuportePdvRow["telemetry"];
+      semPing5Dias: boolean;
+      playerVersion: string | null;
+    },
+  ) {
+    setData((prev) => {
+      if (!prev) return prev;
+      const pdvs = prev.pdvs.map((r) =>
+        r.rioPdvKey !== rioPdvKey ?
+          r
+        : {
+            ...r,
+            telemetry: patch.telemetry,
+            semPing5Dias: patch.semPing5Dias,
+            playerVersion: patch.playerVersion ?? r.playerVersion,
+          },
+      );
+      const cacheSamples = pdvs
+        .map((r) => r.telemetry.downloadPercent)
+        .filter((p): p is number => p != null);
+      const cacheMedio =
+        cacheSamples.length > 0 ?
+          Math.round(cacheSamples.reduce((a, b) => a + b, 0) / cacheSamples.length)
+        : null;
+      return {
+        ...prev,
+        pdvs,
+        overview: {
+          ...prev.overview,
+          cacheMedioPercent: cacheMedio,
+          semPing5Dias: pdvs.filter((r) => r.semPing5Dias).length,
+          playersInstalados: pdvs.filter(
+            (r) =>
+              r.playerInstalacaoToken &&
+              r.telemetry.firstPingAt &&
+              r.statusPlayer === "Ativo",
+          ).length,
+          semPrimeiroPing: pdvs.filter(
+            (r) => r.portalPdvId != null && !r.telemetry.firstPingAt && r.statusPlayer === "Ativo",
+          ).length,
+        },
       };
     });
   }
@@ -1688,7 +1831,7 @@ export function ProducaoSuportePanel() {
                 : null}
                 {showPlayerBlock ?
                   <>
-                    <th className={"w-[4.5rem] whitespace-nowrap px-1.5 py-1.5 " + BLOCK_DIVIDER}>Cache</th>
+                    <th className={"w-[5.75rem] whitespace-nowrap px-1.5 py-1.5 " + BLOCK_DIVIDER}>Cache</th>
                     <th className="w-[5rem] whitespace-nowrap px-1.5 py-1.5" title="Chave serial de instalação do Player 5">
                       Token
                     </th>
@@ -1745,6 +1888,7 @@ export function ProducaoSuportePanel() {
                     telemetriaDisponivel={telemetriaDisponivel}
                     canRegenerarToken={data?.canRegenerarToken ?? false}
                     onTokenRegenerated={handleTokenRegenerated}
+                    onTelemetryRefreshed={handleTelemetryRefreshed}
                   />
                 ))}
             </tbody>

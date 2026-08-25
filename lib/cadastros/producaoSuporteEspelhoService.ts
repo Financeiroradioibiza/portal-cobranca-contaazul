@@ -7,7 +7,11 @@ import {
 } from "@/lib/cadastros/producaoDashboardService";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { loadPortalPlayerIdMaps } from "@/lib/player/loadPortalPlayerIdMaps";
-import { loadPlayerGatewayTelemetry } from "@/lib/player/loadPlayerGatewayTelemetry";
+import {
+  loadPlayerGatewayTelemetry,
+  mergeGatewayTelemetry,
+} from "@/lib/player/loadPlayerGatewayTelemetry";
+import { resolvePortalPdvIdFromRioPdvKey } from "@/lib/player/playerGatewaySync";
 import { clientePlayerPasswordForCliente } from "@/lib/player/clientePlayerLoginService";
 import { getProducaoCatalogMeta } from "@/lib/cadastros/producaoCatalogo";
 import type {
@@ -466,6 +470,63 @@ export async function refreshProducaoSuporteEspelhoTelemetry(): Promise<boolean>
 
   await saveEspelhoPayload(payload, now);
   return true;
+}
+
+export type RefreshPdvTelemetryResult = {
+  ok: true;
+  telemetriaDisponivel: boolean;
+  telemetry: DashboardPdvTelemetry;
+  semPing5Dias: boolean;
+  playerVersion: string | null;
+};
+
+/** Atualiza ping/cache de um único PDV (cloud2) e persiste no espelho quando existir. */
+export async function refreshProducaoSuporteEspelhoPdvTelemetry(
+  rioPdvKey: string,
+): Promise<RefreshPdvTelemetryResult> {
+  const portalPdvId = await resolvePortalPdvIdFromRioPdvKey(rioPdvKey);
+  if (!portalPdvId) {
+    throw new Error("pdv_sem_portal_id");
+  }
+
+  let statusPlayer: "Ativo" | "Inativo" = "Ativo";
+  let fallbackVersion: string | null = null;
+
+  const espelhoRow = await readEspelhoRow();
+  const espelhoPayload =
+    espelhoRow ? parseStoredPayload(espelhoRow.payloadJson) : null;
+  const espelhoPdv = espelhoPayload?.pdvs.find((p) => p.rioPdvKey === rioPdvKey);
+  if (espelhoPdv) {
+    statusPlayer = espelhoPdv.statusPlayer;
+    fallbackVersion = espelhoPdv.playerVersion;
+  }
+
+  const gateway = await loadPlayerGatewayTelemetry([portalPdvId]);
+  const telemetriaOk = gateway.ok;
+  const telemetry = mergeGatewayTelemetry(portalPdvId, gateway.byPdvId, fallbackVersion);
+  const semPing5Dias = isSemPing5Dias(telemetry, statusPlayer, telemetriaOk);
+
+  if (isSuporteEspelhoEnabled() && espelhoRow && espelhoPayload && espelhoPdv) {
+    espelhoPdv.telemetry = telemetry;
+    espelhoPdv.semPing5Dias = semPing5Dias;
+    if (telemetry.playerVersion) espelhoPdv.playerVersion = telemetry.playerVersion;
+    espelhoPayload.overview = computeOverview(
+      espelhoPayload.pdvs,
+      telemetriaOk,
+      espelhoPayload.overview.pingsHoje,
+      null,
+      espelhoPayload.clientesCancelados?.length ?? 0,
+    );
+    await saveEspelhoPayload(espelhoPayload, espelhoRow.telemetryAt);
+  }
+
+  return {
+    ok: true,
+    telemetriaDisponivel: telemetriaOk,
+    telemetry,
+    semPing5Dias,
+    playerVersion: telemetry.playerVersion,
+  };
 }
 
 /** Reprocessa um PDV no espelho (cadastro, token, telemetria). */
