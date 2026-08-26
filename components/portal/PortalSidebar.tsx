@@ -11,6 +11,7 @@ import {
 } from "@/lib/portal/portalNav";
 import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 import { PortalSidebarChamados } from "@/components/portal/PortalSidebarChamados";
+import { usePortalPreviewProfile } from "@/components/portal/PortalPreviewProfileContext";
 
 function userInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -21,6 +22,7 @@ function userInitials(name: string): string {
 export function PortalSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const preview = usePortalPreviewProfile();
   const moduleId = resolvePortalModule(pathname);
   const menu = PORTAL_SIDEBARS[moduleId];
   const [session, setSession] = useState<{
@@ -94,7 +96,7 @@ export function PortalSidebar() {
     }
   }, [router]);
 
-  const perm = session?.menuPermissions ?? {};
+  const perm = preview?.effectiveMenuPermissions ?? session?.menuPermissions ?? {};
   const menuItems = filterSidebarItems(menu.items, perm);
   const accountHref = (() => {
     if (perm === "all") return "/config/usuarios";
@@ -114,7 +116,11 @@ export function PortalSidebar() {
       >
         <div className="portal-sidebar-heading">{menu.section}</div>
         {menuItems
-          .filter((item) => !item.fluxoRafaelOnly || session?.fluxoRafaelAdmin)
+          .filter(
+            (item) =>
+              !item.fluxoRafaelOnly ||
+              (preview?.effectiveFluxoRafaelAdmin ?? session?.fluxoRafaelAdmin),
+          )
           .map((item, idx) => {
           if (item.separator) {
             return (

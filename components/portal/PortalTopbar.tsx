@@ -12,6 +12,7 @@ import {
 } from "@/lib/portal/portalNav";
 import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { usePortalPreviewProfile } from "@/components/portal/PortalPreviewProfileContext";
 
 function userInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -29,6 +30,7 @@ type MeResponse = {
 export function PortalTopbar() {
   const pathname = usePathname();
   const moduleId = resolvePortalModule(pathname);
+  const preview = usePortalPreviewProfile();
   const [session, setSession] = useState<{
     displayName: string;
     isMaster: boolean;
@@ -54,8 +56,10 @@ export function PortalTopbar() {
     };
   }, []);
 
-  const perm = session?.menuPermissions ?? {};
-  const visibleNav = filterTopNav(PORTAL_TOP_NAV, perm, { isMaster: session?.isMaster });
+  const perm = preview?.effectiveMenuPermissions ?? session?.menuPermissions ?? {};
+  const visibleNav = filterTopNav(PORTAL_TOP_NAV, perm, {
+    isMaster: preview?.effectiveIsMasterForNav ?? session?.isMaster,
+  });
 
   const accountHref = (() => {
     if (perm === "all") return "/config/usuarios";
