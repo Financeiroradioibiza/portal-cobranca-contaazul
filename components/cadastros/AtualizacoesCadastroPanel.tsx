@@ -81,12 +81,24 @@ async function conciliarIngest(
   return { ok: true };
 }
 
+async function arquivarIngest(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch("/api/cadastros/atualizacoes", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, action: "arquivar" }),
+  });
+  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+  if (!res.ok) return { ok: false, error: data?.error ?? "arquivar_failed" };
+  return { ok: true };
+}
+
 type BulkProgress = {
   index: number;
   total: number;
   label: string;
   ok: number;
   failed: number;
+  mode: "vincular" | "cancelar";
 };
 
 export function AtualizacoesCadastroPanel() {
@@ -235,7 +247,7 @@ export function AtualizacoesCadastroPanel() {
         `${row.clienteNome || "Cliente"} — ${row.pdvNome || "PDV"}`
       : id;
 
-      setBulkProgress({ index: i + 1, total: ids.length, label, ok, failed });
+      setBulkProgress({ index: i + 1, total: ids.length, label, ok, failed, mode: "vincular" });
       setSelectedId(id);
 
       const secaoRow = row ? resolveCadastroSecao(row.payload) : "loja";
@@ -251,7 +263,7 @@ export function AtualizacoesCadastroPanel() {
       }
     }
 
-    setBulkProgress({ index: ids.length, total: ids.length, label: "Concluído", ok, failed });
+    setBulkProgress({ index: ids.length, total: ids.length, label: "Concluído", ok, failed, mode: "vincular" });
     setCheckedIds(new Set());
     await loadList();
 
@@ -264,6 +276,63 @@ export function AtualizacoesCadastroPanel() {
     } else {
       setMsgKind("err");
       setMsg(`${ok} vinculado(s), ${failed} falha(s). ${errors.slice(0, 2).join(" · ")}${errors.length > 2 ? "…" : ""}`);
+    }
+
+    setBusy(false);
+    setBulkProgress(null);
+  }
+
+  async function cancelarSelecionados() {
+    const ids = rows.filter((r) => checkedIds.has(r.id)).map((r) => r.id);
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `Descartar ${ids.length} atualização(ões) sem alterar o cadastro?\n\nUse quando os dados atuais já estiverem corretos.`,
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    setBulkProgress(null);
+    setMsg(null);
+
+    let ok = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]!;
+      const row = rows.find((r) => r.id === id);
+      const label = row ?
+        `${row.clienteNome || "Cliente"} — ${row.pdvNome || "PDV"}`
+      : id;
+
+      setBulkProgress({ index: i + 1, total: ids.length, label, ok, failed, mode: "cancelar" });
+      setSelectedId(id);
+
+      const result = await arquivarIngest(id);
+      if (result.ok) {
+        ok += 1;
+      } else {
+        failed += 1;
+        errors.push(`${label}: ${result.error}`);
+      }
+    }
+
+    setBulkProgress({ index: ids.length, total: ids.length, label: "Concluído", ok, failed, mode: "cancelar" });
+    setCheckedIds(new Set());
+    await loadList();
+
+    if (failed === 0) {
+      setMsgKind("ok");
+      setMsg(`${ok} atualização(ões) descartada(s) — cadastro mantido.`);
+    } else if (ok === 0) {
+      setMsgKind("err");
+      setMsg(`Nenhuma descartada. ${errors.slice(0, 3).join(" · ")}${errors.length > 3 ? "…" : ""}`);
+    } else {
+      setMsgKind("err");
+      setMsg(`${ok} descartada(s), ${failed} falha(s). ${errors.slice(0, 2).join(" · ")}${errors.length > 2 ? "…" : ""}`);
     }
 
     setBusy(false);
@@ -302,13 +371,8 @@ export function AtualizacoesCadastroPanel() {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/cadastros/atualizacoes", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selectedId, action: "arquivar" }),
-      });
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) throw new Error(data?.error ?? "arquivar_failed");
+      const result = await arquivarIngest(selectedId);
+      if (!result.ok) throw new Error(result.error);
       setMsgKind("ok");
       setMsg("Atualização descartada (cadastro mantido).");
       await loadList();
@@ -366,7 +430,8 @@ export function AtualizacoesCadastroPanel() {
       {bulkProgress ?
         <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
           <p className="font-semibold">
-            Vinculando {bulkProgress.index} de {bulkProgress.total}
+            {bulkProgress.mode === "cancelar" ? "Descartando" : "Vinculando"} {bulkProgress.index} de{" "}
+            {bulkProgress.total}
             {bulkProgress.label !== "Concluído" ?
               <> — {bulkProgress.label}</>
             : null}
@@ -404,14 +469,24 @@ export function AtualizacoesCadastroPanel() {
               : null}
             </div>
             {someSelected ?
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void vincularSelecionados()}
-                className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-2 text-xs font-bold text-white shadow disabled:opacity-40"
-              >
-                Vincular selecionados ({checkedIds.size})
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void vincularSelecionados()}
+                  className="w-full rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-2 text-xs font-bold text-white shadow disabled:opacity-40"
+                >
+                  Vincular selecionados ({checkedIds.size})
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void cancelarSelecionados()}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancelar selecionados ({checkedIds.size})
+                </button>
+              </div>
             : null}
           </div>
           {loading ?
@@ -424,6 +499,8 @@ export function AtualizacoesCadastroPanel() {
                 const isActive = selectedId === r.id;
                 const isChecked = checkedIds.has(r.id);
                 const isProcessing = bulkProgress != null && isActive && bulkProgress.label !== "Concluído";
+                const processingLabel =
+                  bulkProgress?.mode === "cancelar" ? "Descartando…" : "Vinculando…";
                 return (
                   <li key={r.id} className="border-b border-slate-100 dark:border-slate-800">
                     <div
@@ -454,7 +531,7 @@ export function AtualizacoesCadastroPanel() {
                         </div>
                         {isProcessing ?
                           <div className="mt-1 text-[10px] font-semibold text-sky-600 dark:text-sky-400">
-                            Vinculando…
+                            {processingLabel}
                           </div>
                         : null}
                       </button>

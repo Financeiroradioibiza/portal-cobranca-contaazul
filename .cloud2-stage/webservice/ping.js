@@ -5,8 +5,9 @@ import { avaliarBloqueioReproducao, healGatewayStatusSeNecessario } from './rioC
 import { resolverAvisoAutomatizadoPorGatewayPdv } from './playerAvisos.js';
 import { randomUUID } from 'node:crypto';
 
-function buildPingPdvPayload(row) {
+function buildPingPdvPayload(row, extras = {}) {
   const serialInstalacao = String(row.serial_instalacao ?? '').trim();
+  const cachePercent = extras.cache_download_percent;
   return {
     id: row.pdv_id,
     nome: row.pdv_nome,
@@ -17,11 +18,68 @@ function buildPingPdvPayload(row) {
     ctrl_player: row.ctrl_player ?? 'N',
     ctrl_placa_carro: row.ctrl_placa_carro ?? 'N',
     ctrl_playlists: row.ctrl_playlists ?? 'N',
+    ...(typeof cachePercent === 'number' && Number.isFinite(cachePercent) ?
+      { cache_download_percent: Math.min(100, Math.max(0, Math.round(cachePercent))) }
+    : {}),
     ...(serialInstalacao ? { serial_instalacao: serialInstalacao } : {}),
     ...(String(row.nome_completo_contato_extra ?? '').trim() ?
       { nome_completo_contato_extra: String(row.nome_completo_contato_extra).trim() }
     : {}),
   };
+}
+
+/** Mesma conta do portal (/player/telemetry) — % faixas ambiente tipo N. */
+async function loadCacheDownloadPercent(pool, pdvId, programaId) {
+  const progId = Number(programaId);
+  if (!Number.isFinite(pdvId) || pdvId <= 0 || !Number.isFinite(progId) || progId <= 0) {
+    return null;
+  }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atualizadas (
+        id SERIAL PRIMARY KEY,
+        pdv_id INT NOT NULL,
+        musica_id INT NOT NULL,
+        programa_id INT NOT NULL DEFAULT 0,
+        percentual INT NOT NULL DEFAULT 100,
+        playlist_atualizada CHAR(1) NOT NULL DEFAULT 'S',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (pdv_id, musica_id, programa_id)
+      )
+    `).catch(() => null);
+
+    const { rows } = await pool.query(
+      `SELECT CASE
+         WHEN COALESCE(tot.total_musicas, 0) = 0 THEN NULL
+         ELSE ROUND(100.0 * COALESCE(dlv.baixadas, 0) / tot.total_musicas)::int
+       END AS download_percent
+       FROM (SELECT 1) x
+       LEFT JOIN LATERAL (
+         SELECT COUNT(DISTINCT pm.musica_id)::int AS total_musicas
+         FROM playlists pl
+         INNER JOIN playlist_musicas pm ON pm.playlist_id = pl.id
+         WHERE pl.programa_id = $2
+           AND pl.tipo = 'N'
+           AND COALESCE(pl.publicado, 'S') = 'S'
+           AND (pl.pdv_id IS NULL OR pl.pdv_id = $1)
+       ) tot ON true
+       LEFT JOIN LATERAL (
+         SELECT COUNT(DISTINCT a.musica_id)::int AS baixadas
+         FROM atualizadas a
+         WHERE a.pdv_id = $1
+           AND a.programa_id = $2
+           AND a.percentual >= 100
+       ) dlv ON true`,
+      [pdvId, progId],
+    );
+    const n = rows[0]?.download_percent;
+    if (n == null) return null;
+    const rounded = Math.round(Number(n));
+    return Number.isFinite(rounded) ? Math.min(100, Math.max(0, rounded)) : null;
+  } catch (err) {
+    console.error('[ping/cache_percent]', err);
+    return null;
+  }
 }
 
 function buildPingClientePayload(row) {
@@ -148,8 +206,14 @@ export async function registerPingRoutes(app, prefix) {
       await resolverAvisoAutomatizadoPorGatewayPdv(rowAtivo.pdv_id, avisoResolvido);
     }
 
+    const cacheDownloadPercent = await loadCacheDownloadPercent(
+      pool,
+      rowAtivo.pdv_id,
+      rowAtivo.programa_id,
+    );
+
     return reply.send({
-      pdv: buildPingPdvPayload(rowAtivo),
+      pdv: buildPingPdvPayload(rowAtivo, { cache_download_percent: cacheDownloadPercent }),
       cliente: buildPingClientePayload(rowAtivo),
       mensagem: 'ping_salvo',
     });
