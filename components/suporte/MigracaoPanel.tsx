@@ -37,6 +37,27 @@ function CheckCell({ ok, title }: { ok: boolean; title: string }) {
   );
 }
 
+function StatusInstalacaoPdvsBadge({ faltaPdvInstalar, pdvsSemPing }: { faltaPdvInstalar: boolean; pdvsSemPing: number }) {
+  if (faltaPdvInstalar) {
+    return (
+      <span
+        title={`${pdvsSemPing} PDV${pdvsSemPing === 1 ? "" : "s"} sem primeiro ping`}
+        className="inline-block rounded-md bg-red-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-800 dark:bg-red-950/40 dark:text-red-200"
+      >
+        Falta
+      </span>
+    );
+  }
+  return (
+    <span
+      title="Todos os PDVs instaláveis já fizeram primeiro ping"
+      className="inline-block rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+    >
+      Finalizado
+    </span>
+  );
+}
+
 function StatusProgramacaoBadge({ status }: { status: MigracaoProgramacaoStatus }) {
   const cls =
     status === "PRONTA"
@@ -98,6 +119,7 @@ export function MigracaoPanel() {
         fmtPing(r.ultimoPingEm),
         String(r.pdvsComPing),
         String(r.pdvsSemPing),
+        r.faltaPdvInstalar ? "falta" : "finalizado",
       ]
         .join(" ")
         .toLowerCase();
@@ -154,7 +176,7 @@ export function MigracaoPanel() {
               <th className="text-center whitespace-nowrap">Programação?</th>
               <th className="text-left whitespace-nowrap">Status programação</th>
               <th className="text-center whitespace-nowrap">Algum PDV instalado?</th>
-              <th className="text-center whitespace-nowrap">Falta PDV p/ instalar?</th>
+              <th className="text-center whitespace-nowrap">Instalação PDVs</th>
               <th className="text-left whitespace-nowrap">Último ping</th>
             </tr>
           </thead>
@@ -225,14 +247,12 @@ export function MigracaoPanel() {
                         : "Nenhum PDV com ping registrado"
                     }
                   />
-                  <CheckCell
-                    ok={row.faltaPdvInstalar}
-                    title={
-                      row.faltaPdvInstalar
-                        ? "Ainda há PDV sem primeiro ping"
-                        : "Todos os PDVs instaláveis já pingaram"
-                    }
-                  />
+                  <td className="px-3 py-2 text-center align-middle">
+                    <StatusInstalacaoPdvsBadge
+                      faltaPdvInstalar={row.faltaPdvInstalar}
+                      pdvsSemPing={row.pdvsSemPing}
+                    />
+                  </td>
                   <td className="whitespace-nowrap px-4 py-2 align-top text-slate-700 dark:text-slate-200">
                     {fmtPing(row.ultimoPingEm)}
                   </td>
