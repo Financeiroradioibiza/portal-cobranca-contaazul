@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { listCriativosForTag } from "@/lib/criacao/criativoUserService";
 import { resolvePdvProgramacaoAssignment } from "@/lib/criacao/pdvProgramacaoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import {
@@ -15,6 +16,11 @@ export type MigracaoClienteRow = {
   clienteRef: string;
   clienteNome: string;
   portalClienteId: number | null;
+  programacaoId: string | null;
+  donoEmail: string | null;
+  donoNome: string | null;
+  donoIniciais: string | null;
+  donoCor: string | null;
   pdvsAmarrados: boolean;
   temProgramacao: boolean;
   statusProgramacao: MigracaoProgramacaoStatus;
@@ -36,7 +42,72 @@ type ProgramacaoRow = {
   publicada: boolean;
   atualizacaoAbertaEm: Date | null;
   updatedAt: Date;
+  criativoUserId: string | null;
+  criativoNome: string;
 };
+
+type CriativoTagLookup = {
+  displayName: string;
+  tagIniciais: string;
+  tagCor: string;
+};
+
+function resolveDonoFromProgramacao(
+  prog: ProgramacaoRow | null | undefined,
+  criativoByEmail: Map<string, CriativoTagLookup>,
+): Pick<MigracaoClienteRow, "programacaoId" | "donoEmail" | "donoNome" | "donoIniciais" | "donoCor"> {
+  if (!prog) {
+    return {
+      programacaoId: null,
+      donoEmail: null,
+      donoNome: null,
+      donoIniciais: null,
+      donoCor: null,
+    };
+  }
+
+  const email = prog.criativoUserId?.trim() || null;
+  const criativo = email ? criativoByEmail.get(email) : undefined;
+  const nomeDb = prog.criativoNome.trim();
+
+  if (criativo) {
+    return {
+      programacaoId: prog.id,
+      donoEmail: email,
+      donoNome: criativo.displayName,
+      donoIniciais: criativo.tagIniciais,
+      donoCor: criativo.tagCor,
+    };
+  }
+
+  if (email) {
+    return {
+      programacaoId: prog.id,
+      donoEmail: email,
+      donoNome: nomeDb || email,
+      donoIniciais: null,
+      donoCor: "#6366f1",
+    };
+  }
+
+  if (nomeDb) {
+    return {
+      programacaoId: prog.id,
+      donoEmail: null,
+      donoNome: nomeDb,
+      donoIniciais: null,
+      donoCor: "#94a3b8",
+    };
+  }
+
+  return {
+    programacaoId: prog.id,
+    donoEmail: null,
+    donoNome: null,
+    donoIniciais: null,
+    donoCor: null,
+  };
+}
 
 function resolveProgramacaoStatus(prog: ProgramacaoRow | null | undefined): MigracaoProgramacaoStatus {
   if (!prog) return "AUSENTE";
@@ -73,18 +144,30 @@ export async function listMigracaoClientes(): Promise<{
 }> {
   const hasAberta = await hasAtualizacaoAbertaColumn();
 
-  const programacoes = await prisma.programacao.findMany({
-    select: {
-      id: true,
-      clienteRef: true,
-      clienteNome: true,
-      nome: true,
-      publicada: true,
-      updatedAt: true,
-      ...(hasAberta ? { atualizacaoAbertaEm: true } : {}),
-    },
-    orderBy: [{ clienteRef: "asc" }, { updatedAt: "desc" }],
-  });
+  const [programacoes, criativos] = await Promise.all([
+    prisma.programacao.findMany({
+      select: {
+        id: true,
+        clienteRef: true,
+        clienteNome: true,
+        nome: true,
+        publicada: true,
+        updatedAt: true,
+        criativoUserId: true,
+        criativoNome: true,
+        ...(hasAberta ? { atualizacaoAbertaEm: true } : {}),
+      },
+      orderBy: [{ clienteRef: "asc" }, { updatedAt: "desc" }],
+    }),
+    listCriativosForTag(),
+  ]);
+
+  const criativoByEmail = new Map(
+    criativos.map((c) => [
+      c.email,
+      { displayName: c.displayName, tagIniciais: c.tagIniciais, tagCor: c.tagCor },
+    ]),
+  );
 
   if (programacoes.length === 0) {
     return { ok: true, rows: [], cloud2Ok: false };
@@ -107,6 +190,8 @@ export async function listMigracaoClientes(): Promise<{
           raw.atualizacaoAbertaEm
         : null,
       updatedAt: raw.updatedAt,
+      criativoUserId: raw.criativoUserId ?? null,
+      criativoNome: raw.criativoNome.trim(),
     };
     const list = programacoesByCliente.get(ref) ?? [];
     list.push(row);
@@ -251,11 +336,13 @@ export async function listMigracaoClientes(): Promise<{
       null;
 
     const semPing = totalInstalaveis - comPing;
+    const dono = resolveDonoFromProgramacao(primaryProg, criativoByEmail);
 
     rows.push({
       clienteRef,
       clienteNome,
       portalClienteId: bucket?.portalClienteId ?? null,
+      ...dono,
       pdvsAmarrados,
       temProgramacao: progs.length > 0,
       statusProgramacao,
