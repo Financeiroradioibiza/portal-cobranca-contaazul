@@ -290,7 +290,7 @@
     html += renderPdvInstalacao(pdvs);
 
     html +=
-      '<p class="period-note">Parcelas dos últimos 12 meses (vencimento ' +
+      '<p class="period-note">Parcelas emitidas nos últimos 12 meses (competência ' +
       esc(fmtDate(period.start)) +
       " a " +
       esc(fmtDate(period.end)) +

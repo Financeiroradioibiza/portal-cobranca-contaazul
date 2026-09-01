@@ -44,11 +44,19 @@ function receivableParallelBatch(): number {
 /**
  * Busca parcelas a receber no intervalo de vencimento, paginando (lotes de páginas paralelas após a primeira).
  */
+export type FetchReceivableInstallmentsOptions = {
+  maxPages?: number;
+  statuses?: readonly ReceivableStatusFilter[];
+  /** Filtro opcional na API — emissão/competência (Conta Azul). */
+  dataCompetenciaDe?: string;
+  dataCompetenciaAte?: string;
+};
+
 export async function fetchAllReceivableInstallments(
   accessToken: string,
   dataVencimentoDe: string,
   dataVencimentoAte: string,
-  options?: { maxPages?: number; statuses?: readonly ReceivableStatusFilter[] },
+  options?: FetchReceivableInstallmentsOptions,
 ): Promise<CaReceivableItem[]> {
   const all: CaReceivableItem[] = [];
   const tamanho_pagina = 500;
@@ -69,6 +77,8 @@ export async function fetchAllReceivableInstallments(
     qs.set("tamanho_pagina", String(tamanho_pagina));
     qs.set("data_vencimento_de", dataVencimentoDe);
     qs.set("data_vencimento_ate", dataVencimentoAte);
+    if (options?.dataCompetenciaDe) qs.set("data_competencia_de", options.dataCompetenciaDe);
+    if (options?.dataCompetenciaAte) qs.set("data_competencia_ate", options.dataCompetenciaAte);
     for (const s of statuses) {
       qs.append("status", s);
     }

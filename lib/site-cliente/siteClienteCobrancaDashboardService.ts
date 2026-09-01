@@ -6,7 +6,7 @@ import {
 import { getValidAccessToken } from "@/lib/contaazul/session";
 import type { CaReceivableItem } from "@/lib/contaazul/types";
 import { todayYmdLocal } from "@/lib/contaazul/types";
-import { defaultPeriodMonths } from "@/lib/format";
+import { addMonthsToYmd, defaultPeriodMonths } from "@/lib/format";
 import type { SiteClientePermissoes } from "@/lib/site-cliente/permissions";
 import { loadSiteClienteCobrancaEscopo } from "@/lib/site-cliente/siteClienteCobrancaEscopo";
 import {
@@ -42,7 +42,7 @@ export type SiteClienteCobrancaDashboardPayload = {
   grupoNome: string;
   usuarioNome: string;
   permissoes: SiteClientePermissoes;
-  period: { start: string; end: string };
+  period: { start: string; end: string; filtro: "competencia" };
   geradoEm: string;
   /** Status de instalação dos PDVs ligados aos CNPJs do grupo (produção). */
   pdvsInstalacao: SiteClienteCobrancaPdvInstalacaoRow[];
@@ -66,6 +66,18 @@ function situacaoParcela(item: CaReceivableItem): SiteClienteCobrancaParcelaRow[
   const today = todayYmdLocal();
   if (item.data_vencimento && item.data_vencimento < today) return "atrasada";
   return "aberta";
+}
+
+function competenciaYmd(item: CaReceivableItem): string | null {
+  const comp = item.data_competencia?.trim().slice(0, 10);
+  return comp && /^\d{4}-\d{2}-\d{2}$/.test(comp) ? comp : null;
+}
+
+/** Emissões (competência CA) no intervalo inclusivo [start, end]. */
+function emissaoNoPeriodo(item: CaReceivableItem, start: string, end: string): boolean {
+  const comp = competenciaYmd(item);
+  if (!comp) return false;
+  return comp >= start && comp <= end;
 }
 
 function mapParcela(item: CaReceivableItem, caPersonId: string): SiteClienteCobrancaParcelaRow {
@@ -103,7 +115,8 @@ export async function buildSiteClienteCobrancaDashboard(
   assertSiteClienteCobrancaAccess(session);
 
   const escopo = await loadSiteClienteCobrancaEscopo(session.grupoId);
-  const period = defaultPeriodMonths(12);
+  /** Site cobrança: emissões (competência) nos últimos 12 meses — não cortar por vencimento futuro. */
+  const period = { ...defaultPeriodMonths(12), filtro: "competencia" as const };
   const perm = session.permissoes;
 
   const pdvsInstalacao = await loadSiteClienteCobrancaPdvInstalacao(session.grupoId);
@@ -126,13 +139,18 @@ export async function buildSiteClienteCobrancaDashboard(
     throw new Response(JSON.stringify({ error: "conta_azul_indisponivel" }), { status: 503 });
   }
 
-  const items = await fetchAllReceivableInstallments(token, period.start, period.end, {
+  /** Vencimento amplo na API (campo obrigatório) — filtro real é competência/emissão. */
+  const vencimentoAte = addMonthsToYmd(period.end, 12);
+  const items = await fetchAllReceivableInstallments(token, period.start, vencimentoAte, {
     statuses: RECEIVABLE_STATUSES_PERIOD_TOTAL,
+    dataCompetenciaDe: period.start,
+    dataCompetenciaAte: period.end,
   });
 
   const scoped = items.filter((it) => {
     const cid = it.cliente?.id?.trim();
-    return cid ? escopo.caPersonIds.has(cid) : false;
+    if (!cid || !escopo.caPersonIds.has(cid)) return false;
+    return emissaoNoPeriodo(it, period.start, period.end);
   });
 
   const byClient = new Map<string, CaReceivableItem[]>();

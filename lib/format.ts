@@ -86,3 +86,10 @@ export function defaultPeriodMonths(months: number) {
   start.setMonth(start.getMonth() - months);
   return { start: toISODate(start), end: toISODate(end) };
 }
+
+/** Soma meses a uma data YYYY-MM-DD (meio-dia local — evita DST). */
+export function addMonthsToYmd(ymd: string, months: number): string {
+  const d = new Date(`${ymd.slice(0, 10)}T12:00:00`);
+  d.setMonth(d.getMonth() + months);
+  return toISODate(d);
+}
