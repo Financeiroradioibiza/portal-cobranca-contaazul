@@ -18,7 +18,13 @@ type ScanReport = {
   explicit: number;
   safe: number;
   lyricsNotFound: number;
-  lyricsNotFoundItems: Array<{ musicaId: string; titulo: string; artista: string; reason?: string }>;
+  lyricsNotFoundItems: Array<{
+    musicaId: string;
+    titulo: string;
+    artista: string;
+    reason?: string;
+    geniusUrl?: string;
+  }>;
 };
 
 const SCOPE_LABELS: Record<ScopeKind, string> = {
@@ -51,7 +57,7 @@ export function ExplicitoPanel() {
   const [programacaoId, setProgramacaoId] = useState("");
   const [stats, setStats] = useState<ScanStats | null>(null);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; pending: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [report, setReport] = useState<ScanReport | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const cancelRef = useRef(false);
@@ -102,6 +108,48 @@ export function ExplicitoPanel() {
     void refreshStats(scope).catch(() => setStats(null));
   }, [scope, refreshStats]);
 
+  const progOptions = useMemo(() => {
+    if (!tree) return [];
+    return tree.programacoes.flatMap((p) =>
+      p.pastas.map((pa) => ({
+        id: pa.id,
+        label: `${p.clienteNome} · ${p.nome} · ${pa.nome} (${pa.musicaCount})`,
+        programacaoId: p.id,
+      })),
+    );
+  }, [tree]);
+
+  const scopeLabel = useMemo(() => {
+    switch (scopeKind) {
+      case "tag": {
+        const t = tree?.tags.find((x) => x.id === tagId);
+        return t ? `Tag: ${t.nome}` : "Tag criativa";
+      }
+      case "custom": {
+        const p = tree?.pastasCustom.find((x) => x.id === customPastaId);
+        return p ? `Pasta: ${p.nome}` : "Pasta custom";
+      }
+      case "prog": {
+        const hit = progOptions.find((x) => x.id === progPastaId);
+        return hit ? `Pasta prog.: ${hit.label.split(" · ").slice(-2).join(" · ")}` : "Pasta de programação";
+      }
+      case "programacao": {
+        const p = tree?.programacoes.find((x) => x.id === programacaoId);
+        return p ? `Programação: ${p.clienteNome} · ${p.nome}` : "Programação completa";
+      }
+      default:
+        return "Biblioteca inteira";
+    }
+  }, [scopeKind, tagId, customPastaId, progPastaId, programacaoId, tree, progOptions]);
+
+  const scanButtonLabel = useMemo(() => {
+    if (busy) return "Analisando…";
+    if (!stats) return "Iniciar varredura";
+    if (stats.pending === 0) return "Nada pendente";
+    if (stats.verified === 0) return `Iniciar varredura (${stats.pending} faixas)`;
+    return `Continuar restantes (${stats.pending})`;
+  }, [busy, stats]);
+
   const runScan = async () => {
     if (!scope || busy) return;
     if (!stats?.geniusEnabled) {
@@ -127,12 +175,13 @@ export function ExplicitoPanel() {
     };
 
     let done = 0;
-    const initialPending = stats.pending;
-    setProgress({ done: 0, pending: initialPending });
+    const sessionTarget = stats.pending;
+    const sessionProcessed = new Set<string>();
+    setProgress({ done: 0, total: sessionTarget });
 
     try {
       let hasMore = true;
-      while (hasMore && !cancelRef.current) {
+      while (hasMore && !cancelRef.current && sessionProcessed.size < sessionTarget) {
         const res = await fetch("/api/criacao/explicito/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -140,10 +189,17 @@ export function ExplicitoPanel() {
             scope: scopePayload(scope),
             onlyMissing: true,
             limit: 3,
+            excludeMusicaIds: [...sessionProcessed],
           }),
         });
         const data = await res.json().catch(() => null);
         if (!res.ok) throw new Error(data?.error || "scan_falhou");
+
+        if (Array.isArray(data.results)) {
+          for (const row of data.results as Array<{ musicaId?: string; status?: string }>) {
+            if (row.musicaId && row.status !== "skipped") sessionProcessed.add(row.musicaId);
+          }
+        }
 
         acc.analyzed += Number(data.processed) || 0;
         acc.explicit += Number(data.explicit) || 0;
@@ -153,9 +209,9 @@ export function ExplicitoPanel() {
           acc.lyricsNotFoundItems.push(...data.lyricsNotFoundList);
         }
 
-        done += Number(data.processed) || 0;
-        hasMore = Boolean(data.hasMore);
-        setProgress({ done, pending: Math.max(0, initialPending - done) });
+        done = sessionProcessed.size;
+        hasMore = Boolean(data.hasMore) && done < sessionTarget;
+        setProgress({ done, total: sessionTarget });
       }
 
       setReport(acc);
@@ -177,17 +233,6 @@ export function ExplicitoPanel() {
   const stopScan = () => {
     cancelRef.current = true;
   };
-
-  const progOptions = useMemo(() => {
-    if (!tree) return [];
-    return tree.programacoes.flatMap((p) =>
-      p.pastas.map((pa) => ({
-        id: pa.id,
-        label: `${p.clienteNome} · ${p.nome} · ${pa.nome} (${pa.musicaCount})`,
-        programacaoId: p.id,
-      })),
-    );
-  }, [tree]);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
@@ -285,7 +330,11 @@ export function ExplicitoPanel() {
         ) : null}
 
         {stats ? (
-          <div className="mt-4 grid grid-cols-3 gap-3 text-center text-sm">
+          <div className="mt-4 space-y-3">
+            <p className="text-xs font-semibold text-slate-500">
+              Escopo ativo: {scopeLabel}
+            </p>
+            <div className="grid grid-cols-3 gap-3 text-center text-sm">
             <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
               <div className="text-lg font-bold">{stats.total}</div>
               <div className="text-xs text-slate-500">Total no escopo</div>
@@ -297,6 +346,7 @@ export function ExplicitoPanel() {
             <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-950">
               <div className="text-lg font-bold text-amber-700 dark:text-amber-300">{stats.pending}</div>
               <div className="text-xs text-slate-500">Pendentes</div>
+            </div>
             </div>
           </div>
         ) : scopeKind !== "all" ? (
@@ -317,7 +367,7 @@ export function ExplicitoPanel() {
           onClick={() => void runScan()}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
-          {busy ? "Analisando…" : "Iniciar varredura (restantes)"}
+          {busy ? "Analisando…" : scanButtonLabel}
         </button>
         {busy ? (
           <button
@@ -330,7 +380,7 @@ export function ExplicitoPanel() {
         ) : null}
         {progress ? (
           <span className="text-sm text-slate-600 dark:text-slate-400">
-            {progress.done} processadas · ~{progress.pending} restantes
+            {progress.done} / {progress.total} do escopo · {scopeLabel}
           </span>
         ) : null}
       </section>
@@ -361,6 +411,19 @@ export function ExplicitoPanel() {
                   <li key={item.musicaId}>
                     {item.artista} — {item.titulo}
                     {item.reason ? ` (${item.reason})` : ""}
+                    {item.geniusUrl ? (
+                      <>
+                        {" "}
+                        <a
+                          href={item.geniusUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 underline dark:text-indigo-400"
+                        >
+                          Genius ↗
+                        </a>
+                      </>
+                    ) : null}
                   </li>
                 ))}
               </ul>

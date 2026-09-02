@@ -6,6 +6,7 @@ function ensureDictionary(): void {
   if (loaded) return;
   leoProfanity.clearList();
   leoProfanity.loadDictionary("pt");
+  leoProfanity.add(leoProfanity.getDictionary("en"));
   loaded = true;
 }
 

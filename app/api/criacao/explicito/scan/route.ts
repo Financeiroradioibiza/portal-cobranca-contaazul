@@ -14,6 +14,7 @@ type Body = {
   limit?: number;
   onlyMissing?: boolean;
   musicaIds?: string[];
+  excludeMusicaIds?: string[];
 };
 
 function parseScope(raw: unknown): ExplicitoScanScope | null {
@@ -48,8 +49,11 @@ export async function POST(request: Request) {
     );
     const onlyMissing = body.onlyMissing !== false;
     const musicaIds = Array.isArray(body.musicaIds) ? body.musicaIds.filter(Boolean) : undefined;
+    const excludeMusicaIds = Array.isArray(body.excludeMusicaIds)
+      ? body.excludeMusicaIds.filter(Boolean)
+      : undefined;
 
-    const result = await scanExplicitoBatch({ scope, limit, onlyMissing, musicaIds });
+    const result = await scanExplicitoBatch({ scope, limit, onlyMissing, musicaIds, excludeMusicaIds });
 
     if (!result.geniusEnabled) {
       return NextResponse.json({ error: "genius_desabilitado" }, { status: 503 });

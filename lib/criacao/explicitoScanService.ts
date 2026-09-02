@@ -51,17 +51,46 @@ type MusicaRow = {
   tagsAuto: Prisma.JsonValue;
 };
 
+function applyScopeWhere(
+  scope: ExplicitoScanScope,
+  excludeMusicaIds?: string[],
+): Prisma.MusicaBibliotecaWhereInput {
+  const where: Prisma.MusicaBibliotecaWhereInput = {
+    status: "pronta",
+    ...scopeToWhere(scope),
+  };
+  const exclude = excludeMusicaIds?.filter(Boolean) ?? [];
+  if (exclude.length > 0) {
+    where.id = { notIn: exclude };
+  }
+  return where;
+}
+
+async function countPendingInScope(
+  scope: ExplicitoScanScope,
+  excludeMusicaIds?: string[],
+): Promise<number> {
+  const rows = await prisma.musicaBiblioteca.findMany({
+    where: applyScopeWhere(scope, excludeMusicaIds),
+    select: { tagsAuto: true },
+  });
+  return rows.filter((r) => needsGeniusLetraCheck(parseTagsFromJson(r.tagsAuto))).length;
+}
+
 async function loadCandidateRows(opts: {
   scope: ExplicitoScanScope;
   limit: number;
   onlyMissing: boolean;
   musicaIds?: string[];
+  excludeMusicaIds?: string[];
 }): Promise<MusicaRow[]> {
-  const { scope, limit, onlyMissing, musicaIds } = opts;
+  const { scope, limit, onlyMissing, musicaIds, excludeMusicaIds } = opts;
+  const exclude = excludeMusicaIds?.filter(Boolean) ?? [];
 
   if (musicaIds?.length) {
+    const ids = musicaIds.filter((id) => !exclude.includes(id)).slice(0, limit * 4);
     const rows = await prisma.musicaBiblioteca.findMany({
-      where: { id: { in: musicaIds.slice(0, limit * 4) }, status: "pronta" },
+      where: { id: { in: ids }, status: "pronta" },
       select: { id: true, titulo: true, artista: true, tagsAuto: true },
       take: limit * 4,
     });
@@ -70,10 +99,7 @@ async function loadCandidateRows(opts: {
       : rows.slice(0, limit);
   }
 
-  const where: Prisma.MusicaBibliotecaWhereInput = {
-    status: "pronta",
-    ...scopeToWhere(scope),
-  };
+  const where = applyScopeWhere(scope, excludeMusicaIds);
 
   const poolSize = onlyMissing ? limit * 12 : limit;
   const pool = await prisma.musicaBiblioteca.findMany({
@@ -115,8 +141,11 @@ export async function scanExplicitoBatch(opts: {
   limit?: number;
   onlyMissing?: boolean;
   musicaIds?: string[];
+  excludeMusicaIds?: string[];
 }): Promise<{
   geniusEnabled: boolean;
+  scopeTotal: number;
+  scopePending: number;
   processed: number;
   explicit: number;
   safe: number;
@@ -124,7 +153,13 @@ export async function scanExplicitoBatch(opts: {
   updated: number;
   hasMore: boolean;
   results: ExplicitoScanRow[];
-  lyricsNotFoundList: Array<{ musicaId: string; titulo: string; artista: string; reason?: string }>;
+  lyricsNotFoundList: Array<{
+    musicaId: string;
+    titulo: string;
+    artista: string;
+    reason?: string;
+    geniusUrl?: string;
+  }>;
 }> {
   const enabled = geniusEnabled();
   const limit = Math.min(
@@ -133,9 +168,13 @@ export async function scanExplicitoBatch(opts: {
   );
   const onlyMissing = opts.onlyMissing !== false;
 
+  const scopeStats = await countExplicitoScope(opts.scope);
+
   if (!enabled) {
     return {
       geniusEnabled: false,
+      scopeTotal: scopeStats.total,
+      scopePending: scopeStats.pending,
       processed: 0,
       explicit: 0,
       safe: 0,
@@ -152,6 +191,7 @@ export async function scanExplicitoBatch(opts: {
     limit,
     onlyMissing,
     musicaIds: opts.musicaIds,
+    excludeMusicaIds: opts.excludeMusicaIds,
   });
 
   const results: ExplicitoScanRow[] = [];
@@ -160,6 +200,7 @@ export async function scanExplicitoBatch(opts: {
     titulo: string;
     artista: string;
     reason?: string;
+    geniusUrl?: string;
   }> = [];
   let explicit = 0;
   let safe = 0;
@@ -194,6 +235,7 @@ export async function scanExplicitoBatch(opts: {
         titulo: m.titulo,
         artista: m.artista,
         reason,
+        geniusUrl: lyricsResult.geniusUrl,
       });
       results.push({
         musicaId: m.id,
@@ -202,6 +244,7 @@ export async function scanExplicitoBatch(opts: {
         status: "lyrics_not_found",
         updated: false,
         reason,
+        geniusUrl: lyricsResult.geniusUrl,
       });
       // Rotaciona fila (sem selo) para não repetir as mesmas faixas no lote seguinte.
       await prisma.musicaBiblioteca.update({
@@ -237,12 +280,20 @@ export async function scanExplicitoBatch(opts: {
     await new Promise((r) => setTimeout(r, 400));
   }
 
-  const stats = await countExplicitoScope(opts.scope);
-  const hasMore = onlyMissing && stats.pending > 0 && rows.length > 0;
+  const processedIds = results
+    .filter((r) => r.status !== "skipped")
+    .map((r) => r.musicaId);
+  const sessionExclude = [...(opts.excludeMusicaIds ?? []), ...processedIds];
+  const remainingPending = onlyMissing
+    ? await countPendingInScope(opts.scope, sessionExclude)
+    : 0;
+  const hasMore = onlyMissing && remainingPending > 0 && processedIds.length > 0;
 
   return {
     geniusEnabled: true,
-    processed: results.filter((r) => r.status !== "skipped").length,
+    scopeTotal: scopeStats.total,
+    scopePending: scopeStats.pending,
+    processed: processedIds.length,
     explicit,
     safe,
     lyricsNotFound,

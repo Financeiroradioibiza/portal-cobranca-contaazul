@@ -1,11 +1,18 @@
 import { normalizeSearchTitle } from "@/lib/criacao/tagEnrichmentCore";
 
 const GENIUS_BASE = "https://api.genius.com";
-const UA = "RadioIbizaPortal/1.0 (criacao-explicito; contact@radioibiza.com.br)";
+const API_UA = "RadioIbizaPortal/1.0 (criacao-explicito; contact@radioibiza.com.br)";
+const PAGE_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 export type GeniusLyricsResult =
-  | { ok: true; lyrics: string; geniusUrl: string; geniusId: number }
-  | { ok: false; reason: "no_token" | "not_found" | "no_lyrics" | "fetch_error" };
+  | { ok: true; lyrics: string; geniusUrl: string; geniusId: number; source: "genius_page" | "lyrics_ovh" }
+  | {
+      ok: false;
+      reason: "no_token" | "not_found" | "no_lyrics" | "fetch_error";
+      geniusUrl?: string;
+      geniusId?: number;
+    };
 
 export function geniusEnabled(): boolean {
   return Boolean(process.env.GENIUS_ACCESS_TOKEN?.trim());
@@ -16,7 +23,7 @@ function authHeaders(): HeadersInit {
   return {
     Accept: "application/json",
     Authorization: `Bearer ${token}`,
-    "User-Agent": UA,
+    "User-Agent": API_UA,
   };
 }
 
@@ -29,47 +36,83 @@ type GeniusSearchHit = {
   };
 };
 
+function searchQueries(artista: string, titulo: string): string[] {
+  const a = artista.trim();
+  const raw = titulo.trim();
+  const norm = normalizeSearchTitle(raw);
+  const uniq = new Set<string>();
+  for (const q of [`${a} ${norm}`, `${a} ${raw}`, `${norm} ${a}`, norm, raw]) {
+    const t = q.trim();
+    if (t.length >= 3) uniq.add(t);
+  }
+  return [...uniq];
+}
+
+type GeniusSongHit = {
+  id: number;
+  url: string;
+  title?: string;
+  primary_artist?: { name?: string };
+};
+
+async function searchGeniusOnce(query: string): Promise<GeniusSongHit[]> {
+  const res = await fetch(`${GENIUS_BASE}/search?q=${encodeURIComponent(query)}`, {
+    headers: authHeaders(),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) return [];
+  const data = (await res.json()) as { response?: { hits?: GeniusSearchHit[] } };
+  const out: GeniusSongHit[] = [];
+  for (const h of data.response?.hits ?? []) {
+    const r = h.result;
+    if (r?.id && r.url) out.push({ id: r.id, url: r.url, title: r.title, primary_artist: r.primary_artist });
+  }
+  return out;
+}
+
+function scoreHit(r: GeniusSongHit, artista: string, titulo: string): number {
+  const artistNorm = artista.trim().toLowerCase();
+  const titleNorm = normalizeSearchTitle(titulo).toLowerCase();
+  const rawTitleNorm = titulo.trim().toLowerCase();
+  const a = (r.primary_artist?.name ?? "").toLowerCase();
+  const t = (r.title ?? "").toLowerCase();
+
+  let score = 0;
+  if (a.includes(artistNorm) || artistNorm.includes(a)) score += 3;
+  if (a === artistNorm) score += 2;
+  if (t.includes(titleNorm) || titleNorm.includes(t)) score += 3;
+  if (t.includes(rawTitleNorm) || rawTitleNorm.includes(t)) score += 2;
+  if (t === titleNorm || t === rawTitleNorm) score += 2;
+  return score;
+}
+
 async function searchGeniusSong(
   artista: string,
   titulo: string,
 ): Promise<{ id: number; url: string } | null> {
-  const q = `${artista.trim()} ${normalizeSearchTitle(titulo)}`.trim();
-  if (!q) return null;
+  const allHits: GeniusSongHit[] = [];
 
-  try {
-    const res = await fetch(
-      `${GENIUS_BASE}/search?q=${encodeURIComponent(q)}`,
-      { headers: authHeaders(), signal: AbortSignal.timeout(15_000) },
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { response?: { hits?: GeniusSearchHit[] } };
-    const hits = data.response?.hits ?? [];
-    if (hits.length === 0) return null;
-
-    const artistNorm = artista.trim().toLowerCase();
-    const titleNorm = normalizeSearchTitle(titulo).toLowerCase();
-
-    const ranked = hits
-      .map((h) => h.result)
-      .filter((r): r is NonNullable<GeniusSearchHit["result"]> => Boolean(r?.id && r.url))
-      .map((r) => {
-        const a = (r.primary_artist?.name ?? "").toLowerCase();
-        const t = (r.title ?? "").toLowerCase();
-        let score = 0;
-        if (a.includes(artistNorm) || artistNorm.includes(a)) score += 2;
-        if (t.includes(titleNorm) || titleNorm.includes(t)) score += 2;
-        if (a === artistNorm) score += 1;
-        if (t === titleNorm) score += 1;
-        return { id: r.id!, url: r.url!, score };
-      })
-      .sort((a, b) => b.score - a.score);
-
-    const best = ranked[0];
-    if (!best) return null;
-    return { id: best.id, url: best.url };
-  } catch {
-    return null;
+  for (const query of searchQueries(artista, titulo)) {
+    try {
+      const hits = await searchGeniusOnce(query);
+      for (const h of hits) {
+        if (!allHits.some((x) => x.id === h.id)) allHits.push(h);
+      }
+      if (allHits.length >= 5) break;
+    } catch {
+      /* tenta próxima query */
+    }
   }
+
+  if (allHits.length === 0) return null;
+
+  const ranked = allHits
+    .map((r) => ({ id: r.id, url: r.url, score: scoreHit(r, artista, titulo) }))
+    .sort((a, b) => b.score - a.score);
+
+  const best = ranked[0];
+  if (!best || best.score < 2) return null;
+  return { id: best.id, url: best.url };
 }
 
 function decodeHtmlEntities(text: string): string {
@@ -98,62 +141,134 @@ function stripHtml(html: string): string {
     .join("\n");
 }
 
-async function fetchLyricsFromPage(url: string): Promise<string | null> {
+function parsePreloadedState(html: string): unknown | null {
+  const match = html.match(/window\.__PRELOADED_STATE__\s*=\s*JSON\.parse\('([\s\S]*?)'\)/);
+  if (!match?.[1]) return null;
   try {
-    const res = await fetch(url, {
-      headers: { Accept: "text/html", "User-Agent": UA },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    const containerRe = /data-lyrics-container="true"[^>]*>([\s\S]*?)<\/div>/gi;
-    const parts: string[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = containerRe.exec(html)) !== null) {
-      const chunk = stripHtml(m[1] ?? "");
-      if (chunk) parts.push(chunk);
-    }
-    if (parts.length > 0) {
-      return parts.join("\n\n").trim();
-    }
-
-    const preloaded = html.match(/window\.__PRELOADED_STATE__\s*=\s*JSON\.parse\('([\s\S]*?)'\)/);
-    if (preloaded?.[1]) {
-      try {
-        const jsonStr = preloaded[1].replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-        const state = JSON.parse(jsonStr) as {
-          songPage?: { lyrics?: { html?: string } | string };
-        };
-        const lyrics = state.songPage?.lyrics;
-        if (typeof lyrics === "string" && lyrics.trim()) return lyrics.trim();
-        if (lyrics && typeof lyrics === "object" && lyrics.html) {
-          const text = stripHtml(lyrics.html);
-          if (text) return text;
-        }
-      } catch {
-        /* fallback abaixo */
-      }
-    }
-
-    return null;
+    const jsonStr = match[1]
+      .replace(/\\u0027/g, "'")
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\");
+    return JSON.parse(jsonStr) as unknown;
   } catch {
     return null;
   }
 }
 
-/** Busca letra no Genius (API + página pública). */
+function lyricsFromPreloadedState(state: unknown): string | null {
+  const songPage = (state as { songPage?: { lyricsData?: { body?: { html?: string } } } })
+    .songPage;
+  const html = songPage?.lyricsData?.body?.html;
+  if (!html) return null;
+  const text = stripHtml(html);
+  return text.length >= 8 ? text : null;
+}
+
+function lyricsFromContainers(html: string): string | null {
+  const containerRe = /data-lyrics-container="true"[^>]*>([\s\S]*?)<\/div>/gi;
+  const chunks: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = containerRe.exec(html)) !== null) {
+    const chunk = stripHtml(m[1] ?? "");
+    if (chunk.length >= 20) chunks.push(chunk);
+  }
+  if (chunks.length === 0) return null;
+  chunks.sort((a, b) => b.length - a.length);
+  return chunks[0] ?? null;
+}
+
+async function fetchLyricsFromPage(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "User-Agent": PAGE_UA,
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const fromState = lyricsFromPreloadedState(parsePreloadedState(html));
+    if (fromState) return fromState;
+
+    return lyricsFromContainers(html);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLyricsOvh(artista: string, titulo: string): Promise<string | null> {
+  const paths = [
+    [artista.trim(), normalizeSearchTitle(titulo)],
+    [artista.trim(), titulo.trim()],
+  ];
+  for (const [artist, title] of paths) {
+    if (!artist || !title) continue;
+    try {
+      const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
+      if (!res.ok) continue;
+      const data = (await res.json()) as { lyrics?: string; error?: string };
+      const text = data.lyrics?.trim();
+      if (text && text.length >= 8) return text;
+    } catch {
+      /* próxima tentativa */
+    }
+  }
+  return null;
+}
+
+/** Busca letra no Genius (API + página pública, fallback lyrics.ovh). */
 export async function fetchGeniusLyrics(
   artista: string,
   titulo: string,
 ): Promise<GeniusLyricsResult> {
   if (!geniusEnabled()) return { ok: false, reason: "no_token" };
 
-  const hit = await searchGeniusSong(artista, titulo);
-  if (!hit) return { ok: false, reason: "not_found" };
+  let hit: { id: number; url: string } | null = null;
+  try {
+    hit = await searchGeniusSong(artista, titulo);
+  } catch {
+    return { ok: false, reason: "fetch_error" };
+  }
 
-  const lyrics = await fetchLyricsFromPage(hit.url);
-  if (!lyrics || lyrics.length < 8) return { ok: false, reason: "no_lyrics" };
+  if (!hit) {
+    const ovhOnly = await fetchLyricsOvh(artista, titulo);
+    if (ovhOnly) {
+      return {
+        ok: true,
+        lyrics: ovhOnly,
+        geniusUrl: "",
+        geniusId: 0,
+        source: "lyrics_ovh",
+      };
+    }
+    return { ok: false, reason: "not_found" };
+  }
 
-  return { ok: true, lyrics, geniusUrl: hit.url, geniusId: hit.id };
+  let lyrics = await fetchLyricsFromPage(hit.url);
+  if (!lyrics) {
+    lyrics = await fetchLyricsOvh(artista, titulo);
+    if (lyrics) {
+      return {
+        ok: true,
+        lyrics,
+        geniusUrl: hit.url,
+        geniusId: hit.id,
+        source: "lyrics_ovh",
+      };
+    }
+    return { ok: false, reason: "no_lyrics", geniusUrl: hit.url, geniusId: hit.id };
+  }
+
+  return {
+    ok: true,
+    lyrics,
+    geniusUrl: hit.url,
+    geniusId: hit.id,
+    source: "genius_page",
+  };
 }
