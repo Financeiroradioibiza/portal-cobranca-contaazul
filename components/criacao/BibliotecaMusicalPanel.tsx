@@ -40,6 +40,8 @@ type Musica = {
   explicitDeezer: "sim" | "nao" | "desconhecida" | null;
   explicitMusicbrainz: "sim" | "nao" | "desconhecida" | null;
   explicitGemini: "sim" | "nao" | "desconhecida" | null;
+  geniusLetraExplicit: "sim" | "nao" | null;
+  geniusLetraVerificada: boolean;
   previewUrl: string | null;
   rejeicoesCount: number;
   likesCount: number;
@@ -1103,6 +1105,10 @@ export function BibliotecaMusicalPanel({
                   <ExplicitApiChip fonte="DZ" status={m.explicitDeezer} />
                   <ExplicitApiChip fonte="MB" status={m.explicitMusicbrainz} />
                   <ExplicitApiChip fonte="IA" status={m.explicitGemini} />
+                  <GeniusLetraSeal
+                    verificada={m.geniusLetraVerificada}
+                    explicit={m.geniusLetraExplicit}
+                  />
                   {m.tagsManuais.map((t) => (
                     <span
                       key={t.id}
@@ -1128,7 +1134,8 @@ export function BibliotecaMusicalPanel({
                   m.energia == null &&
                   !m.explicitDeezer &&
                   !m.explicitMusicbrainz &&
-                  !m.explicitGemini ?
+                  !m.explicitGemini &&
+                  !m.geniusLetraVerificada ?
                     <span className="text-[11px] text-slate-400">sem tags</span>
                   : null}
                   <button
@@ -1690,6 +1697,36 @@ function RejeicaoModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function GeniusLetraSeal({
+  verificada,
+  explicit,
+}: {
+  verificada: boolean;
+  explicit: "sim" | "nao" | null;
+}) {
+  if (!verificada || explicit == null) return null;
+
+  if (explicit === "sim") {
+    return (
+      <span
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white"
+        title="Letra verificada (Genius): conteúdo explícito"
+      >
+        ✗
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white"
+      title="Letra verificada (Genius): segura"
+    >
+      ✓
+    </span>
   );
 }
 

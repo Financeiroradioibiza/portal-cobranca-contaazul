@@ -34,6 +34,7 @@ import { VinhetasPanel } from "@/components/criacao/VinhetasPanel";
 import { CriacaoErrorLogPanel } from "@/components/criacao/CriacaoErrorLogPanel";
 import { WizardPanel } from "@/components/criacao/WizardPanel";
 import { CheckPanel } from "@/components/criacao/CheckPanel";
+import { ExplicitoPanel } from "@/components/criacao/ExplicitoPanel";
 import { LoginsClientesPanel } from "@/components/suporte/LoginsClientesPanel";
 import { SiteClientesAdminPanel } from "@/components/suporte/SiteClientesAdminPanel";
 import { PlayerAvisosPanel } from "@/components/suporte/PlayerAvisosPanel";
@@ -264,6 +265,12 @@ const PAGES: Record<string, PageDef> = {
     title: "CHECK",
     criacao: true,
     render: () => <CheckPanel />,
+  },
+  "/criacao/explicito": {
+    section: "Criação",
+    title: "EXPLICITO!",
+    criacao: true,
+    render: () => <ExplicitoPanel />,
   },
   "/suporte": {
     section: "Suporte",

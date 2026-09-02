@@ -20,6 +20,7 @@ export const CRIACAO_SIDEBAR: CriacaoSidebarEntry[] = [
   { type: "item", href: "/criacao/erros", label: "Diagnóstico", icon: "🔍" },
   { type: "item", href: "/criacao/wizard", label: "Wizard IA", icon: "✨" },
   { type: "item", href: "/criacao/check", label: "CHECK", icon: "✅" },
+  { type: "item", href: "/criacao/explicito", label: "EXPLICITO!", icon: "🔞" },
 ];
 
 /** Página principal ao clicar em Criação no topo. */
