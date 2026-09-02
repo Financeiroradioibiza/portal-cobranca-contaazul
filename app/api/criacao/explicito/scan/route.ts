@@ -55,10 +55,6 @@ export async function POST(request: Request) {
 
     const result = await scanExplicitoBatch({ scope, limit, onlyMissing, musicaIds, excludeMusicaIds });
 
-    if (!result.geniusEnabled) {
-      return NextResponse.json({ error: "genius_desabilitado" }, { status: 503 });
-    }
-
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof Response) return e;

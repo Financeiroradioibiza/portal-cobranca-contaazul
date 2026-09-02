@@ -13,11 +13,22 @@ type ScanStats = {
   geniusEnabled: boolean;
 };
 
+type ReportTrack = {
+  musicaId: string;
+  titulo: string;
+  artista: string;
+  lyricsSource?: string;
+  lyricsUrl?: string;
+  geniusUrl?: string;
+};
+
 type ScanReport = {
   analyzed: number;
   explicit: number;
   safe: number;
   lyricsNotFound: number;
+  explicitItems: ReportTrack[];
+  safeItems: ReportTrack[];
   lyricsNotFoundItems: Array<{
     musicaId: string;
     titulo: string;
@@ -26,6 +37,59 @@ type ScanReport = {
     geniusUrl?: string;
   }>;
 };
+
+const SOURCE_LABEL: Record<string, string> = {
+  genius_page: "Genius",
+  azlyrics: "AZLyrics",
+  lyrics_ovh: "Lyrics.ovh",
+};
+
+function ReportTrackList({
+  title,
+  items,
+  tone,
+}: {
+  title: string;
+  items: ReportTrack[];
+  tone: "safe" | "explicit";
+}) {
+  if (items.length === 0) return null;
+  const titleCls =
+    tone === "explicit" ?
+      "text-red-600 dark:text-red-400"
+    : "text-emerald-700 dark:text-emerald-300";
+  return (
+    <div className="mt-4">
+      <h3 className={`text-xs font-semibold uppercase tracking-wide ${titleCls}`}>
+        {title} ({items.length})
+      </h3>
+      <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-xs text-slate-600 dark:text-slate-400">
+        {items.map((item) => (
+          <li key={item.musicaId}>
+            {tone === "explicit" ? "✗ " : "✓ "}
+            {item.artista} — {item.titulo}
+            {item.lyricsSource ?
+              <span className="text-slate-400"> · {SOURCE_LABEL[item.lyricsSource] ?? item.lyricsSource}</span>
+            : null}
+            {item.lyricsUrl ? (
+              <>
+                {" "}
+                <a
+                  href={item.lyricsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-600 underline dark:text-indigo-400"
+                >
+                  letra ↗
+                </a>
+              </>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 const SCOPE_LABELS: Record<ScopeKind, string> = {
   all: "Biblioteca inteira",
@@ -56,6 +120,9 @@ export function ExplicitoPanel() {
   const [progPastaId, setProgPastaId] = useState("");
   const [programacaoId, setProgramacaoId] = useState("");
   const [stats, setStats] = useState<ScanStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  /** null = ainda não verificado; evita falso "Genius desabilitado" enquanto stats carrega. */
+  const [geniusOk, setGeniusOk] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [report, setReport] = useState<ScanReport | null>(null);
@@ -80,15 +147,29 @@ export function ExplicitoPanel() {
   }, [scopeKind, tagId, customPastaId, progPastaId, programacaoId]);
 
   const refreshStats = useCallback(async (s: ExplicitoScanScope) => {
-    const res = await fetch(`/api/criacao/explicito/stats?${scopeQuery(s)}`);
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error || "stats_falhou");
-    setStats({
-      total: Number(data.total) || 0,
-      verified: Number(data.verified) || 0,
-      pending: Number(data.pending) || 0,
-      geniusEnabled: Boolean(data.geniusEnabled),
-    });
+    setStatsLoading(true);
+    try {
+      const res = await fetch(`/api/criacao/explicito/stats?${scopeQuery(s)}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "stats_falhou");
+      setStats({
+        total: Number(data.total) || 0,
+        verified: Number(data.verified) || 0,
+        pending: Number(data.pending) || 0,
+        geniusEnabled: Boolean(data.geniusEnabled),
+      });
+      if (data.geniusEnabled === true) setGeniusOk(true);
+      if (data.geniusEnabled === false) setGeniusOk(false);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/criacao/explicito/status")
+      .then((r) => r.json())
+      .then((d) => setGeniusOk(d?.geniusEnabled === true))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -105,7 +186,7 @@ export function ExplicitoPanel() {
       setStats(null);
       return;
     }
-    void refreshStats(scope).catch(() => setStats(null));
+    void refreshStats(scope).catch(() => undefined);
   }, [scope, refreshStats]);
 
   const progOptions = useMemo(() => {
@@ -152,11 +233,7 @@ export function ExplicitoPanel() {
 
   const runScan = async () => {
     if (!scope || busy) return;
-    if (!stats?.geniusEnabled) {
-      setMsg("Configure GENIUS_ACCESS_TOKEN no servidor.");
-      return;
-    }
-    if (stats.pending === 0) {
+    if ((stats?.pending ?? 0) === 0) {
       setMsg("Nenhuma faixa pendente neste escopo.");
       return;
     }
@@ -171,11 +248,13 @@ export function ExplicitoPanel() {
       explicit: 0,
       safe: 0,
       lyricsNotFound: 0,
+      explicitItems: [],
+      safeItems: [],
       lyricsNotFoundItems: [],
     };
 
     let done = 0;
-    const sessionTarget = stats.pending;
+    const sessionTarget = stats?.pending ?? 0;
     const sessionProcessed = new Set<string>();
     setProgress({ done: 0, total: sessionTarget });
 
@@ -194,10 +273,30 @@ export function ExplicitoPanel() {
         });
         const data = await res.json().catch(() => null);
         if (!res.ok) throw new Error(data?.error || "scan_falhou");
+        if (data?.geniusEnabled === true) setGeniusOk(true);
 
         if (Array.isArray(data.results)) {
-          for (const row of data.results as Array<{ musicaId?: string; status?: string }>) {
-            if (row.musicaId && row.status !== "skipped") sessionProcessed.add(row.musicaId);
+          for (const row of data.results as Array<{
+            musicaId?: string;
+            status?: string;
+            titulo?: string;
+            artista?: string;
+            lyricsSource?: string;
+            lyricsUrl?: string;
+            geniusUrl?: string;
+          }>) {
+            if (!row.musicaId || row.status === "skipped") continue;
+            sessionProcessed.add(row.musicaId);
+            const track: ReportTrack = {
+              musicaId: row.musicaId,
+              titulo: row.titulo ?? "",
+              artista: row.artista ?? "",
+              lyricsSource: row.lyricsSource,
+              lyricsUrl: row.lyricsUrl,
+              geniusUrl: row.geniusUrl,
+            };
+            if (row.status === "explicit") acc.explicitItems.push(track);
+            if (row.status === "safe") acc.safeItems.push(track);
           }
         }
 
@@ -239,8 +338,7 @@ export function ExplicitoPanel() {
       <header>
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">EXPLICITO!</h1>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Busca letras no Genius, analisa com filtro local PT-BR e marca selos na biblioteca.
-          Selo só aparece quando a letra é encontrada e verificada.
+          Busca letras no Genius, AZLyrics (fallback) e filtro local PT+EN. Selo só quando a letra é encontrada e verificada.
         </p>
       </header>
 
@@ -353,17 +451,20 @@ export function ExplicitoPanel() {
           <p className="mt-3 text-xs text-slate-400">Selecione um item do escopo.</p>
         ) : null}
 
-        {!stats?.geniusEnabled ? (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            Genius desabilitado — defina <code className="font-mono">GENIUS_ACCESS_TOKEN</code> no .env do portal.
+        {geniusOk === false ? (
+          <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            Genius API off — varredura usa <strong>AZLyrics</strong> e lyrics.ovh quando não achar no Genius.
+            Configure <code className="font-mono">GENIUS_ACCESS_TOKEN</code> para priorizar o Genius.
           </p>
+        ) : geniusOk === null && statsLoading ? (
+          <p className="mt-3 text-xs text-slate-400">Verificando Genius…</p>
         ) : null}
       </section>
 
       <section className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={busy || !scope || !stats?.geniusEnabled || (stats?.pending ?? 0) === 0}
+          disabled={busy || !scope || (stats?.pending ?? 0) === 0}
           onClick={() => void runScan()}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
@@ -401,10 +502,13 @@ export function ExplicitoPanel() {
             <li>Letra não encontrada: {report.lyricsNotFound}</li>
           </ul>
 
+          <ReportTrackList title="Explícitas" items={report.explicitItems} tone="explicit" />
+          <ReportTrackList title="Seguras (passou)" items={report.safeItems} tone="safe" />
+
           {report.lyricsNotFoundItems.length > 0 ? (
             <div className="mt-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Faixas sem letra no Genius
+                Sem letra (Genius / AZLyrics / lyrics.ovh)
               </h3>
               <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-xs text-slate-600 dark:text-slate-400">
                 {report.lyricsNotFoundItems.map((item) => (

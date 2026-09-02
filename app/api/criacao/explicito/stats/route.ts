@@ -28,6 +28,8 @@ function parseScopeFromSearch(params: URLSearchParams): ExplicitoScanScope {
 }
 
 /** Contagem de faixas no escopo (total / verificadas / pendentes). */
+export const maxDuration = 60;
+
 export async function GET(request: Request) {
   try {
     requirePortalSession(await getPortalSession());

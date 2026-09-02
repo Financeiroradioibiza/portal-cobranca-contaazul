@@ -6,7 +6,7 @@ import {
   needsGeniusLetraCheck,
 } from "@/lib/criacao/explicitoGeniusCore";
 import { lyricsContainProfanity } from "@/lib/criacao/explicitoProfanityFilter";
-import { fetchGeniusLyrics, geniusEnabled } from "@/lib/criacao/geniusLyricsService";
+import { fetchSongLyrics, geniusEnabled } from "@/lib/criacao/geniusLyricsService";
 import { parseTagsFromJson } from "@/lib/criacao/tagEnrichmentCore";
 
 export const EXPLICITO_SCAN_BATCH_DEFAULT = 3;
@@ -26,6 +26,8 @@ export type ExplicitoScanRow = {
   status: "explicit" | "safe" | "lyrics_not_found" | "skipped";
   updated: boolean;
   geniusUrl?: string;
+  lyricsUrl?: string;
+  lyricsSource?: string;
   reason?: string;
 };
 
@@ -167,24 +169,7 @@ export async function scanExplicitoBatch(opts: {
     Math.max(1, opts.limit ?? EXPLICITO_SCAN_BATCH_DEFAULT),
   );
   const onlyMissing = opts.onlyMissing !== false;
-
   const scopeStats = await countExplicitoScope(opts.scope);
-
-  if (!enabled) {
-    return {
-      geniusEnabled: false,
-      scopeTotal: scopeStats.total,
-      scopePending: scopeStats.pending,
-      processed: 0,
-      explicit: 0,
-      safe: 0,
-      lyricsNotFound: 0,
-      updated: 0,
-      hasMore: false,
-      results: [],
-      lyricsNotFoundList: [],
-    };
-  }
 
   const rows = await loadCandidateRows({
     scope: opts.scope,
@@ -221,14 +206,13 @@ export async function scanExplicitoBatch(opts: {
       continue;
     }
 
-    const lyricsResult = await fetchGeniusLyrics(m.artista, m.titulo);
+    const lyricsResult = await fetchSongLyrics(m.artista, m.titulo);
 
     if (!lyricsResult.ok) {
       lyricsNotFound += 1;
       const reason =
         lyricsResult.reason === "not_found" ? "letra_nao_encontrada"
         : lyricsResult.reason === "no_lyrics" ? "pagina_sem_letra"
-        : lyricsResult.reason === "no_token" ? "genius_desabilitado"
         : "erro_busca";
       lyricsNotFoundList.push({
         musicaId: m.id,
@@ -275,6 +259,8 @@ export async function scanExplicitoBatch(opts: {
       status: isExplicit ? "explicit" : "safe",
       updated: true,
       geniusUrl: lyricsResult.geniusUrl,
+      lyricsUrl: lyricsResult.lyricsUrl,
+      lyricsSource: lyricsResult.source,
     });
 
     await new Promise((r) => setTimeout(r, 400));
@@ -290,7 +276,7 @@ export async function scanExplicitoBatch(opts: {
   const hasMore = onlyMissing && remainingPending > 0 && processedIds.length > 0;
 
   return {
-    geniusEnabled: true,
+    geniusEnabled: enabled,
     scopeTotal: scopeStats.total,
     scopePending: scopeStats.pending,
     processed: processedIds.length,

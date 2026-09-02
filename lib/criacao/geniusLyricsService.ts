@@ -1,3 +1,4 @@
+import { fetchAzlyricsLyrics } from "@/lib/criacao/azlyricsLyricsService";
 import { normalizeSearchTitle } from "@/lib/criacao/tagEnrichmentCore";
 
 const GENIUS_BASE = "https://api.genius.com";
@@ -5,14 +6,26 @@ const API_UA = "RadioIbizaPortal/1.0 (criacao-explicito; contact@radioibiza.com.
 const PAGE_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-export type GeniusLyricsResult =
-  | { ok: true; lyrics: string; geniusUrl: string; geniusId: number; source: "genius_page" | "lyrics_ovh" }
+export type LyricsSource = "genius_page" | "azlyrics" | "lyrics_ovh";
+
+export type LyricsFetchResult =
+  | {
+      ok: true;
+      lyrics: string;
+      source: LyricsSource;
+      lyricsUrl: string;
+      geniusUrl?: string;
+      geniusId?: number;
+    }
   | {
       ok: false;
-      reason: "no_token" | "not_found" | "no_lyrics" | "fetch_error";
+      reason: "not_found" | "no_lyrics" | "fetch_error";
       geniusUrl?: string;
       geniusId?: number;
     };
+
+/** @deprecated use LyricsFetchResult */
+export type GeniusLyricsResult = LyricsFetchResult;
 
 export function geniusEnabled(): boolean {
   return Boolean(process.env.GENIUS_ACCESS_TOKEN?.trim());
@@ -90,6 +103,8 @@ async function searchGeniusSong(
   artista: string,
   titulo: string,
 ): Promise<{ id: number; url: string } | null> {
+  if (!geniusEnabled()) return null;
+
   const allHits: GeniusSongHit[] = [];
 
   for (const query of searchQueries(artista, titulo)) {
@@ -178,7 +193,7 @@ function lyricsFromContainers(html: string): string | null {
   return chunks[0] ?? null;
 }
 
-async function fetchLyricsFromPage(url: string): Promise<string | null> {
+async function fetchLyricsFromGeniusPage(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
       headers: {
@@ -221,54 +236,73 @@ async function fetchLyricsOvh(artista: string, titulo: string): Promise<string |
   return null;
 }
 
-/** Busca letra no Genius (API + página pública, fallback lyrics.ovh). */
-export async function fetchGeniusLyrics(
+async function tryFallbackLyrics(
   artista: string,
   titulo: string,
-): Promise<GeniusLyricsResult> {
-  if (!geniusEnabled()) return { ok: false, reason: "no_token" };
+  geniusMeta?: { url: string; id: number },
+): Promise<LyricsFetchResult> {
+  const az = await fetchAzlyricsLyrics(artista, titulo);
+  if (az.ok) {
+    return {
+      ok: true,
+      lyrics: az.lyrics,
+      source: "azlyrics",
+      lyricsUrl: az.url,
+      geniusUrl: geniusMeta?.url,
+      geniusId: geniusMeta?.id,
+    };
+  }
 
+  const ovh = await fetchLyricsOvh(artista, titulo);
+  if (ovh) {
+    return {
+      ok: true,
+      lyrics: ovh,
+      source: "lyrics_ovh",
+      lyricsUrl: "",
+      geniusUrl: geniusMeta?.url,
+      geniusId: geniusMeta?.id,
+    };
+  }
+
+  if (geniusMeta) {
+    return { ok: false, reason: "no_lyrics", geniusUrl: geniusMeta.url, geniusId: geniusMeta.id };
+  }
+  return { ok: false, reason: "not_found" };
+}
+
+/** Genius → AZLyrics → lyrics.ovh. */
+export async function fetchSongLyrics(artista: string, titulo: string): Promise<LyricsFetchResult> {
   let hit: { id: number; url: string } | null = null;
   try {
     hit = await searchGeniusSong(artista, titulo);
   } catch {
-    return { ok: false, reason: "fetch_error" };
+    return tryFallbackLyrics(artista, titulo);
   }
 
   if (!hit) {
-    const ovhOnly = await fetchLyricsOvh(artista, titulo);
-    if (ovhOnly) {
-      return {
-        ok: true,
-        lyrics: ovhOnly,
-        geniusUrl: "",
-        geniusId: 0,
-        source: "lyrics_ovh",
-      };
-    }
-    return { ok: false, reason: "not_found" };
+    return tryFallbackLyrics(artista, titulo);
   }
 
-  let lyrics = await fetchLyricsFromPage(hit.url);
+  const lyrics = await fetchLyricsFromGeniusPage(hit.url);
   if (!lyrics) {
-    lyrics = await fetchLyricsOvh(artista, titulo);
-    if (lyrics) {
-      return {
-        ok: true,
-        lyrics,
-        geniusUrl: hit.url,
-        geniusId: hit.id,
-        source: "lyrics_ovh",
-      };
-    }
-    return { ok: false, reason: "no_lyrics", geniusUrl: hit.url, geniusId: hit.id };
+    return tryFallbackLyrics(artista, titulo, hit);
   }
 
   return {
     ok: true,
     lyrics,
+    source: "genius_page",
+    lyricsUrl: hit.url,
     geniusUrl: hit.url,
     geniusId: hit.id,
-    source: "genius_page",
   };
+}
+
+/** @deprecated use fetchSongLyrics */
+export async function fetchGeniusLyrics(
+  artista: string,
+  titulo: string,
+): Promise<LyricsFetchResult> {
+  return fetchSongLyrics(artista, titulo);
 }
