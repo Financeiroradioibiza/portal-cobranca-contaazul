@@ -16,7 +16,13 @@
   var root = document.getElementById("root");
   var moodModal = document.getElementById("mood-modal");
   var moodBody = document.getElementById("mood-body");
+  var installModal = document.getElementById("install-modal");
+  var installBody = document.getElementById("install-body");
   var expandedPdv = null;
+  /** PDVs com token regerado nesta sessão do browser (habilita instalação). */
+  var regeneradoTokenKeys = {};
+  var installModalPdv = null;
+  var installModalContext = null;
 
   function esc(s) {
     if (s == null) return "";
@@ -251,16 +257,57 @@
       .join("");
   }
 
-  function renderPdvRow(pdv, showEstilo) {
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function pdvColspan(showEstilo, perm) {
+    var n = 9;
+    if (perm && perm.gerenciarInstalacaoPlayer) n += 2;
+    return n;
+  }
+
+  function renderPdvRow(pdv, showEstilo, perm) {
     var meta = STATUS_META[pdv.status] || STATUS_META.offline;
     var cache = pdv.cachePercent != null ? pdv.cachePercent : 0;
     var expanded = expandedPdv === pdv.rioPdvKey;
+    var colspan = pdvColspan(showEstilo, perm);
     var expandHtml =
       expanded && pdv.agendamentos && pdv.agendamentos.length
-        ? '<tr class="expand-row"><td colspan="9"><div class="section-title">Playlist</div>' +
+        ? '<tr class="expand-row"><td colspan="' +
+          colspan +
+          '"><div class="section-title">Playlist</div>' +
           renderAgendamentos(pdv.agendamentos) +
           "</td></tr>"
         : "";
+
+    var tiCols = "";
+    if (perm && perm.gerenciarInstalacaoPlayer && pdv.portalPdvId) {
+      tiCols =
+        '<td class="pdv-actions" data-no-expand="1"><button type="button" class="btn-pdv-action btn-regen" data-regen="' +
+        esc(pdv.rioPdvKey) +
+        '">Regerar token</button></td>' +
+        '<td class="pdv-actions" data-no-expand="1"><button type="button" class="btn-pdv-action btn-install" data-install="' +
+        esc(pdv.rioPdvKey) +
+        '">Instalar</button></td>';
+    }
 
     return (
       '<tr class="clickable" data-pdv="' +
@@ -298,12 +345,14 @@
       (showEstilo
         ? '<span class="estilo-pill">' + esc(pdv.estiloAgora || "—") + "</span>"
         : "—") +
-      "</td></tr>" +
+      "</td>" +
+      tiCols +
+      "</tr>" +
       expandHtml
     );
   }
 
-  function renderPdvCard(pdv, showEstilo) {
+  function renderPdvCard(pdv, showEstilo, perm) {
     var meta = STATUS_META[pdv.status] || STATUS_META.offline;
     var cache = pdv.cachePercent != null ? pdv.cachePercent : 0;
     var expanded = expandedPdv === pdv.rioPdvKey;
@@ -312,6 +361,17 @@
         ? '<div class="pdv-card-expand"><div class="section-title">Playlist</div>' +
           renderAgendamentos(pdv.agendamentos) +
           "</div>"
+        : "";
+
+    var tiActions =
+      perm && perm.gerenciarInstalacaoPlayer && pdv.portalPdvId
+        ? '<div class="pdv-card-ti" style="display:flex;gap:0.5rem;margin-top:0.65rem;flex-wrap:wrap">' +
+          '<button type="button" class="btn-pdv-action btn-regen" data-regen="' +
+          esc(pdv.rioPdvKey) +
+          '">Regerar token</button>' +
+          '<button type="button" class="btn-pdv-action btn-install" data-install="' +
+          esc(pdv.rioPdvKey) +
+          '">Instalar</button></div>'
         : "";
 
     return (
@@ -360,6 +420,7 @@
           "</div>"
         : "") +
       "</button>" +
+      tiActions +
       expandHtml +
       "</div>"
     );
@@ -466,20 +527,25 @@
     var pdvHtml = "";
     if (perm.verStatusPdvs && cliente.pdvs && cliente.pdvs.length) {
       var showEstilo = perm.verEstiloAgora;
+      var tiHead =
+        perm.gerenciarInstalacaoPlayer
+          ? "<th>Regerar token</th><th>Instalar</th>"
+          : "";
       pdvHtml =
         '<div class="pdv-cards">' +
         cliente.pdvs
           .map(function (p) {
-            return renderPdvCard(p, showEstilo);
+            return renderPdvCard(p, showEstilo, perm);
           })
           .join("") +
         "</div>" +
         '<div class="pdv-table-wrap"><table class="pdv-table"><thead><tr>' +
         "<th>PDV</th><th>CNPJ</th><th>Cache</th><th>Status</th><th>Programação</th><th>1ª conexão</th><th>Último ping</th><th>Versão</th><th>Estilo agora</th>" +
+        tiHead +
         "</tr></thead><tbody>" +
         cliente.pdvs
           .map(function (p) {
-            return renderPdvRow(p, showEstilo);
+            return renderPdvRow(p, showEstilo, perm);
           })
           .join("") +
         '</tbody></table><p class="hint">Clique na linha para ver a playlist e horários.</p></div>';
@@ -611,18 +677,41 @@
       "</h1>" +
       '<p class="meta">Atualizado ' +
       fmtDt(data.geradoEm) +
-      " · somente leitura</p>" +
+      (data.permissoes && data.permissoes.gerenciarInstalacaoPlayer
+        ? " · TI pode instalar player"
+        : " · somente leitura") +
+      "</p>" +
       "</div>" +
       '<button type="button" class="btn-outline" id="btn-logout">Sair</button>' +
       "</header>" +
       clientesHtml;
 
     document.getElementById("btn-logout").addEventListener("click", logout);
-    root.querySelectorAll("[data-pdv]").forEach(function (el) {
+    root.querySelectorAll("tr.clickable[data-pdv]").forEach(function (el) {
+      el.addEventListener("click", function (ev) {
+        if (ev.target.closest("[data-no-expand]")) return;
+        var id = el.getAttribute("data-pdv");
+        expandedPdv = expandedPdv === id ? null : id;
+        renderDashboard(data);
+      });
+    });
+    root.querySelectorAll(".pdv-card > button[data-pdv]").forEach(function (el) {
       el.addEventListener("click", function () {
         var id = el.getAttribute("data-pdv");
         expandedPdv = expandedPdv === id ? null : id;
         renderDashboard(data);
+      });
+    });
+    root.querySelectorAll(".btn-regen").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        void regerarTokenPdv(btn.getAttribute("data-regen"), btn, data);
+      });
+    });
+    root.querySelectorAll(".btn-install").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        openInstallModal(btn.getAttribute("data-install"), data);
       });
     });
     root.querySelectorAll("[data-mood]").forEach(function (btn) {
@@ -678,9 +767,287 @@
     moodBody.innerHTML = "";
   }
 
+  function findPdvInDashboard(data, rioPdvKey) {
+    var found = null;
+    (data.clientes || []).some(function (c) {
+      return (c.pdvs || []).some(function (p) {
+        if (p.rioPdvKey === rioPdvKey) {
+          found = p;
+          return true;
+        }
+        return false;
+      });
+    });
+    return found;
+  }
+
+  function regerarTokenPdv(rioPdvKey, btn, data) {
+    if (!rioPdvKey) return;
+    var pdv = findPdvInDashboard(data, rioPdvKey);
+    var aviso =
+      pdv && pdv.lastPingAt
+        ? "Este PDV parece conectado a um player. Regerar o token desconecta a instalação anterior. Continuar?"
+        : "Regerar o token de instalação deste PDV? A instalação anterior deixa de funcionar.";
+    if (!window.confirm(aviso)) return;
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "…";
+    }
+
+    return window.SiteClienteAuth.apiFetch(
+      "/api/site-cliente/pdv/" + encodeURIComponent(rioPdvKey) + "/regenerar-token",
+      { method: "POST" },
+    )
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok, json: j };
+        });
+      })
+      .then(function (res) {
+        if (!res.ok || !res.json.ok) {
+          throw new Error((res.json && res.json.error) || "Falha ao regerar token");
+        }
+        regeneradoTokenKeys[rioPdvKey] = true;
+        window.alert("Token regerado. Agora você pode gerar a instalação.");
+        loadDashboard(0);
+      })
+      .catch(function (e) {
+        window.alert(e instanceof Error ? e.message : "Erro ao regerar token.");
+      })
+      .finally(function () {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Regerar token";
+        }
+      });
+  }
+
+  function renderInstallModalBody(pdv, ctx) {
+    var gate = ctx.geracaoGate || {};
+    var podeInstalar = Boolean(regeneradoTokenKeys[pdv.rioPdvKey]) || gate.podeGerarLink;
+    var html = "";
+
+    html +=
+      '<p style="margin:0 0 0.75rem;font-size:0.85rem;color:rgba(255,255,255,0.7)">' +
+      esc(ctx.contexto.pdvNome) +
+      " · <strong>" +
+      esc(ctx.contexto.codigoDisplay || "") +
+      "</strong></p>";
+
+    if (gate.pdvComPlayerAtivo) {
+      html +=
+        '<div class="install-alert install-alert-warn">' +
+        "<strong>Atenção:</strong> este PDV parece conectado a outro player" +
+        (gate.motivo ? " — " + esc(gate.motivo) : "") +
+        ". Regerar o token antes de instalar em um novo aparelho." +
+        "</div>";
+    }
+
+    if (!podeInstalar) {
+      html +=
+        '<div class="install-alert install-alert-warn">' +
+        "Regerar o token na tabela antes de gerar o link de instalação." +
+        "</div>";
+    } else if (regeneradoTokenKeys[pdv.rioPdvKey]) {
+      html +=
+        '<div class="install-alert install-alert-ok">Token regerado nesta sessão — pode gerar a instalação.</div>';
+    }
+
+    html +=
+      '<div class="install-section install-section-primary">' +
+      "<h4>Windows — Microsoft Edge (recomendado)</h4>" +
+      "<p>Instalação tipo 3: abra o link no <strong>Edge</strong> (ou Chrome). Use a senha temporária uma única vez na primeira entrada.</p>" +
+      '<div id="install-windows-result"></div>' +
+      '<button type="button" class="btn-install-generate" id="btn-gen-windows"' +
+      (podeInstalar ? "" : " disabled") +
+      ">Gerar link e senha (Edge)</button>" +
+      "</div>";
+
+    html +=
+      '<div class="install-section install-section-secondary">' +
+      "<h4>Android — tablet (Google Play)</h4>" +
+      "<p>Alternativa para tablet: código de uso único na Play Store. Menos indicado que o Edge em PCs de loja.</p>" +
+      '<div id="install-android-result"></div>' +
+      '<button type="button" class="btn-install-generate btn-install-generate-secondary" id="btn-gen-android"' +
+      (podeInstalar ? "" : " disabled") +
+      ">Gerar código Android</button>" +
+      "</div>";
+
+    installBody.innerHTML = html;
+
+    var btnWin = document.getElementById("btn-gen-windows");
+    var btnAnd = document.getElementById("btn-gen-android");
+    if (btnWin) {
+      btnWin.addEventListener("click", function () {
+        void gerarInstalacaoWindows(pdv.rioPdvKey, btnWin);
+      });
+    }
+    if (btnAnd) {
+      btnAnd.addEventListener("click", function () {
+        void gerarInstalacaoAndroid(pdv.rioPdvKey, btnAnd);
+      });
+    }
+  }
+
+  function renderInstallResult(containerId, fields) {
+    var box = document.getElementById(containerId);
+    if (!box) return;
+    box.innerHTML = fields
+      .map(function (f) {
+        return (
+          '<div class="install-field"><label>' +
+          esc(f.label) +
+          '</label><div class="install-copy-row"><input readonly value="' +
+          esc(f.value) +
+          '" /><button type="button" data-copy="' +
+          esc(f.value) +
+          '">Copiar</button></div></div>'
+        );
+      })
+      .join("");
+    box.querySelectorAll("[data-copy]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        copyText(btn.getAttribute("data-copy") || "")
+          .then(function () {
+            btn.textContent = "Copiado!";
+            window.setTimeout(function () {
+              btn.textContent = "Copiar";
+            }, 1500);
+          })
+          .catch(function () {
+            window.alert("Não foi possível copiar automaticamente.");
+          });
+      });
+    });
+  }
+
+  function gerarInstalacaoWindows(rioPdvKey, btn) {
+    btn.disabled = true;
+    btn.textContent = "Gerando…";
+    return window.SiteClienteAuth.apiFetch("/api/site-cliente/pdv/instalacao", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "gerar_link",
+        rioPdvKey: rioPdvKey,
+        tipo: "pdv_senha_temp",
+        plataforma: "windows",
+      }),
+    })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok, json: j };
+        });
+      })
+      .then(function (res) {
+        if (!res.ok || !res.json.ok) {
+          var detail = res.json.detail || res.json.error || "Não foi possível gerar";
+          throw new Error(detail);
+        }
+        var fields = [{ label: "Link (abrir no Edge)", value: res.json.link || "" }];
+        if (res.json.senhaTemporaria) {
+          fields.push({ label: "Senha temporária (uso único)", value: res.json.senhaTemporaria });
+        }
+        renderInstallResult("install-windows-result", fields);
+      })
+      .catch(function (e) {
+        window.alert(e instanceof Error ? e.message : "Erro ao gerar instalação.");
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = "Gerar link e senha (Edge)";
+      });
+  }
+
+  function gerarInstalacaoAndroid(rioPdvKey, btn) {
+    btn.disabled = true;
+    btn.textContent = "Gerando…";
+    return window.SiteClienteAuth.apiFetch("/api/site-cliente/pdv/instalacao", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "gerar_link",
+        rioPdvKey: rioPdvKey,
+        tipo: "pdv_play5",
+        plataforma: "mobile",
+      }),
+    })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok, json: j };
+        });
+      })
+      .then(function (res) {
+        if (!res.ok || !res.json.ok) {
+          throw new Error(res.json.detail || res.json.error || "Não foi possível gerar");
+        }
+        renderInstallResult("install-android-result", [
+          { label: "Código Play Store", value: res.json.codigoPlay || "" },
+          { label: "Link Google Play", value: res.json.playStoreUrl || "" },
+        ]);
+      })
+      .catch(function (e) {
+        window.alert(e instanceof Error ? e.message : "Erro ao gerar código Android.");
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = "Gerar código Android";
+      });
+  }
+
+  function openInstallModal(rioPdvKey, data) {
+    var pdv = findPdvInDashboard(data, rioPdvKey);
+    if (!pdv) return;
+
+    installModalPdv = pdv;
+    installBody.innerHTML = '<p style="color:rgba(255,255,255,0.6)">Carregando…</p>';
+    installModal.classList.remove("hidden");
+    installModal.setAttribute("aria-hidden", "false");
+
+    window.SiteClienteAuth.apiFetch("/api/site-cliente/pdv/instalacao", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "contexto", rioPdvKey: rioPdvKey }),
+    })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          return { ok: r.ok, json: j };
+        });
+      })
+      .then(function (res) {
+        if (!res.ok || !res.json.ok) {
+          throw new Error((res.json && res.json.error) || "Erro ao carregar PDV");
+        }
+        installModalContext = res.json;
+        document.getElementById("install-title").textContent =
+          "Instalar — " + (res.json.contexto.pdvNome || "PDV");
+        renderInstallModalBody(pdv, res.json);
+      })
+      .catch(function (e) {
+        installBody.innerHTML =
+          '<p style="color:#fda4af">' +
+          esc(e instanceof Error ? e.message : "Erro") +
+          "</p>";
+      });
+  }
+
+  function closeInstallModal() {
+    installModal.classList.add("hidden");
+    installModal.setAttribute("aria-hidden", "true");
+    installBody.innerHTML = "";
+    installModalPdv = null;
+    installModalContext = null;
+  }
+
   document.getElementById("mood-close").addEventListener("click", closeMood);
   moodModal.addEventListener("click", function (e) {
     if (e.target === moodModal) closeMood();
+  });
+
+  document.getElementById("install-close").addEventListener("click", closeInstallModal);
+  installModal.addEventListener("click", function (e) {
+    if (e.target === installModal) closeInstallModal();
   });
 
   function logout() {

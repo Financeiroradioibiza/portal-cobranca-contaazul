@@ -9,6 +9,8 @@ export type SiteClientePermissoes = {
   verGraficoSemana: boolean;
   exportarPdf: boolean;
   verMoodboard: boolean;
+  /** TI da loja: regerar token e gerar link de instalação (Edge / Android) nos PDVs do escopo. */
+  gerenciarInstalacaoPlayer: boolean;
   verCobrancas: boolean;
   baixarBoleto: boolean;
   baixarNota: boolean;
@@ -25,6 +27,7 @@ export const SITE_CLIENTE_PERMISSOES_DEFAULT: SiteClientePermissoes = {
   verGraficoSemana: true,
   exportarPdf: true,
   verMoodboard: true,
+  gerenciarInstalacaoPlayer: false,
   verCobrancas: false,
   baixarBoleto: false,
   baixarNota: false,
@@ -42,6 +45,7 @@ export const SITE_CLIENTE_PERMISSOES_COBRANCA: SiteClientePermissoes = {
   verGraficoSemana: false,
   exportarPdf: false,
   verMoodboard: false,
+  gerenciarInstalacaoPlayer: false,
   verCobrancas: true,
   baixarBoleto: true,
   baixarNota: true,
@@ -58,6 +62,7 @@ export const SITE_CLIENTE_PERMISSAO_LABELS: Record<keyof SiteClientePermissoes, 
   verGraficoSemana: "Gráfico da semana",
   exportarPdf: "Exportar agenda em PDF",
   verMoodboard: "Moodboard estratégico",
+  gerenciarInstalacaoPlayer: "Instalar player e regerar token (TI da loja)",
   verCobrancas: "Cobranças e parcelas (12 meses)",
   baixarBoleto: "Download de boleto",
   baixarNota: "Download de nota fiscal",

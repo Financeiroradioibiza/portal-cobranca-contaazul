@@ -18,6 +18,7 @@ import {
 } from "@/lib/site-cliente/pdvStatus";
 import { horariosParaPasta, horariosParaVinheta, type PastaHorarioView } from "@/lib/site-cliente/pastaHorarios";
 import { siteClienteHasLogo } from "@/lib/site-cliente/clienteLogoService";
+import { formatPortalPdvIdDisplay, portalClienteIdFromPdvId } from "@/lib/player/portalPlayerIds";
 
 export type SiteClientePdvRow = {
   rioPdvKey: string;
@@ -41,6 +42,10 @@ export type SiteClientePdvRow = {
     horaInicio: string;
     horaFim: string;
   }>;
+  /** Só quando `gerenciarInstalacaoPlayer` — ações TI na listagem de PDVs. */
+  portalPdvId?: number | null;
+  portalClienteId?: number | null;
+  codigoDisplay?: string | null;
 };
 
 export type SiteClienteProgramacaoResumo = {
@@ -310,6 +315,7 @@ export async function buildSiteClienteDashboard(
 
   const layout = await getProducaoCatalogLayout();
   const clienteIdMap = layout.portalClienteIdsByBucketKey;
+  const portalPdvIdMap = layout.portalPdvIdsByRioPdvKey;
 
   const [feedVotos, ingestRows] = await Promise.all([
     perm.verLikes ? listVotosFeed({ limit: 500 }) : Promise.resolve([]),
@@ -367,6 +373,16 @@ export async function buildSiteClienteDashboard(
         estiloAgora:
           perm.verEstiloAgora ? resolveEstiloAgora(progInfo.agendamentos, now) : null,
         programacaoId: progInfo.id,
+        ...(perm.gerenciarInstalacaoPlayer
+          ? (() => {
+              const portalPdvId = portalPdvIdMap[p.rioPdvKey] ?? null;
+              return {
+                portalPdvId,
+                portalClienteId: portalPdvId ? portalClienteIdFromPdvId(portalPdvId) : null,
+                codigoDisplay: portalPdvId ? formatPortalPdvIdDisplay(portalPdvId) : null,
+              };
+            })()
+          : {}),
         agendamentos:
           perm.verProgramacao
             ? progInfo.agendamentos

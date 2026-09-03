@@ -666,3 +666,147 @@ a {
     visibility: visible;
   }
 }
+
+.pdv-actions {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.btn-pdv-action {
+  border: 1px solid rgba(244, 114, 182, 0.45);
+  background: rgba(217, 70, 239, 0.15);
+  color: #f5d0fe;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 0.45rem;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+}
+
+.btn-pdv-action:hover {
+  background: rgba(217, 70, 239, 0.28);
+  color: #fff;
+}
+
+.btn-pdv-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.install-modal {
+  max-width: 32rem;
+}
+
+.install-alert {
+  border-radius: 0.65rem;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin-bottom: 1rem;
+}
+
+.install-alert-warn {
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+}
+
+.install-alert-ok {
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #a7f3d0;
+}
+
+.install-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.install-section h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.install-section p {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.45;
+}
+
+.install-section-primary h4 {
+  color: #f5d0fe;
+}
+
+.install-section-secondary h4 {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85rem;
+}
+
+.install-field {
+  margin-bottom: 0.65rem;
+}
+
+.install-field label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 0.25rem;
+}
+
+.install-copy-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.install-copy-row input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 0.78rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.install-copy-row button {
+  flex-shrink: 0;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  background: rgba(34, 211, 238, 0.12);
+  color: #a5f3fc;
+  border-radius: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+}
+
+.btn-install-generate {
+  width: 100%;
+  margin-top: 0.35rem;
+  border: none;
+  border-radius: 0.55rem;
+  background: linear-gradient(135deg, #d946ef, #7c3aed);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.82rem;
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+}
+
+.btn-install-generate:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-install-generate-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
