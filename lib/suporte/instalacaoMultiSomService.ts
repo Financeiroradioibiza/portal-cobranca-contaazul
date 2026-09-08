@@ -1,5 +1,4 @@
 import {
-  formatPortalPdvIdDisplay,
   gerarSenhaTemporaria,
   player5Origin,
   portalClienteIdFromPdvId,

@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { COMPANY_NAME } from "@/lib/brand";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { userHasRole } from "@/lib/auth/roles";
