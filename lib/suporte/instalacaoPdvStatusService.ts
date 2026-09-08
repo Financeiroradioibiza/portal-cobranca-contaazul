@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { resolvePdvProgramacaoAssignment } from "@/lib/criacao/pdvProgramacaoService";
+import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
+import { loadMergedProducaoPlayerContext } from "@/lib/player/producaoPlayerBuckets";
 import {
   loadPlayerGatewayTelemetry,
   mergeGatewayTelemetry,
@@ -19,6 +21,199 @@ export type InstalacaoPdvStatus = {
   telemetriaDisponivel: boolean;
   telemetry: DashboardPdvTelemetry;
 };
+
+export type InstalacaoProgramacaoAlert = {
+  nivel: "ok" | "amarelo" | "vermelho";
+  titulo: string;
+  mensagem: string;
+  programacaoNome: string | null;
+  programacaoAmarrada: boolean;
+  programacaoFechada: boolean | null;
+};
+
+export type InstalacaoGeracaoGate = {
+  podeGerarLink: boolean;
+  errorCode: "pdv_sem_programacao_amarrada" | "pdv_com_player_instalado" | null;
+  motivo: string | null;
+  programacaoAlert: InstalacaoProgramacaoAlert;
+  pdvComPlayerAtivo: boolean;
+};
+
+/** Trava geração de link/código no Suporte — exige programação amarrada e PDV sem player ativo. */
+export async function loadInstalacaoGeracaoGate(input: {
+  rioPdvKey: string;
+  portalPdvId: number;
+  playerInstaladoEm?: string | Date | null;
+}): Promise<InstalacaoGeracaoGate> {
+  const programacaoAlert = await loadInstalacaoProgramacaoAlert(input.rioPdvKey);
+
+  if (!programacaoAlert.programacaoAmarrada) {
+    return {
+      podeGerarLink: false,
+      errorCode: "pdv_sem_programacao_amarrada",
+      motivo:
+        "Este PDV não tem programação amarrada na Criação/Produção. Amarrar e publicar antes de gerar link ou código.",
+      programacaoAlert,
+      pdvComPlayerAtivo: false,
+    };
+  }
+
+  const cadastro = await prisma.producaoPdvCadastro.findUnique({
+    where: { rioPdvKey: input.rioPdvKey },
+    select: { playerInstaladoEm: true, playerInstalacaoToken: true },
+  });
+
+  const instaladoEm =
+    input.playerInstaladoEm ?? cadastro?.playerInstaladoEm ?? null;
+
+  const gateway = await loadPlayerGatewayTelemetry([input.portalPdvId]);
+  const lastPingAt = gateway.byPdvId.get(input.portalPdvId)?.lastPingAt ?? null;
+
+  const pdvComPlayerAtivo = Boolean(instaladoEm || lastPingAt);
+
+  if (pdvComPlayerAtivo) {
+    const desde =
+      instaladoEm instanceof Date
+        ? instaladoEm.toLocaleString("pt-BR")
+        : typeof instaladoEm === "string" && instaladoEm.trim()
+          ? new Date(instaladoEm).toLocaleString("pt-BR")
+          : null;
+    return {
+      podeGerarLink: false,
+      errorCode: "pdv_com_player_instalado",
+      motivo:
+        desde
+          ? `PDV com player instalado desde ${desde}${lastPingAt ? " e ping ativo" : ""}. Regerar a chave serial antes de novo link/código.`
+          : "PDV com player em operação (ping registrado). Regerar a chave serial antes de novo link/código.",
+      programacaoAlert,
+      pdvComPlayerAtivo: true,
+    };
+  }
+
+  return {
+    podeGerarLink: true,
+    errorCode: null,
+    motivo: null,
+    programacaoAlert,
+    pdvComPlayerAtivo: false,
+  };
+}
+
+/** Alerta de programação (amarelo/vermelho informativo; vermelho também bloqueia via `loadInstalacaoGeracaoGate`). */
+export async function loadInstalacaoProgramacaoAlert(
+  rioPdvKey: string,
+): Promise<InstalacaoProgramacaoAlert> {
+  const ctx = await loadMergedProducaoPlayerContext();
+  let clienteKey: string | null = null;
+  for (const bucket of ctx.buckets) {
+    if (bucket.pdvs.some((p) => p.rioPdvId === rioPdvKey)) {
+      clienteKey = bucket.key;
+      break;
+    }
+  }
+
+  const cadastro = await prisma.producaoPdvCadastro.findUnique({
+    where: { rioPdvKey },
+    select: {
+      programacaoId: true,
+      programacaoMusical: true,
+      programacao: {
+        select: {
+          id: true,
+          nome: true,
+          clienteRef: true,
+          publicada: true,
+          atualizacaoAbertaEm: true,
+        },
+      },
+    },
+  });
+
+  const programacoesDoCliente =
+    clienteKey ?
+      await prisma.programacao.findMany({
+        where: { clienteRef: clienteKey },
+        select: { id: true, nome: true },
+        orderBy: { nome: "asc" },
+      })
+    : [];
+
+  const { programacaoId, programacaoNome } = resolvePdvProgramacaoAssignment(
+    cadastro,
+    clienteKey ?? "",
+    programacoesDoCliente,
+  );
+
+  if (!programacaoId) {
+    return {
+      nivel: "vermelho",
+      titulo: "Sem programação amarrada",
+      mensagem: "Este PDV não tem programação vinculada na produção.",
+      programacaoNome: null,
+      programacaoAmarrada: false,
+      programacaoFechada: null,
+    };
+  }
+
+  const hasAberta = await hasAtualizacaoAbertaColumn();
+  const progFromCadastro =
+    cadastro?.programacao?.id === programacaoId ? cadastro.programacao : null;
+  const prog =
+    progFromCadastro ??
+    (await prisma.programacao.findUnique({
+      where: { id: programacaoId },
+      select: {
+        id: true,
+        nome: true,
+        publicada: true,
+        ...(hasAberta ? { atualizacaoAbertaEm: true } : {}),
+      },
+    }));
+
+  const nome = programacaoNome ?? prog?.nome ?? null;
+  const aberta = hasAberta && prog && "atualizacaoAbertaEm" in prog && prog.atualizacaoAbertaEm;
+  const fechada = !aberta;
+
+  if (aberta) {
+    return {
+      nivel: "amarelo",
+      titulo: "Programação aberta (não fechada)",
+      mensagem:
+        nome ?
+          `A programação «${nome}» está com atualização aberta na produção.`
+        : "A programação vinculada está com atualização aberta na produção.",
+      programacaoNome: nome,
+      programacaoAmarrada: true,
+      programacaoFechada: false,
+    };
+  }
+
+  if (!prog?.publicada) {
+    return {
+      nivel: "amarelo",
+      titulo: "Programação não publicada",
+      mensagem:
+        nome ?
+          `A programação «${nome}» está amarrada, mas ainda não foi publicada/disparada.`
+        : "A programação vinculada ainda não foi publicada/disparada.",
+      programacaoNome: nome,
+      programacaoAmarrada: true,
+      programacaoFechada: fechada,
+    };
+  }
+
+  return {
+    nivel: "ok",
+    titulo: "Programação OK",
+    mensagem:
+      nome ?
+        `Programação «${nome}» amarrada e fechada.`
+      : "Programação amarrada e fechada.",
+    programacaoNome: nome,
+    programacaoAmarrada: true,
+    programacaoFechada: true,
+  };
+}
 
 export async function loadInstalacaoPdvStatus(input: {
   rioPdvKey: string;
