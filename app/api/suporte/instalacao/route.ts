@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { COMPANY_NAME } from "@/lib/brand";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { userHasRole } from "@/lib/auth/roles";
 import { isOcSmtpConfigured, isSuporteSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
@@ -20,12 +20,21 @@ import {
   type InstalacaoPlataforma,
   type InstalacaoTipo,
 } from "@/lib/suporte/instalacaoService";
+import {
+  formatMultiSomSlotsSummary,
+  gerarInstalacaoMultiSom,
+} from "@/lib/suporte/instalacaoMultiSomService";
+import {
+  buildInstalacaoMultiSomEmailText,
+  renderInstalacaoMultiSomEmailHtml,
+} from "@/lib/suporte/instalacaoMultiSomEmailTemplate";
 import { tipoUsaSenhaTemporaria } from "@/lib/suporte/instalacaoTipos";
 import {
   gerarCodigoPlayInstalacao,
   listCodigosPlayForPdv,
 } from "@/lib/suporte/instalacaoPlayService";
 import {
+  loadInstalacaoGeracaoGate,
   loadInstalacaoPdvStatus,
   loadInstalacaoPdvStatusBatch,
 } from "@/lib/suporte/instalacaoPdvStatusService";
@@ -54,12 +63,25 @@ function parseTipo(raw: unknown): InstalacaoTipo | null {
     raw === "pdv_senha_temp" ||
     raw === "pdv_senha_temp_migracao" ||
     raw === "pdv_play5" ||
-    raw === "electron_ti"
+    raw === "electron_ti" ||
+    raw === "electron_multisom"
     ? raw
     : null;
 }
 
-function parseElectronAuth(raw: unknown): ElectronAuthModo {
+function parsePortalPdvIds(raw: unknown): number[] | null {
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > 4) return null;
+  const ids: number[] = [];
+  for (const item of raw) {
+    const id = parseId(item);
+    if (id == null) return null;
+    ids.push(id);
+  }
+  return ids;
+}
+
+function parseElectronAuth(raw: unknown, tipo?: InstalacaoTipo | null): ElectronAuthModo {
+  if (tipo === "electron_ti") return "login";
   return raw === "login" ? "login" : "temp";
 }
 
@@ -95,7 +117,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "smtp_nao_configurado" }, { status: 400 });
       }
       const testTipo = parseTipo(body.tipo) ?? "pdv_senha_temp";
-      const testElectronAuth = parseElectronAuth(body.electronAuth);
+      const testElectronAuth = parseElectronAuth(body.electronAuth, testTipo);
       const customTest = typeof body.email === "string" ? body.email.trim() : "";
       const testDestinatarios = parseDestinatarioEmails(customTest);
       const testTo = testDestinatarios.length ? testDestinatarios : [TEST_EMAIL];
@@ -159,7 +181,19 @@ export async function POST(request: Request) {
       if (data.pdvs.length === 0) {
         return NextResponse.json({ ok: false, error: "cliente_sem_pdvs" }, { status: 404 });
       }
-      const instalados = data.pdvs.filter((p) => p.playerInstaladoEm);
+      const geracaoGates = await Promise.all(
+        data.pdvs.map((p) =>
+          loadInstalacaoGeracaoGate({
+            rioPdvKey: p.rioPdvKey,
+            portalPdvId: p.portalPdvId,
+            playerInstaladoEm: p.playerInstaladoEm,
+          }),
+        ),
+      );
+      const geracaoGateByPortalId = Object.fromEntries(
+        data.pdvs.map((p, i) => [String(p.portalPdvId), geracaoGates[i]]),
+      );
+      const instalados = data.pdvs.filter((_, i) => geracaoGates[i]?.pdvComPlayerAtivo);
       const pdvStatusById =
         instalados.length > 0
           ? new Map(
@@ -181,6 +215,7 @@ export async function POST(request: Request) {
         ok: true,
         ...data,
         canRegenerarToken,
+        geracaoGateByPortalId,
         pdvStatusByPortalId: Object.fromEntries(pdvStatusById),
       });
     }
@@ -195,8 +230,13 @@ export async function POST(request: Request) {
       if (!ctx) return NextResponse.json({ ok: false, error: "pdv_nao_encontrado" }, { status: 404 });
       const canRegenerarToken =
         userHasRole(session.roles, "suporte") || userHasRole(session.roles, "master");
+      const geracaoGate = await loadInstalacaoGeracaoGate({
+        rioPdvKey: ctx.rioPdvKey,
+        portalPdvId: ctx.portalPdvId,
+        playerInstaladoEm: ctx.playerInstaladoEm,
+      });
       const pdvStatus =
-        ctx.playerInstaladoEm
+        geracaoGate.pdvComPlayerAtivo
           ? await loadInstalacaoPdvStatus({
               rioPdvKey: ctx.rioPdvKey,
               portalPdvId: ctx.portalPdvId,
@@ -207,6 +247,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ok: true,
         canRegenerarToken,
+        geracaoGate,
         contexto: {
           portalClienteId: ctx.portalClienteId,
           portalPdvId: ctx.portalPdvId,
@@ -221,6 +262,7 @@ export async function POST(request: Request) {
           podeGerarCodigoPlay: ctx.podeGerarCodigoPlay,
         },
         pdvStatus,
+        programacaoAlert: geracaoGate.programacaoAlert,
       });
     }
 
@@ -240,7 +282,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "tipo_plataforma_invalido" }, { status: 400 });
     }
 
-    const electronAuth = parseElectronAuth(body.electronAuth);
+    const electronAuth = parseElectronAuth(body.electronAuth, tipo);
 
     const ctx = await resolveInstalacaoPdv(portalClienteId, portalPdvId);
     if (!ctx) return NextResponse.json({ ok: false, error: "pdv_nao_encontrado" }, { status: 404 });
@@ -250,6 +292,61 @@ export async function POST(request: Request) {
     const exeUrl = tipo === "electron_ti" ? buildElectronInstallerExeUrl() : undefined;
 
     if (action === "gerar_link") {
+      if (tipo === "electron_multisom") {
+        const portalPdvIds = parsePortalPdvIds(body.portalPdvIds);
+        if (portalClienteId == null || !portalPdvIds) {
+          return NextResponse.json({ ok: false, error: "multisom_pdv_invalido" }, { status: 400 });
+        }
+        try {
+          const multi = await gerarInstalacaoMultiSom(
+            portalClienteId,
+            portalPdvIds,
+            actorFrom(session),
+          );
+          for (const slot of multi.slots) {
+            await registrarEnvio({
+              portalClienteId: slot.portalClienteId,
+              portalPdvId: slot.portalPdvId,
+              tipo: "electron_multisom",
+              plataforma: "windows",
+              canal: "link",
+              destinoEmail: "",
+              link: `multisom:${multi.installArg.slice(0, 120)}`,
+              enviadoPor: actorFrom(session),
+            });
+          }
+          return NextResponse.json({ ok: true, multiSom: multi });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (msg === "multisom_pdv_count") {
+            return NextResponse.json({ ok: false, error: "multisom_pdv_count" }, { status: 400 });
+          }
+          if (msg === "multisom_pdv_duplicado") {
+            return NextResponse.json({ ok: false, error: "multisom_pdv_duplicado" }, { status: 400 });
+          }
+          if (msg === "multisom_pdv_cliente" || msg === "pdv_nao_encontrado") {
+            return NextResponse.json({ ok: false, error: msg }, { status: 404 });
+          }
+          const detail = (e as Error & { detail?: string })?.detail;
+          if (detail) {
+            return NextResponse.json({ ok: false, error: msg, detail }, { status: 409 });
+          }
+          throw e;
+        }
+      }
+
+      const geracaoGate = await loadInstalacaoGeracaoGate({
+        rioPdvKey: ctx.rioPdvKey,
+        portalPdvId: ctx.portalPdvId,
+        playerInstaladoEm: ctx.playerInstaladoEm,
+      });
+      if (!geracaoGate.podeGerarLink && geracaoGate.errorCode) {
+        return NextResponse.json(
+          { ok: false, error: geracaoGate.errorCode, detail: geracaoGate.motivo },
+          { status: 409 },
+        );
+      }
+
       if (tipo === "pdv_play5") {
         try {
           const codigoPlay = await gerarCodigoPlayInstalacao({
@@ -307,12 +404,90 @@ export async function POST(request: Request) {
       if (!isOcSmtpConfigured()) {
         return NextResponse.json({ ok: false, error: "smtp_nao_configurado" }, { status: 400 });
       }
+
+      if (tipo === "electron_multisom") {
+        const portalPdvIds = parsePortalPdvIds(body.portalPdvIds);
+        if (portalClienteId == null || !portalPdvIds) {
+          return NextResponse.json({ ok: false, error: "multisom_pdv_invalido" }, { status: 400 });
+        }
+        const clienteData = await listInstalacaoPdvsForCliente(portalClienteId);
+        const custom = typeof body.email === "string" ? body.email.trim() : "";
+        const fallbackEmail =
+          clienteData.pdvs.find((p) => portalPdvIds.includes(p.portalPdvId))?.contatoLojaEmail ?? "";
+        const destinatarios = resolveDestinatarios(custom, fallbackEmail);
+        if (destinatarios.length === 0) {
+          return NextResponse.json({ ok: false, error: "email_invalido" }, { status: 400 });
+        }
+        const destinoLabel = formatDestinatarioEmails(destinatarios);
+        try {
+          const multi = await gerarInstalacaoMultiSom(
+            portalClienteId,
+            portalPdvIds,
+            actorFrom(session),
+          );
+          const subject = `${COMPANY_NAME} — Instalação Player Multi Som (${clienteData.clienteNome})`;
+          const text = buildInstalacaoMultiSomEmailText({
+            clienteNome: clienteData.clienteNome,
+            exeUrl: multi.exeUrl,
+            slots: multi.slots,
+          });
+          const { html } = renderInstalacaoMultiSomEmailHtml({
+            clienteNome: clienteData.clienteNome,
+            exeUrl: multi.exeUrl,
+            installCommand: multi.installCommand,
+            slots: multi.slots,
+          });
+          await sendEmailViaSmtp({
+            to: destinatarios,
+            subject,
+            text,
+            html,
+            mailProfile: "suporte",
+          });
+          for (const slot of multi.slots) {
+            await registrarEnvio({
+              portalClienteId: slot.portalClienteId,
+              portalPdvId: slot.portalPdvId,
+              tipo: "electron_multisom",
+              plataforma: "windows",
+              canal: "email",
+              destinoEmail: destinoLabel,
+              link: formatMultiSomSlotsSummary(multi.slots).slice(0, 800),
+              enviadoPor: actorFrom(session),
+            });
+          }
+          return NextResponse.json({ ok: true, to: destinoLabel, multiSom: multi });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const detail = (e as Error & { detail?: string })?.detail;
+          if (detail) {
+            return NextResponse.json({ ok: false, error: msg, detail }, { status: 409 });
+          }
+          if (msg === "multisom_pdv_count" || msg === "multisom_pdv_duplicado") {
+            return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+          }
+          throw e;
+        }
+      }
+
       const custom = typeof body.email === "string" ? body.email.trim() : "";
       const destinatarios = resolveDestinatarios(custom, ctx.contatoLojaEmail);
       if (destinatarios.length === 0) {
         return NextResponse.json({ ok: false, error: "email_invalido" }, { status: 400 });
       }
       const destinoLabel = formatDestinatarioEmails(destinatarios);
+
+      const geracaoGateEmail = await loadInstalacaoGeracaoGate({
+        rioPdvKey: ctx.rioPdvKey,
+        portalPdvId: ctx.portalPdvId,
+        playerInstaladoEm: ctx.playerInstaladoEm,
+      });
+      if (!geracaoGateEmail.podeGerarLink && geracaoGateEmail.errorCode) {
+        return NextResponse.json(
+          { ok: false, error: geracaoGateEmail.errorCode, detail: geracaoGateEmail.motivo },
+          { status: 409 },
+        );
+      }
 
       if (tipo === "pdv_play5") {
         let codigoPlay =

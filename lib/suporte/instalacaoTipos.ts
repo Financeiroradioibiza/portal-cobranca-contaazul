@@ -37,7 +37,12 @@ export const INSTALACAO_TIPOS: InstalacaoTipoMeta[] = [
   {
     id: "electron_ti",
     label: "6 · Instalação Multisusuário Windows (Apenas para TI)",
-    desc: "Instalador .exe (Electron) para PC compartilhado. Escolha abaixo: login e senha do cliente ou senha temporária.",
+    desc: "Instalador .exe (Electron) para PC compartilhado. O operador entra com login e senha administrativos do cliente.",
+  },
+  {
+    id: "electron_multisom",
+    label: "7 · Instalação Player Multi Som",
+    desc: "Instalador .exe Multi Som — vários PDVs no mesmo PC (placas USB). Defina aqui quais PDVs rodam; no Windows só informam ID do PDV e senha temporária.",
   },
 ];
 
@@ -49,11 +54,13 @@ export const INSTALACAO_TIPOS_VISIVEIS = INSTALACAO_TIPOS.filter((t) =>
       "pdv_senha_temp_migracao",
       "pdv_play5",
       "electron_ti",
+      "electron_multisom",
     ] as InstalacaoTipo[]
   ).includes(t.id),
 );
 
 export function instalacaoTipoLabel(tipo: string): string {
+  if (tipo === "electron_multisom") return "Player Multi Som (.exe)";
   if (tipo === "electron_ti") return "Electron multisusuário (TI)";
   if (tipo === "pdv_play5") return "Google Play (Android)";
   if (tipo === "pdv_login") return "Windows Web · PDV sem senha temp";
@@ -67,8 +74,13 @@ export function tipoUsaSenhaTemporaria(
   electronAuth?: ElectronAuthModo,
 ): boolean {
   if (tipo === "pdv_senha_temp" || tipo === "pdv_senha_temp_migracao") return true;
-  if (tipo === "electron_ti") return electronAuth === "temp";
+  if (tipo === "electron_multisom") return true;
+  if (tipo === "electron_ti") return false;
   return false;
+}
+
+export function tipoEhElectronMultiSom(tipo: InstalacaoTipo): boolean {
+  return tipo === "electron_multisom";
 }
 
 export function tipoEhElectronTi(tipo: InstalacaoTipo): boolean {

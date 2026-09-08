@@ -10,7 +10,8 @@ export type InstalacaoTipo =
   | "pdv_senha_temp"
   | "pdv_senha_temp_migracao"
   | "pdv_play5"
-  | "electron_ti";
+  | "electron_ti"
+  | "electron_multisom";
 export type InstalacaoPlataforma = "windows" | "mobile";
 export type InstalacaoCanal = "email" | "link";
 export type ElectronAuthModo = "login" | "temp";

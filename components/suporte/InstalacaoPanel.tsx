@@ -7,11 +7,12 @@ import type { PlayerAvisoPdvTarget } from "@/lib/suporte/playerAvisoPdvSearch";
 import {
   INSTALACAO_TIPOS_VISIVEIS,
   instalacaoTipoLabel,
-  type ElectronAuthModo,
+  tipoEhElectronMultiSom,
 } from "@/lib/suporte/instalacaoTipos";
-import type { InstalacaoPdvStatus } from "@/lib/suporte/instalacaoPdvStatusService";
+import type { InstalacaoPdvStatus, InstalacaoGeracaoGate, InstalacaoProgramacaoAlert } from "@/lib/suporte/instalacaoPdvStatusService";
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
 import { destinatarioEmailsValid } from "@/lib/suporte/parseDestinatarioEmails";
+import { InstalacaoProgramacaoAlertBanner } from "@/components/suporte/InstalacaoProgramacaoAlert";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
 
@@ -60,8 +61,7 @@ function PlayerInstaladoAviso({
         {playerInstaladoEm ?
           ` desde ${new Date(playerInstaladoEm).toLocaleString("pt-BR")}`
         : ""}
-        . Regenerar a <strong>chave serial</strong> no Suporte (cadastro do PDV) antes de gerar
-        outro código.
+        . Regenerar a <strong>chave serial</strong> no Suporte antes de gerar novo link ou código.
       </p>
       {pdvStatus ?
         <InstalacaoPdvStatusCard
@@ -73,6 +73,29 @@ function PlayerInstaladoAviso({
     </div>
   );
 }
+
+type MultiSomSlot = {
+  portalPdvId: number;
+  portalClienteId: number;
+  codigoDisplay: string;
+  pdvNome: string;
+  senhaTemporaria: string;
+};
+
+type MultiSomResult = {
+  slotCount: number;
+  slots: MultiSomSlot[];
+  exeUrl: string;
+  installArg: string;
+  installCommand: string;
+};
+
+type ClientePdvResumo = {
+  portalPdvId: number;
+  codigoDisplay: string;
+  pdvNome: string;
+  playerInstaladoEm: string | null;
+};
 
 type LogRow = {
   id: string;
@@ -102,7 +125,16 @@ function mapErr(data: unknown): string {
   if (err === "tipo_plataforma_invalido") return "Escolha o tipo e a plataforma.";
   if (err === "email_invalido") return "E-mail de destino inválido.";
   if (err === "pdv_com_player_instalado") {
-    return "PDV com player instalado. Regenerar a chave serial no Suporte antes de gerar código Play.";
+    const detail = (data as { detail?: unknown })?.detail;
+    return typeof detail === "string" && detail.trim()
+      ? detail.trim()
+      : "PDV com player instalado ou em operação. Regerar a chave serial antes de gerar link ou código.";
+  }
+  if (err === "pdv_sem_programacao_amarrada") {
+    const detail = (data as { detail?: unknown })?.detail;
+    return typeof detail === "string" && detail.trim()
+      ? detail.trim()
+      : "PDV sem programação amarrada na Criação/Produção. Amarrar antes de gerar link ou código.";
   }
   if (err === "smtp_nao_configurado") return "SMTP não configurado no ambiente (OC_EMAIL_SMTP_*).";
   if (err === "envio_falhou") {
@@ -117,6 +149,10 @@ function mapErr(data: unknown): string {
       ? `Erro no servidor: ${detail.trim()}`
       : "Erro no servidor ao enviar. Tente de novo.";
   }
+  if (err === "multisom_pdv_count") return "Selecione entre 2 e 4 PDVs para o Multi Som.";
+  if (err === "multisom_pdv_duplicado") return "Cada player precisa de um PDV diferente.";
+  if (err === "multisom_pdv_invalido") return "Selecione os PDVs do Multi Som (mínimo 2).";
+  if (err === "multisom_pdv_cliente") return "Todos os PDVs devem ser do mesmo cliente.";
   if (typeof err === "string" && err.trim()) return err;
   return "Operação falhou.";
 }
@@ -397,14 +433,18 @@ export function InstalacaoPanel() {
   const [selected, setSelected] = useState<SelectedPdv | null>(null);
   const [contexto, setContexto] = useState<Contexto | null>(null);
   const [pdvStatus, setPdvStatus] = useState<InstalacaoPdvStatus | null>(null);
+  const [programacaoAlert, setProgramacaoAlert] = useState<InstalacaoProgramacaoAlert | null>(null);
+  const [geracaoGate, setGeracaoGate] = useState<InstalacaoGeracaoGate | null>(null);
   const [canRegenerarToken, setCanRegenerarToken] = useState(false);
   const [tipo, setTipo] = useState<Tipo>("pdv_senha_temp");
-  const [electronAuth, setElectronAuth] = useState<ElectronAuthModo>("temp");
 
   const [link, setLink] = useState("");
   const [exeUrl, setExeUrl] = useState("");
   const [senhaTemp, setSenhaTemp] = useState("");
   const [codigoPlay, setCodigoPlay] = useState("");
+  const [multiSomPdvs, setMultiSomPdvs] = useState<ClientePdvResumo[]>([]);
+  const [multiSomSelectedIds, setMultiSomSelectedIds] = useState<number[]>([]);
+  const [multiSomResult, setMultiSomResult] = useState<MultiSomResult | null>(null);
 
   const [destinatario, setDestinatario] = useState<"loja" | "novo">("loja");
   const [emailNovo, setEmailNovo] = useState("");
@@ -423,6 +463,12 @@ export function InstalacaoPanel() {
       const ctx = (ctxData as { contexto?: Contexto })?.contexto;
       setContexto(ctx ?? null);
       setPdvStatus((ctxData as { pdvStatus?: InstalacaoPdvStatus | null })?.pdvStatus ?? null);
+      setProgramacaoAlert(
+        (ctxData as { programacaoAlert?: InstalacaoProgramacaoAlert | null })?.programacaoAlert ??
+          (ctxData as { geracaoGate?: InstalacaoGeracaoGate | null })?.geracaoGate?.programacaoAlert ??
+          null,
+      );
+      setGeracaoGate((ctxData as { geracaoGate?: InstalacaoGeracaoGate | null })?.geracaoGate ?? null);
       setCanRegenerarToken(Boolean((ctxData as { canRegenerarToken?: boolean })?.canRegenerarToken));
       const rows = (logData as { rows?: LogRow[] })?.rows;
       setLog(Array.isArray(rows) ? rows : []);
@@ -438,11 +484,14 @@ export function InstalacaoPanel() {
     setExeUrl("");
     setSenhaTemp("");
     setCodigoPlay("");
+    setMultiSomResult(null);
     setStatus(null);
     if (selected) void loadContextoELog(selected);
     else {
       setContexto(null);
       setPdvStatus(null);
+      setProgramacaoAlert(null);
+      setGeracaoGate(null);
       setLog([]);
     }
   }, [selected, loadContextoELog]);
@@ -451,7 +500,39 @@ export function InstalacaoPanel() {
     setLink("");
     setExeUrl("");
     setSenhaTemp("");
-  }, [tipo, electronAuth]);
+    setMultiSomResult(null);
+  }, [tipo]);
+
+  useEffect(() => {
+    if (!selected || !tipoEhElectronMultiSom(tipo)) {
+      setMultiSomPdvs([]);
+      setMultiSomSelectedIds([]);
+      return;
+    }
+    let cancelled = false;
+    void postInstalacao({
+      action: "contexto_cliente",
+      portalClienteId: selected.portalClienteId,
+    }).then(({ res, data }) => {
+      if (cancelled || !res.ok) return;
+      const pdvs = (data as { pdvs?: ClientePdvResumo[] })?.pdvs;
+      const list = Array.isArray(pdvs) ? pdvs : [];
+      setMultiSomPdvs(list);
+      setMultiSomSelectedIds((prev) => {
+        if (prev.length >= 2 && prev.every((id) => list.some((p) => p.portalPdvId === id))) {
+          return prev;
+        }
+        const initial = list
+          .filter((p) => p.portalPdvId === selected.portalPdvId)
+          .map((p) => p.portalPdvId);
+        if (initial.length) return initial;
+        return list.slice(0, 2).map((p) => p.portalPdvId);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, tipo]);
 
   const refreshLog = useCallback(async () => {
     if (!selected) return;
@@ -468,6 +549,43 @@ export function InstalacaoPanel() {
 
   async function handleGerarLink() {
     if (!selected) return;
+    if (tipoEhElectronMultiSom(tipo)) {
+      if (multiSomSelectedIds.length < 2 || multiSomSelectedIds.length > 4) {
+        setStatus({ kind: "err", text: "Selecione entre 2 e 4 PDVs para o Multi Som." });
+        return;
+      }
+      setBusy(true);
+      setStatus(null);
+      try {
+        const { res, data } = await postInstalacao({
+          action: "gerar_link",
+          portalClienteId: selected.portalClienteId,
+          portalPdvId: selected.portalPdvId,
+          portalPdvIds: multiSomSelectedIds,
+          tipo,
+          plataforma: plataformaEnvio,
+        });
+        if (!res.ok || !(data as { ok?: boolean })?.ok) {
+          const detail = (data as { detail?: string })?.detail;
+          setStatus({ kind: "err", text: detail?.trim() || mapErr(data) });
+          return;
+        }
+        const multi = (data as { multiSom?: MultiSomResult })?.multiSom ?? null;
+        setMultiSomResult(multi);
+        setExeUrl(multi?.exeUrl ?? "");
+        setLink("");
+        setSenhaTemp("");
+        setStatus({ kind: "ok", text: "Instalação Multi Som gerada." });
+        void refreshLog();
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (geracaoGate && !geracaoGate.podeGerarLink) {
+      window.alert(geracaoGate.motivo ?? "Não é possível gerar link para este PDV.");
+      return;
+    }
     setBusy(true);
     setStatus(null);
     try {
@@ -477,7 +595,6 @@ export function InstalacaoPanel() {
         portalPdvId: selected.portalPdvId,
         tipo,
         plataforma: plataformaEnvio,
-        electronAuth: tipo === "electron_ti" ? electronAuth : undefined,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
         setStatus({ kind: "err", text: mapErr(data) });
@@ -535,17 +652,6 @@ export function InstalacaoPanel() {
     }
   }
 
-  async function handleCopiarPacoteTemp() {
-    if (!link || !senhaTemp) return;
-    const url = link.trim();
-    try {
-      await navigator.clipboard.writeText(`${url}\nSenha temporária: ${senhaTemp.trim()}`);
-      setStatus({ kind: "ok", text: "Link e senha copiados." });
-    } catch {
-      setStatus({ kind: "err", text: "Não foi possível copiar automaticamente." });
-    }
-  }
-
   async function handleCopiarSenha() {
     if (!senhaTemp) return;
     try {
@@ -558,6 +664,47 @@ export function InstalacaoPanel() {
 
   async function handleEnviarEmail() {
     if (!selected) return;
+    if (tipoEhElectronMultiSom(tipo)) {
+      if (multiSomSelectedIds.length < 2 || multiSomSelectedIds.length > 4) {
+        setStatus({ kind: "err", text: "Selecione entre 2 e 4 PDVs para o Multi Som." });
+        return;
+      }
+      const destino = destinatario === "loja" ? contexto?.contatoLojaEmail ?? "" : emailNovo.trim();
+      if (!destinatarioEmailsValid(destino)) {
+        setStatus({ kind: "err", text: "E-mail de destino inválido (use vírgula para mais de um)." });
+        return;
+      }
+      setBusy(true);
+      setStatus(null);
+      try {
+        const { res, data } = await postInstalacao({
+          action: "enviar_email",
+          portalClienteId: selected.portalClienteId,
+          portalPdvId: selected.portalPdvId,
+          portalPdvIds: multiSomSelectedIds,
+          tipo,
+          plataforma: plataformaEnvio,
+          email: destino,
+        });
+        if (!res.ok || !(data as { ok?: boolean })?.ok) {
+          const detail = (data as { detail?: string })?.detail;
+          setStatus({ kind: "err", text: detail?.trim() || mapErr(data) });
+          return;
+        }
+        const multi = (data as { multiSom?: MultiSomResult })?.multiSom ?? null;
+        setMultiSomResult(multi);
+        setExeUrl(multi?.exeUrl ?? "");
+        setStatus({ kind: "ok", text: `E-mail Multi Som enviado para ${(data as { to?: string })?.to ?? destino}.` });
+        void refreshLog();
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (geracaoGate && !geracaoGate.podeGerarLink) {
+      window.alert(geracaoGate.motivo ?? "Não é possível enviar e-mail para este PDV.");
+      return;
+    }
     const destino = destinatario === "loja" ? contexto?.contatoLojaEmail ?? "" : emailNovo.trim();
     if (!destinatarioEmailsValid(destino)) {
       setStatus({ kind: "err", text: "E-mail de destino inválido (use vírgula para mais de um)." });
@@ -572,8 +719,6 @@ export function InstalacaoPanel() {
         portalPdvId: selected.portalPdvId,
         tipo,
         plataforma: plataformaEnvio,
-        electronAuth: tipo === "electron_ti" ? electronAuth : undefined,
-        email: destinatario === "novo" ? destino : undefined,
         senhaTemporaria: senhaTemp || undefined,
         codigoPlay: tipo === "pdv_play5" ? codigoPlay || undefined : undefined,
       });
@@ -605,7 +750,6 @@ export function InstalacaoPanel() {
       const { res, data } = await postInstalacao({
         action: "enviar_teste",
         tipo,
-        electronAuth: tipo === "electron_ti" ? electronAuth : undefined,
         email: destino || undefined,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
@@ -662,6 +806,12 @@ export function InstalacaoPanel() {
         ) : (
           <ClientPicker selected={selectedClient} onSelect={setSelectedClient} disabled={busy} />
         )}
+        {scope === "pdv" && selected ?
+          <InstalacaoProgramacaoAlertBanner
+            alert={programacaoAlert}
+            bloqueiaGeracao={geracaoGate?.podeGerarLink === false && geracaoGate.errorCode === "pdv_sem_programacao_amarrada"}
+          />
+        : null}
       </section>
 
       {scope === "cliente" && selectedClient ? (
@@ -698,49 +848,9 @@ export function InstalacaoPanel() {
               ))}
             </div>
 
-            {tipo === "electron_ti" ? (
-              <div className="mt-4 rounded-lg border border-violet-800/50 bg-violet-950/20 p-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-violet-300">
-                  Autenticação no Player (.exe)
-                </p>
-                <div className="space-y-2">
-                  <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-200">
-                    <input
-                      type="radio"
-                      name="electronAuth"
-                      className="mt-1"
-                      checked={electronAuth === "temp"}
-                      onChange={() => setElectronAuth("temp")}
-                    />
-                    <span>
-                      <span className="font-medium">Senha temporária</span>
-                      <span className="mt-0.5 block text-[12px] text-zinc-400">
-                        Gera código de uso único — recomendado para entrega ao cliente/TI da loja.
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-200">
-                    <input
-                      type="radio"
-                      name="electronAuth"
-                      className="mt-1"
-                      checked={electronAuth === "login"}
-                      onChange={() => setElectronAuth("login")}
-                    />
-                    <span>
-                      <span className="font-medium">Login e senha do cliente</span>
-                      <span className="mt-0.5 block text-[12px] text-zinc-400">
-                        O operador entra com e-mail e senha administrativos do cliente no Player.
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-            ) : null}
-
-            {contexto && !contexto.podeGerarCodigoPlay ?
+            {geracaoGate?.pdvComPlayerAtivo ?
               <PlayerInstaladoAviso
-                playerInstaladoEm={contexto.playerInstaladoEm}
+                playerInstaladoEm={contexto?.playerInstaladoEm ?? null}
                 pdvStatus={pdvStatus}
                 canRegenerarToken={canRegenerarToken}
                 onTokenRegenerated={(newToken) => {
@@ -756,7 +866,7 @@ export function InstalacaoPanel() {
                   void loadContextoELog(selected!);
                 }}
               />
-            : tipo === "pdv_play5" && contexto?.podeGerarCodigoPlay ?
+            : tipo === "pdv_play5" && contexto?.podeGerarCodigoPlay && geracaoGate?.podeGerarLink !== false ?
               <div className="mt-4 rounded-lg border border-emerald-700/60 bg-emerald-950/20 px-3 py-2.5 text-sm text-emerald-200">
                 <p>PDV livre para novo código Play (sem player instalado).</p>
               </div>
@@ -764,7 +874,12 @@ export function InstalacaoPanel() {
 
             {tipo !== "pdv_play5" ? (
               <p className="mt-3 text-[11px] text-zinc-500">
-                {tipo === "electron_ti" ? (
+                {tipo === "electron_multisom" ? (
+                  <>
+                    Defina aqui <strong className="font-medium text-zinc-400">quais PDVs</strong> rodam neste PC.
+                    No Windows, o operador só informa o ID do PDV e a senha temporária de cada player (+ placa USB).
+                  </>
+                ) : tipo === "electron_ti" ? (
                   <>
                     Instalador <strong className="font-medium text-zinc-400">.exe multisusuário</strong> (Electron TI).
                     Tipos 1–4 usam PWA no Chrome. Android: tipo{" "}
@@ -781,14 +896,78 @@ export function InstalacaoPanel() {
               </p>
             ) : null}
 
+            {tipoEhElectronMultiSom(tipo) ? (
+              <div className="mt-4 space-y-2 rounded-lg border border-violet-700/50 bg-violet-950/20 p-3">
+                <p className="text-sm font-medium text-violet-100">
+                  PDVs deste PC ({multiSomSelectedIds.length} selecionado
+                  {multiSomSelectedIds.length === 1 ? "" : "s"} — mín. 2, máx. 4)
+                </p>
+                {multiSomPdvs.length === 0 ? (
+                  <p className="text-sm text-zinc-400">Carregando PDVs do cliente…</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {multiSomPdvs.map((p) => {
+                      const checked = multiSomSelectedIds.includes(p.portalPdvId);
+                      return (
+                        <label
+                          key={p.portalPdvId}
+                          className={
+                            "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 " +
+                            (checked
+                              ? "border-violet-500/60 bg-violet-950/30"
+                              : "border-zinc-700 hover:border-zinc-600")
+                          }
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            onChange={() => {
+                              setMultiSomSelectedIds((prev) => {
+                                if (prev.includes(p.portalPdvId)) {
+                                  return prev.filter((id) => id !== p.portalPdvId);
+                                }
+                                if (prev.length >= 4) return prev;
+                                return [...prev, p.portalPdvId].sort((a, b) => a - b);
+                              });
+                            }}
+                          />
+                          <span className="text-sm">
+                            <span className="font-mono text-violet-200">{p.codigoDisplay}</span>
+                            <span className="ml-2 text-zinc-300">{p.pdvNome}</span>
+                            {p.playerInstaladoEm ?
+                              <span className="mt-0.5 block text-[11px] text-amber-400">
+                                Player instalado — regerar serial antes se for reinstalar
+                              </span>
+                            : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {geracaoGate?.podeGerarLink === false && geracaoGate.motivo && !tipoEhElectronMultiSom(tipo) ?
+              <p className="mt-3 rounded-lg border border-red-800/50 bg-red-950/25 px-3 py-2 text-sm text-red-200">
+                {geracaoGate.motivo}
+              </p>
+            : null}
+
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={busy || (tipo === "pdv_play5" && contexto != null && !contexto.podeGerarCodigoPlay)}
+                disabled={
+                  busy ||
+                  (tipoEhElectronMultiSom(tipo)
+                    ? multiSomSelectedIds.length < 2
+                    : geracaoGate?.podeGerarLink === false)
+                }
                 onClick={handleGerarLink}
                 className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white hover:bg-fuchsia-500 disabled:opacity-50"
               >
-                {tipo === "pdv_play5" ? "Gerar código Play" : tipo === "electron_ti" ? "Gerar link + .exe" : "Gerar link"}
+                {tipo === "pdv_play5" ? "Gerar código Play" : tipo === "electron_ti" ? "Gerar link + .exe" : tipo === "electron_multisom" ? "Gerar instalação Multi Som" : "Gerar link"}
               </button>
               {tipo === "pdv_play5" && codigoPlay ? (
                 <button
@@ -808,8 +987,7 @@ export function InstalacaoPanel() {
                   Copiar link
                 </button>
               ) : null}
-              {link && senhaTemp ? (
-                <>
+              {link && senhaTemp && tipo !== "electron_ti" ? (
                   <button
                     type="button"
                     onClick={handleCopiarSenha}
@@ -817,14 +995,6 @@ export function InstalacaoPanel() {
                   >
                     Copiar senha
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleCopiarPacoteTemp}
-                    className="rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
-                  >
-                    Copiar link + senha
-                  </button>
-                </>
               ) : null}
             </div>
 
@@ -847,6 +1017,41 @@ export function InstalacaoPanel() {
               </div>
             ) : null}
 
+            {multiSomResult ? (
+              <div className="mt-3 space-y-3 rounded-lg border border-violet-600/50 bg-violet-950/20 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-300/90">
+                  Instalação Multi Som — {multiSomResult.slotCount} players
+                </p>
+                <div className="space-y-2">
+                  {multiSomResult.slots.map((s, i) => (
+                    <div
+                      key={s.portalPdvId}
+                      className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2"
+                    >
+                      <p className="text-xs text-zinc-400">Player {i + 1}</p>
+                      <p className="font-mono text-sm text-violet-200">
+                        PDV {s.codigoDisplay}{" "}
+                        <span className="text-zinc-500">({s.pdvNome})</span>
+                      </p>
+                      <p className="mt-1 font-mono text-xl font-bold tracking-[0.2em] text-fuchsia-200">
+                        {s.senhaTemporaria}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-violet-400">
+                    Instalador .exe Multi Som
+                  </p>
+                  <p className="break-all font-mono text-[12px] text-violet-300">{multiSomResult.exeUrl}</p>
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  No Windows: instale o .exe e, na primeira abertura, informe o ID do PDV e a senha
+                  temporária de cada player. Escolha também a placa USB de cada um.
+                </p>
+              </div>
+            ) : null}
+
             {link || exeUrl ? (
               <div className="mt-3 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950 p-3">
                 {link ? (
@@ -865,7 +1070,7 @@ export function InstalacaoPanel() {
                     <p className="break-all font-mono text-[12px] text-violet-300">{exeUrl.trim()}</p>
                   </div>
                 ) : null}
-                {senhaTemp ? (
+                {senhaTemp && tipo !== "electron_ti" ? (
                   <div className="rounded-lg border border-fuchsia-600/50 bg-fuchsia-950/20 px-3 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-300/90">
                       Senha temporária (uso único)
@@ -901,12 +1106,15 @@ export function InstalacaoPanel() {
                 O e-mail inclui o link da Google Play e o código PL5
                 {codigoPlay ? " gerado acima" : " (será gerado automaticamente ao enviar, se ainda não existir)"}.
               </p>
+            ) : tipo === "electron_multisom" ? (
+              <p className="mb-3 text-[12px] text-zinc-400">
+                O e-mail inclui o link do .exe Multi Som, os PDVs selecionados e a senha temporária
+                de cada player.
+              </p>
             ) : tipo === "electron_ti" ? (
               <p className="mb-3 text-[12px] text-zinc-400">
-                O e-mail inclui o botão para baixar o instalador .exe e{" "}
-                {electronAuth === "temp"
-                  ? "a senha temporária (gerada ao enviar, se ainda não existir)."
-                  : "as instruções para login e senha do cliente."}
+                O e-mail inclui o botão para baixar o instalador .exe e as instruções para login e
+                senha administrativos do cliente.
               </p>
             ) : null}
             <div className="space-y-2">
@@ -953,7 +1161,9 @@ export function InstalacaoPanel() {
                 type="button"
                 disabled={
                   busy ||
-                  (tipo === "pdv_play5" && contexto != null && !contexto.podeGerarCodigoPlay && !codigoPlay)
+                  (tipoEhElectronMultiSom(tipo)
+                    ? multiSomSelectedIds.length < 2
+                    : geracaoGate?.podeGerarLink === false)
                 }
                 onClick={handleEnviarEmail}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
