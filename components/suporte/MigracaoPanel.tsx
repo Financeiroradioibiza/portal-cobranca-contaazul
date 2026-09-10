@@ -10,6 +10,8 @@ import type {
 
 type MigracaoSortField =
   | "cliente"
+  | "pdvs"
+  | "prioridade"
   | "dono"
   | "pdvsAmarrados"
   | "temProgramacao"
@@ -89,6 +91,18 @@ function compareMigracaoRows(
     case "cliente":
       cmp = a.clienteNome.localeCompare(b.clienteNome, "pt-BR", { sensitivity: "base" });
       break;
+    case "pdvs":
+      cmp = a.qtdPdvs - b.qtdPdvs;
+      break;
+    case "prioridade": {
+      const pa = a.prioridade;
+      const pb = b.prioridade;
+      if (pa == null && pb == null) cmp = 0;
+      else if (pa == null) cmp = 1;
+      else if (pb == null) cmp = -1;
+      else cmp = pa - pb;
+      break;
+    }
     case "dono":
       cmp = donoSortLabel(a, donoMap).localeCompare(donoSortLabel(b, donoMap), "pt-BR", {
         sensitivity: "base",
@@ -219,6 +233,75 @@ function StatusInstalacaoPdvsBadge({
   );
 }
 
+function PrioridadeCell({
+  clienteRef,
+  prioridade,
+  onSaved,
+}: {
+  clienteRef: string;
+  prioridade: number | null;
+  onSaved: (clienteRef: string, prioridade: number | null) => void;
+}) {
+  const [draft, setDraft] = useState(prioridade == null ? "" : String(prioridade));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(prioridade == null ? "" : String(prioridade));
+  }, [prioridade, clienteRef]);
+
+  async function commit() {
+    const trimmed = draft.trim();
+    let next: number | null = null;
+    if (trimmed !== "") {
+      const n = Number(trimmed);
+      if (!Number.isFinite(n)) {
+        setDraft(prioridade == null ? "" : String(prioridade));
+        return;
+      }
+      next = Math.trunc(n);
+    }
+    if (next === prioridade || (next == null && prioridade == null)) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/suporte/migracao", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clienteRef, prioridade: next }),
+      });
+      const data = (await res.json()) as { ok?: boolean; prioridade?: number | null; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Falha ao gravar.");
+      onSaved(clienteRef, data.prioridade ?? null);
+    } catch {
+      setDraft(prioridade == null ? "" : String(prioridade));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <td className="px-3 py-2 text-center align-middle">
+      <input
+        type="number"
+        inputMode="numeric"
+        value={draft}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder="—"
+        title="Prioridade de migração (1, 2, 3…)"
+        className="portal-input w-16 px-2 py-1 text-center text-sm tabular-nums"
+      />
+    </td>
+  );
+}
+
 function StatusProgramacaoBadge({ status }: { status: MigracaoProgramacaoStatus }) {
   const cls =
     status === "PRONTA"
@@ -240,8 +323,14 @@ export function MigracaoPanel() {
   const [cloud2Ok, setCloud2Ok] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
-  const [sort, setSort] = useState<MigracaoSortField>("ultimoPing");
-  const [order, setOrder] = useState<"asc" | "desc">("desc");
+  const [sort, setSort] = useState<MigracaoSortField>("prioridade");
+  const [order, setOrder] = useState<"asc" | "desc">("asc");
+
+  function patchPrioridadeLocal(clienteRef: string, prioridade: number | null) {
+    setRows((prev) =>
+      prev.map((r) => (r.clienteRef === clienteRef ? { ...r, prioridade } : r)),
+    );
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -275,7 +364,15 @@ export function MigracaoPanel() {
       setOrder((o) => (o === "asc" ? "desc" : "asc"));
     } else {
       setSort(field);
-      setOrder(field === "cliente" || field === "dono" || field === "statusProgramacao" ? "asc" : "desc");
+      setOrder(
+        field === "cliente" ||
+          field === "dono" ||
+          field === "statusProgramacao" ||
+          field === "prioridade" ||
+          field === "pdvs"
+          ? "asc"
+          : "desc",
+      );
     }
   }
 
@@ -292,6 +389,8 @@ export function MigracaoPanel() {
             r.statusProgramacao,
             r.portalClienteId != null ? String(r.portalClienteId) : "",
             fmtPing(r.ultimoPingEm),
+            String(r.qtdPdvs),
+            r.prioridade != null ? String(r.prioridade) : "",
             String(r.pdvsComPing),
             String(r.pdvsSemPing),
             r.faltaPdvInstalar ? "falta" : "finalizado",
@@ -350,7 +449,7 @@ export function MigracaoPanel() {
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <div className="max-h-[min(78vh,calc(100dvh-12rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-          <table className="portal-table w-full min-w-[1080px] text-sm">
+          <table className="portal-table w-full min-w-[1180px] text-sm">
             <thead>
               <tr>
                 <th className={`${MIGRACAO_TH} text-left`}>
@@ -362,12 +461,32 @@ export function MigracaoPanel() {
                     onSort={handleSort}
                   />
                 </th>
+                <th className={`${MIGRACAO_TH} text-center whitespace-nowrap`}>
+                  <SortButton
+                    label="PDVs"
+                    field="pdvs"
+                    current={sort}
+                    order={order}
+                    align="center"
+                    onSort={handleSort}
+                  />
+                </th>
                 <th className={`${MIGRACAO_TH} text-left whitespace-nowrap`}>
                   <SortButton
                     label="Dono da programação"
                     field="dono"
                     current={sort}
                     order={order}
+                    onSort={handleSort}
+                  />
+                </th>
+                <th className={`${MIGRACAO_TH} text-center whitespace-nowrap`}>
+                  <SortButton
+                    label="Prioridade"
+                    field="prioridade"
+                    current={sort}
+                    order={order}
+                    align="center"
                     onSort={handleSort}
                   />
                 </th>
@@ -434,13 +553,13 @@ export function MigracaoPanel() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     Carregando…
                   </td>
                 </tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     {rows.length === 0
                       ? "Nenhum cliente com programação criada."
                       : "Nenhum resultado para a busca."}
@@ -473,9 +592,17 @@ export function MigracaoPanel() {
                           </div>
                         ) : null}
                       </td>
+                      <td className="px-3 py-2 text-center align-middle tabular-nums font-medium text-slate-800 dark:text-slate-100">
+                        {row.qtdPdvs}
+                      </td>
                       <td className="px-3 py-2 align-middle">
                         <DonoProgramacaoBadge dono={dono} />
                       </td>
+                      <PrioridadeCell
+                        clienteRef={row.clienteRef}
+                        prioridade={row.prioridade}
+                        onSaved={patchPrioridadeLocal}
+                      />
                       <CheckCell
                         ok={row.pdvsAmarrados}
                         title={

@@ -9,6 +9,7 @@ import {
   type ProducaoPlayerBucket,
 } from "@/lib/player/producaoPlayerBuckets";
 import { loadPlayerGatewayTelemetry } from "@/lib/player/loadPlayerGatewayTelemetry";
+import { readMigracaoPrioridadeMap } from "@/lib/suporte/migracaoPrioridade";
 
 export type MigracaoProgramacaoStatus = "AUSENTE" | "CRIADA" | "PRONTA";
 
@@ -16,6 +17,10 @@ export type MigracaoClienteRow = {
   clienteRef: string;
   clienteNome: string;
   portalClienteId: number | null;
+  /** Total de PDVs do cliente na produção (bucket Rio). */
+  qtdPdvs: number;
+  /** Ordem manual de migração (1, 2, 3…); null = sem prioridade. */
+  prioridade: number | null;
   programacaoId: string | null;
   donoEmail: string | null;
   donoNome: string | null;
@@ -259,6 +264,7 @@ export async function listMigracaoClientes(): Promise<{
   }
 
   const gateway = await loadPlayerGatewayTelemetry([...new Set(portalPdvIds)]);
+  const prioridadeMap = await readMigracaoPrioridadeMap();
 
   const rows: MigracaoClienteRow[] = [];
 
@@ -338,10 +344,14 @@ export async function listMigracaoClientes(): Promise<{
     const semPing = totalInstalaveis - comPing;
     const dono = resolveDonoFromProgramacao(primaryProg, criativoByEmail);
 
+    const qtdPdvs = bucket?.pdvs.length ?? 0;
+
     rows.push({
       clienteRef,
       clienteNome,
       portalClienteId: bucket?.portalClienteId ?? null,
+      qtdPdvs,
+      prioridade: prioridadeMap[clienteRef] ?? null,
       ...dono,
       pdvsAmarrados,
       temProgramacao: progs.length > 0,
