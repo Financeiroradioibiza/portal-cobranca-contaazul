@@ -1087,8 +1087,8 @@ function PdvProgramacaoColumn({
                   (proxySemDisparo ? " opacity-75" : "")
                 }
               >
-                <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-start gap-2">
+                <div className="mb-2">
+                  <div className="flex items-start gap-2">
                     {pdv.disparoElegivel ?
                       <input
                         type="checkbox"
@@ -1099,47 +1099,49 @@ function PdvProgramacaoColumn({
                         aria-label={`Selecionar ${pdv.nome}`}
                       />
                     : null}
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    <div className="min-w-0 flex-1">
+                      <div className="break-words text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">
                         <RioTagCobrancaNome nome={pdv.nome} tag={pdv.tagCobranca} />
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        {pdv.codigoDisplay}
-                        {pdv.isLinhaProxy ?
-                          proxySemDisparo ?
-                            " · cliente = PDV · não dispara"
-                          : " · cliente = PDV"
-                        : ""}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-[10px] text-slate-400">
+                          {pdv.codigoDisplay}
+                          {pdv.isLinhaProxy ?
+                            proxySemDisparo ?
+                              " · cliente = PDV · não dispara"
+                            : " · cliente = PDV"
+                          : ""}
+                        </span>
+                        {bulkSaving && isSelected ?
+                          <span className="text-[10px] text-orange-600">vinculando…</span>
+                        : savingKey === pdv.rioPdvKey ?
+                          <span className="text-[10px] text-slate-400">salvando…</span>
+                        : pdv.programacaoNome ?
+                          (() => {
+                            const aberta = pdv.programacaoId != null && openProgramacaoIds.has(pdv.programacaoId);
+                            const encerrada = pdv.programacaoId != null && encerradaProgramacaoIds.has(pdv.programacaoId);
+                            return (
+                              <span
+                                className={
+                                  "rounded px-1.5 py-0.5 text-[9px] font-bold " +
+                                  (aberta ?
+                                    "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
+                                  : encerrada ?
+                                    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                                  : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400")
+                                }
+                              >
+                                {pdv.programacaoNome}
+                              </span>
+                            );
+                          })()
+                        : <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                            sem prog.
+                          </span>
+                        }
                       </div>
                     </div>
                   </div>
-                  {bulkSaving && isSelected ?
-                    <span className="shrink-0 text-[10px] text-orange-600">vinculando…</span>
-                  : savingKey === pdv.rioPdvKey ?
-                    <span className="shrink-0 text-[10px] text-slate-400">salvando…</span>
-                  : pdv.programacaoNome ?
-                    (() => {
-                      const aberta = pdv.programacaoId != null && openProgramacaoIds.has(pdv.programacaoId);
-                      const encerrada = pdv.programacaoId != null && encerradaProgramacaoIds.has(pdv.programacaoId);
-                      return (
-                        <span
-                          className={
-                            "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold " +
-                            (aberta ?
-                              "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
-                            : encerrada ?
-                              "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                            : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400")
-                          }
-                        >
-                          {pdv.programacaoNome}
-                        </span>
-                      );
-                    })()
-                  : <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                      sem prog.
-                    </span>
-                  }
                 </div>
                 <div className="flex flex-wrap gap-1">
                   <button
