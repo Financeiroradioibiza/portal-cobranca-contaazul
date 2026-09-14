@@ -586,13 +586,17 @@ export function MigracaoPanel() {
               ) : (
                 filtrados.map((row, index) => {
                   const dono = resolveDonoDisplay(row, donoMap);
+                  const instalacaoFinalizada =
+                    row.totalPdvsInstalaveis > 0 && !row.faltaPdvInstalar;
                   return (
                     <tr
                       key={row.clienteRef}
                       className={
-                        index % 2 === 1
-                          ? "bg-slate-50 dark:bg-slate-800/45"
-                          : "bg-white dark:bg-slate-900"
+                        instalacaoFinalizada
+                          ? "bg-emerald-50 dark:bg-emerald-950/35"
+                          : index % 2 === 1
+                            ? "bg-slate-50 dark:bg-slate-800/45"
+                            : "bg-white dark:bg-slate-900"
                       }
                     >
                       <td className="px-4 py-2 align-top">
