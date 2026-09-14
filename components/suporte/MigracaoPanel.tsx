@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ProgramacaoDono } from "@/lib/criacao/programacaoDonoLocal";
 import { useProgramacaoDonoMap } from "@/lib/criacao/useProgramacaoDonoMap";
+import { MigracaoContatoLojaCell } from "@/components/suporte/MigracaoContatoLojaCell";
 import type {
   MigracaoClienteRow,
+  MigracaoPdvContatoResumo,
   MigracaoProgramacaoStatus,
 } from "@/lib/suporte/migracaoService";
 
@@ -332,6 +334,15 @@ export function MigracaoPanel() {
     );
   }
 
+  function patchPdvContatoLocal(rioPdvKey: string, next: MigracaoPdvContatoResumo) {
+    setRows((prev) =>
+      prev.map((r) => ({
+        ...r,
+        pdvsContato: r.pdvsContato.map((p) => (p.rioPdvKey === rioPdvKey ? next : p)),
+      })),
+    );
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     setMsg(null);
@@ -397,6 +408,10 @@ export function MigracaoPanel() {
             dono.nome,
             dono.iniciais,
             r.donoEmail ?? "",
+            ...r.pdvsContato.flatMap((p) => [
+              p.pdvNome,
+              ...p.contatos.flatMap((c) => [c.nome, c.email, c.telefone, c.label]),
+            ]),
           ]
             .join(" ")
             .toLowerCase();
@@ -449,7 +464,7 @@ export function MigracaoPanel() {
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <div className="max-h-[min(78vh,calc(100dvh-12rem))] overflow-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-          <table className="portal-table w-full min-w-[1180px] text-sm">
+          <table className="portal-table w-full min-w-[1320px] text-sm">
             <thead>
               <tr>
                 <th className={`${MIGRACAO_TH} text-left`}>
@@ -519,6 +534,9 @@ export function MigracaoPanel() {
                     onSort={handleSort}
                   />
                 </th>
+                <th className={`${MIGRACAO_TH} text-left whitespace-nowrap`}>
+                  Contato da loja
+                </th>
                 <th className={`${MIGRACAO_TH} text-center whitespace-nowrap`}>
                   <SortButton
                     label="Algum PDV instalado?"
@@ -553,13 +571,13 @@ export function MigracaoPanel() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                     Carregando…
                   </td>
                 </tr>
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                     {rows.length === 0
                       ? "Nenhum cliente com programação criada."
                       : "Nenhum resultado para a busca."}
@@ -622,6 +640,10 @@ export function MigracaoPanel() {
                       <td className="px-3 py-2 align-middle">
                         <StatusProgramacaoBadge status={row.statusProgramacao} />
                       </td>
+                      <MigracaoContatoLojaCell
+                        pdvsContato={row.pdvsContato}
+                        onPdvContatoSaved={patchPdvContatoLocal}
+                      />
                       <CheckCell
                         ok={row.algumPdvInstalado}
                         title={

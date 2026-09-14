@@ -1,4 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import {
+  listContatosLojaResumo,
+  parseContatosLojaExtras,
+  type ContatoLojaResumo,
+} from "@/lib/cadastros/contatosLojaExtras";
 import { listCriativosForTag } from "@/lib/criacao/criativoUserService";
 import { resolvePdvProgramacaoAssignment } from "@/lib/criacao/pdvProgramacaoService";
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
@@ -12,6 +17,12 @@ import { loadPlayerGatewayTelemetry } from "@/lib/player/loadPlayerGatewayTeleme
 import { readMigracaoPrioridadeMap } from "@/lib/suporte/migracaoPrioridade";
 
 export type MigracaoProgramacaoStatus = "AUSENTE" | "CRIADA" | "PRONTA";
+
+export type MigracaoPdvContatoResumo = {
+  rioPdvKey: string;
+  pdvNome: string;
+  contatos: ContatoLojaResumo[];
+};
 
 export type MigracaoClienteRow = {
   clienteRef: string;
@@ -37,6 +48,8 @@ export type MigracaoClienteRow = {
   pdvsSemPing: number;
   /** Maior lastPingAt entre PDVs do cliente — ordenação (instalação mais recente primeiro). */
   ultimoPingEm: string | null;
+  /** Contatos de loja por PDV instalável (cadastro produção). */
+  pdvsContato: MigracaoPdvContatoResumo[];
 };
 
 type ProgramacaoRow = {
@@ -228,6 +241,11 @@ export async function listMigracaoClientes(): Promise<{
     where: { rioPdvKey: { in: [...allRioKeys] } },
     select: {
       rioPdvKey: true,
+      nome: true,
+      contatoLojaNome: true,
+      contatoLojaEmail: true,
+      contatoLojaTelefone: true,
+      contatosLojaExtrasJson: true,
       programacaoId: true,
       programacaoMusical: true,
       programacao: { select: { id: true, nome: true, clienteRef: true } },
@@ -283,6 +301,7 @@ export async function listMigracaoClientes(): Promise<{
     let amarrados = 0;
     let comPing = 0;
     let ultimoPingMs = 0;
+    const pdvsContato: MigracaoPdvContatoResumo[] = [];
 
     if (bucket) {
       for (const pdv of bucket.pdvs) {
@@ -294,6 +313,21 @@ export async function listMigracaoClientes(): Promise<{
         if (portalPdvId == null) continue;
 
         totalInstalaveis += 1;
+        const cadContato = cadastroByKey.get(pdv.rioPdvId);
+        const pdvNome =
+          cadContato?.nome?.trim() || pdv.nome.trim() || pdv.rioPdvId;
+        pdvsContato.push({
+          rioPdvKey: pdv.rioPdvId,
+          pdvNome,
+          contatos: listContatosLojaResumo(
+            {
+              nome: cadContato?.contatoLojaNome ?? "",
+              email: cadContato?.contatoLojaEmail ?? "",
+              telefone: cadContato?.contatoLojaTelefone ?? "",
+            },
+            parseContatosLojaExtras(cadContato?.contatosLojaExtrasJson),
+          ),
+        });
         const cad = cadastroByKey.get(pdv.rioPdvId);
         const { programacaoId } = resolvePdvProgramacaoAssignment(cad, bucket.key, progs);
         if (programacaoId) amarrados += 1;
@@ -363,6 +397,7 @@ export async function listMigracaoClientes(): Promise<{
       pdvsComPing: comPing,
       pdvsSemPing: semPing,
       ultimoPingEm: ultimoPingMs > 0 ? new Date(ultimoPingMs).toISOString() : null,
+      pdvsContato,
     });
   }
 
