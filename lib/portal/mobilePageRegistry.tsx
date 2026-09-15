@@ -27,6 +27,7 @@ import { EdicaoPanel } from "@/components/criacao/EdicaoPanel";
 import { PastasEspeciaisPanel } from "@/components/criacao/PastasEspeciaisPanel";
 import { CriacaoRelatoriosPanel } from "@/components/criacao/CriacaoRelatoriosPanel";
 import { AtualizacoesPanel } from "@/components/criacao/AtualizacoesPanel";
+import { PlanilhaProdPanel } from "@/components/criacao/PlanilhaProdPanel";
 import { UploadPanel } from "@/components/criacao/UploadPanel";
 import { FilaPanel } from "@/components/criacao/FilaPanel";
 import { DownloadLinkPanel } from "@/components/criacao/DownloadLinkPanel";
@@ -222,6 +223,12 @@ const PAGES: Record<string, PageDef> = {
     title: "Produção",
     criacao: true,
     render: () => <AtualizacoesPanel />,
+  },
+  "/criacao/planilha-prod": {
+    section: "Criação",
+    title: "Planilha Prod",
+    criacao: true,
+    render: () => <PlanilhaProdPanel />,
   },
   "/criacao/upload": {
     section: "Criação",

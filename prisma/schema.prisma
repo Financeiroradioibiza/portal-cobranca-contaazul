@@ -1714,3 +1714,59 @@ model SiteClienteCobrancaComprovante {
   @@index([caPersonId])
   @@map("site_cliente_cobranca_comprovante")
 }
+
+/// Planilha operacional de Produção (Criação) — isolada; não altera programações/clientes do portal.
+enum PlanilhaProdSistema {
+  painel
+  dois_sistemas
+  player5
+  cancelado
+}
+
+model PlanilhaProdMonth {
+  id        String   @id @default(cuid())
+  slug      String   @unique @db.VarChar(16)
+  label     String   @db.VarChar(40)
+  sortKey   Int      @map("sort_key")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rows PlanilhaProdRow[]
+
+  @@index([sortKey])
+  @@map("planilha_prod_month")
+}
+
+model PlanilhaProdRow {
+  id      String            @id @default(cuid())
+  monthId String            @map("month_id")
+  month   PlanilhaProdMonth @relation(fields: [monthId], references: [id], onDelete: Cascade)
+
+  sistema PlanilhaProdSistema @default(painel)
+
+  clienteLabel String @default("") @map("cliente_label") @db.Text
+  criativo     String @default("") @db.VarChar(80)
+
+  entregaAtl       String @default("") @map("entrega_atl") @db.Text
+  convertidoGain   String @default("") @map("convertido_gain") @db.Text
+  arrastado        String @default("") @map("arrastado") @db.Text
+  sincronizado     String @default("") @db.Text
+  statusPlayerNovo String @default("") @map("status_player_novo") @db.Text
+  obsCriacao       String @default("") @map("obs_criacao") @db.Text
+  obsProducao      String @default("") @map("obs_producao") @db.Text
+
+  /// Referências opcionais — só leitura/espelho; sem FK para não acoplar ao portal.
+  linkedClienteRef        String @default("") @map("linked_cliente_ref") @db.VarChar(120)
+  linkedProgramacaoId     String @default("") @map("linked_programacao_id") @db.VarChar(80)
+  linkedClienteNome       String @default("") @map("linked_cliente_nome") @db.Text
+  linkedProgramacaoNome   String @default("") @map("linked_programacao_nome") @db.Text
+
+  sortOrder Int @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([monthId, sortOrder])
+  @@index([monthId, criativo])
+  @@map("planilha_prod_row")
+}

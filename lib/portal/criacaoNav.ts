@@ -13,6 +13,7 @@ export const CRIACAO_SIDEBAR: CriacaoSidebarEntry[] = [
   { type: "item", href: "/criacao/relatorios", label: "Relatórios", icon: "📊" },
   { type: "separator" },
   { type: "item", href: "/criacao/atualizacoes", label: "Produção", icon: "📋" },
+  { type: "item", href: "/criacao/planilha-prod", label: "Planilha Prod", icon: "📑" },
   { type: "item", href: "/criacao/upload", label: "Upload", icon: "⬆️" },
   { type: "item", href: "/criacao/fila", label: "Fila de processamento", icon: "⏳" },
   { type: "item", href: "/criacao/download", label: "Download link", icon: "🔗" },
