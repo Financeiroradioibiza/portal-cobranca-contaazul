@@ -24,23 +24,29 @@ function ContatoResumoBlock({ pdv }: { pdv: MigracaoPdvContatoResumo }) {
   const principal = pdv.contatos.find((c) => c.kind === "principal");
   const extras = pdv.contatos.filter((c) => c.kind === "extra");
 
-  if (!principal && extras.length === 0) {
-    return <span className="text-xs text-slate-400">Sem contato</span>;
-  }
+  const inner =
+    !principal && extras.length === 0 ?
+      <span className="text-xs text-slate-400">Sem contato</span>
+    : <div className="space-y-0.5">
+        {principal ?
+          <p
+            className="text-xs text-slate-700 dark:text-slate-200"
+            title={fmtContatoLinha(principal)}
+          >
+            <span className="font-medium text-slate-500">Gerente:</span> {fmtContatoLinha(principal)}
+          </p>
+        : null}
+        {extras.length > 0 ?
+          <p className="text-[10px] text-slate-500">
+            +{extras.length} extra{extras.length === 1 ? "" : "s"}
+          </p>
+        : null}
+      </div>;
+
+  if (!pdv.instalado) return inner;
 
   return (
-    <div className="space-y-0.5">
-      {principal ?
-        <p className="text-xs text-slate-700 dark:text-slate-200" title={fmtContatoLinha(principal)}>
-          <span className="font-medium text-slate-500">Gerente:</span> {fmtContatoLinha(principal)}
-        </p>
-      : null}
-      {extras.length > 0 ?
-        <p className="text-[10px] text-slate-500">
-          +{extras.length} extra{extras.length === 1 ? "" : "s"}
-        </p>
-      : null}
-    </div>
+    <div className="rounded-md bg-emerald-200/95 px-2 py-1.5 dark:bg-emerald-900/85">{inner}</div>
   );
 }
 
@@ -109,6 +115,7 @@ function MigracaoContatoLojaEditor({
       onSaved({
         rioPdvKey: pdv.rioPdvKey,
         pdvNome: data.pdvNome?.trim() || pdv.pdvNome,
+        instalado: pdv.instalado,
         contatos: data.contatos,
       });
       onClose();
@@ -270,7 +277,15 @@ export function MigracaoContatoLojaCell({
         {pdvsContato.map((pdv) => (
           <div key={pdv.rioPdvKey} className="min-w-[9rem] max-w-[14rem]">
             {pdvsContato.length > 1 ?
-              <p className="truncate text-[10px] font-bold uppercase text-slate-400" title={pdv.pdvNome}>
+              <p
+                className={
+                  "truncate text-[10px] font-bold uppercase " +
+                  (pdv.instalado ?
+                    "text-amber-700 dark:text-amber-300"
+                  : "text-slate-400")
+                }
+                title={pdv.pdvNome}
+              >
                 {pdv.pdvNome}
               </p>
             : null}

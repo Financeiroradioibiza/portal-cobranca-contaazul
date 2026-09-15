@@ -21,6 +21,8 @@ export type MigracaoProgramacaoStatus = "AUSENTE" | "CRIADA" | "PRONTA";
 export type MigracaoPdvContatoResumo = {
   rioPdvKey: string;
   pdvNome: string;
+  /** Primeiro ping registrado no gateway (PDV já instalado). */
+  instalado: boolean;
   contatos: ContatoLojaResumo[];
 };
 
@@ -316,9 +318,12 @@ export async function listMigracaoClientes(): Promise<{
         const cadContato = cadastroByKey.get(pdv.rioPdvId);
         const pdvNome =
           cadContato?.nome?.trim() || pdv.nome.trim() || pdv.rioPdvId;
+        const tel = gateway.byPdvId.get(portalPdvId);
+        const pingAt = tel?.firstPingAt ?? tel?.lastPingAt ?? null;
         pdvsContato.push({
           rioPdvKey: pdv.rioPdvId,
           pdvNome,
+          instalado: Boolean(pingAt),
           contatos: listContatosLojaResumo(
             {
               nome: cadContato?.contatoLojaNome ?? "",
@@ -331,9 +336,6 @@ export async function listMigracaoClientes(): Promise<{
         const cad = cadastroByKey.get(pdv.rioPdvId);
         const { programacaoId } = resolvePdvProgramacaoAssignment(cad, bucket.key, progs);
         if (programacaoId) amarrados += 1;
-
-        const tel = gateway.byPdvId.get(portalPdvId);
-        const pingAt = tel?.firstPingAt ?? tel?.lastPingAt ?? null;
         if (pingAt) {
           comPing += 1;
           const ms = Date.parse(pingAt);

@@ -593,7 +593,7 @@ export function MigracaoPanel() {
                       key={row.clienteRef}
                       className={
                         instalacaoFinalizada
-                          ? "bg-emerald-100 dark:bg-emerald-950/70"
+                          ? "bg-emerald-200 dark:bg-emerald-900/90"
                           : index % 2 === 1
                             ? "bg-slate-50 dark:bg-slate-800/45"
                             : "bg-white dark:bg-slate-900"
