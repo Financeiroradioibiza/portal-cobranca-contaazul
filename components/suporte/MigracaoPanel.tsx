@@ -425,8 +425,8 @@ export function MigracaoPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        Clientes com programação musical criada na Criação/Produção — checklist para migração e
-        instalação do Player 5. Clique nos títulos das colunas para ordenar.
+        Todos os clientes da produção — checklist para migração e instalação do Player 5, com ou
+        sem programação criada. Clique nos títulos das colunas para ordenar.
       </p>
 
       {!cloud2Ok && !loading ? (
@@ -579,7 +579,7 @@ export function MigracaoPanel() {
                 <tr>
                   <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                     {rows.length === 0
-                      ? "Nenhum cliente com programação criada."
+                      ? "Nenhum cliente na produção."
                       : "Nenhum resultado para a busca."}
                   </td>
                 </tr>

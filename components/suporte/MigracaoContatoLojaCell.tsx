@@ -254,6 +254,47 @@ function MigracaoContatoLojaEditor({
   );
 }
 
+function PdvContatoBlock({
+  pdv,
+  showNome,
+  nomeClicavel,
+  onToggleExpand,
+  onEdit,
+}: {
+  pdv: MigracaoPdvContatoResumo;
+  showNome: boolean;
+  nomeClicavel?: boolean;
+  onToggleExpand?: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="min-w-[9rem] max-w-[14rem]">
+      {showNome ?
+        <button
+          type="button"
+          onClick={nomeClicavel ? onToggleExpand : undefined}
+          className={
+            "block w-full truncate text-left text-[10px] font-bold uppercase " +
+            (pdv.instalado ? "text-amber-700 dark:text-amber-300" : "text-slate-400") +
+            (nomeClicavel ? " cursor-pointer hover:underline" : "")
+          }
+          title={pdv.pdvNome}
+        >
+          {pdv.pdvNome}
+        </button>
+      : null}
+      <ContatoResumoBlock pdv={pdv} />
+      <button
+        type="button"
+        className="mt-1 text-[11px] font-semibold text-sky-700 hover:underline dark:text-sky-300"
+        onClick={onEdit}
+      >
+        Editar contato
+      </button>
+    </div>
+  );
+}
+
 export function MigracaoContatoLojaCell({
   pdvsContato,
   onPdvContatoSaved,
@@ -262,6 +303,12 @@ export function MigracaoContatoLojaCell({
   onPdvContatoSaved: (rioPdvKey: string, next: MigracaoPdvContatoResumo) => void;
 }) {
   const [editando, setEditando] = useState<MigracaoPdvContatoResumo | null>(null);
+  const [pdvsExpandidos, setPdvsExpandidos] = useState(false);
+
+  const colapsavel = pdvsContato.length > 2;
+  const pdvsOcultos = pdvsContato.length - 1;
+  const pdvsVisiveis =
+    colapsavel && !pdvsExpandidos ? pdvsContato.slice(0, 1) : pdvsContato;
 
   if (pdvsContato.length === 0) {
     return (
@@ -274,31 +321,27 @@ export function MigracaoContatoLojaCell({
   return (
     <td className="px-3 py-2 align-top">
       <div className="space-y-2">
-        {pdvsContato.map((pdv) => (
-          <div key={pdv.rioPdvKey} className="min-w-[9rem] max-w-[14rem]">
-            {pdvsContato.length > 1 ?
-              <p
-                className={
-                  "truncate text-[10px] font-bold uppercase " +
-                  (pdv.instalado ?
-                    "text-amber-700 dark:text-amber-300"
-                  : "text-slate-400")
-                }
-                title={pdv.pdvNome}
-              >
-                {pdv.pdvNome}
-              </p>
-            : null}
-            <ContatoResumoBlock pdv={pdv} />
-            <button
-              type="button"
-              className="mt-1 text-[11px] font-semibold text-sky-700 hover:underline dark:text-sky-300"
-              onClick={() => setEditando(pdv)}
-            >
-              Editar contato
-            </button>
-          </div>
+        {pdvsVisiveis.map((pdv, idx) => (
+          <PdvContatoBlock
+            key={pdv.rioPdvKey}
+            pdv={pdv}
+            showNome={pdvsContato.length > 1}
+            nomeClicavel={colapsavel && idx === 0}
+            onToggleExpand={
+              colapsavel ? () => setPdvsExpandidos((v) => !v) : undefined
+            }
+            onEdit={() => setEditando(pdv)}
+          />
         ))}
+        {colapsavel ?
+          <button
+            type="button"
+            onClick={() => setPdvsExpandidos((v) => !v)}
+            className="text-[10px] font-bold uppercase tracking-wide text-violet-700 hover:underline dark:text-violet-300"
+          >
+            PDVs +{pdvsOcultos}
+          </button>
+        : null}
       </div>
       {editando ?
         <MigracaoContatoLojaEditor

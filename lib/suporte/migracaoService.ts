@@ -155,7 +155,7 @@ function findBucketForRef(
   );
 }
 
-/** Painel Suporte → Migração: clientes com programação criada e checklist de instalação. */
+/** Painel Suporte → Migração: todos os clientes da produção e checklist de instalação. */
 export async function listMigracaoClientes(): Promise<{
   ok: boolean;
   rows: MigracaoClienteRow[];
@@ -189,10 +189,6 @@ export async function listMigracaoClientes(): Promise<{
     ]),
   );
 
-  if (programacoes.length === 0) {
-    return { ok: true, rows: [], cloud2Ok: false };
-  }
-
   const programacoesByCliente = new Map<string, ProgramacaoRow[]>();
   const clienteNomes = new Map<string, string>();
 
@@ -219,7 +215,6 @@ export async function listMigracaoClientes(): Promise<{
     if (row.clienteNome) clienteNomes.set(ref, row.clienteNome);
   }
 
-  const clienteRefs = [...programacoesByCliente.keys()];
   const ctx = await loadMergedProducaoPlayerContext();
 
   for (const bucket of ctx.buckets) {
@@ -227,6 +222,18 @@ export async function listMigracaoClientes(): Promise<{
       clienteNomes.set(bucket.key, bucket.nome.trim());
     }
   }
+
+  const clienteRefSet = new Set<string>();
+  for (const bucket of ctx.buckets) {
+    const key = bucket.key.trim();
+    if (key) clienteRefSet.add(key);
+  }
+  for (const ref of programacoesByCliente.keys()) {
+    clienteRefSet.add(ref);
+  }
+  const clienteRefs = [...clienteRefSet].sort((a, b) =>
+    (clienteNomes.get(a) ?? a).localeCompare(clienteNomes.get(b) ?? b, "pt-BR", { sensitivity: "base" }),
+  );
 
   const allRioKeys = new Set<string>();
   for (const ref of clienteRefs) {
