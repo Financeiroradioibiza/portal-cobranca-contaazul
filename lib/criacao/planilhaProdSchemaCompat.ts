@@ -6,11 +6,16 @@ export async function hasPlanilhaProdTable(): Promise<boolean> {
   if (cached !== null) return cached;
   try {
     const rows = await prisma.$queryRaw<{ reg: string | null }[]>`
-      SELECT to_regclass('public.planilha_prod_month') AS reg
+      SELECT to_regclass('public.planilha_prod_month')::text AS reg
     `;
     cached = Boolean(rows[0]?.reg);
   } catch {
-    cached = false;
+    try {
+      await prisma.planilhaProdMonth.count();
+      cached = true;
+    } catch {
+      cached = false;
+    }
   }
   return cached;
 }
