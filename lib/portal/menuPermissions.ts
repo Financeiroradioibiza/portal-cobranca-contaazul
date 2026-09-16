@@ -72,6 +72,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "download", label: "Download link" },
       { id: "atl-crica", label: "ATL CRICA" },
       { id: "atualizacoes", label: "PRODUÇÃO" },
+      { id: "planilha-prod", label: "Planilha Prod" },
       { id: "cronograma", label: "Cronograma" },
       { id: "wizard", label: "Wizard IA" },
       { id: "check", label: "CHECK" },
@@ -288,6 +289,11 @@ export function isSubAllowed(
   const p = (perm as PortalPermissionsMap)[moduleId];
   if (p === "all") return true;
   if (Array.isArray(p) && p.includes(subId)) return true;
+
+  /** Planilha Prod acompanha PRODUÇÃO — perfis antigos não precisam marcar de novo. */
+  if (moduleId === "criacao" && subId === "planilha-prod" && Array.isArray(p) && p.includes("atualizacoes")) {
+    return true;
+  }
 
   if (moduleId === "atendimento") {
     if (["clientes", "likes", "musicboard"].includes(subId)) {
