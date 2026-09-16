@@ -302,6 +302,223 @@ function VinculoPicker({
   );
 }
 
+function NovaLinhaModal({
+  monthId,
+  criadorInicial,
+  onClose,
+  onCreated,
+}: {
+  monthId: string;
+  criadorInicial: string;
+  onClose: () => void;
+  onCreated: (row: PlanilhaProdRowDto) => void;
+}) {
+  const [criativo, setCriativo] = useState(criadorInicial);
+  const [clienteLabel, setClienteLabel] = useState("");
+  const [sistema, setSistema] = useState<PlanilhaProdSistema>("painel");
+  const [clienteQ, setClienteQ] = useState("");
+  const [clientes, setClientes] = useState<ClienteOption[]>([]);
+  const [programacoes, setProgramacoes] = useState<ProgramacaoOption[]>([]);
+  const [selCliente, setSelCliente] = useState<ClienteOption | null>(null);
+  const [selProg, setSelProg] = useState<ProgramacaoOption | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setCriativo(criadorInicial);
+  }, [criadorInicial]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void fetch(`/api/criacao/clientes?q=${encodeURIComponent(clienteQ)}`)
+        .then((r) => r.json())
+        .then((d: { clientes?: ClienteOption[] }) => setClientes(d.clientes ?? []))
+        .catch(() => setClientes([]));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [clienteQ]);
+
+  useEffect(() => {
+    if (!selCliente) {
+      setProgramacoes([]);
+      return;
+    }
+    void fetch(`/api/criacao/programacoes?clienteRef=${encodeURIComponent(selCliente.ref)}`)
+      .then((r) => r.json())
+      .then(
+        (d: {
+          programacoes?: Array<{ id: string; nome: string; clienteRef: string; clienteNome: string }>;
+        }) =>
+          setProgramacoes(
+            (d.programacoes ?? []).map((p) => ({
+              id: p.id,
+              nome: p.nome,
+              clienteRef: p.clienteRef,
+              clienteNome: p.clienteNome,
+            })),
+          ),
+      )
+      .catch(() => setProgramacoes([]));
+  }, [selCliente]);
+
+  async function submit() {
+    const criativoNorm = criativo.replace(/\s+/g, " ").trim().toUpperCase();
+    const label = clienteLabel.trim();
+    if (!criativoNorm || !label) {
+      alert("Informe criador e cliente/programação.");
+      return;
+    }
+    if (
+      (sistema === "player5" || sistema === "dois_sistemas") &&
+      !(selCliente && selProg)
+    ) {
+      if (!window.confirm("Sem vínculo de cliente/programação no portal. Criar assim mesmo?")) return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/criacao/planilha-prod/row", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          monthId,
+          criativo: criativoNorm,
+          clienteLabel: label,
+          sistema,
+          linkedClienteRef: selCliente?.ref ?? "",
+          linkedProgramacaoId: selProg?.id ?? "",
+          linkedClienteNome: selCliente?.nome ?? "",
+          linkedProgramacaoNome: selProg?.nome ?? "",
+        }),
+      });
+      const data = (await res.json()) as { row?: PlanilhaProdRowDto; error?: string };
+      if (!res.ok || !data.row) {
+        alert(
+          data.error === "cliente_obrigatorio" ? "Informe o cliente/programação."
+          : data.error === "criativo_obrigatorio" ? "Informe o criador."
+          : "Falha ao criar linha.",
+        );
+        return;
+      }
+      onCreated(data.row);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <h3 className="mb-2 text-sm font-bold">Nova linha na planilha</h3>
+        <p className="mb-3 text-xs text-slate-500">
+          Só grava nesta planilha — não altera clientes nem programações do portal.
+        </p>
+        <label className="mb-1 block text-xs font-semibold text-slate-600">Criador</label>
+        <input
+          value={criativo}
+          onChange={(e) => setCriativo(e.target.value.toUpperCase())}
+          placeholder="BRENO, FC, LAURO…"
+          className="mb-3 w-full rounded border border-slate-200 px-2 py-1 text-xs uppercase dark:border-slate-700 dark:bg-slate-950"
+        />
+        <label className="mb-1 block text-xs font-semibold text-slate-600">Sistema</label>
+        <select
+          value={sistema}
+          onChange={(e) => setSistema(e.target.value as PlanilhaProdSistema)}
+          className={
+            "mb-3 w-full rounded px-2 py-1 text-xs font-bold " + sistemaCellClass(sistema)
+          }
+        >
+          <option value="painel">{PLANILHA_PROD_SISTEMA_LABEL.painel}</option>
+          <option value="dois_sistemas">{PLANILHA_PROD_SISTEMA_LABEL.dois_sistemas}</option>
+          <option value="player5">{PLANILHA_PROD_SISTEMA_LABEL.player5}</option>
+          <option value="cancelado">{PLANILHA_PROD_SISTEMA_LABEL.cancelado}</option>
+        </select>
+        <label className="mb-1 block text-xs font-semibold text-slate-600">Cliente / programação (rótulo)</label>
+        <input
+          value={clienteLabel}
+          onChange={(e) => setClienteLabel(e.target.value)}
+          placeholder="Nome como aparece na planilha…"
+          className="mb-3 w-full rounded border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
+        />
+        {sistema === "dois_sistemas" || sistema === "player5" ?
+          <>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">
+              Vincular no portal (opcional)
+            </label>
+            <input
+              value={clienteQ}
+              onChange={(e) => setClienteQ(e.target.value)}
+              placeholder="Buscar cliente…"
+              className="mb-2 w-full rounded border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
+            />
+            <div className="mb-2 max-h-28 overflow-auto rounded border border-slate-100 dark:border-slate-800">
+              {clientes.map((c) => (
+                <button
+                  key={c.ref}
+                  type="button"
+                  onClick={() => {
+                    setSelCliente(c);
+                    setSelProg(null);
+                  }}
+                  className={
+                    "block w-full px-2 py-1 text-left text-xs hover:bg-violet-50 dark:hover:bg-violet-950/40 " +
+                    (selCliente?.ref === c.ref ?
+                      "bg-violet-100 font-semibold dark:bg-violet-950/60"
+                    : "")
+                  }
+                >
+                  {c.nome}
+                </button>
+              ))}
+            </div>
+            {selCliente ?
+              <div className="mb-3 max-h-32 overflow-auto rounded border border-slate-100 dark:border-slate-800">
+                {programacoes.length === 0 ?
+                  <p className="px-2 py-2 text-xs text-slate-400">Nenhuma programação.</p>
+                : programacoes.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setSelProg(p);
+                        setClienteLabel(`${selCliente.nome} · ${p.nome}`);
+                      }}
+                      className={
+                        "block w-full px-2 py-1 text-left text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/40 " +
+                        (selProg?.id === p.id ?
+                          "bg-emerald-100 font-semibold dark:bg-emerald-950/60"
+                        : "")
+                      }
+                    >
+                      {p.nome}
+                    </button>
+                  ))
+                }
+              </div>
+            : null}
+          </>
+        : null}
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border border-slate-200 px-3 py-1 text-xs dark:border-slate-700"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void submit()}
+            className="rounded bg-violet-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Criando…" : "Criar linha"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EditableCell({
   value,
   onCommit,
@@ -407,6 +624,7 @@ export function PlanilhaProdPanel() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const [importando, setImportando] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [novaLinhaCriador, setNovaLinhaCriador] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadMonths = useCallback(async () => {
@@ -503,6 +721,15 @@ export function PlanilhaProdPanel() {
     setRows((prev) => prev.map((r) => (r.id === data.row!.id ? data.row! : r)));
   }
 
+  function onRowCreated(row: PlanilhaProdRowDto) {
+    setRows((prev) => [...prev, row]);
+    setMonths((prev) =>
+      prev.map((m) => (m.id === row.monthId ? { ...m, rowCount: m.rowCount + 1 } : m)),
+    );
+    const groupKey = row.criativo.trim() || "—";
+    setExpandedGroups((prev) => new Set(prev).add(groupKey));
+  }
+
   async function deleteRow(row: PlanilhaProdRowDto) {
     if (row.sistema !== "cancelado") return;
     if (!window.confirm(`Apagar linha cancelada «${row.clienteLabel}»?`)) return;
@@ -544,7 +771,7 @@ export function PlanilhaProdPanel() {
   const activeMonth = months.find((m) => m.id === monthId);
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-2 py-3 sm:px-3">
+    <div className="w-full min-w-0 px-1 py-2 sm:px-2">
       <header className="mb-2 flex flex-wrap items-end justify-between gap-2">
         <div>
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Criação / Planilha Prod</div>
@@ -593,8 +820,8 @@ export function PlanilhaProdPanel() {
           </p>
         </div>
       : <>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
+          <div className="mb-2 flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1">
+            <div className="flex shrink-0 gap-1">
               {months.map((m) => (
                 <button
                   key={m.id}
@@ -621,7 +848,7 @@ export function PlanilhaProdPanel() {
             />
           </div>
 
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="mb-2 flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto pb-1">
             <button
               type="button"
               onClick={expandAllGroups}
@@ -702,18 +929,36 @@ export function PlanilhaProdPanel() {
               </button>
             : null}
             {activeMonth ?
-              <span className="ml-auto text-xs text-slate-500">
+              <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-slate-500">
                 {activeMonth.label} · {filtered.length} linha(s) · {groups.length} criador(es)
               </span>
             : null}
+            <button
+              type="button"
+              disabled={!monthId || migrationPendente}
+              onClick={() => setNovaLinhaCriador("")}
+              className="shrink-0 rounded border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-bold text-violet-800 hover:bg-violet-100 disabled:opacity-50 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-100"
+            >
+              + Nova linha
+            </button>
           </div>
 
           {loadingRows ?
             <p className="py-8 text-center text-xs text-slate-500">Carregando linhas…</p>
           : groups.length === 0 ?
-            <p className="rounded border border-dashed border-slate-300 py-8 text-center text-xs text-slate-500 dark:border-slate-700">
-              Nenhuma linha nesta aba.
-            </p>
+            <div className="rounded border border-dashed border-slate-300 py-8 text-center dark:border-slate-700">
+              <p className="text-xs text-slate-500">Nenhuma linha visível nesta aba.</p>
+              {!filtroSistema && !busca.trim() && !somenteAtivos ?
+                <button
+                  type="button"
+                  disabled={!monthId}
+                  onClick={() => setNovaLinhaCriador("")}
+                  className="mt-2 rounded bg-violet-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  + Criar primeira linha
+                </button>
+              : null}
+            </div>
           : <div className="space-y-2">
               {groups.map((group) => {
                 const aberto = expandedGroups.has(group.key);
@@ -722,21 +967,31 @@ export function PlanilhaProdPanel() {
                   key={group.key}
                   className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                 >
-                  <button
-                    type="button"
-                    onClick={() => toggleGroup(group.key)}
-                    className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1.5 text-left hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"
-                  >
-                    <span className="text-[10px] text-slate-400">{aberto ? "▼" : "▶"}</span>
-                    <span className="text-xs font-bold uppercase text-slate-700 dark:text-slate-200">{group.nome}</span>
-                    <span className="text-[10px] text-slate-500">{group.rows.length} linha(s)</span>
-                    {!aberto ?
-                      <span className="ml-auto text-[10px] text-slate-400">clique para expandir</span>
-                    : null}
-                  </button>
+                  <div className="flex items-center border-b border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.key)}
+                      className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    >
+                      <span className="text-[10px] text-slate-400">{aberto ? "▼" : "▶"}</span>
+                      <span className="text-xs font-bold uppercase text-slate-700 dark:text-slate-200">{group.nome}</span>
+                      <span className="text-[10px] text-slate-500">{group.rows.length} linha(s)</span>
+                      {!aberto ?
+                        <span className="ml-auto hidden text-[10px] text-slate-400 sm:inline">clique para expandir</span>
+                      : null}
+                    </button>
+                    <button
+                      type="button"
+                      title={`Nova linha · ${group.nome}`}
+                      onClick={() => setNovaLinhaCriador(group.nome)}
+                      className="mr-2 shrink-0 rounded border border-violet-300 bg-violet-50 px-2 py-0.5 text-sm font-bold leading-none text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-200"
+                    >
+                      +
+                    </button>
+                  </div>
                   {aberto ?
-                  <div className="overflow-x-auto">
-                  <table className="min-w-[1200px] w-full table-fixed text-left text-xs">
+                  <div className="overflow-x-auto overscroll-x-contain">
+                  <table className="w-full min-w-[1080px] table-fixed text-left text-xs lg:min-w-[1200px]">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60">
                         {PLANILHA_PROD_COLUMNS.map((col) => (
@@ -866,6 +1121,15 @@ export function PlanilhaProdPanel() {
           }
         </>
       }
+
+      {novaLinhaCriador !== null && monthId ?
+        <NovaLinhaModal
+          monthId={monthId}
+          criadorInicial={novaLinhaCriador}
+          onClose={() => setNovaLinhaCriador(null)}
+          onCreated={onRowCreated}
+        />
+      : null}
     </div>
   );
 }

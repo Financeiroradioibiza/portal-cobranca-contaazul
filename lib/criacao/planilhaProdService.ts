@@ -100,6 +100,17 @@ export async function getPlanilhaProdMonth(monthId: string): Promise<PlanilhaPro
   };
 }
 
+export type PlanilhaProdRowCreate = {
+  monthId: string;
+  criativo: string;
+  clienteLabel: string;
+  sistema?: PlanilhaProdSistema;
+  linkedClienteRef?: string;
+  linkedProgramacaoId?: string;
+  linkedClienteNome?: string;
+  linkedProgramacaoNome?: string;
+};
+
 export type PlanilhaProdRowPatch = Partial<{
   sistema: PlanilhaProdSistema;
   clienteLabel: string;
@@ -138,6 +149,57 @@ function applySistemaLinkRules(
     };
   }
   return patch;
+}
+
+export async function createPlanilhaProdRow(
+  input: PlanilhaProdRowCreate,
+): Promise<{ row?: PlanilhaProdRowDto; error?: string }> {
+  if (!(await hasPlanilhaProdTable())) return { error: "migration_pendente" };
+
+  const monthId = input.monthId.trim();
+  if (!monthId) return { error: "mes_obrigatorio" };
+
+  const month = await prisma.planilhaProdMonth.findUnique({ where: { id: monthId } });
+  if (!month) return { error: "mes_nao_encontrado" };
+
+  const criativo = input.criativo.replace(/\s+/g, " ").trim().toUpperCase();
+  if (!criativo) return { error: "criativo_obrigatorio" };
+
+  const clienteLabel = input.clienteLabel.trim();
+  if (!clienteLabel) return { error: "cliente_obrigatorio" };
+
+  const sistema = sanitizeSistema(input.sistema) ?? "painel";
+  const linkPatch = applySistemaLinkRules(sistema, {
+    linkedClienteRef: input.linkedClienteRef ?? "",
+    linkedProgramacaoId: input.linkedProgramacaoId ?? "",
+    linkedClienteNome: input.linkedClienteNome ?? "",
+    linkedProgramacaoNome: input.linkedProgramacaoNome ?? "",
+  });
+
+  const maxOrder = await prisma.planilhaProdRow.aggregate({
+    where: { monthId },
+    _max: { sortOrder: true },
+  });
+  const sortOrder = (maxOrder._max.sortOrder ?? -1) + 1;
+
+  const created = await prisma.planilhaProdRow.create({
+    data: {
+      monthId,
+      criativo,
+      clienteLabel,
+      sistema,
+      sortOrder,
+      linkedClienteRef: linkPatch.linkedClienteRef ?? "",
+      linkedProgramacaoId: linkPatch.linkedProgramacaoId ?? "",
+      linkedClienteNome: linkPatch.linkedClienteNome ?? "",
+      linkedProgramacaoNome: linkPatch.linkedProgramacaoNome ?? "",
+    },
+  });
+
+  const tagByRef = await loadPlanilhaProdRioTagByClienteRef();
+  return {
+    row: toRowDto(created, resolvePlanilhaProdLinkedRioTag(created.linkedClienteRef, tagByRef)),
+  };
 }
 
 export async function patchPlanilhaProdRow(
