@@ -178,6 +178,18 @@ export async function patchPlanilhaProdRow(
   };
 }
 
+/** Só linhas com sistema cancelado podem ser apagadas. */
+export async function deletePlanilhaProdRow(rowId: string): Promise<{ ok?: boolean; error?: string }> {
+  if (!(await hasPlanilhaProdTable())) return { error: "migration_pendente" };
+
+  const current = await prisma.planilhaProdRow.findUnique({ where: { id: rowId } });
+  if (!current) return { error: "nao_encontrado" };
+  if (current.sistema !== "cancelado") return { error: "so_cancelado" };
+
+  await prisma.planilhaProdRow.delete({ where: { id: rowId } });
+  return { ok: true };
+}
+
 export async function importPlanilhaProdMonths(months: PlanilhaProdImportMonth[]): Promise<{
   months: number;
   rows: number;

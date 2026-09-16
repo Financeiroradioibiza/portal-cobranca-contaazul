@@ -17,6 +17,16 @@ type CriadorGroup = {
   rows: PlanilhaProdRowDto[];
 };
 
+/** Ordem de exibição dentro de cada criador: Player 5 → Painel → 2 Sistemas → Cancelado. */
+const SISTEMA_SORT_ORDER: Record<PlanilhaProdSistema, number> = {
+  player5: 0,
+  painel: 1,
+  dois_sistemas: 2,
+  cancelado: 3,
+};
+
+const FILTRO_SISTEMA_OPTIONS: PlanilhaProdSistema[] = ["player5", "painel", "dois_sistemas", "cancelado"];
+
 type ClienteOption = { ref: string; nome: string };
 type ProgramacaoOption = { id: string; nome: string; clienteRef: string; clienteNome: string };
 
@@ -32,9 +42,22 @@ function buildCriadorGroups(rows: PlanilhaProdRowDto[]): CriadorGroup[] {
     group.rows.push(row);
   }
   for (const g of map.values()) {
-    g.rows.sort((a, b) => a.sortOrder - b.sortOrder || a.clienteLabel.localeCompare(b.clienteLabel, "pt-BR"));
+    g.rows.sort(
+      (a, b) =>
+        SISTEMA_SORT_ORDER[a.sistema] - SISTEMA_SORT_ORDER[b.sistema] ||
+        a.sortOrder - b.sortOrder ||
+        a.clienteLabel.localeCompare(b.clienteLabel, "pt-BR"),
+    );
   }
   return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+function sistemaFilterButtonClass(sistema: PlanilhaProdSistema, active: boolean): string {
+  const base = "rounded border px-2 py-1 text-[11px] font-bold ";
+  if (active) {
+    return base + sistemaCellClass(sistema) + " ring-1 ring-slate-400 dark:ring-slate-500";
+  }
+  return base + "border-slate-200 opacity-85 hover:opacity-100 dark:border-slate-700 " + sistemaCellClass(sistema);
 }
 
 function sistemaCellClass(sistema: PlanilhaProdSistema): string {
@@ -56,6 +79,10 @@ function todayPtBr(): string {
 
 function fieldFilled(value: string): boolean {
   return value.trim().length > 0;
+}
+
+function isRowAtivo(row: PlanilhaProdRowDto): boolean {
+  return row.sistema !== "cancelado";
 }
 
 function resolveRowVisual(row: PlanilhaProdRowDto): string {
@@ -351,7 +378,11 @@ export function PlanilhaProdPanel() {
   const [loadingRows, setLoadingRows] = useState(false);
   const [migrationPendente, setMigrationPendente] = useState(false);
   const [busca, setBusca] = useState("");
+  const [somenteAtivos, setSomenteAtivos] = useState(false);
+  const [filtroSistema, setFiltroSistema] = useState<PlanilhaProdSistema | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const [importando, setImportando] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadMonths = useCallback(async () => {
@@ -398,21 +429,44 @@ export function PlanilhaProdPanel() {
 
   useEffect(() => {
     void loadRows(monthId);
+    setExpandedGroups(new Set());
+    setFiltroSistema(null);
+    setSomenteAtivos(false);
   }, [monthId, loadRows]);
 
   const filtered = useMemo(() => {
+    let list = rows;
+    if (filtroSistema) list = list.filter((r) => r.sistema === filtroSistema);
+    else if (somenteAtivos) list = list.filter(isRowAtivo);
     const q = busca.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return list;
+    return list.filter(
       (r) =>
         r.clienteLabel.toLowerCase().includes(q) ||
         r.criativo.toLowerCase().includes(q) ||
         r.linkedClienteNome.toLowerCase().includes(q) ||
         r.linkedProgramacaoNome.toLowerCase().includes(q),
     );
-  }, [rows, busca]);
+  }, [rows, busca, somenteAtivos, filtroSistema]);
 
   const groups = useMemo(() => buildCriadorGroups(filtered), [filtered]);
+
+  function expandAllGroups() {
+    setExpandedGroups(new Set(groups.map((g) => g.key)));
+  }
+
+  function collapseAllGroups() {
+    setExpandedGroups(new Set());
+  }
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   async function patchRow(rowId: string, patch: Partial<PlanilhaProdRowDto>) {
     const res = await fetch(`/api/criacao/planilha-prod/row/${encodeURIComponent(rowId)}`, {
@@ -423,6 +477,25 @@ export function PlanilhaProdPanel() {
     const data = (await res.json()) as { row?: PlanilhaProdRowDto; error?: string };
     if (!res.ok || !data.row) throw new Error(data.error ?? "save_failed");
     setRows((prev) => prev.map((r) => (r.id === data.row!.id ? data.row! : r)));
+  }
+
+  async function deleteRow(row: PlanilhaProdRowDto) {
+    if (row.sistema !== "cancelado") return;
+    if (!window.confirm(`Apagar linha cancelada «${row.clienteLabel}»?`)) return;
+    setDeletingId(row.id);
+    try {
+      const res = await fetch(`/api/criacao/planilha-prod/row/${encodeURIComponent(row.id)}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        alert(data.error === "so_cancelado" ? "Só linhas Antigo/Cancelado podem ser apagadas." : "Falha ao apagar.");
+        return;
+      }
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   async function onImport(file: File) {
@@ -520,15 +593,70 @@ export function PlanilhaProdPanel() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar cliente ou criador…"
-              className="ml-auto w-full max-w-[220px] rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
+              className="w-full max-w-[220px] rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
             />
           </div>
 
-          {activeMonth ?
-            <p className="mb-2 text-xs text-slate-500">
-              {activeMonth.label} · {filtered.length} linha(s) visíveis
-            </p>
-          : null}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={expandAllGroups}
+              className="rounded border border-slate-200 px-2 py-1 text-[11px] font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Abrir todos
+            </button>
+            <button
+              type="button"
+              onClick={collapseAllGroups}
+              className="rounded border border-slate-200 px-2 py-1 text-[11px] font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Fechar todos
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFiltroSistema(null);
+                setSomenteAtivos((v) => !v);
+              }}
+              disabled={Boolean(filtroSistema)}
+              className={
+                "rounded border px-2 py-1 text-[11px] font-semibold disabled:opacity-40 " +
+                (somenteAtivos && !filtroSistema ?
+                  "border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-950 dark:text-emerald-100"
+                : "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800")
+              }
+            >
+              {somenteAtivos && !filtroSistema ? "Somente ativos ✓" : "Somente ativos"}
+            </button>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ordenar / filtrar:</span>
+            {FILTRO_SISTEMA_OPTIONS.map((sistema) => (
+              <button
+                key={sistema}
+                type="button"
+                onClick={() => {
+                  setSomenteAtivos(false);
+                  setFiltroSistema((prev) => (prev === sistema ? null : sistema));
+                }}
+                className={sistemaFilterButtonClass(sistema, filtroSistema === sistema)}
+              >
+                {PLANILHA_PROD_SISTEMA_LABEL[sistema]}
+              </button>
+            ))}
+            {filtroSistema ?
+              <button
+                type="button"
+                onClick={() => setFiltroSistema(null)}
+                className="rounded border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Limpar filtro
+              </button>
+            : null}
+            {activeMonth ?
+              <span className="ml-auto text-xs text-slate-500">
+                {activeMonth.label} · {filtered.length} linha(s) · {groups.length} criador(es)
+              </span>
+            : null}
+          </div>
 
           {loadingRows ?
             <p className="py-8 text-center text-xs text-slate-500">Carregando linhas…</p>
@@ -537,15 +665,27 @@ export function PlanilhaProdPanel() {
               Nenhuma linha nesta aba.
             </p>
           : <div className="space-y-2">
-              {groups.map((group) => (
+              {groups.map((group) => {
+                const aberto = expandedGroups.has(group.key);
+                return (
                 <section
                   key={group.key}
-                  className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+                  className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                 >
-                  <div className="flex items-center gap-2 border-b border-slate-100 px-2 py-1 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.key)}
+                    className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1.5 text-left hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"
+                  >
+                    <span className="text-[10px] text-slate-400">{aberto ? "▼" : "▶"}</span>
                     <span className="text-xs font-bold uppercase text-slate-700 dark:text-slate-200">{group.nome}</span>
                     <span className="text-[10px] text-slate-500">{group.rows.length} linha(s)</span>
-                  </div>
+                    {!aberto ?
+                      <span className="ml-auto text-[10px] text-slate-400">clique para expandir</span>
+                    : null}
+                  </button>
+                  {aberto ?
+                  <div className="overflow-x-auto">
                   <table className="min-w-[1200px] w-full table-fixed text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60">
@@ -554,6 +694,7 @@ export function PlanilhaProdPanel() {
                             {col.label}
                           </th>
                         ))}
+                        <th className="w-[3.5rem] px-1 py-1">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -649,12 +790,28 @@ export function PlanilhaProdPanel() {
                               onCommit={(v) => patchRow(row.id, { obsProducao: v })}
                             />
                           </td>
+                          <td className="px-1 py-0.5 align-top">
+                            {row.sistema === "cancelado" ?
+                              <button
+                                type="button"
+                                disabled={deletingId === row.id}
+                                onClick={() => void deleteRow(row)}
+                                className="text-[10px] font-bold text-red-700 hover:underline disabled:opacity-50 dark:text-red-300"
+                                title="Apagar linha cancelada"
+                              >
+                                {deletingId === row.id ? "…" : "Apagar"}
+                              </button>
+                            : <span className="text-[10px] text-slate-300">—</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  </div>
+                  : null}
                 </section>
-              ))}
+                );
+              })}
             </div>
           }
         </>
