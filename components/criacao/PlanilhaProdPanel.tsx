@@ -8,6 +8,8 @@ import {
   type PlanilhaProdRowDto,
   type PlanilhaProdSistema,
 } from "@/lib/criacao/planilhaProdTypes";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+import { rioTagCobrancaSuffix } from "@/lib/rio/rioTagCobranca";
 
 type CriadorGroup = {
   key: string;
@@ -48,11 +50,31 @@ function sistemaCellClass(sistema: PlanilhaProdSistema): string {
   }
 }
 
-function rowClass(sistema: PlanilhaProdSistema): string {
-  if (sistema === "cancelado") {
+function todayPtBr(): string {
+  return new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function fieldFilled(value: string): boolean {
+  return value.trim().length > 0;
+}
+
+function resolveRowVisual(row: PlanilhaProdRowDto): string {
+  const rioTag = row.linkedRioTagCobranca;
+  if (row.sistema === "cancelado" || rioTag === "cancelado") {
     return "bg-red-50 text-red-900 dark:bg-red-950/50 dark:text-red-100";
   }
+  if (rioTag === "bloqueio_financeiro") {
+    return "bg-orange-50 text-orange-950 dark:bg-orange-950/45 dark:text-orange-100";
+  }
   return "hover:bg-slate-50/80 dark:hover:bg-slate-800/40";
+}
+
+function filledFieldClass(kind: "progress" | "obs-producao", value: string): string {
+  if (!fieldFilled(value)) return "";
+  if (kind === "obs-producao") {
+    return "bg-amber-200/95 text-amber-950 dark:bg-amber-400/25 dark:text-amber-50";
+  }
+  return "bg-emerald-200/95 text-emerald-950 dark:bg-emerald-900/70 dark:text-emerald-50";
 }
 
 function VinculoPicker({
@@ -234,16 +256,22 @@ function EditableCell({
   value,
   onCommit,
   multiline,
+  kind = "default",
   className,
 }: {
   value: string;
   onCommit: (next: string) => Promise<void>;
   multiline?: boolean;
+  kind?: "default" | "date" | "progress" | "obs-producao";
   className?: string;
 }) {
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
-  useEffect(() => setDraft(value), [value]);
+  const askedTodayRef = useRef(false);
+  useEffect(() => {
+    setDraft(value);
+    askedTodayRef.current = false;
+  }, [value]);
 
   async function commit() {
     if (draft === value) return;
@@ -257,8 +285,22 @@ function EditableCell({
     }
   }
 
+  function handleFocus() {
+    if (kind !== "date" || fieldFilled(draft) || askedTodayRef.current) return;
+    askedTodayRef.current = true;
+    if (window.confirm("Marcar o dia de hoje?")) {
+      setDraft(todayPtBr());
+    }
+  }
+
+  const filledClass =
+    kind === "progress" || kind === "date" ? filledFieldClass("progress", draft)
+    : kind === "obs-producao" ? filledFieldClass("obs-producao", draft)
+    : "";
+
   const common =
-    "w-full min-w-0 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs focus:border-violet-400 focus:bg-white focus:outline-none dark:focus:bg-slate-950 " +
+    "w-full min-w-0 rounded border border-transparent px-1 py-0.5 text-xs focus:border-violet-400 focus:outline-none " +
+    (filledClass || "bg-transparent focus:bg-white dark:focus:bg-slate-950 ") +
     (className ?? "");
 
   if (multiline) {
@@ -267,6 +309,7 @@ function EditableCell({
         value={draft}
         disabled={saving}
         rows={2}
+        onFocus={handleFocus}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => void commit()}
         className={common + " resize-y"}
@@ -278,10 +321,25 @@ function EditableCell({
     <input
       value={draft}
       disabled={saving}
+      onFocus={handleFocus}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => void commit()}
       className={common}
     />
+  );
+}
+
+function RioStatusBadge({ tag }: { tag: RioTagCobranca | null }) {
+  if (!tag || tag === "cobrando") return null;
+  const label = rioTagCobrancaSuffix(tag) ?? tag;
+  const cls =
+    tag === "cancelado" ? "bg-red-200 text-red-900 dark:bg-red-950 dark:text-red-100"
+    : tag === "bloqueio_financeiro" ? "bg-orange-200 text-orange-900 dark:bg-orange-950 dark:text-orange-100"
+    : "bg-violet-200 text-violet-900 dark:bg-violet-950 dark:text-violet-100";
+  return (
+    <span className={"mt-0.5 inline-block rounded px-1 py-px text-[10px] font-bold uppercase " + cls}>
+      Rio · {label}
+    </span>
   );
 }
 
@@ -500,11 +558,10 @@ export function PlanilhaProdPanel() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                       {group.rows.map((row) => (
-                        <tr key={row.id} className={rowClass(row.sistema)}>
+                        <tr key={row.id} className={resolveRowVisual(row)}>
                           <td className="px-1 py-0.5 align-top">
                             <select
                               value={row.sistema}
-                              disabled={row.sistema === "cancelado"}
                               onChange={(e) =>
                                 void patchRow(row.id, { sistema: e.target.value as PlanilhaProdSistema })
                               }
@@ -512,14 +569,10 @@ export function PlanilhaProdPanel() {
                                 "w-full rounded px-1 py-0.5 text-[11px] font-bold " + sistemaCellClass(row.sistema)
                               }
                             >
-                              {row.sistema === "cancelado" ?
-                                <option value="cancelado">{PLANILHA_PROD_SISTEMA_LABEL.cancelado}</option>
-                              : <>
-                                  <option value="painel">{PLANILHA_PROD_SISTEMA_LABEL.painel}</option>
-                                  <option value="dois_sistemas">{PLANILHA_PROD_SISTEMA_LABEL.dois_sistemas}</option>
-                                  <option value="player5">{PLANILHA_PROD_SISTEMA_LABEL.player5}</option>
-                                </>
-                              }
+                              <option value="painel">{PLANILHA_PROD_SISTEMA_LABEL.painel}</option>
+                              <option value="dois_sistemas">{PLANILHA_PROD_SISTEMA_LABEL.dois_sistemas}</option>
+                              <option value="player5">{PLANILHA_PROD_SISTEMA_LABEL.player5}</option>
+                              <option value="cancelado">{PLANILHA_PROD_SISTEMA_LABEL.cancelado}</option>
                             </select>
                           </td>
                           <td className="px-1 py-0.5 align-top">
@@ -527,6 +580,7 @@ export function PlanilhaProdPanel() {
                               value={row.clienteLabel}
                               onCommit={(v) => patchRow(row.id, { clienteLabel: v })}
                             />
+                            <RioStatusBadge tag={row.linkedRioTagCobranca} />
                             {row.sistema === "dois_sistemas" || row.sistema === "player5" ?
                               <>
                                 <VinculoPicker row={row} onSave={(p) => patchRow(row.id, p)} />
@@ -548,30 +602,35 @@ export function PlanilhaProdPanel() {
                           <td className="px-1 py-0.5 align-top">
                             <EditableCell
                               value={row.entregaAtl}
+                              kind="date"
                               onCommit={(v) => patchRow(row.id, { entregaAtl: v })}
                             />
                           </td>
                           <td className="px-1 py-0.5 align-top">
                             <EditableCell
                               value={row.convertidoGain}
+                              kind="date"
                               onCommit={(v) => patchRow(row.id, { convertidoGain: v })}
                             />
                           </td>
                           <td className="px-1 py-0.5 align-top">
                             <EditableCell
                               value={row.arrastado}
+                              kind="date"
                               onCommit={(v) => patchRow(row.id, { arrastado: v })}
                             />
                           </td>
                           <td className="px-1 py-0.5 align-top">
                             <EditableCell
                               value={row.sincronizado}
+                              kind="date"
                               onCommit={(v) => patchRow(row.id, { sincronizado: v })}
                             />
                           </td>
                           <td className="px-1 py-0.5 align-top">
                             <EditableCell
                               value={row.statusPlayerNovo}
+                              kind="progress"
                               onCommit={(v) => patchRow(row.id, { statusPlayerNovo: v })}
                             />
                           </td>
@@ -585,6 +644,7 @@ export function PlanilhaProdPanel() {
                           <td className="px-1 py-0.5 align-top">
                             <EditableCell
                               value={row.obsProducao}
+                              kind="obs-producao"
                               multiline
                               onCommit={(v) => patchRow(row.id, { obsProducao: v })}
                             />

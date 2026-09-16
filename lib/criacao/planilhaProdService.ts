@@ -1,12 +1,17 @@
 import type { PlanilhaProdSistema as PrismaSistema } from "@prisma/client";
 import type { PlanilhaProdImportMonth } from "@/lib/criacao/planilhaProdImport";
 import { hasPlanilhaProdTable } from "@/lib/criacao/planilhaProdSchemaCompat";
+import {
+  loadPlanilhaProdRioTagByClienteRef,
+  resolvePlanilhaProdLinkedRioTag,
+} from "@/lib/criacao/planilhaProdRioTags";
 import type {
   PlanilhaProdMonthDto,
   PlanilhaProdMonthPayload,
   PlanilhaProdRowDto,
   PlanilhaProdSistema,
 } from "@/lib/criacao/planilhaProdTypes";
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { prisma } from "@/lib/prisma";
 
 function toRowDto(row: {
@@ -27,7 +32,7 @@ function toRowDto(row: {
   linkedClienteNome: string;
   linkedProgramacaoNome: string;
   sortOrder: number;
-}): PlanilhaProdRowDto {
+}, linkedRioTagCobranca: RioTagCobranca | null = null): PlanilhaProdRowDto {
   return {
     id: row.id,
     monthId: row.monthId,
@@ -45,8 +50,16 @@ function toRowDto(row: {
     linkedProgramacaoId: row.linkedProgramacaoId,
     linkedClienteNome: row.linkedClienteNome,
     linkedProgramacaoNome: row.linkedProgramacaoNome,
+    linkedRioTagCobranca,
     sortOrder: row.sortOrder,
   };
+}
+
+async function enrichRowsWithRioTags(rows: Parameters<typeof toRowDto>[0][]): Promise<PlanilhaProdRowDto[]> {
+  const tagByRef = await loadPlanilhaProdRioTagByClienteRef();
+  return rows.map((row) =>
+    toRowDto(row, resolvePlanilhaProdLinkedRioTag(row.linkedClienteRef, tagByRef)),
+  );
 }
 
 export async function listPlanilhaProdMonths(): Promise<PlanilhaProdMonthDto[]> {
@@ -83,7 +96,7 @@ export async function getPlanilhaProdMonth(monthId: string): Promise<PlanilhaPro
       sortKey: month.sortKey,
       rowCount: month._count.rows,
     },
-    rows: rows.map(toRowDto),
+    rows: await enrichRowsWithRioTags(rows),
   };
 }
 
@@ -159,7 +172,10 @@ export async function patchPlanilhaProdRow(
     },
   });
 
-  return { row: toRowDto(updated) };
+  const tagByRef = await loadPlanilhaProdRioTagByClienteRef();
+  return {
+    row: toRowDto(updated, resolvePlanilhaProdLinkedRioTag(updated.linkedClienteRef, tagByRef)),
+  };
 }
 
 export async function importPlanilhaProdMonths(months: PlanilhaProdImportMonth[]): Promise<{

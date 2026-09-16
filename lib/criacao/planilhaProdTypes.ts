@@ -1,3 +1,5 @@
+import type { RioTagCobranca } from "@/lib/rio/rioTagCobranca";
+
 export type PlanilhaProdSistema = "painel" | "dois_sistemas" | "player5" | "cancelado";
 
 export type PlanilhaProdRowDto = {
@@ -17,8 +19,19 @@ export type PlanilhaProdRowDto = {
   linkedProgramacaoId: string;
   linkedClienteNome: string;
   linkedProgramacaoNome: string;
+  /** Tag Planilha Rio do cliente vinculado (somente leitura). */
+  linkedRioTagCobranca: RioTagCobranca | null;
   sortOrder: number;
 };
+
+/** Campos de data/progresso com fundo verde quando preenchidos. */
+export const PLANILHA_PROD_PROGRESS_FIELDS = [
+  "entregaAtl",
+  "convertidoGain",
+  "arrastado",
+  "sincronizado",
+  "statusPlayerNovo",
+] as const;
 
 export type PlanilhaProdMonthDto = {
   id: string;
