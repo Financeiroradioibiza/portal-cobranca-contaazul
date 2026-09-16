@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
 import {
   PLANILHA_PROD_COLUMNS,
   PLANILHA_PROD_SISTEMA_LABEL,
@@ -540,11 +540,11 @@ function EditableCell({
     askedTodayRef.current = false;
   }, [value]);
 
-  async function commit() {
-    if (draft === value) return;
+  async function commitValue(next: string) {
+    if (next === value) return;
     setSaving(true);
     try {
-      await onCommit(draft);
+      await onCommit(next);
     } catch {
       setDraft(value);
     } finally {
@@ -552,11 +552,24 @@ function EditableCell({
     }
   }
 
-  function handleFocus() {
-    if (kind !== "date" || fieldFilled(draft) || askedTodayRef.current) return;
+  async function commit() {
+    await commitValue(draft);
+  }
+
+  function handleFocus(e: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
+    if (kind !== "date") return;
+    if (fieldFilled(draft)) {
+      if ("select" in e.currentTarget && typeof e.currentTarget.select === "function") {
+        e.currentTarget.select();
+      }
+      return;
+    }
+    if (askedTodayRef.current) return;
     askedTodayRef.current = true;
     if (window.confirm("Marcar o dia de hoje?")) {
-      setDraft(todayPtBr());
+      const today = todayPtBr();
+      setDraft(today);
+      void commitValue(today);
     }
   }
 
@@ -618,7 +631,7 @@ export function PlanilhaProdPanel() {
   const [loadingRows, setLoadingRows] = useState(false);
   const [migrationPendente, setMigrationPendente] = useState(false);
   const [busca, setBusca] = useState("");
-  const [somenteAtivos, setSomenteAtivos] = useState(false);
+  const [somenteAtivos, setSomenteAtivos] = useState(true);
   const [filtroSistema, setFiltroSistema] = useState<PlanilhaProdSistema | null>(null);
   const [ordemPor, setOrdemPor] = useState<PlanilhaProdSortMode>("cliente");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
@@ -673,7 +686,6 @@ export function PlanilhaProdPanel() {
     void loadRows(monthId);
     setExpandedGroups(new Set());
     setFiltroSistema(null);
-    setSomenteAtivos(false);
   }, [monthId, loadRows]);
 
   const filtered = useMemo(() => {
