@@ -27,10 +27,38 @@ const SISTEMA_SORT_ORDER: Record<PlanilhaProdSistema, number> = {
 
 const FILTRO_SISTEMA_OPTIONS: PlanilhaProdSistema[] = ["player5", "painel", "dois_sistemas", "cancelado"];
 
+type PlanilhaProdSortMode = "cliente" | "sistema";
+
 type ClienteOption = { ref: string; nome: string };
 type ProgramacaoOption = { id: string; nome: string; clienteRef: string; clienteNome: string };
 
-function buildCriadorGroups(rows: PlanilhaProdRowDto[]): CriadorGroup[] {
+function rowClienteSortKey(row: PlanilhaProdRowDto): string {
+  const linked =
+    row.linkedClienteNome && row.linkedProgramacaoNome ?
+      `${row.linkedClienteNome} · ${row.linkedProgramacaoNome}`
+    : row.linkedClienteNome || row.linkedProgramacaoNome;
+  return (linked || row.clienteLabel).trim().toLocaleLowerCase("pt-BR");
+}
+
+function comparePlanilhaProdRows(
+  a: PlanilhaProdRowDto,
+  b: PlanilhaProdRowDto,
+  sortMode: PlanilhaProdSortMode,
+): number {
+  if (sortMode === "sistema") {
+    return (
+      SISTEMA_SORT_ORDER[a.sistema] - SISTEMA_SORT_ORDER[b.sistema] ||
+      a.sortOrder - b.sortOrder ||
+      rowClienteSortKey(a).localeCompare(rowClienteSortKey(b), "pt-BR")
+    );
+  }
+  return (
+    a.sortOrder - b.sortOrder ||
+    rowClienteSortKey(a).localeCompare(rowClienteSortKey(b), "pt-BR")
+  );
+}
+
+function buildCriadorGroups(rows: PlanilhaProdRowDto[], sortMode: PlanilhaProdSortMode): CriadorGroup[] {
   const map = new Map<string, CriadorGroup>();
   for (const row of rows) {
     const key = row.criativo.trim() || "—";
@@ -42,12 +70,7 @@ function buildCriadorGroups(rows: PlanilhaProdRowDto[]): CriadorGroup[] {
     group.rows.push(row);
   }
   for (const g of map.values()) {
-    g.rows.sort(
-      (a, b) =>
-        SISTEMA_SORT_ORDER[a.sistema] - SISTEMA_SORT_ORDER[b.sistema] ||
-        a.sortOrder - b.sortOrder ||
-        a.clienteLabel.localeCompare(b.clienteLabel, "pt-BR"),
-    );
+    g.rows.sort((a, b) => comparePlanilhaProdRows(a, b, sortMode));
   }
   return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 }
@@ -380,6 +403,7 @@ export function PlanilhaProdPanel() {
   const [busca, setBusca] = useState("");
   const [somenteAtivos, setSomenteAtivos] = useState(false);
   const [filtroSistema, setFiltroSistema] = useState<PlanilhaProdSistema | null>(null);
+  const [ordemPor, setOrdemPor] = useState<PlanilhaProdSortMode>("cliente");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const [importando, setImportando] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -449,7 +473,7 @@ export function PlanilhaProdPanel() {
     );
   }, [rows, busca, somenteAtivos, filtroSistema]);
 
-  const groups = useMemo(() => buildCriadorGroups(filtered), [filtered]);
+  const groups = useMemo(() => buildCriadorGroups(filtered, ordemPor), [filtered, ordemPor]);
 
   function expandAllGroups() {
     setExpandedGroups(new Set(groups.map((g) => g.key)));
@@ -628,7 +652,33 @@ export function PlanilhaProdPanel() {
             >
               {somenteAtivos && !filtroSistema ? "Somente ativos ✓" : "Somente ativos"}
             </button>
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ordenar / filtrar:</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ordenar:</span>
+            <button
+              type="button"
+              onClick={() => setOrdemPor("cliente")}
+              className={
+                "rounded border px-2 py-1 text-[11px] font-semibold " +
+                (ordemPor === "cliente" ?
+                  "border-violet-500 bg-violet-100 text-violet-900 dark:border-violet-600 dark:bg-violet-950 dark:text-violet-100"
+                : "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800")
+              }
+            >
+              Cliente / programação{ordemPor === "cliente" ? " ✓" : ""}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrdemPor("sistema")}
+              className={
+                "rounded border px-2 py-1 text-[11px] font-semibold " +
+                (ordemPor === "sistema" ?
+                  "border-violet-500 bg-violet-100 text-violet-900 dark:border-violet-600 dark:bg-violet-950 dark:text-violet-100"
+                : "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800")
+              }
+            >
+              Sistema{ordemPor === "sistema" ? " ✓" : ""}
+            </button>
+            <span className="hidden h-4 w-px bg-slate-200 sm:inline dark:bg-slate-700" aria-hidden />
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Filtrar:</span>
             {FILTRO_SISTEMA_OPTIONS.map((sistema) => (
               <button
                 key={sistema}

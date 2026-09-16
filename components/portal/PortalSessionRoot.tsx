@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { CriacaoLiveDiagProvider } from "@/components/criacao/CriacaoLiveDiagContext";
 import { PortalErrorReporter } from "@/components/portal/PortalErrorReporter";
 import { PortalPreviewProfileBar } from "@/components/portal/PortalPreviewProfileBar";
 import { PortalPreviewProfileProvider } from "@/components/portal/PortalPreviewProfileContext";
@@ -52,16 +53,18 @@ export function PortalSessionRoot({ children }: { children: ReactNode }) {
       realMenuPermissions={menuPermissions}
       fluxoRafaelAdmin={fluxoRafaelAdmin}
     >
-      <div className="portal-shell">
-        <PortalErrorReporter />
-        <PortalTopbar />
-        <PortalPreviewProfileBar />
-        <PortalPreviewRouteGuard />
-        <div className="portal-body">
-          <PortalSidebar />
-          <div className="portal-main">{children}</div>
+      <CriacaoLiveDiagProvider isMaster={isMaster}>
+        <div className="portal-shell">
+          <PortalErrorReporter />
+          <PortalTopbar />
+          <PortalPreviewProfileBar />
+          <PortalPreviewRouteGuard />
+          <div className="portal-body">
+            <PortalSidebar />
+            <div className="portal-main">{children}</div>
+          </div>
         </div>
-      </div>
+      </CriacaoLiveDiagProvider>
     </PortalPreviewProfileProvider>
   );
 }

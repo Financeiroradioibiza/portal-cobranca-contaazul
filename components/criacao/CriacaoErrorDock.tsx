@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCriacaoLiveDiag } from "@/components/criacao/CriacaoLiveDiagContext";
 
 type ErrorRow = {
   id: string;
@@ -62,11 +63,9 @@ function levelClass(level: string): string {
   return "text-slate-500";
 }
 
-/**
- * Painel fixo sempre visível no rodapé do Criação (fase de testes).
- * Mostra fila de processamento ao vivo + erros capturados (JS, API, cloud2).
- */
+/** Painel flutuante no rodapé da Criação — só Master, opt-in via submenu. */
 export function CriacaoErrorDock() {
+  const { isMaster, enabled } = useCriacaoLiveDiag();
   const [minimized, setMinimized] = useState(false);
   const [errors, setErrors] = useState<ErrorRow[]>([]);
   const [jobs, setJobs] = useState<JobRow[]>([]);
@@ -101,6 +100,7 @@ export function CriacaoErrorDock() {
   }, []);
 
   useEffect(() => {
+    if (!isMaster || !enabled) return;
     void load();
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -121,7 +121,7 @@ export function CriacaoErrorDock() {
       document.removeEventListener("visibilitychange", onVisibility);
       if (timer) clearInterval(timer);
     };
-  }, [load]);
+  }, [enabled, isMaster, load]);
 
   const activeJobs = useMemo(
     () => jobs.filter((j) => j.status === "aguardando" || j.status === "processando" || j.status === "revisao"),
@@ -135,6 +135,8 @@ export function CriacaoErrorDock() {
   const errorCount = errors.filter((r) => r.level === "error").length;
   const warnCount = errors.filter((r) => r.level === "warn").length;
   const processing = activeJobs.some((j) => j.status === "processando");
+
+  if (!isMaster || !enabled) return null;
 
   function exportJson() {
     const blob = new Blob(

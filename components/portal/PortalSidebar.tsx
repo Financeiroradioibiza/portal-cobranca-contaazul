@@ -11,6 +11,8 @@ import {
 } from "@/lib/portal/portalNav";
 import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 import { PortalSidebarChamados } from "@/components/portal/PortalSidebarChamados";
+import { PortalSidebarLiveDiag } from "@/components/portal/PortalSidebarLiveDiag";
+import { PortalSidebarMasterLog } from "@/components/portal/PortalSidebarMasterLog";
 import { usePortalPreviewProfile } from "@/components/portal/PortalPreviewProfileContext";
 
 function userInitials(name: string): string {
@@ -97,6 +99,7 @@ export function PortalSidebar() {
   }, [router]);
 
   const perm = preview?.effectiveMenuPermissions ?? session?.menuPermissions ?? {};
+  const isRealMaster = preview?.effectiveIsMasterForNav ?? session?.isMaster ?? false;
   const menuItems = filterSidebarItems(menu.items, perm);
   const accountHref = (() => {
     if (perm === "all") return "/config/usuarios";
@@ -164,6 +167,8 @@ export function PortalSidebar() {
         })}
       </div>
 
+      {isRealMaster && moduleId === "criacao" ? <PortalSidebarLiveDiag /> : null}
+      {isRealMaster ? <PortalSidebarMasterLog isMaster={isRealMaster} /> : null}
       <PortalSidebarChamados />
 
       {session ?
