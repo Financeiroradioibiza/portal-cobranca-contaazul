@@ -67,6 +67,65 @@ function formatBytes(b: number): string {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
 }
 
+type UploadApiResponse = {
+  ingestUrl: string;
+  stagingIngest?: "background";
+  stagingPending?: number;
+  jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
+};
+
+function loteToPayload(
+  l: UploadLote,
+  i: number,
+  titulo: string,
+  pastasEspeciais: PastaEspecialOpt[],
+) {
+  return {
+    titulo:
+      titulo.trim() ||
+      (l.destinoTipo === "pasta" && l.clienteSel ?
+        `${l.clienteSel.nome} · ${l.arvore.find((p) => p.id === l.progSel)?.pastas.find((p) => p.id === l.pastaSel)?.nome ?? "pasta"}`
+      : l.destinoTipo === "pasta_especial" ?
+        loteLabel(l, pastasEspeciais)
+      : l.uploadTag.trim() ?
+        `Biblioteca · ${l.uploadTag.trim()}`
+      : `Upload ${i + 1}`),
+    destinoTipo: l.destinoTipo,
+    clienteRef: l.clienteSel?.ref,
+    clienteNome: l.clienteSel?.nome,
+    programacaoId: l.progSel || undefined,
+    pastaId: l.pastaSel || undefined,
+    pastaEspecialId: l.destinoTipo === "pasta_especial" ? l.pastaEspecialSel || undefined : undefined,
+    uploadTagNome: l.uploadTag.trim() || undefined,
+    tagCriativoUserId: l.tagCriativoUserId || undefined,
+    arquivos: l.files.map((f) =>
+      f.source === "staging" ?
+        { nome: f.nome, sizeBytes: f.sizeBytes, downloadItemId: f.downloadItemId }
+      : { nome: f.nome, sizeBytes: f.sizeBytes },
+    ),
+  };
+}
+
+function uploadErrorMessage(errData: { error?: string; message?: string } | null, status: number): string {
+  if (status === 504) {
+    return "Portal demorou demais (504). Confira a Fila — o job deste lote pode ter sido criado mesmo assim.";
+  }
+  if (errData?.error === "lotes_demais" && errData.message) return errData.message;
+  if (errData?.error === "arquivos_demais" && errData.message) return errData.message;
+  if (errData?.error === "staging_item_invalido") {
+    return "Uma ou mais faixas do servidor já foram importadas ou não existem mais.";
+  }
+  if (errData?.error === "staging_import_falhou" && errData.message) {
+    return `Importação do servidor falhou: ${errData.message}`;
+  }
+  if (errData?.error === "ingest_desabilitado") {
+    return "Upload indisponível — configure CRIACAO_INGEST_SECRET no Netlify.";
+  }
+  if (errData?.error === "migration_pendente" && errData.message) return errData.message;
+  if (errData?.message) return errData.message;
+  return "Não foi possível criar o job de processamento deste lote.";
+}
+
 function loteLabel(l: UploadLote, pastasEspeciais: PastaEspecialOpt[] = []): string {
   if (l.destinoTipo === "biblioteca") {
     return l.uploadTag.trim() ? `Biblioteca · ${l.uploadTag.trim()}` : "Biblioteca (defina a tag)";
@@ -362,110 +421,70 @@ export function UploadPanel() {
     setProgress({ done: 0, total: totalUpload });
 
     try {
-      const res = await fetch("/api/criacao/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          titulo: titulo.trim() || undefined,
-          lotes: lotesComArquivos.map((l, i) => ({
-            titulo:
-              titulo.trim() ||
-              (l.destinoTipo === "pasta" && l.clienteSel ?
-                `${l.clienteSel.nome} · ${l.arvore.find((p) => p.id === l.progSel)?.pastas.find((p) => p.id === l.pastaSel)?.nome ?? "pasta"}`
-              : l.destinoTipo === "pasta_especial" ?
-                loteLabel(l, pastasEspeciais)
-              : l.uploadTag.trim() ?
-                `Biblioteca · ${l.uploadTag.trim()}`
-              : `Upload ${i + 1}`),
-            destinoTipo: l.destinoTipo,
-            clienteRef: l.clienteSel?.ref,
-            clienteNome: l.clienteSel?.nome,
-            programacaoId: l.progSel || undefined,
-            pastaId: l.pastaSel || undefined,
-            pastaEspecialId: l.destinoTipo === "pasta_especial" ? l.pastaEspecialSel || undefined : undefined,
-            uploadTagNome: l.uploadTag.trim() || undefined,
-            tagCriativoUserId: l.tagCriativoUserId || undefined,
-            arquivos: l.files.map((f) =>
-              f.source === "staging" ?
-                { nome: f.nome, sizeBytes: f.sizeBytes, downloadItemId: f.downloadItemId }
-              : { nome: f.nome, sizeBytes: f.sizeBytes },
-            ),
-          })),
-        }),
-      });
-      if (!res.ok) {
-        const errData = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
-        if (res.status === 504) {
-          setMsg(
-            "Portal demorou demais (504). Os jobs podem ter sido criados — abra a Fila antes de enviar de novo.",
-          );
-        } else {
-          setMsg(
-            errData?.error === "staging_item_invalido" ?
-              "Uma ou mais faixas do servidor já foram importadas ou não existem mais."
-            : errData?.error === "staging_import_falhou" && errData.message ?
-              `Importação do servidor falhou: ${errData.message}`
-            : errData?.error === "ingest_desabilitado" ?
-              "Upload indisponível — configure CRIACAO_INGEST_SECRET no Netlify."
-            : errData?.error === "migration_pendente" && errData.message ?
-              errData.message
-            : errData?.message ?
-              errData.message
-            : "Não foi possível criar os jobs de processamento.",
-          );
-        }
-        setSubmitting(false);
-        setProgress(null);
-        return;
-      }
-      const data = (await res.json()) as {
-        ingestUrl: string;
-        stagingIngest?: "background";
-        stagingPending?: number;
-        jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
-      };
-
-      const pastasByProg = new Map<string, Set<string>>();
-      for (const l of lotesComArquivos) {
-        if (l.destinoTipo === "pasta" && l.progSel && l.pastaSel) {
-          const set = pastasByProg.get(l.progSel) ?? new Set<string>();
-          set.add(l.pastaSel);
-          pastasByProg.set(l.progSel, set);
-        }
-      }
-      for (const [progId, pastaIds] of pastasByProg) {
-        const key = `criacao-pastas-abertas:${progId}`;
-        let prev: string[] = [];
-        try {
-          prev = JSON.parse(sessionStorage.getItem(key) || "[]") as string[];
-        } catch {
-          prev = [];
-        }
-        sessionStorage.setItem(key, JSON.stringify([...new Set([...(Array.isArray(prev) ? prev : []), ...pastaIds])]));
-      }
-
       const falhas: string[] = [];
       let done = 0;
+      let stagingPendingTotal = 0;
+
       for (let i = 0; i < lotesComArquivos.length; i++) {
         const lote = lotesComArquivos[i]!;
-        const job = data.jobs[i];
+        const loteProgressLabel = `${i + 1}/${lotesComArquivos.length} · ${loteLabel(lote, pastasEspeciais)}`;
+        setProgress({ done, total: totalUpload, lote: loteProgressLabel });
+
+        const res = await fetch("/api/criacao/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            titulo: titulo.trim() || undefined,
+            lotes: [loteToPayload(lote, i, titulo, pastasEspeciais)],
+          }),
+        });
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+          setMsg(
+            `${uploadErrorMessage(errData, res.status)} (${loteProgressLabel}). Lotes anteriores podem já estar na Fila.`,
+          );
+          setSubmitting(false);
+          setProgress(null);
+          return;
+        }
+
+        const data = (await res.json()) as UploadApiResponse;
+        stagingPendingTotal += data.stagingPending ?? 0;
+
+        if (lote.destinoTipo === "pasta" && lote.progSel && lote.pastaSel) {
+          const key = `criacao-pastas-abertas:${lote.progSel}`;
+          let prev: string[] = [];
+          try {
+            prev = JSON.parse(sessionStorage.getItem(key) || "[]") as string[];
+          } catch {
+            prev = [];
+          }
+          sessionStorage.setItem(
+            key,
+            JSON.stringify([...new Set([...(Array.isArray(prev) ? prev : []), lote.pastaSel])]),
+          );
+        }
+
+        const job = data.jobs[0];
         if (!job) {
           falhas.push(...lote.files.map((f) => f.nome));
+          done += lote.files.length;
+          setProgress({ done, total: totalUpload, lote: loteProgressLabel });
           continue;
         }
+
         const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
-        setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
         for (const f of lote.files) {
           if (f.source === "staging") {
             done += 1;
-            setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
+            setProgress({ done, total: totalUpload, lote: loteProgressLabel });
             continue;
           }
           const ticket = ticketByNome.get(f.nome.slice(0, 500));
           if (!ticket) {
             falhas.push(f.nome);
             done += 1;
-            setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
+            setProgress({ done, total: totalUpload, lote: loteProgressLabel });
             continue;
           }
           const fd = new FormData();
@@ -478,7 +497,7 @@ export function UploadPanel() {
             falhas.push(f.nome);
           }
           done += 1;
-          setProgress({ done, total: totalUpload, lote: loteLabel(lote, pastasEspeciais) });
+          setProgress({ done, total: totalUpload, lote: loteProgressLabel });
         }
       }
 
@@ -490,9 +509,9 @@ export function UploadPanel() {
         setProgress(null);
         return;
       }
-      if (data.stagingIngest === "background" && (data.stagingPending ?? 0) > 0) {
+      if (stagingPendingTotal > 0) {
         setOkMsg(
-          `${data.stagingPending} faixa(s) do Download link entram na fila em segundo plano (1–2 min no servidor).`,
+          `${stagingPendingTotal} faixa(s) do Download link entram na fila em segundo plano (1–2 min no servidor).`,
         );
       }
       router.push("/criacao/fila");
@@ -525,12 +544,13 @@ export function UploadPanel() {
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Upload</div>
         <h1 className="text-2xl font-bold tracking-tight">Upload de músicas 192k</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie tudo com um clique.
+          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie. Cada lote vira
+          um job na fila; o portal processa um lote de cada vez para evitar timeout.
         </p>
         {retryJobLabel ?
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-            Retomando upload de <strong>{retryJobLabel}</strong> — selecione os mesmos MP3 e clique em Enviar. Não
-            crie um lote novo.
+            Retomando <strong>{retryJobLabel}</strong> — o job já existe na Fila; aponte de novo a pasta com os MP3
+            deste lote (mesmos nomes de arquivo) e clique em Enviar. Não monte um lote novo.
           </p>
         : null}
       </div>

@@ -17,6 +17,7 @@ import {
 } from "@/lib/criacao/processamentoJobSchemaCompat";
 import { allocateFilaOrdemForBatch, allocateNextFilaOrdem } from "@/lib/criacao/filaOrdemService";
 import { CRIACAO_INGEST_URL, signTicket } from "@/lib/criacao/ingestTicket";
+import { UPLOAD_ITEM_CREATE_BATCH } from "@/lib/criacao/uploadLimits";
 
 export { recoverStagingForJob, recoverStagingForPendingItems, recoverStagingForActiveUploadJobs } from "@/lib/criacao/stagingRecoverService";
 
@@ -88,17 +89,27 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       filaOrdem,
       totalItens: arquivos.length,
       itensFeitos: 0,
-      itens: {
-        create: arquivos.map((a) => ({
-          arquivoNome: (a.nome?.trim() || "faixa.mp3").slice(0, 500),
-          status: "aguardando" as const,
-        })),
-      },
     },
-    include: { itens: { select: { id: true, arquivoNome: true }, orderBy: { createdAt: "asc" } } },
   });
 
-  return job;
+  for (let i = 0; i < arquivos.length; i += UPLOAD_ITEM_CREATE_BATCH) {
+    const chunk = arquivos.slice(i, i + UPLOAD_ITEM_CREATE_BATCH);
+    await prisma.processamentoItem.createMany({
+      data: chunk.map((a) => ({
+        jobId: job.id,
+        arquivoNome: (a.nome?.trim() || "faixa.mp3").slice(0, 500),
+        status: "aguardando" as const,
+      })),
+    });
+  }
+
+  const itens = await prisma.processamentoItem.findMany({
+    where: { jobId: job.id },
+    select: { id: true, arquivoNome: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return { ...job, itens };
 }
 
 /** Cria vários jobs de upload em um único disparo (multi-pasta / multi-cliente). */
@@ -355,14 +366,21 @@ export async function releaseMissingUploadItemsForJob(jobId: string): Promise<nu
   return r.count;
 }
 
-/** Reabre faixas com upload_nao_concluido e devolve tickets para reenvio pelo browser. */
+/** Reabre faixas sem MP3 (erro upload_nao_concluido ou ainda aguardando) e devolve tickets. */
 export async function retryUploadFailuresForJob(jobId: string): Promise<{
   reset: number;
   ingestUrl: string;
   tickets: Array<{ itemId: string; arquivoNome: string; token: string; exp: number }>;
 }> {
   const failed = await prisma.processamentoItem.findMany({
-    where: { jobId, status: "erro", erroMsg: UPLOAD_NAO_CONCLUIDO },
+    where: {
+      jobId,
+      rawStorageKey: null,
+      OR: [
+        { status: "erro", erroMsg: UPLOAD_NAO_CONCLUIDO },
+        { status: "aguardando", etapaAtual: "upload" },
+      ],
+    },
     select: { id: true, arquivoNome: true },
     orderBy: { id: "asc" },
   });
@@ -374,10 +392,16 @@ export async function retryUploadFailuresForJob(jobId: string): Promise<{
     where: { id: { in: failed.map((f) => f.id) } },
     data: { status: "aguardando", erroMsg: "", etapaAtual: "upload", updatedAt: new Date() },
   });
-  await prisma.processamentoJob.update({
+  const job = await prisma.processamentoJob.findUnique({
     where: { id: jobId },
-    data: { status: "aguardando", finishedAt: null, etapaAtual: "upload", erroMsg: "" },
+    select: { status: true },
   });
+  if (job?.status === "erro" || job?.status === "concluido") {
+    await prisma.processamentoJob.update({
+      where: { id: jobId },
+      data: { status: "aguardando", finishedAt: null, etapaAtual: "upload", erroMsg: "" },
+    });
+  }
 
   const tickets = failed.map((it) => {
     const { token, exp } = signTicket(it.id, jobId);

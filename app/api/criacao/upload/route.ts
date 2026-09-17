@@ -182,6 +182,29 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "no_files" }, { status: 400 });
       }
 
+      const { UPLOAD_MAX_FILES_PER_REQUEST, UPLOAD_MAX_LOTES_PER_REQUEST } = await import(
+        "@/lib/criacao/uploadLimits"
+      );
+      const totalArquivos = lotes.reduce((n, l) => n + (l.arquivos?.length ?? 0), 0);
+      if (lotes.length > UPLOAD_MAX_LOTES_PER_REQUEST) {
+        return NextResponse.json(
+          {
+            error: "lotes_demais",
+            message: `Envie no máximo ${UPLOAD_MAX_LOTES_PER_REQUEST} lotes por requisição.`,
+          },
+          { status: 400 },
+        );
+      }
+      if (totalArquivos > UPLOAD_MAX_FILES_PER_REQUEST) {
+        return NextResponse.json(
+          {
+            error: "arquivos_demais",
+            message: `Este lote tem ${totalArquivos} faixas — o máximo por envio é ${UPLOAD_MAX_FILES_PER_REQUEST}. Divida em lotes menores na tela de Upload.`,
+          },
+          { status: 400 },
+        );
+      }
+
       const jobs = await createUploadJobsBatch(lotes, {
         criativoNome: uploaderNome,
         criativoUserId: tagCriativoDefault.email,
@@ -271,6 +294,9 @@ export async function POST(request: Request) {
     }
     if (msg === "nenhum_arquivo") {
       return NextResponse.json({ error: "no_files" }, { status: 400 });
+    }
+    if (msg === "lotes_demais" || msg === "arquivos_demais") {
+      return NextResponse.json({ error: msg }, { status: 400 });
     }
     if (msg === "pasta_especial_migration_pendente") {
       return NextResponse.json(
