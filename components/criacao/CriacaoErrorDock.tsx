@@ -1,8 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCriacaoLiveDiag } from "@/components/criacao/CriacaoLiveDiagContext";
+import {
+  isUnauthorizedPollResponse,
+  POLL_SKIP_REPORT_HEADERS,
+} from "@/lib/portal/backgroundPoll";
 
 type ErrorRow = {
   id: string;
@@ -27,8 +31,6 @@ type JobRow = {
   erroMsg: string;
   createdAt: string;
 };
-
-const POLL_HEADERS = { "X-Skip-Error-Report": "1" } as const;
 
 const NOISE_MESSAGE_RE =
   /^Falha de rede em (GET|POST) \/api\/criacao\/(error-log|fila(\/sync-pending)?)/;
@@ -71,14 +73,20 @@ export function CriacaoErrorDock() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  const pollStoppedRef = useRef(false);
 
   const load = useCallback(async () => {
+    if (pollStoppedRef.current) return;
     setLoading(true);
     try {
       const [errRes, filaRes] = await Promise.all([
-        fetch("/api/criacao/error-log?pageSize=15", { headers: POLL_HEADERS }),
-        fetch("/api/criacao/fila?limit=40", { headers: POLL_HEADERS }),
+        fetch("/api/criacao/error-log?pageSize=15", { headers: POLL_SKIP_REPORT_HEADERS }),
+        fetch("/api/criacao/fila?limit=40", { headers: POLL_SKIP_REPORT_HEADERS }),
       ]);
+      if (isUnauthorizedPollResponse(errRes) || isUnauthorizedPollResponse(filaRes)) {
+        pollStoppedRef.current = true;
+        return;
+      }
       if (errRes.ok) {
         const data = (await errRes.json()) as { logs: ErrorRow[] };
         setErrors(

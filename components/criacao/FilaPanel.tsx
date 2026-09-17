@@ -10,6 +10,10 @@ import {
 } from "@/components/criacao/FilaBrowserGuidance";
 import { ETAPA_LABEL } from "@/lib/criacao/filaKanban";
 import { isRevisaoItemDescartada } from "@/lib/criacao/revisaoFaixasService";
+import {
+  isUnauthorizedPollResponse,
+  POLL_SKIP_REPORT_HEADERS,
+} from "@/lib/portal/backgroundPoll";
 
 type JobRow = {
   id: string;
@@ -91,20 +95,29 @@ export function FilaPanel() {
   const [itemView, setItemView] = useState<"kanban" | "lista">("kanban");
   const lastSyncPendingAt = useRef(0);
   const autoFinishedRef = useRef<Set<string>>(new Set());
+  const pollStoppedRef = useRef(false);
+
+  const stopPolling = useCallback(() => {
+    pollStoppedRef.current = true;
+    setAutoRefresh(false);
+    setOpenId(null);
+  }, []);
 
   const syncPending = useCallback(async (force = false) => {
+    if (pollStoppedRef.current) return;
     const now = Date.now();
     if (!force && now - lastSyncPendingAt.current < 12_000) return;
     lastSyncPendingAt.current = now;
     try {
-      await fetch("/api/criacao/fila/sync-pending", {
+      const res = await fetch("/api/criacao/fila/sync-pending", {
         method: "POST",
-        headers: { "X-Skip-Error-Report": "1" },
+        headers: POLL_SKIP_REPORT_HEADERS,
       });
+      if (isUnauthorizedPollResponse(res)) stopPolling();
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [stopPolling]);
 
   const finishJobIfReady = useCallback(async (jobId: string) => {
     if (autoFinishedRef.current.has(jobId)) return;
@@ -123,11 +136,16 @@ export function FilaPanel() {
   }, [syncPending]);
 
   const load = useCallback(async () => {
+    if (pollStoppedRef.current) return;
     setError(null);
     try {
       const params = new URLSearchParams();
       if (status !== "all") params.set("status", status);
-      const res = await fetch(`/api/criacao/fila?${params}`);
+      const res = await fetch(`/api/criacao/fila?${params}`, { headers: POLL_SKIP_REPORT_HEADERS });
+      if (isUnauthorizedPollResponse(res)) {
+        stopPolling();
+        return;
+      }
       if (!res.ok) throw new Error("load_failed");
       const data = (await res.json()) as { jobs: JobRow[] };
       setJobs(data.jobs);
@@ -136,7 +154,7 @@ export function FilaPanel() {
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [status, stopPolling]);
 
   const loadItems = useCallback(async (id: string) => {
     try {
@@ -179,6 +197,7 @@ export function FilaPanel() {
   useEffect(() => {
     if (!autoRefresh && !openId) return;
     const t = setInterval(() => {
+      if (pollStoppedRef.current || document.hidden) return;
       void syncPending();
       void load();
       if (openId) void loadItems(openId);

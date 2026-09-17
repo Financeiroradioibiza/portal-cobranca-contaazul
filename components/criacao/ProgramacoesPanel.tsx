@@ -17,6 +17,10 @@ import { AgendaSemanaChart } from "@/components/criacao/AgendaSemanaChart";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { buildSemanaBlocos } from "@/lib/site-cliente/estiloAgora";
 import { formatPastaMusicaAddedAt, isMusicaNovaNaAtualizacao } from "@/lib/criacao/pastaMusicaUi";
+import {
+  isUnauthorizedPollResponse,
+  POLL_SKIP_REPORT_HEADERS,
+} from "@/lib/portal/backgroundPoll";
 
 type SortKey = "titulo" | "artista" | "addedAt";
 
@@ -252,12 +256,18 @@ function ProgramacaoEditor({
   /** Com atualização aberta, puxa faixas da fila (ATL CRICA / upload) e atualiza destaque verde. */
   useEffect(() => {
     if (!prog?.atualizacaoAberta) return;
+    let stopped = false;
     const tick = async () => {
+      if (stopped || document.hidden) return;
       try {
-        await fetch("/api/criacao/fila/sync-pending", {
+        const res = await fetch("/api/criacao/fila/sync-pending", {
           method: "POST",
-          headers: { "X-Skip-Error-Report": "1" },
+          headers: POLL_SKIP_REPORT_HEADERS,
         });
+        if (isUnauthorizedPollResponse(res)) {
+          stopped = true;
+          return;
+        }
       } catch {
         /* ignore */
       }
@@ -265,7 +275,10 @@ function ProgramacaoEditor({
     };
     void tick();
     const t = window.setInterval(() => void tick(), 8000);
-    return () => window.clearInterval(t);
+    return () => {
+      stopped = true;
+      window.clearInterval(t);
+    };
   }, [prog?.atualizacaoAberta, reloadSilently]);
 
   async function patchProg(patch: Record<string, unknown>) {

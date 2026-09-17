@@ -40,7 +40,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     if (e instanceof Response) return e;
+    // Auditoria é best-effort — falha de DB não deve virar 500 no Netlify.
     console.error("[internal/audit-log POST]", e);
-    return NextResponse.json({ error: "server_error" }, { status: 500 });
+    return NextResponse.json({ ok: false, skipped: "audit_write_failed" });
   }
 }

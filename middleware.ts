@@ -203,7 +203,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(u);
   }
 
-  if (shouldRecordPortalAudit(pathname, request.method)) {
+  if (shouldRecordPortalAudit(pathname, request.method, request.nextUrl.search)) {
     const auditBody = {
       path: pathname,
       method: request.method,

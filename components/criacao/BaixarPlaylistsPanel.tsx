@@ -125,7 +125,14 @@ export function BaixarPlaylistsPanel() {
       await downloadPlaylistAsZip(manifest, setProgress);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setErro(msg.startsWith("fetch_failed") ? "Falha ao baixar uma ou mais faixas do servidor." : msg);
+      if (msg.startsWith("fetch_failed")) {
+        const parts = msg.split(":");
+        const status = parts[2] ?? "?";
+        const titulo = parts.slice(3).join(":") || "faixa";
+        setErro(`Falha ao baixar «${titulo}» (HTTP ${status}).`);
+      } else {
+        setErro(msg);
+      }
     } finally {
       setDownloading(false);
     }
@@ -141,14 +148,14 @@ export function BaixarPlaylistsPanel() {
           <span className="font-medium text-slate-600 dark:text-slate-300">
             Cliente / PADRÃO / POP, BRASIL, COOL
           </span>
-          ) em master <strong>192 kbps</strong> direto do Backblaze B2 via cloud2.
+          ) em master <strong>192 kbps</strong> (Backblaze B2 via portal).
         </p>
       </header>
 
       {!masterOk ?
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          Download master desabilitado — configure <code>CRIACAO_INGEST_SECRET</code> no portal e faça deploy
-          do cloud2 com a rota <code>/criacao/master</code>.
+          Download master desabilitado — configure <code>B2_*</code> no Netlify (ou{" "}
+          <code>CRIACAO_INGEST_SECRET</code> + rota <code>/criacao/master</code> no cloud2).
         </div>
       : null}
 

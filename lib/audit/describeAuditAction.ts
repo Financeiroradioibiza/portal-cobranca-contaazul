@@ -84,13 +84,18 @@ export function describePortalAuditAction(pathname: string, method: string, over
   return `${m} ${pathname}`;
 }
 
-export function shouldRecordPortalAudit(pathname: string, method: string): boolean {
+export function shouldRecordPortalAudit(
+  pathname: string,
+  method: string,
+  search?: string,
+): boolean {
   if (
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico" ||
     pathname === "/api/internal/audit-log" ||
     pathname === "/api/auth/me" ||
-    pathname.startsWith("/login")
+    pathname.startsWith("/login") ||
+    (search?.includes("_rsc=") ?? false)
   ) {
     return false;
   }

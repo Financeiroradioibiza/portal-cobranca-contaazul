@@ -60,7 +60,7 @@ export async function downloadPlaylistAsZip(
     });
 
     const url = track.downloadUrl!;
-    const res = await fetch(url);
+    const res = await fetch(url, { credentials: "same-origin" });
     if (!res.ok) {
       onProgress?.({
         phase: "error",
@@ -68,7 +68,9 @@ export async function downloadPlaylistAsZip(
         total,
         error: `Falha ao baixar «${track.titulo}» (${res.status})`,
       });
-      throw new Error(`fetch_failed:${track.musicaId}:${res.status}`);
+      throw new Error(
+        `fetch_failed:${track.musicaId}:${res.status}:${track.titulo.slice(0, 60)}`,
+      );
     }
     const buf = await res.arrayBuffer();
     zip.file(track.zipRelativePath, buf);

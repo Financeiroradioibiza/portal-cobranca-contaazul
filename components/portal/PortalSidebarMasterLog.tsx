@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-
-const POLL_HEADERS = { "X-Skip-Error-Report": "1" } as const;
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  isUnauthorizedPollResponse,
+  POLL_SKIP_REPORT_HEADERS,
+} from "@/lib/portal/backgroundPoll";
 
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;
@@ -22,15 +24,20 @@ export function PortalSidebarMasterLog({ isMaster }: { isMaster: boolean }) {
   const [errorTotal, setErrorTotal] = useState(0);
   const [warnTotal, setWarnTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const pollStoppedRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!isMaster) return;
+    if (!isMaster || pollStoppedRef.current) return;
     setLoading(true);
     try {
       const [errRes, warnRes] = await Promise.all([
-        fetch("/api/config/error-log?pageSize=1&level=error", { headers: POLL_HEADERS }),
-        fetch("/api/config/error-log?pageSize=1&level=warn", { headers: POLL_HEADERS }),
+        fetch("/api/config/error-log?pageSize=1&level=error", { headers: POLL_SKIP_REPORT_HEADERS }),
+        fetch("/api/config/error-log?pageSize=1&level=warn", { headers: POLL_SKIP_REPORT_HEADERS }),
       ]);
+      if (isUnauthorizedPollResponse(errRes) || isUnauthorizedPollResponse(warnRes)) {
+        pollStoppedRef.current = true;
+        return;
+      }
       if (errRes.ok) {
         const data = (await errRes.json()) as { total?: number };
         setErrorTotal(typeof data.total === "number" ? data.total : 0);

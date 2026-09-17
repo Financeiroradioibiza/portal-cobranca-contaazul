@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useCriacaoLiveDiag } from "@/components/criacao/CriacaoLiveDiagContext";
-
-const POLL_HEADERS = { "X-Skip-Error-Report": "1" } as const;
+import {
+  isUnauthorizedPollResponse,
+  POLL_SKIP_REPORT_HEADERS,
+} from "@/lib/portal/backgroundPoll";
 
 const NOISE_MESSAGE_RE =
   /^Falha de rede em (GET|POST) \/api\/criacao\/(error-log|fila(\/sync-pending)?)/;
@@ -28,15 +30,20 @@ export function PortalSidebarLiveDiag() {
   const [warnCount, setWarnCount] = useState(0);
   const [queueCount, setQueueCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const pollStoppedRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!isMaster) return;
+    if (!isMaster || pollStoppedRef.current) return;
     setLoading(true);
     try {
       const [errRes, filaRes] = await Promise.all([
-        fetch("/api/criacao/error-log?pageSize=15", { headers: POLL_HEADERS }),
-        fetch("/api/criacao/fila?limit=40", { headers: POLL_HEADERS }),
+        fetch("/api/criacao/error-log?pageSize=15", { headers: POLL_SKIP_REPORT_HEADERS }),
+        fetch("/api/criacao/fila?limit=40", { headers: POLL_SKIP_REPORT_HEADERS }),
       ]);
+      if (isUnauthorizedPollResponse(errRes) || isUnauthorizedPollResponse(filaRes)) {
+        pollStoppedRef.current = true;
+        return;
+      }
       if (errRes.ok) {
         const data = (await errRes.json()) as {
           logs?: Array<{ level: string; message: string }>;

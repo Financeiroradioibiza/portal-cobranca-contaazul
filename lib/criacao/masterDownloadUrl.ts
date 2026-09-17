@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { b2MasterFetchEnabled } from "@/lib/criacao/b2MasterFetch";
 import { CRIACAO_INGEST_URL } from "./ingestTicket";
 
 const SECRET = process.env.CRIACAO_INGEST_SECRET ?? "";
@@ -10,7 +11,15 @@ const MASTER_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/master");
 const TTL_MS = 4 * 60 * 60 * 1000;
 
 export function masterDownloadEnabled(): boolean {
-  return SECRET.length > 0;
+  return b2MasterFetchEnabled() || SECRET.length > 0;
+}
+
+/** URL same-origin — proxy do portal (B2 direto ou fallback cloud2). */
+export function buildMaster192PortalDownloadUrl(musicaId: string): string | null {
+  if (!masterDownloadEnabled()) return null;
+  const id = musicaId.trim();
+  if (!id) return null;
+  return `/api/criacao/baixar-playlists/master/${encodeURIComponent(id)}`;
 }
 
 /** URL assinada para baixar master 192 kbps do B2 via cloud2. */
