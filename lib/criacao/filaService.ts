@@ -366,21 +366,14 @@ export async function releaseMissingUploadItemsForJob(jobId: string): Promise<nu
   return r.count;
 }
 
-/** Reabre faixas sem MP3 (erro upload_nao_concluido ou ainda aguardando) e devolve tickets. */
+/** Reabre faixas com upload_nao_concluido e devolve tickets para reenvio pelo browser. */
 export async function retryUploadFailuresForJob(jobId: string): Promise<{
   reset: number;
   ingestUrl: string;
   tickets: Array<{ itemId: string; arquivoNome: string; token: string; exp: number }>;
 }> {
   const failed = await prisma.processamentoItem.findMany({
-    where: {
-      jobId,
-      rawStorageKey: null,
-      OR: [
-        { status: "erro", erroMsg: UPLOAD_NAO_CONCLUIDO },
-        { status: "aguardando", etapaAtual: "upload" },
-      ],
-    },
+    where: { jobId, status: "erro", erroMsg: UPLOAD_NAO_CONCLUIDO },
     select: { id: true, arquivoNome: true },
     orderBy: { id: "asc" },
   });
@@ -392,16 +385,10 @@ export async function retryUploadFailuresForJob(jobId: string): Promise<{
     where: { id: { in: failed.map((f) => f.id) } },
     data: { status: "aguardando", erroMsg: "", etapaAtual: "upload", updatedAt: new Date() },
   });
-  const job = await prisma.processamentoJob.findUnique({
+  await prisma.processamentoJob.update({
     where: { id: jobId },
-    select: { status: true },
+    data: { status: "aguardando", finishedAt: null, etapaAtual: "upload", erroMsg: "" },
   });
-  if (job?.status === "erro" || job?.status === "concluido") {
-    await prisma.processamentoJob.update({
-      where: { id: jobId },
-      data: { status: "aguardando", finishedAt: null, etapaAtual: "upload", erroMsg: "" },
-    });
-  }
 
   const tickets = failed.map((it) => {
     const { token, exp } = signTicket(it.id, jobId);

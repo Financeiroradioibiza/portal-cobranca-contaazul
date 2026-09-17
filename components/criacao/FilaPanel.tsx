@@ -387,38 +387,22 @@ export function FilaPanel() {
                       : null}
                       {(j.status === "aguardando" || j.status === "processando") &&
                       j.itensFeitos < j.totalItens ?
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              sessionStorage.setItem("criacao-retry-job-id", j.id);
-                              sessionStorage.setItem(
-                                "criacao-retry-job-label",
-                                `#${j.filaOrdem ?? "—"} · ${j.titulo}`,
-                              );
-                              window.location.href = "/criacao/upload";
-                            }}
-                            className="shrink-0 rounded border border-amber-400 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-                          >
-                            Continuar upload
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              await fetch(`/api/criacao/fila/${j.id}`, {
-                                method: "PATCH",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ action: "recover_staging" }),
-                              });
-                              lastSyncPendingAt.current = 0;
-                              await syncPending(true);
-                              await load();
-                            }}
-                            className="shrink-0 rounded border border-sky-400 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
-                          >
-                            {j.itensFeitos === 0 ? "Importar MP3" : "Recuperar MP3"}
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await fetch(`/api/criacao/fila/${j.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ action: "recover_staging" }),
+                            });
+                            lastSyncPendingAt.current = 0;
+                            await syncPending(true);
+                            await load();
+                          }}
+                          className="shrink-0 rounded border border-sky-400 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+                        >
+                          {j.itensFeitos === 0 ? "Importar MP3" : "Recuperar MP3"}
+                        </button>
                       : null}
                       <button
                         type="button"
@@ -428,19 +412,6 @@ export function FilaPanel() {
                         Cancelar
                       </button>
                     </>
-                  : null}
-                  {!ativo && j.erros > 0 && (j.status === "concluido" || j.status === "erro") ?
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sessionStorage.setItem("criacao-retry-job-id", j.id);
-                        sessionStorage.setItem("criacao-retry-job-label", `#${j.filaOrdem ?? "—"} · ${j.titulo}`);
-                        window.location.href = "/criacao/upload";
-                      }}
-                      className="shrink-0 rounded border border-amber-400 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-                    >
-                      Retomar upload
-                    </button>
                   : null}
                 </div>
 
@@ -489,20 +460,8 @@ export function FilaPanel() {
                       >
                         {j.erros} faixa(s) com erro
                         {j.status === "concluido" ?
-                          " — as demais já foram para a biblioteca e a programação. Reenvie só as que falharam."
-                        : " — confira os itens abaixo e reenvie se necessário."}
-                        {" "}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            sessionStorage.setItem("criacao-retry-job-id", j.id);
-                            sessionStorage.setItem("criacao-retry-job-label", `#${j.filaOrdem ?? "—"} · ${j.titulo}`);
-                            window.location.href = "/criacao/upload";
-                          }}
-                          className="font-semibold text-amber-900 underline underline-offset-2 dark:text-amber-100"
-                        >
-                          Retomar upload →
-                        </button>
+                          " — as demais já foram para a biblioteca e a programação."
+                        : " — confira os itens abaixo."}
                       </p>
                     : null}
                     <>

@@ -153,17 +153,9 @@ export function UploadPanel() {
   const [progress, setProgress] = useState<{ done: number; total: number; lote?: string } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
-  const [retryJobLabel, setRetryJobLabel] = useState<string | null>(null);
   const [pastasEspeciais, setPastasEspeciais] = useState<PastaEspecialOpt[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingLoteId = useRef<string | null>(null);
-
-  useEffect(() => {
-    const label = sessionStorage.getItem("criacao-retry-job-label");
-    if (sessionStorage.getItem("criacao-retry-job-id")) {
-      setRetryJobLabel(label || "lote anterior");
-    }
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -330,82 +322,6 @@ export function UploadPanel() {
   }
 
   async function submit() {
-    const retryJobId =
-      typeof sessionStorage !== "undefined" ? sessionStorage.getItem("criacao-retry-job-id") : null;
-
-    if (retryJobId) {
-      const localFiles = lotes.flatMap((l) => l.files.filter((f) => f.source === "local"));
-      if (localFiles.length === 0) {
-        setMsg("Selecione os MP3 que falharam (arraste a pasta ou use «Adicionar arquivos»).");
-        setOkMsg(null);
-        return;
-      }
-      setSubmitting(true);
-      setMsg(null);
-      setOkMsg(null);
-      setProgress({ done: 0, total: localFiles.length, lote: retryJobLabel ?? undefined });
-
-      try {
-        const retryRes = await fetch(`/api/criacao/fila/${retryJobId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "retry_upload_falhas" }),
-        });
-        if (!retryRes.ok) {
-          setMsg("Não foi possível reabrir o lote para reenvio. Atualize a Fila e tente de novo.");
-          setSubmitting(false);
-          setProgress(null);
-          return;
-        }
-        const retryData = (await retryRes.json()) as {
-          ingestUrl: string;
-          tickets: Ticket[];
-          reset: number;
-        };
-        const ticketByNome = new Map(retryData.tickets.map((t) => [t.arquivoNome, t]));
-        const falhas: string[] = [];
-        let done = 0;
-        for (const f of localFiles) {
-          const ticket = ticketByNome.get(f.nome.slice(0, 500));
-          if (!ticket) {
-            falhas.push(f.nome);
-            done += 1;
-            setProgress({ done, total: localFiles.length, lote: retryJobLabel ?? undefined });
-            continue;
-          }
-          const fd = new FormData();
-          fd.append("token", ticket.token);
-          fd.append("file", f.file, f.nome);
-          try {
-            const up = await fetch(retryData.ingestUrl, { method: "POST", body: fd });
-            if (!up.ok) falhas.push(f.nome);
-          } catch {
-            falhas.push(f.nome);
-          }
-          done += 1;
-          setProgress({ done, total: localFiles.length, lote: retryJobLabel ?? undefined });
-        }
-        sessionStorage.removeItem("criacao-retry-job-id");
-        sessionStorage.removeItem("criacao-retry-job-label");
-        setRetryJobLabel(null);
-        if (falhas.length > 0) {
-          setMsg(
-            `${localFiles.length - falhas.length}/${localFiles.length} reenviados. Falharam: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`,
-          );
-          setSubmitting(false);
-          setProgress(null);
-          return;
-        }
-        setOkMsg(`${retryData.reset} faixa(s) reenviadas — acompanhe o processamento na Fila.`);
-        router.push("/criacao/fila");
-      } catch {
-        setMsg("Falha de rede ao reenviar. Tente novamente sem fechar esta aba.");
-        setSubmitting(false);
-        setProgress(null);
-      }
-      return;
-    }
-
     const err = validateLotes();
     if (err) {
       setMsg(err);
@@ -547,12 +463,6 @@ export function UploadPanel() {
           Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie. Cada lote vira
           um job na fila; o portal processa um lote de cada vez para evitar timeout.
         </p>
-        {retryJobLabel ?
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-            Retomando <strong>{retryJobLabel}</strong> — o job já existe na Fila; aponte de novo a pasta com os MP3
-            deste lote (mesmos nomes de arquivo) e clique em Enviar. Não monte um lote novo.
-          </p>
-        : null}
       </div>
 
       <DownloadLinkImportSection
