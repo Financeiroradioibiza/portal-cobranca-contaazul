@@ -143,6 +143,21 @@ export function verifyCheckStreamToken(
   }
 }
 
+/** Download master 192k: musicaId.master192.exp → query token=sig */
+export function verifyMaster192StreamToken(musicaId: string, exp: number, sig: string): boolean {
+  const secret = criacaoConfig.ingestSecret;
+  if (!secret || !musicaId || !sig) return false;
+  if (!Number.isFinite(exp) || Date.now() > exp) return false;
+  const base = `${musicaId}.master192.${exp}`;
+  const expected = crypto.createHmac('sha256', secret).update(base).digest('hex');
+  if (expected.length !== sig.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+  } catch {
+    return false;
+  }
+}
+
 /** Preview/stream vinheta: ?exp=&token= (sig de vinhetaId.exp). */
 export function verifyVinhetaStreamAccess(vinhetaId: string, exp: number, sig: string): boolean {
   const secret = criacaoConfig.ingestSecret;

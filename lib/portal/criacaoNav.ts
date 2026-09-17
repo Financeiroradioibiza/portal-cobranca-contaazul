@@ -7,6 +7,7 @@ export const CRIACAO_SIDEBAR: CriacaoSidebarEntry[] = [
   { type: "item", href: "/criacao/criador", label: "Criador", icon: "🎧" },
   { type: "item", href: "/criacao/biblioteca", label: "Biblioteca musical", icon: "🎵" },
   { type: "item", href: "/criacao/programacoes", label: "Programações", icon: "🎼" },
+  { type: "item", href: "/criacao/baixar-playlists", label: "Baixar Playlists", icon: "📥" },
   { type: "item", href: "/criacao/atl-crica", label: "ATL Crica", icon: "📅" },
   { type: "item", href: "/criacao/edicao", label: "Edição de música", icon: "✂️" },
   { type: "item", href: "/criacao/pastas-especiais", label: "Pastas Especiais", icon: "⭐" },

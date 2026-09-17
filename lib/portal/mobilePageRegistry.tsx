@@ -28,6 +28,7 @@ import { PastasEspeciaisPanel } from "@/components/criacao/PastasEspeciaisPanel"
 import { CriacaoRelatoriosPanel } from "@/components/criacao/CriacaoRelatoriosPanel";
 import { AtualizacoesPanel } from "@/components/criacao/AtualizacoesPanel";
 import { PlanilhaProdPanel } from "@/components/criacao/PlanilhaProdPanel";
+import { BaixarPlaylistsPanel } from "@/components/criacao/BaixarPlaylistsPanel";
 import { UploadPanel } from "@/components/criacao/UploadPanel";
 import { FilaPanel } from "@/components/criacao/FilaPanel";
 import { DownloadLinkPanel } from "@/components/criacao/DownloadLinkPanel";
@@ -229,6 +230,12 @@ const PAGES: Record<string, PageDef> = {
     title: "Planilha Prod",
     criacao: true,
     render: () => <PlanilhaProdPanel />,
+  },
+  "/criacao/baixar-playlists": {
+    section: "Criação",
+    title: "Baixar Playlists",
+    criacao: true,
+    render: () => <BaixarPlaylistsPanel />,
   },
   "/criacao/upload": {
     section: "Criação",

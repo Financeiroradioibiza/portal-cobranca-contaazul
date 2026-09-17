@@ -64,6 +64,7 @@ export const PORTAL_MENU_MODULES = [
     subs: [
       { id: "biblioteca", label: "Biblioteca musical" },
       { id: "programacoes", label: "Programações" },
+      { id: "baixar-playlists", label: "Baixar Playlists" },
       { id: "upload", label: "Upload" },
       { id: "fila", label: "Fila de processamento" },
       { id: "edicao", label: "Edição de música" },
