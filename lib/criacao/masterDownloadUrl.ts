@@ -10,8 +10,14 @@ const MASTER_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/master");
 /** Validade do link de download master: 4h (montagem do ZIP no browser). */
 const TTL_MS = 4 * 60 * 60 * 1000;
 
+/** Download habilitado — exige B2 no Netlify (proxy portal) ou rota /criacao/master no cloud2. */
 export function masterDownloadEnabled(): boolean {
   return b2MasterFetchEnabled() || SECRET.length > 0;
+}
+
+/** B2 configurado no portal (caminho preferido em produção). */
+export function masterDownloadViaPortalB2(): boolean {
+  return b2MasterFetchEnabled();
 }
 
 /** URL same-origin — proxy do portal (B2 direto ou fallback cloud2). */

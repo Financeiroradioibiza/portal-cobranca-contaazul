@@ -26,6 +26,7 @@ export function BaixarPlaylistsPanel() {
   const [manifest, setManifest] = useState<PlaylistDownloadManifest | null>(null);
   const [loadingManifest, setLoadingManifest] = useState(false);
   const [masterOk, setMasterOk] = useState(true);
+  const [b2Configured, setB2Configured] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<PlaylistZipProgress | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -73,12 +74,14 @@ export function BaixarPlaylistsPanel() {
       const data = (await res.json()) as {
         manifest?: PlaylistDownloadManifest;
         masterDownloadEnabled?: boolean;
+        b2Configured?: boolean;
         error?: string;
       };
       if (!res.ok || !data.manifest) {
         setErro(data.error === "not_found" ? "Programação não encontrada." : "Falha ao carregar.");
         return;
       }
+      setB2Configured(data.b2Configured !== false);
       setMasterOk(Boolean(data.masterDownloadEnabled));
       setManifest(data.manifest);
     } catch {
@@ -129,7 +132,15 @@ export function BaixarPlaylistsPanel() {
         const parts = msg.split(":");
         const status = parts[2] ?? "?";
         const titulo = parts.slice(3).join(":") || "faixa";
-        setErro(`Falha ao baixar «${titulo}» (HTTP ${status}).`);
+        if (status === "503") {
+          setErro(
+            "B2 não configurado no Netlify — adicione B2_S3_ENDPOINT, B2_REGION, B2_BUCKET, B2_KEY_ID e B2_APPLICATION_KEY (mesmas do cloud2).",
+          );
+        } else if (status === "404") {
+          setErro(`Master 192k ausente no B2: «${titulo}».`);
+        } else {
+          setErro(`Falha ao baixar «${titulo}» (HTTP ${status}).`);
+        }
       } else {
         setErro(msg);
       }
@@ -154,8 +165,15 @@ export function BaixarPlaylistsPanel() {
 
       {!masterOk ?
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          Download master desabilitado — configure <code>B2_*</code> no Netlify (ou{" "}
-          <code>CRIACAO_INGEST_SECRET</code> + rota <code>/criacao/master</code> no cloud2).
+          Download master desabilitado — configure <code>B2_*</code> no Netlify ou{" "}
+          <code>CRIACAO_INGEST_SECRET</code> + rota <code>/criacao/master</code> no cloud2.
+        </div>
+      : !b2Configured ?
+        <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <strong>B2_* ausente no Netlify.</strong> O download vai falhar até copiar do cloud2:{" "}
+          <code>B2_S3_ENDPOINT</code>, <code>B2_REGION</code>, <code>B2_BUCKET</code>,{" "}
+          <code>B2_KEY_ID</code>, <code>B2_APPLICATION_KEY</code> (e opcional{" "}
+          <code>B2_MASTER_PREFIX=master/</code> se diferente).
         </div>
       : null}
 
