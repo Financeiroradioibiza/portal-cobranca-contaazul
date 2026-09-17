@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type WheelEvent,
+} from "react";
 import {
   PLANILHA_PROD_COLUMNS,
   PLANILHA_PROD_SISTEMA_LABEL,
@@ -623,6 +632,112 @@ function RioStatusBadge({ tag }: { tag: RioTagCobranca | null }) {
   );
 }
 
+/** Linha de dados — extraída para tabela unificada com cabeçalho sticky. */
+function PlanilhaProdDataRow({
+  row,
+  deletingId,
+  onPatch,
+  onDelete,
+}: {
+  row: PlanilhaProdRowDto;
+  deletingId: string | null;
+  onPatch: (rowId: string, patch: Partial<PlanilhaProdRowDto>) => Promise<void>;
+  onDelete: (row: PlanilhaProdRowDto) => Promise<void>;
+}) {
+  return (
+    <tr className={resolveRowVisual(row)}>
+      <td className="px-1 py-0.5 align-top">
+        <select
+          value={row.sistema}
+          onChange={(e) => void onPatch(row.id, { sistema: e.target.value as PlanilhaProdSistema })}
+          className={"w-full rounded px-1 py-0.5 text-[11px] font-bold " + sistemaCellClass(row.sistema)}
+        >
+          <option value="painel">{PLANILHA_PROD_SISTEMA_LABEL.painel}</option>
+          <option value="dois_sistemas">{PLANILHA_PROD_SISTEMA_LABEL.dois_sistemas}</option>
+          <option value="player5">{PLANILHA_PROD_SISTEMA_LABEL.player5}</option>
+          <option value="cancelado">{PLANILHA_PROD_SISTEMA_LABEL.cancelado}</option>
+        </select>
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell value={row.clienteLabel} onCommit={(v) => onPatch(row.id, { clienteLabel: v })} />
+        <RioStatusBadge tag={row.linkedRioTagCobranca} />
+        {row.sistema === "dois_sistemas" || row.sistema === "player5" ?
+          <>
+            <VinculoPicker row={row} onSave={(p) => onPatch(row.id, p)} />
+            {row.sistema === "player5" && !(row.linkedClienteRef && row.linkedProgramacaoId) ?
+              <span className="mt-0.5 block text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                PLAYER 5 — vincule cliente e programação
+              </span>
+            : null}
+          </>
+        : null}
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell value={row.criativo} onCommit={(v) => onPatch(row.id, { criativo: v })} />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell
+          value={row.entregaAtl}
+          kind="date"
+          onCommit={(v) => onPatch(row.id, { entregaAtl: v })}
+        />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell
+          value={row.convertidoGain}
+          kind="date"
+          onCommit={(v) => onPatch(row.id, { convertidoGain: v })}
+        />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell value={row.arrastado} kind="date" onCommit={(v) => onPatch(row.id, { arrastado: v })} />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell
+          value={row.sincronizado}
+          kind="date"
+          onCommit={(v) => onPatch(row.id, { sincronizado: v })}
+        />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell
+          value={row.statusPlayerNovo}
+          kind="progress"
+          onCommit={(v) => onPatch(row.id, { statusPlayerNovo: v })}
+        />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell
+          value={row.obsCriacao}
+          multiline
+          onCommit={(v) => onPatch(row.id, { obsCriacao: v })}
+        />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        <EditableCell
+          value={row.obsProducao}
+          kind="obs-producao"
+          multiline
+          onCommit={(v) => onPatch(row.id, { obsProducao: v })}
+        />
+      </td>
+      <td className="px-1 py-0.5 align-top">
+        {row.sistema === "cancelado" ?
+          <button
+            type="button"
+            disabled={deletingId === row.id}
+            onClick={() => void onDelete(row)}
+            className="text-[10px] font-bold text-red-700 hover:underline disabled:opacity-50 dark:text-red-300"
+            title="Apagar linha cancelada"
+          >
+            {deletingId === row.id ? "…" : "Apagar"}
+          </button>
+        : <span className="text-[10px] text-slate-300">—</span>}
+      </td>
+    </tr>
+  );
+}
+
 export function PlanilhaProdPanel() {
   const [months, setMonths] = useState<PlanilhaProdMonthDto[]>([]);
   const [monthId, setMonthId] = useState<string>("");
@@ -639,6 +754,20 @@ export function PlanilhaProdPanel() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [novaLinhaCriador, setNovaLinhaCriador] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+
+  const onTableWheel = useCallback((e: WheelEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollWidth <= el.clientWidth + 1) return;
+    if (e.shiftKey && e.deltaY !== 0) {
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  }, []);
+
+  const scrollTableX = useCallback((delta: number) => {
+    tableScrollRef.current?.scrollBy({ left: delta, behavior: "smooth" });
+  }, []);
 
   const loadMonths = useCallback(async () => {
     setLoading(true);
@@ -971,164 +1100,128 @@ export function PlanilhaProdPanel() {
                 </button>
               : null}
             </div>
-          : <div className="space-y-2">
-              {groups.map((group) => {
-                const aberto = expandedGroups.has(group.key);
-                return (
-                <section
-                  key={group.key}
-                  className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
-                >
-                  <div className="flex items-center border-b border-slate-100 dark:border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(group.key)}
-                      className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                    >
-                      <span className="text-[10px] text-slate-400">{aberto ? "▼" : "▶"}</span>
-                      <span className="text-xs font-bold uppercase text-slate-700 dark:text-slate-200">{group.nome}</span>
-                      <span className="text-[10px] text-slate-500">{group.rows.length} linha(s)</span>
-                      {!aberto ?
-                        <span className="ml-auto hidden text-[10px] text-slate-400 sm:inline">clique para expandir</span>
-                      : null}
-                    </button>
-                    <button
-                      type="button"
-                      title={`Nova linha · ${group.nome}`}
-                      onClick={() => setNovaLinhaCriador(group.nome)}
-                      className="mr-2 shrink-0 rounded border border-violet-300 bg-violet-50 px-2 py-0.5 text-sm font-bold leading-none text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-200"
-                    >
-                      +
-                    </button>
-                  </div>
-                  {aberto ?
-                  <div className="overflow-x-auto overscroll-x-contain">
-                  <table className="w-full min-w-[1080px] table-fixed text-left text-xs lg:min-w-[1200px]">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/90 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/60">
-                        {PLANILHA_PROD_COLUMNS.map((col) => (
-                          <th key={col.key} className="px-1 py-1" style={{ width: col.width }}>
-                            {col.label}
-                          </th>
-                        ))}
-                        <th className="w-[3.5rem] px-1 py-1">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                      {group.rows.map((row) => (
-                        <tr key={row.id} className={resolveRowVisual(row)}>
-                          <td className="px-1 py-0.5 align-top">
-                            <select
-                              value={row.sistema}
-                              onChange={(e) =>
-                                void patchRow(row.id, { sistema: e.target.value as PlanilhaProdSistema })
-                              }
-                              className={
-                                "w-full rounded px-1 py-0.5 text-[11px] font-bold " + sistemaCellClass(row.sistema)
-                              }
-                            >
-                              <option value="painel">{PLANILHA_PROD_SISTEMA_LABEL.painel}</option>
-                              <option value="dois_sistemas">{PLANILHA_PROD_SISTEMA_LABEL.dois_sistemas}</option>
-                              <option value="player5">{PLANILHA_PROD_SISTEMA_LABEL.player5}</option>
-                              <option value="cancelado">{PLANILHA_PROD_SISTEMA_LABEL.cancelado}</option>
-                            </select>
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.clienteLabel}
-                              onCommit={(v) => patchRow(row.id, { clienteLabel: v })}
-                            />
-                            <RioStatusBadge tag={row.linkedRioTagCobranca} />
-                            {row.sistema === "dois_sistemas" || row.sistema === "player5" ?
-                              <>
-                                <VinculoPicker row={row} onSave={(p) => patchRow(row.id, p)} />
-                                {row.sistema === "player5" &&
-                                !(row.linkedClienteRef && row.linkedProgramacaoId) ?
-                                  <span className="mt-0.5 block text-[10px] font-semibold text-amber-700 dark:text-amber-300">
-                                    PLAYER 5 — vincule cliente e programação
-                                  </span>
-                                : null}
-                              </>
-                            : null}
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.criativo}
-                              onCommit={(v) => patchRow(row.id, { criativo: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.entregaAtl}
-                              kind="date"
-                              onCommit={(v) => patchRow(row.id, { entregaAtl: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.convertidoGain}
-                              kind="date"
-                              onCommit={(v) => patchRow(row.id, { convertidoGain: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.arrastado}
-                              kind="date"
-                              onCommit={(v) => patchRow(row.id, { arrastado: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.sincronizado}
-                              kind="date"
-                              onCommit={(v) => patchRow(row.id, { sincronizado: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.statusPlayerNovo}
-                              kind="progress"
-                              onCommit={(v) => patchRow(row.id, { statusPlayerNovo: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.obsCriacao}
-                              multiline
-                              onCommit={(v) => patchRow(row.id, { obsCriacao: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            <EditableCell
-                              value={row.obsProducao}
-                              kind="obs-producao"
-                              multiline
-                              onCommit={(v) => patchRow(row.id, { obsProducao: v })}
-                            />
-                          </td>
-                          <td className="px-1 py-0.5 align-top">
-                            {row.sistema === "cancelado" ?
-                              <button
-                                type="button"
-                                disabled={deletingId === row.id}
-                                onClick={() => void deleteRow(row)}
-                                className="text-[10px] font-bold text-red-700 hover:underline disabled:opacity-50 dark:text-red-300"
-                                title="Apagar linha cancelada"
-                              >
-                                {deletingId === row.id ? "…" : "Apagar"}
-                              </button>
-                            : <span className="text-[10px] text-slate-300">—</span>}
-                          </td>
-                        </tr>
+          : <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-2 py-1 dark:border-slate-800">
+                <span className="text-[10px] text-slate-500">
+                  ↔ Barra inferior ou Shift + rolagem do mouse · cabeçalhos fixos ao rolar
+                </span>
+                <span className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => scrollTableX(-280)}
+                    className="rounded border border-slate-200 px-2 py-0.5 text-xs font-bold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                    title="Rolar para a esquerda"
+                  >
+                    ◀
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollTableX(280)}
+                    className="rounded border border-slate-200 px-2 py-0.5 text-xs font-bold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                    title="Rolar para a direita"
+                  >
+                    ▶
+                  </button>
+                </span>
+              </div>
+              <div
+                ref={tableScrollRef}
+                onWheel={onTableWheel}
+                className="planilha-prod-scroll-wrap max-h-[calc(100dvh-13rem)] overflow-auto overscroll-contain"
+              >
+                <table className="w-full min-w-[1080px] table-fixed border-collapse text-left text-xs lg:min-w-[1200px]">
+                  <thead className="sticky top-0 z-30">
+                    <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-500 shadow-[0_1px_0_0_rgba(148,163,184,0.35)] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400 dark:shadow-[0_1px_0_0_rgba(51,65,85,0.8)]">
+                      {PLANILHA_PROD_COLUMNS.map((col) => (
+                        <th key={col.key} className="px-1 py-1.5" style={{ width: col.width }}>
+                          {col.label}
+                        </th>
                       ))}
-                    </tbody>
-                  </table>
-                  </div>
-                  : null}
-                </section>
-                );
-              })}
+                      <th className="w-[3.5rem] px-1 py-1.5">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {groups.map((group) => {
+                      const aberto = expandedGroups.has(group.key);
+                      const colSpan = PLANILHA_PROD_COLUMNS.length + 1;
+                      return (
+                        <Fragment key={group.key}>
+                          <tr className="sticky top-[1.85rem] z-20 border-y border-slate-200 bg-slate-100/95 backdrop-blur-[2px] dark:border-slate-700 dark:bg-slate-800/95">
+                            <td colSpan={colSpan} className="px-1 py-0">
+                              <div className="flex items-center gap-2 py-1">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleGroup(group.key)}
+                                  className="flex min-w-0 flex-1 items-center gap-2 text-left hover:opacity-80"
+                                >
+                                  <span className="text-[10px] text-slate-400">{aberto ? "▼" : "▶"}</span>
+                                  <span className="text-xs font-bold uppercase text-slate-700 dark:text-slate-200">
+                                    {group.nome}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500">{group.rows.length} linha(s)</span>
+                                  {!aberto ?
+                                    <span className="ml-auto hidden text-[10px] text-slate-400 sm:inline">
+                                      clique para expandir
+                                    </span>
+                                  : null}
+                                </button>
+                                <button
+                                  type="button"
+                                  title={`Nova linha · ${group.nome}`}
+                                  onClick={() => setNovaLinhaCriador(group.nome)}
+                                  className="shrink-0 rounded border border-violet-300 bg-violet-50 px-2 py-0.5 text-sm font-bold leading-none text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-200"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {aberto ?
+                            group.rows.map((row) => (
+                              <PlanilhaProdDataRow
+                                key={row.id}
+                                row={row}
+                                deletingId={deletingId}
+                                onPatch={patchRow}
+                                onDelete={deleteRow}
+                              />
+                            ))
+                          : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <style>{`
+                .planilha-prod-scroll-wrap {
+                  overflow-x: scroll;
+                  scrollbar-width: thin;
+                  scrollbar-color: #94a3b8 #e2e8f0;
+                }
+                .planilha-prod-scroll-wrap::-webkit-scrollbar {
+                  width: 10px;
+                  height: 12px;
+                }
+                .planilha-prod-scroll-wrap::-webkit-scrollbar-thumb {
+                  background: #94a3b8;
+                  border-radius: 6px;
+                  border: 2px solid #e2e8f0;
+                }
+                .planilha-prod-scroll-wrap::-webkit-scrollbar-track {
+                  background: #e2e8f0;
+                }
+                .dark .planilha-prod-scroll-wrap {
+                  scrollbar-color: #64748b #1e293b;
+                }
+                .dark .planilha-prod-scroll-wrap::-webkit-scrollbar-thumb {
+                  background: #64748b;
+                  border-color: #1e293b;
+                }
+                .dark .planilha-prod-scroll-wrap::-webkit-scrollbar-track {
+                  background: #1e293b;
+                }
+              `}</style>
             </div>
           }
         </>
