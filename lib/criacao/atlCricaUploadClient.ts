@@ -1,4 +1,5 @@
 import { buildAtlCricaPastaUploadTag } from "@/lib/criacao/atlCricaUploadTag";
+import { chunkUploadFiles, uploadPartLabel } from "@/lib/criacao/uploadChunk";
 
 type Ticket = { itemId: string; arquivoNome: string; token: string; exp: number };
 
@@ -21,15 +22,19 @@ async function uploadErrorFromResponse(res: Response): Promise<string> {
   return "Falha ao enfileirar upload.";
 }
 
-async function uploadOneAtlCricaLote(
+async function uploadOneAtlCricaChunk(
   opts: {
     titulo: string;
     lote: AtlCricaUploadLote & { clienteRef: string; clienteNome: string };
+    arquivos: File[];
+    partLabel?: string;
   },
   onProgress?: (done: number, total: number, label?: string) => void,
   progress?: { done: number; total: number },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const l = opts.lote;
+  const chunkTitulo =
+    opts.partLabel ? `ATL CRICA · ${l.pastaNome} · ${opts.partLabel}` : `ATL CRICA · ${l.pastaNome}`;
   const res = await fetch("/api/criacao/upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -37,7 +42,7 @@ async function uploadOneAtlCricaLote(
       titulo: opts.titulo,
       lotes: [
         {
-          titulo: `ATL CRICA · ${l.pastaNome}`,
+          titulo: chunkTitulo,
           destinoTipo: "pasta" as const,
           clienteRef: l.clienteRef,
           clienteNome: l.clienteNome,
@@ -45,7 +50,7 @@ async function uploadOneAtlCricaLote(
           pastaId: l.pastaId,
           uploadTagNome: buildAtlCricaPastaUploadTag(l.pastaNome),
           tagCriativoUserId: l.criativoUserId?.trim() || undefined,
-          arquivos: l.arquivos.map((f) => ({ nome: f.name, sizeBytes: f.size })),
+          arquivos: opts.arquivos.map((f) => ({ nome: f.name, sizeBytes: f.size })),
         },
       ],
     }),
@@ -68,10 +73,12 @@ async function uploadOneAtlCricaLote(
   const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
   const falhas: string[] = [];
   let done = progress?.done ?? 0;
-  const total = progress?.total ?? l.arquivos.length;
+  const total = progress?.total ?? opts.arquivos.length;
+  const progressLabel =
+    opts.partLabel ? `${l.pastaNome} · ${opts.partLabel}` : l.pastaNome;
 
-  for (const f of l.arquivos) {
-    onProgress?.(done, total, l.pastaNome);
+  for (const f of opts.arquivos) {
+    onProgress?.(done, total, progressLabel);
     const ticket = ticketByNome.get(f.name.slice(0, 500));
     if (!ticket) {
       falhas.push(f.name);
@@ -93,8 +100,41 @@ async function uploadOneAtlCricaLote(
   if (falhas.length > 0) {
     return {
       ok: false,
-      error: `${l.arquivos.length - falhas.length}/${l.arquivos.length} enviados em ${l.pastaNome}. Falharam: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`,
+      error: `${opts.arquivos.length - falhas.length}/${opts.arquivos.length} enviados em ${progressLabel}. Falharam: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`,
     };
+  }
+  return { ok: true };
+}
+
+async function uploadOneAtlCricaLote(
+  opts: {
+    titulo: string;
+    lote: AtlCricaUploadLote & { clienteRef: string; clienteNome: string };
+    loteIndex: number;
+    loteTotal: number;
+  },
+  onProgress?: (done: number, total: number, label?: string) => void,
+  progress?: { done: number; total: number },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const fileChunks = chunkUploadFiles(opts.lote.arquivos);
+  for (let part = 0; part < fileChunks.length; part++) {
+    const arquivos = fileChunks[part]!;
+    const partLabel = uploadPartLabel(part, fileChunks.length);
+    const outerLabel = `${opts.loteIndex + 1}/${opts.loteTotal} · ${opts.lote.pastaNome}`;
+    onProgress?.(progress?.done ?? 0, progress?.total ?? 0, outerLabel);
+
+    const result = await uploadOneAtlCricaChunk(
+      {
+        titulo: opts.titulo,
+        lote: opts.lote,
+        arquivos,
+        partLabel,
+      },
+      onProgress,
+      progress,
+    );
+    if (!result.ok) return result;
+    if (progress) progress.done += arquivos.length;
   }
   return { ok: true };
 }
@@ -129,16 +169,16 @@ export async function submitAtlCricaImportUpload(opts: {
   if (lotesComArquivos.length === 0) return { ok: true };
 
   const totalUpload = lotesComArquivos.reduce((n, l) => n + l.arquivos.length, 0);
-  let done = 0;
+  const progress = { done: 0, total: totalUpload };
 
   for (let i = 0; i < lotesComArquivos.length; i++) {
     const lote = lotesComArquivos[i]!;
-    opts.onProgress?.(done, totalUpload, `${i + 1}/${lotesComArquivos.length} · ${lote.pastaNome}`);
+    opts.onProgress?.(progress.done, totalUpload, `${i + 1}/${lotesComArquivos.length} · ${lote.pastaNome}`);
 
     const result = await uploadOneAtlCricaLote(
-      { titulo: opts.titulo, lote },
+      { titulo: opts.titulo, lote, loteIndex: i, loteTotal: lotesComArquivos.length },
       opts.onProgress,
-      { done, total: totalUpload },
+      progress,
     );
     if (!result.ok) {
       return {
@@ -146,7 +186,6 @@ export async function submitAtlCricaImportUpload(opts: {
         error: `${result.error} (lote ${i + 1}/${lotesComArquivos.length}). Lotes anteriores podem já estar na Fila.`,
       };
     }
-    done += lote.arquivos.length;
   }
 
   return { ok: true };

@@ -10,6 +10,7 @@ import {
   type StagingJobGroup,
 } from "@/lib/criacao/downloadService";
 import Link from "next/link";
+import { chunkUploadFiles, uploadPartLabel } from "@/lib/criacao/uploadChunk";
 
 import {
   CriacaoClienteNomeComTag,
@@ -74,22 +75,30 @@ type UploadApiResponse = {
   jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
 };
 
+function loteBaseTitulo(l: UploadLote, i: number, titulo: string, pastasEspeciais: PastaEspecialOpt[]): string {
+  return (
+    titulo.trim() ||
+    (l.destinoTipo === "pasta" && l.clienteSel ?
+      `${l.clienteSel.nome} · ${l.arvore.find((p) => p.id === l.progSel)?.pastas.find((p) => p.id === l.pastaSel)?.nome ?? "pasta"}`
+    : l.destinoTipo === "pasta_especial" ?
+      loteLabel(l, pastasEspeciais)
+    : l.uploadTag.trim() ?
+      `Biblioteca · ${l.uploadTag.trim()}`
+    : `Upload ${i + 1}`)
+  );
+}
+
 function loteToPayload(
   l: UploadLote,
   i: number,
   titulo: string,
   pastasEspeciais: PastaEspecialOpt[],
+  files: PickedFile[],
+  partLabel?: string,
 ) {
+  const base = loteBaseTitulo(l, i, titulo, pastasEspeciais);
   return {
-    titulo:
-      titulo.trim() ||
-      (l.destinoTipo === "pasta" && l.clienteSel ?
-        `${l.clienteSel.nome} · ${l.arvore.find((p) => p.id === l.progSel)?.pastas.find((p) => p.id === l.pastaSel)?.nome ?? "pasta"}`
-      : l.destinoTipo === "pasta_especial" ?
-        loteLabel(l, pastasEspeciais)
-      : l.uploadTag.trim() ?
-        `Biblioteca · ${l.uploadTag.trim()}`
-      : `Upload ${i + 1}`),
+    titulo: partLabel ? `${base} · ${partLabel}` : base,
     destinoTipo: l.destinoTipo,
     clienteRef: l.clienteSel?.ref,
     clienteNome: l.clienteSel?.nome,
@@ -98,7 +107,7 @@ function loteToPayload(
     pastaEspecialId: l.destinoTipo === "pasta_especial" ? l.pastaEspecialSel || undefined : undefined,
     uploadTagNome: l.uploadTag.trim() || undefined,
     tagCriativoUserId: l.tagCriativoUserId || undefined,
-    arquivos: l.files.map((f) =>
+    arquivos: files.map((f) =>
       f.source === "staging" ?
         { nome: f.nome, sizeBytes: f.sizeBytes, downloadItemId: f.downloadItemId }
       : { nome: f.nome, sizeBytes: f.sizeBytes },
@@ -342,77 +351,85 @@ export function UploadPanel() {
 
       for (let i = 0; i < lotesComArquivos.length; i++) {
         const lote = lotesComArquivos[i]!;
-        const loteProgressLabel = `${i + 1}/${lotesComArquivos.length} · ${loteLabel(lote, pastasEspeciais)}`;
-        setProgress({ done, total: totalUpload, lote: loteProgressLabel });
-
-        const res = await fetch("/api/criacao/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            titulo: titulo.trim() || undefined,
-            lotes: [loteToPayload(lote, i, titulo, pastasEspeciais)],
-          }),
-        });
-        if (!res.ok) {
-          const errData = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
-          setMsg(
-            `${uploadErrorMessage(errData, res.status)} (${loteProgressLabel}). Lotes anteriores podem já estar na Fila.`,
-          );
-          setSubmitting(false);
-          setProgress(null);
-          return;
-        }
-
-        const data = (await res.json()) as UploadApiResponse;
-        stagingPendingTotal += data.stagingPending ?? 0;
-
-        if (lote.destinoTipo === "pasta" && lote.progSel && lote.pastaSel) {
-          const key = `criacao-pastas-abertas:${lote.progSel}`;
-          let prev: string[] = [];
-          try {
-            prev = JSON.parse(sessionStorage.getItem(key) || "[]") as string[];
-          } catch {
-            prev = [];
-          }
-          sessionStorage.setItem(
-            key,
-            JSON.stringify([...new Set([...(Array.isArray(prev) ? prev : []), lote.pastaSel])]),
-          );
-        }
-
-        const job = data.jobs[0];
-        if (!job) {
-          falhas.push(...lote.files.map((f) => f.nome));
-          done += lote.files.length;
+        const fileChunks = chunkUploadFiles(lote.files);
+        for (let part = 0; part < fileChunks.length; part++) {
+          const chunkFiles = fileChunks[part]!;
+          const partLabel = uploadPartLabel(part, fileChunks.length);
+          const loteProgressLabel =
+            fileChunks.length > 1 ?
+              `${i + 1}/${lotesComArquivos.length} · ${loteLabel(lote, pastasEspeciais)} · ${partLabel}`
+            : `${i + 1}/${lotesComArquivos.length} · ${loteLabel(lote, pastasEspeciais)}`;
           setProgress({ done, total: totalUpload, lote: loteProgressLabel });
-          continue;
-        }
 
-        const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
-        for (const f of lote.files) {
-          if (f.source === "staging") {
-            done += 1;
+          const res = await fetch("/api/criacao/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              titulo: titulo.trim() || undefined,
+              lotes: [loteToPayload(lote, i, titulo, pastasEspeciais, chunkFiles, partLabel)],
+            }),
+          });
+          if (!res.ok) {
+            const errData = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+            setMsg(
+              `${uploadErrorMessage(errData, res.status)} (${loteProgressLabel}). Lotes anteriores podem já estar na Fila.`,
+            );
+            setSubmitting(false);
+            setProgress(null);
+            return;
+          }
+
+          const data = (await res.json()) as UploadApiResponse;
+          stagingPendingTotal += data.stagingPending ?? 0;
+
+          if (lote.destinoTipo === "pasta" && lote.progSel && lote.pastaSel) {
+            const key = `criacao-pastas-abertas:${lote.progSel}`;
+            let prev: string[] = [];
+            try {
+              prev = JSON.parse(sessionStorage.getItem(key) || "[]") as string[];
+            } catch {
+              prev = [];
+            }
+            sessionStorage.setItem(
+              key,
+              JSON.stringify([...new Set([...(Array.isArray(prev) ? prev : []), lote.pastaSel])]),
+            );
+          }
+
+          const job = data.jobs[0];
+          if (!job) {
+            falhas.push(...chunkFiles.map((f) => f.nome));
+            done += chunkFiles.length;
             setProgress({ done, total: totalUpload, lote: loteProgressLabel });
             continue;
           }
-          const ticket = ticketByNome.get(f.nome.slice(0, 500));
-          if (!ticket) {
-            falhas.push(f.nome);
+
+          const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
+          for (const f of chunkFiles) {
+            if (f.source === "staging") {
+              done += 1;
+              setProgress({ done, total: totalUpload, lote: loteProgressLabel });
+              continue;
+            }
+            const ticket = ticketByNome.get(f.nome.slice(0, 500));
+            if (!ticket) {
+              falhas.push(f.nome);
+              done += 1;
+              setProgress({ done, total: totalUpload, lote: loteProgressLabel });
+              continue;
+            }
+            const fd = new FormData();
+            fd.append("token", ticket.token);
+            fd.append("file", f.file, f.nome);
+            try {
+              const up = await fetch(data.ingestUrl, { method: "POST", body: fd });
+              if (!up.ok) falhas.push(f.nome);
+            } catch {
+              falhas.push(f.nome);
+            }
             done += 1;
             setProgress({ done, total: totalUpload, lote: loteProgressLabel });
-            continue;
           }
-          const fd = new FormData();
-          fd.append("token", ticket.token);
-          fd.append("file", f.file, f.nome);
-          try {
-            const up = await fetch(data.ingestUrl, { method: "POST", body: fd });
-            if (!up.ok) falhas.push(f.nome);
-          } catch {
-            falhas.push(f.nome);
-          }
-          done += 1;
-          setProgress({ done, total: totalUpload, lote: loteProgressLabel });
         }
       }
 
@@ -459,8 +476,8 @@ export function UploadPanel() {
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Upload</div>
         <h1 className="text-2xl font-bold tracking-tight">Upload de músicas 192k</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie. Cada lote vira
-          um job na fila; o portal processa um lote de cada vez para evitar timeout.
+          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie. Pastas com
+          centenas de faixas são divididas automaticamente (até ~4.000 MP3 num envio); acompanhe o progresso na barra.
         </p>
       </div>
 

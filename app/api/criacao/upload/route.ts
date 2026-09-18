@@ -185,10 +185,11 @@ export async function POST(request: Request) {
       const { UPLOAD_MAX_FILES_PER_REQUEST } = await import("@/lib/criacao/uploadLimits");
       const totalArquivos = lotes.reduce((n, l) => n + (l.arquivos?.length ?? 0), 0);
       if (totalArquivos > UPLOAD_MAX_FILES_PER_REQUEST) {
+        const { UPLOAD_MAX_FILES_PER_JOB } = await import("@/lib/criacao/uploadLimits");
         return NextResponse.json(
           {
             error: "arquivos_demais",
-            message: `Este lote tem ${totalArquivos} faixas — o máximo por envio é ${UPLOAD_MAX_FILES_PER_REQUEST}. Divida em lotes menores na tela de Upload.`,
+            message: `Este lote tem ${totalArquivos} faixas — o máximo por job é ${UPLOAD_MAX_FILES_PER_JOB}. Atualize a página (Ctrl+Shift+R); o portal divide automaticamente em partes.`,
           },
           { status: 400 },
         );
