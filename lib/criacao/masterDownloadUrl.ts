@@ -28,12 +28,12 @@ export function buildMaster192PortalDownloadUrl(musicaId: string): string | null
   return `/api/criacao/baixar-playlists/master/${encodeURIComponent(id)}`;
 }
 
-export type MasterDownloadMode = "cloud3" | "portal_b2" | "unavailable";
+export type MasterDownloadMode = "b2_presigned" | "cloud3" | "portal_b2" | "unavailable";
 
-/** Modo ativo para Baixar Playlists. Preferência: cloud3 (CF) → proxy B2 no Netlify. */
+/** Modo ativo para Baixar Playlists. Preferência: URL presigned B2 (CORS) → cloud3 → proxy portal. */
 export function masterDownloadMode(): MasterDownloadMode {
+  if (b2MasterFetchEnabled()) return "b2_presigned";
   if (SECRET.length > 0) return "cloud3";
-  if (b2MasterFetchEnabled()) return "portal_b2";
   return "unavailable";
 }
 

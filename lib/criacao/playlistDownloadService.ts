@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { buildAtlFolderPath, sanitizePathSegment } from "@/lib/criacao/pathSanitize";
 import { masterOnB2 } from "@/lib/criacao/musicaStorageBadges";
-import { resolveMasterB2ObjectKeys } from "@/lib/criacao/b2MasterFetch";
+import {
+  buildPresignedMaster192Url,
+  resolveMasterB2ObjectKeys,
+} from "@/lib/criacao/b2MasterFetch";
 import {
   buildCloud3Master192DownloadUrl,
   buildMaster192PortalDownloadUrl,
@@ -110,7 +113,9 @@ export async function loadPlaylistDownloadManifest(
         skipReason = m.masterStorageKey?.startsWith("local:") ? "master_somente_local" : "sem_master_b2";
       } else {
         const mode = masterDownloadMode();
-        if (mode === "cloud3") {
+        if (mode === "b2_presigned") {
+          downloadUrl = await buildPresignedMaster192Url(musicaId, m.masterStorageKey);
+        } else if (mode === "cloud3") {
           const keys = resolveMasterB2ObjectKeys(musicaId, m.masterStorageKey, "master/");
           downloadUrl = keys[0] ? buildCloud3Master192DownloadUrl(keys[0]) : null;
         } else {

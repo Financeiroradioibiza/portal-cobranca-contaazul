@@ -27,9 +27,9 @@ export function BaixarPlaylistsPanel() {
   const [loadingManifest, setLoadingManifest] = useState(false);
   const [masterOk, setMasterOk] = useState(true);
   const [b2Configured, setB2Configured] = useState(true);
-  const [downloadMode, setDownloadMode] = useState<"cloud3" | "portal_b2" | "unavailable" | null>(
-    null,
-  );
+  const [downloadMode, setDownloadMode] = useState<
+    "b2_presigned" | "cloud3" | "portal_b2" | "unavailable" | null
+  >(null);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<PlaylistZipProgress | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -78,7 +78,7 @@ export function BaixarPlaylistsPanel() {
         manifest?: PlaylistDownloadManifest;
         masterDownloadEnabled?: boolean;
         b2Configured?: boolean;
-        downloadMode?: "cloud3" | "portal_b2" | "unavailable";
+        downloadMode?: "b2_presigned" | "cloud3" | "portal_b2" | "unavailable";
         error?: string;
       };
       if (!res.ok || !data.manifest) {
@@ -145,7 +145,11 @@ export function BaixarPlaylistsPanel() {
           setErro(`Master 192k ausente no B2: «${titulo}».`);
         } else if (status === "403") {
           setErro(
-            `B2 recusou o download (403) — confira B2_KEY_ID e B2_APPLICATION_KEY no Netlify (sem aspas extras).`,
+            `B2 recusou (403) — confira B2_KEY_ID e B2_APPLICATION_KEY no Netlify (sem aspas) e rode npx tsx scripts/apply-b2-cors.ts`,
+          );
+        } else if (status === "cors") {
+          setErro(
+            `CORS do B2 bloqueou «${titulo}». Rode: npx tsx scripts/apply-b2-cors.ts (libera portal.radioibiza.app.br).`,
           );
         } else {
           setErro(`Falha ao baixar «${titulo}» (HTTP ${status}).`);
@@ -174,13 +178,13 @@ export function BaixarPlaylistsPanel() {
 
       {downloadMode === "unavailable" || !masterOk ?
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          Download master desabilitado — configure <code>CRIACAO_INGEST_SECRET</code> no Netlify (entrega via
-          cloud3) ou <code>B2_*</code> (proxy portal).
+          Download master desabilitado — configure <code>B2_*</code> no Netlify (mesmas do cloud2).
         </div>
-      : downloadMode === "portal_b2" && !b2Configured ?
+      : downloadMode === "b2_presigned" && !b2Configured ?
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          Modo proxy B2 no Netlify — adicione <code>B2_S3_ENDPOINT</code>, <code>B2_REGION</code>,{" "}
-          <code>B2_BUCKET</code>, <code>B2_KEY_ID</code>, <code>B2_APPLICATION_KEY</code>.
+          Adicione no Netlify: <code>B2_S3_ENDPOINT</code>, <code>B2_REGION</code>, <code>B2_BUCKET</code>,{" "}
+          <code>B2_KEY_ID</code>, <code>B2_APPLICATION_KEY</code>, <code>B2_MASTER_PREFIX=master/</code> (sem
+          aspas nos valores).
         </div>
       : null}
 

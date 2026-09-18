@@ -41,6 +41,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.721.0",
     "@netlify/functions": "^2.8.2",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",

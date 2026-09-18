@@ -9,7 +9,7 @@ import path from "node:path";
 import { config as loadEnv } from "dotenv";
 
 const root = path.resolve(__dirname, "..");
-for (const name of [".env.local", ".env"]) {
+for (const name of [".env.local", ".env", ".cloud2-secrets/b2.env"]) {
   const p = path.join(root, name);
   if (fs.existsSync(p)) loadEnv({ path: p });
 }

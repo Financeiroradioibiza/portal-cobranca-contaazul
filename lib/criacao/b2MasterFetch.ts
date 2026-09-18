@@ -16,16 +16,27 @@ export type B2MasterFetchResult =
   | { kind: "not_found"; keysTried: string[] }
   | { kind: "upstream_error"; status: number; keysTried: string[] };
 
+function trimEnv(value: string | undefined): string {
+  let v = (value ?? "").trim();
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
+}
+
 function readB2Config(): B2Config {
   return {
-    endpoint: (process.env.B2_S3_ENDPOINT ?? process.env.B2_ENDPOINT ?? "").trim(),
-    region: (process.env.B2_REGION ?? "us-east-005").trim(),
-    bucket: (process.env.B2_BUCKET ?? "").trim(),
-    accessKeyId: (process.env.B2_KEY_ID ?? process.env.B2_ACCESS_KEY_ID ?? "").trim(),
-    secretAccessKey: (
-      process.env.B2_APPLICATION_KEY ?? process.env.B2_SECRET_ACCESS_KEY ?? ""
-    ).trim(),
-    masterPrefix: (process.env.B2_MASTER_PREFIX ?? "master/").replace(/^\/+/, ""),
+    endpoint: trimEnv(process.env.B2_S3_ENDPOINT ?? process.env.B2_ENDPOINT),
+    region: trimEnv(process.env.B2_REGION) || "us-east-005",
+    bucket: trimEnv(process.env.B2_BUCKET),
+    accessKeyId: trimEnv(process.env.B2_KEY_ID ?? process.env.B2_ACCESS_KEY_ID),
+    secretAccessKey: trimEnv(
+      process.env.B2_APPLICATION_KEY ?? process.env.B2_SECRET_ACCESS_KEY,
+    ),
+    masterPrefix: (trimEnv(process.env.B2_MASTER_PREFIX) || "master/").replace(/^\/+/, ""),
   };
 }
 
@@ -76,12 +87,30 @@ function b2ObjectUrl(objectKey: string, c: B2Config): string {
   return `${endpoint}/${c.bucket}/${objectKey}`;
 }
 
-async function b2GetObject(objectKey: string, c: B2Config): Promise<Response> {
-  const signed = await awsClient(c).sign(b2ObjectUrl(objectKey, c), { method: "GET" });
+async function b2SignedRequest(
+  objectKey: string,
+  c: B2Config,
+  method: "GET" | "HEAD",
+): Promise<Response> {
+  const signed = await awsClient(c).sign(b2ObjectUrl(objectKey, c), { method });
   return fetch(signed);
 }
 
-/** URL presigned GET no B2 — browser baixa direto (evita proxy/limite do Netlify). */
+async function b2GetObject(objectKey: string, c: B2Config): Promise<Response> {
+  return b2SignedRequest(objectKey, c, "GET");
+}
+
+async function presignObjectKey(objectKey: string, c: B2Config, ttlSeconds: number): Promise<string> {
+  const url = new URL(b2ObjectUrl(objectKey, c));
+  url.searchParams.set("X-Amz-Expires", String(ttlSeconds));
+  const signed = await awsClient(c).sign(url.toString(), {
+    method: "GET",
+    aws: { signQuery: true },
+  });
+  return signed.url;
+}
+
+/** URL presigned GET no B2 — browser baixa direto (CORS no bucket). */
 export async function buildPresignedMaster192Url(
   musicaId: string,
   neonKey: string | null | undefined,
@@ -91,16 +120,18 @@ export async function buildPresignedMaster192Url(
 
   const c = readB2Config();
   const keys = resolveMasterB2ObjectKeys(musicaId.trim(), neonKey, c.masterPrefix);
-  const objectKey = keys[0];
-  if (!objectKey) return null;
+  if (keys.length === 0) return null;
 
-  const url = new URL(b2ObjectUrl(objectKey, c));
-  url.searchParams.set("X-Amz-Expires", String(ttlSeconds));
-  const signed = await awsClient(c).sign(url.toString(), {
-    method: "GET",
-    aws: { signQuery: true },
-  });
-  return signed.url;
+  for (const objectKey of keys) {
+    try {
+      const head = await b2SignedRequest(objectKey, c, "HEAD");
+      if (head.ok) return presignObjectKey(objectKey, c, ttlSeconds);
+    } catch {
+      /* próxima key */
+    }
+  }
+
+  return presignObjectKey(keys[0]!, c, ttlSeconds);
 }
 
 /** GET master 192 kbps direto do Backblaze B2 (server-side, portal/Netlify). */
