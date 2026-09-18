@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { fetchMaster192FromB2 } from "@/lib/criacao/b2MasterFetch";
+import { buildPresignedMaster192Url, fetchMaster192FromB2 } from "@/lib/criacao/b2MasterFetch";
 import { buildMaster192DownloadUrl } from "@/lib/criacao/masterDownloadUrl";
 
 export const runtime = "nodejs";
@@ -13,6 +13,23 @@ export async function GET(_request: Request, ctx: Ctx) {
     const { musicaId } = await ctx.params;
     const id = musicaId.trim();
     if (!id) return NextResponse.json({ error: "missing_id" }, { status: 400 });
+
+    let neonKey: string | null = null;
+    try {
+      const { prisma } = await import("@/lib/prisma");
+      const row = await prisma.musicaBiblioteca.findUnique({
+        where: { id },
+        select: { masterStorageKey: true },
+      });
+      neonKey = row?.masterStorageKey ?? null;
+    } catch {
+      /* presign com key padrão */
+    }
+
+    const presigned = await buildPresignedMaster192Url(id, neonKey);
+    if (presigned) {
+      return NextResponse.redirect(presigned, { status: 302 });
+    }
 
     const b2 = await fetchMaster192FromB2(id);
     if (b2.kind === "ok") {

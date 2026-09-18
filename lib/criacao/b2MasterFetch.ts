@@ -62,17 +62,45 @@ export function resolveMasterB2ObjectKeys(
   return out;
 }
 
-async function b2GetObject(objectKey: string, c: B2Config): Promise<Response> {
-  const endpoint = c.endpoint.replace(/\/$/, "");
-  const url = `${endpoint}/${c.bucket}/${objectKey}`;
-  const aws = new AwsClient({
+function awsClient(c: B2Config): AwsClient {
+  return new AwsClient({
     accessKeyId: c.accessKeyId,
     secretAccessKey: c.secretAccessKey,
     service: "s3",
     region: c.region,
   });
-  const signed = await aws.sign(url, { method: "GET" });
+}
+
+function b2ObjectUrl(objectKey: string, c: B2Config): string {
+  const endpoint = c.endpoint.replace(/\/$/, "");
+  return `${endpoint}/${c.bucket}/${objectKey}`;
+}
+
+async function b2GetObject(objectKey: string, c: B2Config): Promise<Response> {
+  const signed = await awsClient(c).sign(b2ObjectUrl(objectKey, c), { method: "GET" });
   return fetch(signed);
+}
+
+/** URL presigned GET no B2 — browser baixa direto (evita proxy/limite do Netlify). */
+export async function buildPresignedMaster192Url(
+  musicaId: string,
+  neonKey: string | null | undefined,
+  ttlSeconds = 4 * 60 * 60,
+): Promise<string | null> {
+  if (!b2MasterFetchEnabled()) return null;
+
+  const c = readB2Config();
+  const keys = resolveMasterB2ObjectKeys(musicaId.trim(), neonKey, c.masterPrefix);
+  const objectKey = keys[0];
+  if (!objectKey) return null;
+
+  const url = new URL(b2ObjectUrl(objectKey, c));
+  url.searchParams.set("X-Amz-Expires", String(ttlSeconds));
+  const signed = await awsClient(c).sign(url.toString(), {
+    method: "GET",
+    aws: { signQuery: true },
+  });
+  return signed.url;
 }
 
 /** GET master 192 kbps direto do Backblaze B2 (server-side, portal/Netlify). */
