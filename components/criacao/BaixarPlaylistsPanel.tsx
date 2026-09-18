@@ -27,7 +27,9 @@ export function BaixarPlaylistsPanel() {
   const [loadingManifest, setLoadingManifest] = useState(false);
   const [masterOk, setMasterOk] = useState(true);
   const [b2Configured, setB2Configured] = useState(true);
-  const [downloadMode, setDownloadMode] = useState<"portal_b2" | "unavailable" | null>(null);
+  const [downloadMode, setDownloadMode] = useState<"cloud3" | "portal_b2" | "unavailable" | null>(
+    null,
+  );
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<PlaylistZipProgress | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -76,7 +78,7 @@ export function BaixarPlaylistsPanel() {
         manifest?: PlaylistDownloadManifest;
         masterDownloadEnabled?: boolean;
         b2Configured?: boolean;
-        downloadMode?: "portal_b2" | "unavailable";
+        downloadMode?: "cloud3" | "portal_b2" | "unavailable";
         error?: string;
       };
       if (!res.ok || !data.manifest) {
@@ -170,22 +172,15 @@ export function BaixarPlaylistsPanel() {
         </p>
       </header>
 
-      {downloadMode === "unavailable" || !masterOk || !b2Configured ?
+      {downloadMode === "unavailable" || !masterOk ?
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          <strong>Baixar Playlists precisa das credenciais B2 no Netlify</strong> (mesmas do cloud2). No painel
-          Netlify → Site configuration → Environment variables, adicione:
-          <ul className="mt-2 list-inside list-disc space-y-0.5 font-mono text-[11px]">
-            <li>B2_S3_ENDPOINT</li>
-            <li>B2_REGION</li>
-            <li>B2_BUCKET</li>
-            <li>B2_KEY_ID</li>
-            <li>B2_APPLICATION_KEY</li>
-            <li>B2_MASTER_PREFIX=master/</li>
-          </ul>
-          <p className="mt-2 font-sans">
-            Valores: copie do <code>.env</code> do cloud2 (api/worker) ou de{" "}
-            <code>.cloud2-secrets/b2.env</code>. Depois faça redeploy do site no Netlify.
-          </p>
+          Download master desabilitado — configure <code>CRIACAO_INGEST_SECRET</code> no Netlify (entrega via
+          cloud3) ou <code>B2_*</code> (proxy portal).
+        </div>
+      : downloadMode === "portal_b2" && !b2Configured ?
+        <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          Modo proxy B2 no Netlify — adicione <code>B2_S3_ENDPOINT</code>, <code>B2_REGION</code>,{" "}
+          <code>B2_BUCKET</code>, <code>B2_KEY_ID</code>, <code>B2_APPLICATION_KEY</code>.
         </div>
       : null}
 

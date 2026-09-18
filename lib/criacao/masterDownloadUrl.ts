@@ -28,11 +28,30 @@ export function buildMaster192PortalDownloadUrl(musicaId: string): string | null
   return `/api/criacao/baixar-playlists/master/${encodeURIComponent(id)}`;
 }
 
-export type MasterDownloadMode = "portal_b2" | "unavailable";
+export type MasterDownloadMode = "cloud3" | "portal_b2" | "unavailable";
 
-/** Modo ativo para Baixar Playlists (hoje exige B2 no Netlify; cloud2 /criacao/master ainda não está no ar). */
+/** Modo ativo para Baixar Playlists. Preferência: cloud3 (CF) → proxy B2 no Netlify. */
 export function masterDownloadMode(): MasterDownloadMode {
-  return b2MasterFetchEnabled() ? "portal_b2" : "unavailable";
+  if (SECRET.length > 0) return "cloud3";
+  if (b2MasterFetchEnabled()) return "portal_b2";
+  return "unavailable";
+}
+
+/** URL assinada cloud3 — master 192k via worker CF (CORS ok, sem proxy Netlify). */
+export function buildCloud3Master192DownloadUrl(
+  objectKey: string,
+  ttlMs: number = TTL_MS,
+): string | null {
+  if (!SECRET) return null;
+  const key = objectKey.trim();
+  if (!key) return null;
+  const exp = Math.floor((Date.now() + ttlMs) / 1000);
+  const sig = crypto.createHmac("sha256", SECRET).update(`${key}:${exp}`).digest("hex");
+  const domain = (process.env.CF_AUDIO_DOMAIN ?? "cloud3.radioibiza.app.br")
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  const qs = new URLSearchParams({ exp: String(exp), sig });
+  return `https://${domain}/${key}?${qs.toString()}`;
 }
 
 /** URL assinada para baixar master 192 kbps do B2 via cloud2. */

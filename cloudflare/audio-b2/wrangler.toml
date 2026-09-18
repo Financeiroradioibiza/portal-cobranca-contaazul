@@ -12,7 +12,10 @@ routes = [{ pattern = "cloud3.radioibiza.app.br", custom_domain = true }]
 
 [vars]
 B2_USO_PREFIX = "uso/"
+B2_MASTER_PREFIX = "master/"
 B2_REGION = "us-east-005"
+# Origens CORS (vírgula). Inclui previews Netlify de homolog — não remover player5/portal.
+CORS_ALLOWED_ORIGINS = "https://player5.radioibiza.app.br,https://portal.radioibiza.app.br,https://125lab--radio-ibiza-player5.netlify.app,https://ping-lab-0125--radio-ibiza-player5.netlify.app"
 
 # Secrets via wrangler (não commitar):
 #   wrangler secret put CRIACAO_INGEST_SECRET

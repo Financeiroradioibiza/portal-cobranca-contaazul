@@ -14,12 +14,17 @@ export interface Env {
   B2_APPLICATION_KEY: string;
   B2_REGION?: string;
   B2_USO_PREFIX?: string;
+  B2_MASTER_PREFIX?: string;
   CORS_ALLOWED_ORIGINS?: string;
 }
 
 const DEFAULT_ORIGINS = [
   "https://player5.radioibiza.app.br",
   "https://portal.radioibiza.app.br",
+  /** Homologação shell 0125-lab (Netlify deploy preview — 1ª carga honesta). */
+  "https://125lab--radio-ibiza-player5.netlify.app",
+  /** Homologação ping 0125-lab (legado). */
+  "https://ping-lab-0125--radio-ibiza-player5.netlify.app",
 ];
 
 function allowedOrigins(env: Env): string[] {
@@ -42,11 +47,12 @@ function corsHeaders(origin: string | null, env: Env): HeadersInit {
 
 function normalizeObjectKey(pathname: string, env: Env): string | null {
   const key = pathname.replace(/^\/+/, "");
-  if (!key) return null;
-  const prefix = (env.B2_USO_PREFIX ?? "uso/").replace(/^\/+/, "");
-  if (!key.startsWith(prefix)) return null;
-  if (key.includes("..")) return null;
-  return key;
+  if (!key || key.includes("..")) return null;
+  const usoPrefix = (env.B2_USO_PREFIX ?? "uso/").replace(/^\/+/, "");
+  const masterPrefix = (env.B2_MASTER_PREFIX ?? "master/").replace(/^\/+/, "");
+  if (key.startsWith(usoPrefix)) return key;
+  if (key.startsWith(masterPrefix) && key.endsWith(".mp3")) return key;
+  return null;
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {

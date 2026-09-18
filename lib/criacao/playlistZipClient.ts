@@ -60,15 +60,21 @@ export async function downloadPlaylistAsZip(
     });
 
     const url = track.downloadUrl!;
+    const crossOrigin = /^https?:\/\//i.test(url);
     let res: Response;
     try {
-      res = await fetch(url, { credentials: "same-origin" });
+      res = await fetch(
+        url,
+        crossOrigin ? { mode: "cors" } : { credentials: "same-origin" },
+      );
     } catch {
       onProgress?.({
         phase: "error",
         done,
         total,
-        error: `Falha ao baixar «${track.titulo}» (rede)`,
+        error: crossOrigin ?
+          `Falha ao baixar «${track.titulo}» via cloud3 (rede/CORS — deploy do worker?)`
+        : `Falha ao baixar «${track.titulo}» (rede)`,
       });
       throw new Error(`fetch_failed:${track.musicaId}:network:${track.titulo.slice(0, 60)}`);
     }
