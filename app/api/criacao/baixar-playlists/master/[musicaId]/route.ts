@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { buildPresignedMaster192Url, fetchMaster192FromB2 } from "@/lib/criacao/b2MasterFetch";
+import { fetchMaster192FromB2 } from "@/lib/criacao/b2MasterFetch";
 import { buildMaster192DownloadUrl } from "@/lib/criacao/masterDownloadUrl";
 
 export const runtime = "nodejs";
+/** MP3 master ~5 MB — buffer no origin (Netlify não streama bem body upstream). */
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ musicaId: string }> };
 
@@ -14,31 +16,14 @@ export async function GET(_request: Request, ctx: Ctx) {
     const id = musicaId.trim();
     if (!id) return NextResponse.json({ error: "missing_id" }, { status: 400 });
 
-    let neonKey: string | null = null;
-    try {
-      const { prisma } = await import("@/lib/prisma");
-      const row = await prisma.musicaBiblioteca.findUnique({
-        where: { id },
-        select: { masterStorageKey: true },
-      });
-      neonKey = row?.masterStorageKey ?? null;
-    } catch {
-      /* presign com key padrão */
-    }
-
-    const presigned = await buildPresignedMaster192Url(id, neonKey);
-    if (presigned) {
-      return NextResponse.redirect(presigned, { status: 302 });
-    }
-
     const b2 = await fetchMaster192FromB2(id);
     if (b2.kind === "ok") {
+      const buf = await b2.response.arrayBuffer();
       const headers = new Headers();
       headers.set("Content-Type", b2.response.headers.get("Content-Type") ?? "audio/mpeg");
-      const len = b2.response.headers.get("Content-Length");
-      if (len) headers.set("Content-Length", len);
+      headers.set("Content-Length", String(buf.byteLength));
       headers.set("Cache-Control", "private, max-age=300");
-      return new NextResponse(b2.response.body, { status: 200, headers });
+      return new NextResponse(buf, { status: 200, headers });
     }
 
     if (b2.kind === "not_configured") {
@@ -47,12 +32,12 @@ export async function GET(_request: Request, ctx: Ctx) {
         try {
           const upstream = await fetch(cloudUrl);
           if (upstream.ok) {
+            const buf = await upstream.arrayBuffer();
             const headers = new Headers();
             headers.set("Content-Type", upstream.headers.get("Content-Type") ?? "audio/mpeg");
-            const len = upstream.headers.get("Content-Length");
-            if (len) headers.set("Content-Length", len);
+            headers.set("Content-Length", String(buf.byteLength));
             headers.set("Cache-Control", "private, max-age=300");
-            return new NextResponse(upstream.body, { status: 200, headers });
+            return new NextResponse(buf, { status: 200, headers });
           }
         } catch {
           /* cloud2 indisponível */

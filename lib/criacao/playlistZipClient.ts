@@ -60,20 +60,17 @@ export async function downloadPlaylistAsZip(
     });
 
     const url = track.downloadUrl!;
-    const directB2 = /^https?:\/\//i.test(url);
     let res: Response;
     try {
-      res = await fetch(url, directB2 ? { mode: "cors" } : { credentials: "same-origin" });
+      res = await fetch(url, { credentials: "same-origin" });
     } catch {
       onProgress?.({
         phase: "error",
         done,
         total,
-        error: directB2 ?
-          `Falha CORS ao baixar «${track.titulo}» — rode scripts/apply-b2-cors.ts`
-        : `Falha ao baixar «${track.titulo}» (rede)`,
+        error: `Falha ao baixar «${track.titulo}» (rede)`,
       });
-      throw new Error(`fetch_failed:${track.musicaId}:cors:${track.titulo.slice(0, 60)}`);
+      throw new Error(`fetch_failed:${track.musicaId}:network:${track.titulo.slice(0, 60)}`);
     }
     if (!res.ok) {
       onProgress?.({

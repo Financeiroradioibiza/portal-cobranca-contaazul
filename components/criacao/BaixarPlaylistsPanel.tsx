@@ -141,10 +141,6 @@ export function BaixarPlaylistsPanel() {
           );
         } else if (status === "404") {
           setErro(`Master 192k ausente no B2: «${titulo}».`);
-        } else if (status === "cors") {
-          setErro(
-            `CORS do B2 bloqueou o download de «${titulo}». Rode scripts/apply-b2-cors.ts (inclui portal.radioibiza.app.br).`,
-          );
         } else if (status === "403") {
           setErro(
             `B2 recusou o download (403) — confira B2_KEY_ID e B2_APPLICATION_KEY no Netlify (sem aspas extras).`,
