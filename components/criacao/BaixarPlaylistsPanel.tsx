@@ -6,6 +6,7 @@ import {
   downloadPlaylistAsZip,
   type PlaylistZipProgress,
 } from "@/lib/criacao/playlistZipClient";
+import { playlistZipPartCount, PLAYLIST_ZIP_TRACKS_PER_PART } from "@/lib/criacao/playlistZipLimits";
 
 type Cliente = { ref: string; nome: string; pdvCount: number };
 
@@ -107,16 +108,35 @@ export function BaixarPlaylistsPanel() {
     return progSel.pastas.reduce((acc, p) => acc + p.musicasCount, 0);
   }, [progSel]);
 
+  const zipPartCount = useMemo(() => {
+    if (!manifest) return 0;
+    return playlistZipPartCount(manifest.baixaveis);
+  }, [manifest]);
+
   async function handleDownload() {
     if (!manifest || downloading) return;
     if (manifest.baixaveis === 0) {
       alert("Nenhuma faixa com master 192 kbps no B2 nesta programação.");
       return;
     }
+    const parts = playlistZipPartCount(manifest.baixaveis);
+    const partsMsg =
+      parts > 1 ?
+        `\n\nSerão ${parts} arquivos ZIP (até ${PLAYLIST_ZIP_TRACKS_PER_PART} faixas cada: -zip1, -zip2…). Permita downloads múltiplos no browser se o sistema pedir.`
+      : "";
     if (
       manifest.omitidas > 0 &&
       !window.confirm(
-        `${manifest.omitidas} faixa(s) sem master no B2 serão omitidas. Continuar com ${manifest.baixaveis} faixa(s)?`,
+        `${manifest.omitidas} faixa(s) sem master no B2 serão omitidas. Continuar com ${manifest.baixaveis} faixa(s)?${partsMsg}`,
+      )
+    ) {
+      return;
+    }
+    if (
+      manifest.omitidas === 0 &&
+      parts > 1 &&
+      !window.confirm(
+        `${manifest.baixaveis} faixa(s) → ${parts} ZIPs (até ${PLAYLIST_ZIP_TRACKS_PER_PART} faixas cada). Continuar?${partsMsg}`,
       )
     ) {
       return;
@@ -277,6 +297,13 @@ export function BaixarPlaylistsPanel() {
                     {manifest.clienteNome}/{manifest.programacaoNome}/POP/faixa.mp3
                   </code>
                 </li>
+                {zipPartCount > 1 ?
+                  <li className="font-medium text-violet-700 dark:text-violet-300">
+                    {zipPartCount} ZIPs automáticos (máx. {PLAYLIST_ZIP_TRACKS_PER_PART} faixas cada):{" "}
+                    <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">…-zip1.zip</code>,{" "}
+                    <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">…-zip2.zip</code>…
+                  </li>
+                : null}
               </ul>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -286,7 +313,13 @@ export function BaixarPlaylistsPanel() {
                   onClick={() => void handleDownload()}
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
                 >
-                  {downloading ? "Baixando…" : "Baixar ZIP (192 kbps)"}
+                  {downloading ?
+                    zipPartCount > 1 ?
+                      "Baixando ZIPs…"
+                    : "Baixando…"
+                  : zipPartCount > 1 ?
+                    `Baixar ${zipPartCount} ZIPs (192 kbps)`
+                  : "Baixar ZIP (192 kbps)"}
                 </button>
                 {totalMusicasProg === 0 ?
                   <span className="text-xs text-slate-500">Programação vazia.</span>
@@ -297,9 +330,13 @@ export function BaixarPlaylistsPanel() {
                 <div className="mt-3 rounded border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
                   <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
                     {progress.phase === "zipping" ?
-                      "Compactando ZIP…"
+                      progress.partCount && progress.partCount > 1 ?
+                        `Compactando ZIP ${progress.partIndex}/${progress.partCount}…`
+                      : "Compactando ZIP…"
                     : progress.phase === "fetching" ?
-                      `Baixando ${progress.done + 1}/${progress.total}…`
+                      progress.partCount && progress.partCount > 1 ?
+                        `ZIP ${progress.partIndex}/${progress.partCount} · faixa ${progress.done + 1}/${progress.total}`
+                      : `Baixando ${progress.done + 1}/${progress.total}…`
                     : ""}
                     {progress.currentLabel ?
                       <span className="mt-0.5 block truncate text-[10px] font-normal text-slate-500">
@@ -307,12 +344,20 @@ export function BaixarPlaylistsPanel() {
                       </span>
                     : null}
                   </p>
-                  {progress.total > 0 ?
+                  {(progress.overallTotal ?? progress.total) > 0 ?
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                       <div
                         className="h-full bg-emerald-500 transition-all"
                         style={{
-                          width: `${Math.min(100, Math.round(((progress.done + (progress.phase === "zipping" ? 0.5 : 0)) / progress.total) * 100))}%`,
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              (((progress.overallDone ?? progress.done) +
+                                (progress.phase === "zipping" ? 0.5 : 0)) /
+                                (progress.overallTotal ?? progress.total)) *
+                                100,
+                            ),
+                          )}%`,
                         }}
                       />
                     </div>
