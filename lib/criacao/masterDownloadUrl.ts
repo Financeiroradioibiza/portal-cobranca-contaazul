@@ -28,6 +28,13 @@ export function buildMaster192PortalDownloadUrl(musicaId: string): string | null
   return `/api/criacao/baixar-playlists/master/${encodeURIComponent(id)}`;
 }
 
+export type MasterDownloadMode = "portal_b2" | "unavailable";
+
+/** Modo ativo para Baixar Playlists (hoje exige B2 no Netlify; cloud2 /criacao/master ainda não está no ar). */
+export function masterDownloadMode(): MasterDownloadMode {
+  return b2MasterFetchEnabled() ? "portal_b2" : "unavailable";
+}
+
 /** URL assinada para baixar master 192 kbps do B2 via cloud2. */
 export function buildMaster192DownloadUrl(musicaId: string, ttlMs: number = TTL_MS): string | null {
   if (!SECRET) return null;

@@ -27,6 +27,7 @@ export function BaixarPlaylistsPanel() {
   const [loadingManifest, setLoadingManifest] = useState(false);
   const [masterOk, setMasterOk] = useState(true);
   const [b2Configured, setB2Configured] = useState(true);
+  const [downloadMode, setDownloadMode] = useState<"portal_b2" | "unavailable" | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<PlaylistZipProgress | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -75,12 +76,14 @@ export function BaixarPlaylistsPanel() {
         manifest?: PlaylistDownloadManifest;
         masterDownloadEnabled?: boolean;
         b2Configured?: boolean;
+        downloadMode?: "portal_b2" | "unavailable";
         error?: string;
       };
       if (!res.ok || !data.manifest) {
         setErro(data.error === "not_found" ? "Programação não encontrada." : "Falha ao carregar.");
         return;
       }
+      setDownloadMode(data.downloadMode ?? (data.b2Configured !== false ? "portal_b2" : "unavailable"));
       setB2Configured(data.b2Configured !== false);
       setMasterOk(Boolean(data.masterDownloadEnabled));
       setManifest(data.manifest);
@@ -163,17 +166,22 @@ export function BaixarPlaylistsPanel() {
         </p>
       </header>
 
-      {!masterOk ?
+      {downloadMode === "unavailable" || !masterOk || !b2Configured ?
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          Download master desabilitado — configure <code>B2_*</code> no Netlify ou{" "}
-          <code>CRIACAO_INGEST_SECRET</code> + rota <code>/criacao/master</code> no cloud2.
-        </div>
-      : !b2Configured ?
-        <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-          <strong>B2_* ausente no Netlify.</strong> O download vai falhar até copiar do cloud2:{" "}
-          <code>B2_S3_ENDPOINT</code>, <code>B2_REGION</code>, <code>B2_BUCKET</code>,{" "}
-          <code>B2_KEY_ID</code>, <code>B2_APPLICATION_KEY</code> (e opcional{" "}
-          <code>B2_MASTER_PREFIX=master/</code> se diferente).
+          <strong>Baixar Playlists precisa das credenciais B2 no Netlify</strong> (mesmas do cloud2). No painel
+          Netlify → Site configuration → Environment variables, adicione:
+          <ul className="mt-2 list-inside list-disc space-y-0.5 font-mono text-[11px]">
+            <li>B2_S3_ENDPOINT</li>
+            <li>B2_REGION</li>
+            <li>B2_BUCKET</li>
+            <li>B2_KEY_ID</li>
+            <li>B2_APPLICATION_KEY</li>
+            <li>B2_MASTER_PREFIX=master/</li>
+          </ul>
+          <p className="mt-2 font-sans">
+            Valores: copie do <code>.env</code> do cloud2 (api/worker) ou de{" "}
+            <code>.cloud2-secrets/b2.env</code>. Depois faça redeploy do site no Netlify.
+          </p>
         </div>
       : null}
 

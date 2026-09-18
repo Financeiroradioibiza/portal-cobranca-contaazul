@@ -25,7 +25,7 @@ function readB2Config(): B2Config {
     secretAccessKey: (
       process.env.B2_APPLICATION_KEY ?? process.env.B2_SECRET_ACCESS_KEY ?? ""
     ).trim(),
-    masterPrefix: (process.env.B2_MASTER_PREFIX ?? "masters/").replace(/^\/+/, ""),
+    masterPrefix: (process.env.B2_MASTER_PREFIX ?? "master/").replace(/^\/+/, ""),
   };
 }
 

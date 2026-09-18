@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { loadPlaylistDownloadManifest } from "@/lib/criacao/playlistDownloadService";
-import { masterDownloadEnabled, masterDownloadViaPortalB2 } from "@/lib/criacao/masterDownloadUrl";
+import {
+  masterDownloadEnabled,
+  masterDownloadMode,
+  masterDownloadViaPortalB2,
+} from "@/lib/criacao/masterDownloadUrl";
 
 export const runtime = "nodejs";
 
@@ -17,6 +21,7 @@ export async function GET(_request: Request, ctx: Ctx) {
       manifest,
       masterDownloadEnabled: masterDownloadEnabled(),
       b2Configured: masterDownloadViaPortalB2(),
+      downloadMode: masterDownloadMode(),
     });
   } catch (e) {
     if (e instanceof Response) return e;
