@@ -14,6 +14,91 @@ export type AtlCricaUploadLote = {
   criativoUserId?: string | null;
 };
 
+async function uploadErrorFromResponse(res: Response): Promise<string> {
+  const data = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+  if (data?.message) return data.message;
+  if (res.status === 504) return "Portal demorou demais (504). Confira a Fila antes de enviar de novo.";
+  return "Falha ao enfileirar upload.";
+}
+
+async function uploadOneAtlCricaLote(
+  opts: {
+    titulo: string;
+    lote: AtlCricaUploadLote & { clienteRef: string; clienteNome: string };
+  },
+  onProgress?: (done: number, total: number, label?: string) => void,
+  progress?: { done: number; total: number },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const l = opts.lote;
+  const res = await fetch("/api/criacao/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      titulo: opts.titulo,
+      lotes: [
+        {
+          titulo: `ATL CRICA · ${l.pastaNome}`,
+          destinoTipo: "pasta" as const,
+          clienteRef: l.clienteRef,
+          clienteNome: l.clienteNome,
+          programacaoId: l.programacaoId,
+          pastaId: l.pastaId,
+          uploadTagNome: buildAtlCricaPastaUploadTag(l.pastaNome),
+          tagCriativoUserId: l.criativoUserId?.trim() || undefined,
+          arquivos: l.arquivos.map((f) => ({ nome: f.name, sizeBytes: f.size })),
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    return { ok: false, error: await uploadErrorFromResponse(res) };
+  }
+
+  const data = (await res.json()) as {
+    ingestUrl: string;
+    jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
+  };
+
+  const job = data.jobs[0];
+  if (!job) {
+    return { ok: false, error: `Job não criado para pasta ${l.pastaNome}.` };
+  }
+
+  const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
+  const falhas: string[] = [];
+  let done = progress?.done ?? 0;
+  const total = progress?.total ?? l.arquivos.length;
+
+  for (const f of l.arquivos) {
+    onProgress?.(done, total, l.pastaNome);
+    const ticket = ticketByNome.get(f.name.slice(0, 500));
+    if (!ticket) {
+      falhas.push(f.name);
+      done += 1;
+      continue;
+    }
+    const fd = new FormData();
+    fd.append("token", ticket.token);
+    fd.append("file", f, f.name);
+    try {
+      const up = await fetch(data.ingestUrl, { method: "POST", body: fd });
+      if (!up.ok) falhas.push(f.name);
+    } catch {
+      falhas.push(f.name);
+    }
+    done += 1;
+  }
+
+  if (falhas.length > 0) {
+    return {
+      ok: false,
+      error: `${l.arquivos.length - falhas.length}/${l.arquivos.length} enviados em ${l.pastaNome}. Falharam: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`,
+    };
+  }
+  return { ok: true };
+}
+
 export async function submitAtlCricaFileUpload(opts: {
   titulo: string;
   competencia: string;
@@ -37,9 +122,7 @@ export async function submitAtlCricaFileUpload(opts: {
 export async function submitAtlCricaImportUpload(opts: {
   titulo: string;
   competencia: string;
-  lotes: Array<
-    AtlCricaUploadLote & { clienteRef: string; clienteNome: string }
-  >;
+  lotes: Array<AtlCricaUploadLote & { clienteRef: string; clienteNome: string }>;
   onProgress?: (done: number, total: number, label?: string) => void;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const lotesComArquivos = opts.lotes.filter((l) => l.arquivos.length > 0);
@@ -48,70 +131,24 @@ export async function submitAtlCricaImportUpload(opts: {
   const totalUpload = lotesComArquivos.reduce((n, l) => n + l.arquivos.length, 0);
   let done = 0;
 
-  const res = await fetch("/api/criacao/upload", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      titulo: opts.titulo,
-      lotes: lotesComArquivos.map((l) => ({
-        titulo: `ATL CRICA · ${l.pastaNome}`,
-        destinoTipo: "pasta" as const,
-        clienteRef: l.clienteRef,
-        clienteNome: l.clienteNome,
-        programacaoId: l.programacaoId,
-        pastaId: l.pastaId,
-        uploadTagNome: buildAtlCricaPastaUploadTag(l.pastaNome),
-        tagCriativoUserId: l.criativoUserId?.trim() || undefined,
-        arquivos: l.arquivos.map((f) => ({ nome: f.name, sizeBytes: f.size })),
-      })),
-    }),
-  });
-
-  if (!res.ok) return { ok: false, error: "Falha ao enfileirar upload." };
-
-  const data = (await res.json()) as {
-    ingestUrl: string;
-    jobs: Array<{ jobId: string; titulo: string; tickets: Ticket[] }>;
-  };
-
-  const falhas: string[] = [];
   for (let i = 0; i < lotesComArquivos.length; i++) {
     const lote = lotesComArquivos[i]!;
-    const job = data.jobs[i];
-    if (!job) {
-      falhas.push(...lote.arquivos.map((f) => f.name));
-      done += lote.arquivos.length;
-      opts.onProgress?.(done, totalUpload, lote.pastaNome);
-      continue;
+    opts.onProgress?.(done, totalUpload, `${i + 1}/${lotesComArquivos.length} · ${lote.pastaNome}`);
+
+    const result = await uploadOneAtlCricaLote(
+      { titulo: opts.titulo, lote },
+      opts.onProgress,
+      { done, total: totalUpload },
+    );
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: `${result.error} (lote ${i + 1}/${lotesComArquivos.length}). Lotes anteriores podem já estar na Fila.`,
+      };
     }
-    const ticketByNome = new Map(job.tickets.map((t) => [t.arquivoNome, t]));
-    for (const f of lote.arquivos) {
-      opts.onProgress?.(done, totalUpload, lote.pastaNome);
-      const ticket = ticketByNome.get(f.name.slice(0, 500));
-      if (!ticket) {
-        falhas.push(f.name);
-        done += 1;
-        continue;
-      }
-      const fd = new FormData();
-      fd.append("token", ticket.token);
-      fd.append("file", f, f.name);
-      try {
-        const up = await fetch(data.ingestUrl, { method: "POST", body: fd });
-        if (!up.ok) falhas.push(f.name);
-      } catch {
-        falhas.push(f.name);
-      }
-      done += 1;
-    }
+    done += lote.arquivos.length;
   }
 
-  if (falhas.length > 0) {
-    return {
-      ok: false,
-      error: `${totalUpload - falhas.length}/${totalUpload} enviados. Falharam: ${falhas.slice(0, 5).join(", ")}${falhas.length > 5 ? "…" : ""}`,
-    };
-  }
   return { ok: true };
 }
 

@@ -110,7 +110,6 @@ function uploadErrorMessage(errData: { error?: string; message?: string } | null
   if (status === 504) {
     return "Portal demorou demais (504). Confira a Fila — o job deste lote pode ter sido criado mesmo assim.";
   }
-  if (errData?.error === "lotes_demais" && errData.message) return errData.message;
   if (errData?.error === "arquivos_demais" && errData.message) return errData.message;
   if (errData?.error === "staging_item_invalido") {
     return "Uma ou mais faixas do servidor já foram importadas ou não existem mais.";
