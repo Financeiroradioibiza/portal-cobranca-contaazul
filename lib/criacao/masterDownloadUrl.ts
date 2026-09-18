@@ -1,8 +1,7 @@
 import crypto from "node:crypto";
-import { b2MasterFetchEnabled } from "@/lib/criacao/b2MasterFetch";
 import { CRIACAO_INGEST_URL } from "./ingestTicket";
 
-const SECRET = process.env.CRIACAO_INGEST_SECRET ?? "";
+const SECRET = (process.env.CRIACAO_INGEST_SECRET ?? "").trim();
 
 /** Base master 192k no cloud2 (…/criacao/ingest → …/criacao/master). */
 const MASTER_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/master");
@@ -10,31 +9,16 @@ const MASTER_BASE = CRIACAO_INGEST_URL.replace(/\/ingest$/, "/master");
 /** Validade do link de download master: 4h (montagem do ZIP no browser). */
 const TTL_MS = 4 * 60 * 60 * 1000;
 
-/** Download habilitado — exige B2 no Netlify (proxy portal) ou rota /criacao/master no cloud2. */
+/** Download habilitado — entrega via cloud3 (worker CF → B2). */
 export function masterDownloadEnabled(): boolean {
-  return b2MasterFetchEnabled() || SECRET.length > 0;
+  return SECRET.length > 0;
 }
 
-/** B2 configurado no portal (caminho preferido em produção). */
-export function masterDownloadViaPortalB2(): boolean {
-  return b2MasterFetchEnabled();
-}
+export type MasterDownloadMode = "cloud3" | "unavailable";
 
-/** URL same-origin — proxy do portal (B2 direto ou fallback cloud2). */
-export function buildMaster192PortalDownloadUrl(musicaId: string): string | null {
-  if (!masterDownloadEnabled()) return null;
-  const id = musicaId.trim();
-  if (!id) return null;
-  return `/api/criacao/baixar-playlists/master/${encodeURIComponent(id)}`;
-}
-
-export type MasterDownloadMode = "b2_presigned" | "cloud3" | "portal_b2" | "unavailable";
-
-/** Modo ativo para Baixar Playlists. Preferência: URL presigned B2 (CORS) → cloud3 → proxy portal. */
+/** Modo fixo: cloud3 assinado (mesmo padrão do player). */
 export function masterDownloadMode(): MasterDownloadMode {
-  if (b2MasterFetchEnabled()) return "b2_presigned";
-  if (SECRET.length > 0) return "cloud3";
-  return "unavailable";
+  return SECRET.length > 0 ? "cloud3" : "unavailable";
 }
 
 /** URL assinada cloud3 — master 192k via worker CF (CORS ok, sem proxy Netlify). */

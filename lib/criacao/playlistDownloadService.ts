@@ -1,15 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { buildAtlFolderPath, sanitizePathSegment } from "@/lib/criacao/pathSanitize";
 import { masterOnB2 } from "@/lib/criacao/musicaStorageBadges";
-import {
-  buildPresignedMaster192Url,
-  resolveMasterB2ObjectKeys,
-} from "@/lib/criacao/b2MasterFetch";
-import {
-  buildCloud3Master192DownloadUrl,
-  buildMaster192PortalDownloadUrl,
-  masterDownloadMode,
-} from "@/lib/criacao/masterDownloadUrl";
+import { resolveMasterB2ObjectKeys } from "@/lib/criacao/b2MasterFetch";
+import { buildCloud3Master192DownloadUrl } from "@/lib/criacao/masterDownloadUrl";
 
 export type PlaylistDownloadTrack = {
   musicaId: string;
@@ -112,15 +105,8 @@ export async function loadPlaylistDownloadManifest(
       if (!masterOnB2(m.masterStorageKey)) {
         skipReason = m.masterStorageKey?.startsWith("local:") ? "master_somente_local" : "sem_master_b2";
       } else {
-        const mode = masterDownloadMode();
-        if (mode === "b2_presigned") {
-          downloadUrl = await buildPresignedMaster192Url(musicaId, m.masterStorageKey);
-        } else if (mode === "cloud3") {
-          const keys = resolveMasterB2ObjectKeys(musicaId, m.masterStorageKey, "master/");
-          downloadUrl = keys[0] ? buildCloud3Master192DownloadUrl(keys[0]) : null;
-        } else {
-          downloadUrl = buildMaster192PortalDownloadUrl(musicaId);
-        }
+        const keys = resolveMasterB2ObjectKeys(musicaId, m.masterStorageKey, "master/");
+        downloadUrl = keys[0] ? buildCloud3Master192DownloadUrl(keys[0]) : null;
         if (!downloadUrl) skipReason = "download_desabilitado";
       }
 

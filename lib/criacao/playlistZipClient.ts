@@ -60,25 +60,17 @@ export async function downloadPlaylistAsZip(
     });
 
     const url = track.downloadUrl!;
-    const directB2 = /^https?:\/\//i.test(url);
     let res: Response;
     try {
-      res = await fetch(
-        url,
-        directB2 ?
-          { mode: "cors", credentials: "omit", cache: "no-store" }
-        : { credentials: "same-origin" },
-      );
+      res = await fetch(url, { mode: "cors", credentials: "omit", cache: "no-store" });
     } catch {
       onProgress?.({
         phase: "error",
         done,
         total,
-        error: directB2 ?
-          `CORS/rede ao baixar «${track.titulo}» — confira CORS do bucket B2 (apply-b2-cors.ts)`
-        : `Falha ao baixar «${track.titulo}» (rede)`,
+        error: `Rede ao baixar «${track.titulo}» via cloud3`,
       });
-      throw new Error(`fetch_failed:${track.musicaId}:cors:${track.titulo.slice(0, 60)}`);
+      throw new Error(`fetch_failed:${track.musicaId}:network:${track.titulo.slice(0, 60)}`);
     }
     if (!res.ok) {
       onProgress?.({
