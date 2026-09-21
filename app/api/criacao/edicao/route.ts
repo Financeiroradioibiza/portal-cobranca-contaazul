@@ -11,7 +11,19 @@ export async function GET(request: Request) {
     const search = url.searchParams.get("search") ?? undefined;
     const tagId = url.searchParams.get("tagId") ?? undefined;
     const pastaId = url.searchParams.get("pastaId") ?? undefined;
-    const faixas = await listFaixasEdicao({ search, tagId, pastaId });
+    const bibliotecaPastaId = url.searchParams.get("bibliotecaPastaId") ?? undefined;
+    const pastaProgramacaoId = url.searchParams.get("pastaProgramacaoId") ?? undefined;
+    const pastaEspecialId = url.searchParams.get("pastaEspecialId") ?? undefined;
+    const offArquivoId = url.searchParams.get("offArquivoId") ?? undefined;
+    const faixas = await listFaixasEdicao({
+      search,
+      tagId,
+      pastaId,
+      bibliotecaPastaId,
+      pastaProgramacaoId,
+      pastaEspecialId,
+      offArquivoId,
+    });
     return NextResponse.json({ faixas });
   } catch (e) {
     if (e instanceof Response) return e;

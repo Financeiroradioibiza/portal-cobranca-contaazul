@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { BibliotecaSidebar } from "@/components/criacao/BibliotecaSidebar";
 import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { folderKeyToQuery, type BibliotecaFolderKey } from "@/lib/criacao/bibliotecaFolderTypes";
+import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaService";
 import { MIX_PADRAO_SEGUNDOS } from "@/lib/criacao/criacaoDefaults";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { LazyWaveformBars, WaveformBars, WaveformEditBadges } from "@/components/criacao/waveform/WaveformBars";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
 type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
-type TagChip = { id: string; nome: string; cor: string; criativoNome?: string };
-
 type Faixa = {
   id: string;
   titulo: string;
@@ -110,19 +111,11 @@ export function EdicaoPanel() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState("");
-  const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
-  const [allTags, setAllTags] = useState<TagChip[]>([]);
+  const [folder, setFolder] = useState<BibliotecaFolderKey>({ kind: "all", label: "Todas as faixas" });
   const [sel, setSel] = useState<Faixa | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reanalyzing, setReanalyzing] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    void fetch("/api/criacao/tags")
-      .then((r) => (r.ok ? r.json() : { tags: [] }))
-      .then((d: { tags?: TagChip[] }) => setAllTags(d.tags ?? []))
-      .catch(() => setAllTags([]));
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,7 +123,9 @@ export function EdicaoPanel() {
     try {
       const params = new URLSearchParams();
       if (search.trim()) params.set("search", search.trim());
-      if (tagIdFilter) params.set("tagId", tagIdFilter);
+      for (const [k, v] of Object.entries(folderKeyToQuery(folder))) {
+        params.set(k, v);
+      }
       const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(`/api/criacao/edicao${qs}`);
       if (!res.ok) throw new Error();
@@ -142,7 +137,7 @@ export function EdicaoPanel() {
     } finally {
       setLoading(false);
     }
-  }, [search, tagIdFilter]);
+  }, [search, folder]);
 
   useEffect(() => {
     void load();
@@ -257,74 +252,63 @@ export function EdicaoPanel() {
     }
   }
 
+  const folderTitle =
+    folder.kind === "custom" ? `${iconeBibliotecaPastaEmoji(folder.icone)} ${folder.label}` : folder.label;
+  const folderSubtitle =
+    folder.kind === "prog" ? `${folder.clienteNome} · ${folder.programacaoNome}`
+    : folder.kind === "custom" ? `[${folder.criativoIniciais}]`
+    : folder.kind === "tag" && folder.criativoNome ? `[${folder.criativoNome}]`
+    : undefined;
+
   return (
-    <div className="mx-auto max-w-[1400px] px-3 py-6 sm:px-4">
-      <div className="mb-6">
+    <div className="mx-auto max-w-[1600px] px-3 py-6 sm:px-4">
+      <div className="mb-4">
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Edição de música</div>
         <h1 className="text-2xl font-bold tracking-tight">Edição de música</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          Veja a <strong>forma de onda</strong> de cada faixa — silêncio no início ou fim aparece como espaço vazio.
-          Clique numa faixa para ajustar <strong>ponto de mix</strong> e <strong>trim manual</strong>; no editor, <strong>clique na waveform</strong> para tocar a partir daquele ponto.
+          Escolha uma <strong>pasta ou tag</strong> na coluna ao lado (igual à Biblioteca), depois clique numa faixa para
+          ajustar <strong>ponto de mix</strong> e <strong>trim</strong>.
         </p>
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setSearch(draft);
-        }}
-        className="mb-2 flex gap-2"
-      >
-        <input
-          type="search"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Título, artista, tag, mood (calmo, animado…), BPM, pasta ou programação…"
-          className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+      <div className="flex min-h-[calc(100vh-11rem)] overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <BibliotecaSidebar
+          mode="filter"
+          active={folder}
+          onSelect={(f) => {
+            setFolder(f);
+            setSel(null);
+          }}
         />
-        <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
-          Buscar
-        </button>
-      </form>
-      {allTags.length > 0 ?
-        <div className="mb-4 max-h-24 overflow-y-auto rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-            Filtrar por tag
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {allTags.map((t) => {
-              const active = tagIdFilter === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTagIdFilter(active ? null : t.id)}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
-                    active ? "ring-2 ring-slate-900 ring-offset-1 dark:ring-white" : "opacity-90 hover:opacity-100"
-                  }`}
-                  style={{ backgroundColor: t.cor, color: readableText(t.cor) }}
-                  title={t.criativoNome ? `[${t.criativoNome}] ${t.nome}` : t.nome}
-                >
-                  {t.criativoNome ? `[${t.criativoNome}] ` : ""}
-                  {t.nome}
-                </button>
-              );
-            })}
-            {tagIdFilter ?
-              <button
-                type="button"
-                onClick={() => setTagIdFilter(null)}
-                className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-50 dark:border-slate-600"
-              >
-                Limpar tag
-              </button>
+        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="mb-3 min-w-0">
+            <h2 className="truncate text-lg font-bold text-slate-900 dark:text-slate-100">{folderTitle}</h2>
+            {folderSubtitle ?
+              <p className="truncate text-xs text-slate-500">{folderSubtitle}</p>
             : null}
           </div>
-        </div>
-      : null}
-      <p className="mb-4 text-[11px] text-slate-500">
-        Ordenado por <strong>upload mais recente</strong>. Dica: busque pelo nome da pasta ou programação para listar uma playlist inteira.
-      </p>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setSearch(draft);
+            }}
+            className="mb-3 flex gap-2"
+          >
+            <input
+              type="search"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Refinar: título, artista, mood, BPM…"
+              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            />
+            <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
+              Buscar
+            </button>
+          </form>
+          <p className="mb-4 text-[11px] text-slate-500">
+            Ordenado por <strong>upload mais recente</strong>. A busca refina o filtro da pasta selecionada.
+          </p>
 
       {faixas.length > 0 ?
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
@@ -363,7 +347,9 @@ export function EdicaoPanel() {
         <div className="py-10 text-sm text-red-600">{error}</div>
       : faixas.length === 0 ?
         <div className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700">
-          Nenhuma faixa pronta. Processe uploads primeiro.
+          {folder.kind === "all" ?
+            "Nenhuma faixa pronta. Processe uploads primeiro."
+          : `Nenhuma faixa pronta em «${folder.label}».`}
         </div>
       : <>
           <div className={`overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-sm dark:border-slate-800${sel ? " pb-52 md:pb-64" : ""}`}>
@@ -434,7 +420,7 @@ export function EdicaoPanel() {
 
           {sel ?
             <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-700 bg-slate-950/95 shadow-[0_-8px_32px_rgba(0,0,0,0.35)] backdrop-blur-md">
-              <div className="mx-auto max-w-[1400px] px-3 py-3 sm:px-4">
+              <div className="mx-auto max-w-[1600px] px-3 py-3 sm:px-4">
                 <FaixaEditor
                   key={sel.id}
                   faixa={sel}
@@ -451,6 +437,8 @@ export function EdicaoPanel() {
           : null}
         </>
       }
+        </div>
+      </div>
     </div>
   );
 }

@@ -36,7 +36,12 @@ export type FaixaEdicaoRow = {
 export async function listFaixasEdicao(opts: {
   search?: string;
   tagId?: string;
+  /** @deprecated use pastaProgramacaoId */
   pastaId?: string;
+  bibliotecaPastaId?: string;
+  pastaProgramacaoId?: string;
+  pastaEspecialId?: string;
+  offArquivoId?: string;
   musicaIds?: string[];
   /** Revisão pós-upload: inclui faixas ainda em processamento. */
   revisao?: boolean;
@@ -53,8 +58,28 @@ export async function listFaixasEdicao(opts: {
     if (opts.tagId) {
       where.tagsManuais = { some: { tagId: opts.tagId } };
     }
-    if (opts.pastaId) {
-      where.pastas = { some: { pastaId: opts.pastaId } };
+    const progPastaId = opts.pastaProgramacaoId ?? opts.pastaId;
+    if (progPastaId) {
+      where.pastas = { some: { pastaId: progPastaId } };
+    }
+    if (opts.bibliotecaPastaId) {
+      where.bibliotecaPastas = { some: { pastaId: opts.bibliotecaPastaId } };
+    }
+    if (opts.pastaEspecialId) {
+      const ids = (
+        await prisma.pastaEspecialMusica.findMany({
+          where: { pastaEspecialId: opts.pastaEspecialId },
+          select: { musicaId: true },
+        })
+      ).map((r) => r.musicaId);
+      if (ids.length === 0) return [];
+      where.id = { in: ids };
+    }
+    if (opts.offArquivoId) {
+      const { musicaIdsForOffArquivo } = await import("@/lib/criacao/atualizacaoArquivoService");
+      const ids = await musicaIdsForOffArquivo(opts.offArquivoId);
+      if (ids.length === 0) return [];
+      where.id = { in: ids };
     }
   }
 

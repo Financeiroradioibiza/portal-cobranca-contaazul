@@ -95,12 +95,16 @@ export function BibliotecaSidebar({
   onSelect,
   onPastasChange,
   refreshToken = 0,
+  mode = "manage",
 }: {
   active: BibliotecaFolderKey;
   onSelect: (f: BibliotecaFolderKey) => void;
   onPastasChange?: () => void;
   refreshToken?: number;
+  /** filter: só navegação (ex.: Edição de música) — sem criar pasta nem drag-and-drop */
+  mode?: "manage" | "filter";
 }) {
+  const filterOnly = mode === "filter";
   const [tree, setTree] = useState<BibliotecaSidebarTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [progOpen, setProgOpen] = useState<Record<string, boolean>>({});
@@ -254,7 +258,7 @@ export function BibliotecaSidebar({
                   subtitle="Faixas retiradas no OFF"
                   emoji="📤"
                   badge={off.musicaCount}
-                  readOnly
+                  readOnly={filterOnly ? undefined : true}
                   onClick={() =>
                     onSelect({
                       kind: "off",
@@ -284,11 +288,11 @@ export function BibliotecaSidebar({
     <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/50">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2">
         <SidebarItem
-          active={isActive({ kind: "all", label: "Biblioteca" })}
-          label="Biblioteca"
-          subtitle="Todas as músicas"
+          active={isActive({ kind: "all", label: filterOnly ? "Todas as faixas" : "Biblioteca" })}
+          label={filterOnly ? "Todas as faixas" : "Biblioteca"}
+          subtitle={filterOnly ? "Sem filtro de pasta" : "Todas as músicas"}
           emoji="🎵"
-          onClick={() => onSelect({ kind: "all", label: "Biblioteca" })}
+          onClick={() => onSelect({ kind: "all", label: filterOnly ? "Todas as faixas" : "Biblioteca" })}
         />
 
         <SectionTitle>Tags</SectionTitle>
@@ -312,18 +316,21 @@ export function BibliotecaSidebar({
           />
         ))}
 
-        <div className="flex items-center justify-between gap-1 px-2 pb-1 pt-3">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pastas custom</div>
-          <button
-            type="button"
-            disabled={apagandoVazias}
-            onClick={() => void apagarPastasVazias()}
-            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-200 hover:text-slate-800 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            title="Remove pastas custom que não têm nenhuma faixa"
-          >
-            {apagandoVazias ? "…" : "Apagar vazias"}
-          </button>
-        </div>
+        {filterOnly ?
+          <SectionTitle>Pastas custom</SectionTitle>
+        : <div className="flex items-center justify-between gap-1 px-2 pb-1 pt-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pastas custom</div>
+            <button
+              type="button"
+              disabled={apagandoVazias}
+              onClick={() => void apagarPastasVazias()}
+              className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-200 hover:text-slate-800 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              title="Remove pastas custom que não têm nenhuma faixa"
+            >
+              {apagandoVazias ? "…" : "Apagar vazias"}
+            </button>
+          </div>
+        }
         {(tree?.pastasCustom ?? []).map((p) => (
           <SidebarItem
             key={p.id}
@@ -340,14 +347,18 @@ export function BibliotecaSidebar({
             cor={p.cor}
             emoji={iconeBibliotecaPastaEmoji(p.icone)}
             badge={p.musicaCount}
-            droppableId={folderDropTargetId({
-              kind: "custom",
-              id: p.id,
-              label: p.nome,
-              cor: p.cor,
-              icone: p.icone,
-              criativoIniciais: p.criativoIniciais,
-            })}
+            droppableId={
+              filterOnly ?
+                undefined
+              : folderDropTargetId({
+                  kind: "custom",
+                  id: p.id,
+                  label: p.nome,
+                  cor: p.cor,
+                  icone: p.icone,
+                  criativoIniciais: p.criativoIniciais,
+                })
+            }
             onClick={() =>
               onSelect({
                 kind: "custom",
@@ -360,26 +371,28 @@ export function BibliotecaSidebar({
             }
           />
         ))}
-        <div className="mt-1 flex gap-1 px-1">
-          <input
-            type="text"
-            value={novoNome}
-            onChange={(e) => setNovoNome(e.target.value)}
-            placeholder="Nova pasta…"
-            className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void criarPasta();
-            }}
-          />
-          <button
-            type="button"
-            disabled={criando || !novoNome.trim()}
-            onClick={() => void criarPasta()}
-            className="rounded-md bg-slate-900 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-          >
-            +
-          </button>
-        </div>
+        {filterOnly ? null : (
+          <div className="mt-1 flex gap-1 px-1">
+            <input
+              type="text"
+              value={novoNome}
+              onChange={(e) => setNovoNome(e.target.value)}
+              placeholder="Nova pasta…"
+              className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void criarPasta();
+              }}
+            />
+            <button
+              type="button"
+              disabled={criando || !novoNome.trim()}
+              onClick={() => void criarPasta()}
+              className="rounded-md bg-slate-900 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+            >
+              +
+            </button>
+          </div>
+        )}
 
         <SectionTitle>Pastas especiais</SectionTitle>
         {(tree?.pastasEspeciais ?? []).map((p) => (
@@ -389,7 +402,7 @@ export function BibliotecaSidebar({
             label={p.nome}
             emoji="✨"
             badge={p.musicaCount}
-            readOnly
+            readOnly={filterOnly ? undefined : true}
             onClick={() => onSelect({ kind: "especial", id: p.id, label: p.nome, readOnly: true })}
           />
         ))}
@@ -426,7 +439,7 @@ export function BibliotecaSidebar({
                         label={pa.nome}
                         emoji="📂"
                         badge={pa.musicaCount}
-                        readOnly
+                        readOnly={filterOnly ? undefined : true}
                         onClick={() =>
                           onSelect({
                             kind: "prog",
