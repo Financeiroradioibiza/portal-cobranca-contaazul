@@ -476,8 +476,9 @@ export function UploadPanel() {
         <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Criação / Upload</div>
         <h1 className="text-2xl font-bold tracking-tight">Upload de músicas 192k</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie. Pastas com
-          centenas de faixas são divididas automaticamente (até ~4.000 MP3 num envio); acompanhe o progresso na barra.
+          Monte vários lotes na mesma tela — pastas de clientes diferentes, tags na biblioteca — e envie. Pastas grandes
+          são divididas automaticamente em jobs de até 200 MP3 (parte 1/N); acompanhe o progresso na barra e não feche
+          o navegador enquanto aparecer «Enviando X/Y…».
         </p>
       </div>
 
