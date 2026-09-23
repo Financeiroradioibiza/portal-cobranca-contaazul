@@ -6,10 +6,12 @@ import {
   addDaysYmd,
   currentOverviewContext,
   dueInYearMonth,
+  dueYearMonth,
   ymFirstDay,
   ymLastDay,
   ymdCompare,
 } from "@/lib/financeiro/financeiroOverviewDates";
+import { formatYearMonthLabel, shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 
 export type FinanceiroOverviewCards = {
   totalPrevistoMes: number;
@@ -110,5 +112,58 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
       mesSeguinte: ctx.labelMesSeguinte,
     },
     cards,
+  };
+}
+
+export type FluxoRafaelBoletosAtrasadosPayload = {
+  ok: true;
+  fetchedAt: string;
+  mesAtual: number;
+  mesPassado: number;
+  ultimos6Meses: number;
+  labels: {
+    mesAtual: string;
+    mesPassado: string;
+    ultimos6Meses: string;
+  };
+};
+
+/** Totais de contas a receber vencidas (Conta Azul) para a faixa «hoje → amanhã» no Fluxo Rafael. */
+export async function buildFluxoRafaelBoletosAtrasados(): Promise<
+  FluxoRafaelBoletosAtrasadosPayload | { error: string }
+> {
+  const token = await getValidAccessToken();
+  if (!token) return { error: "not_connected" };
+
+  const ctx = currentOverviewContext();
+  const months6: number[] = [];
+  for (let off = -5; off <= 0; off += 1) {
+    months6.push(shiftYearMonth(ctx.ym, off));
+  }
+  const items = await fetchOverviewInstallments(token, months6, ctx.ym);
+
+  const ultimos6Meses = sum(items, (it) => {
+    if (!isPastDueOpen(it)) return 0;
+    const ym = dueYearMonth(it.data_vencimento);
+    if (!months6.includes(ym)) return 0;
+    return it.nao_pago;
+  });
+
+  const label6 =
+    months6.length >= 2 ?
+      `${formatYearMonthLabel(months6[0])} – ${formatYearMonthLabel(months6[months6.length - 1])}`
+    : formatYearMonthLabel(ctx.ym);
+
+  return {
+    ok: true,
+    fetchedAt: new Date().toISOString(),
+    mesAtual: overdueInMonth(items, ctx.ym),
+    mesPassado: overdueInMonth(items, ctx.mesPassado),
+    ultimos6Meses,
+    labels: {
+      mesAtual: ctx.labelMesAtual,
+      mesPassado: ctx.labelMesPassado,
+      ultimos6Meses: label6,
+    },
   };
 }
