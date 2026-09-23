@@ -6,6 +6,7 @@ import {
 } from "@/lib/site-cliente/siteClienteRequest";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function GET() {
   try {

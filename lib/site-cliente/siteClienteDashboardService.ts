@@ -250,15 +250,23 @@ export async function buildSiteClienteDashboard(
   }
 
   const { clienteKeys, pdvKeys } = await loadGrupoScope(session.grupoId);
-  const dash = await getProducaoDashboard();
+  const scope = { clienteKeys, pdvKeys };
+  const [dash, layout] = await Promise.all([
+    getProducaoDashboard({ scope }),
+    getProducaoCatalogLayout(),
+  ]);
   const perm = session.permissoes;
   const now = new Date();
 
+  const scopedPdvRioKeys = dash.clientes.flatMap((c) => c.pdvs.map((p) => p.rioPdvKey));
   const cadastros =
     perm.verStatusPdvs || perm.verEstiloAgora || perm.verProgramacao || perm.verResumoProgramacao
-      ? await prisma.producaoPdvCadastro.findMany({
-          select: { rioPdvKey: true, programacaoId: true },
-        })
+      ? scopedPdvRioKeys.length > 0
+        ? await prisma.producaoPdvCadastro.findMany({
+            where: { rioPdvKey: { in: scopedPdvRioKeys } },
+            select: { rioPdvKey: true, programacaoId: true },
+          })
+        : []
       : [];
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
 
@@ -313,7 +321,6 @@ export async function buildSiteClienteDashboard(
     return clienteNoEscopo(c.key, c.rioLinhaId, c.pdvs, clienteKeys, pdvKeys);
   });
 
-  const layout = await getProducaoCatalogLayout();
   const clienteIdMap = layout.portalClienteIdsByBucketKey;
   const portalPdvIdMap = layout.portalPdvIdsByRioPdvKey;
 
@@ -349,13 +356,18 @@ export async function buildSiteClienteDashboard(
 
     let semanaBlocos: SemanaBloco[] = [];
 
-    for (const p of pdvsRaw) {
-      const progInfo = await programacaoForPdv(p.rioPdvKey);
-      const programacaoNome =
-        progInfo.id != null
-          ? (progInfo.resumo?.nome ?? (await programacaoNomeById(progInfo.id)))
-          : null;
+    const progByPdv = await Promise.all(
+      pdvsRaw.map(async (p) => {
+        const progInfo = await programacaoForPdv(p.rioPdvKey);
+        const programacaoNome =
+          progInfo.id != null
+            ? (progInfo.resumo?.nome ?? (await programacaoNomeById(progInfo.id)))
+            : null;
+        return { p, progInfo, programacaoNome };
+      }),
+    );
 
+    for (const { p, progInfo, programacaoNome } of progByPdv) {
       pdvRows.push({
         rioPdvKey: p.rioPdvKey,
         nome: p.nome,

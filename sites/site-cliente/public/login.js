@@ -50,26 +50,7 @@
           return;
         }
         auth.setToken(x.data.sessionToken);
-        var home = auth.homePathForGrupoTipo(x.data.grupoTipo);
-        var dashUrl =
-          x.data.grupoTipo === "cobranca"
-            ? "/api/site-cliente/cobranca/dashboard"
-            : "/api/site-cliente/dashboard";
-        return auth.apiFetch(dashUrl).then(function (r) {
-          return r.json().then(function (d) {
-            return { status: r.status, data: d, home: home };
-          });
-        });
-      })
-      .then(function (x) {
-        if (!x) return;
-        if (x.status !== 200 || !x.data.ok) {
-          auth.setToken(null);
-          err.textContent = "Não foi possível validar a sessão. Tente de novo.";
-          err.style.display = "block";
-          return;
-        }
-        window.location.replace(x.home);
+        window.location.replace(auth.homePathForGrupoTipo(x.data.grupoTipo));
       })
       .catch(function () {
         err.textContent = "Erro de conexão. Verifique sua internet e tente de novo.";

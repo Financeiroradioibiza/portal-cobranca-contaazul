@@ -98,7 +98,55 @@ export type ProducaoDashboardPayload = {
   clientes: DashboardClienteRow[];
 };
 
+/** Limita clientes/PDVs (site cliente, escopo de grupo). */
+export type ProducaoDashboardScopeFilter = {
+  clienteKeys: Set<string>;
+  pdvKeys: Set<string>;
+};
+
+export type GetProducaoDashboardOptions = {
+  scope?: ProducaoDashboardScopeFilter;
+};
+
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
+
+function clienteNoEscopoDashboard(
+  clienteKey: string,
+  rioLinhaId: string,
+  pdvRioKeys: string[],
+  clienteKeys: Set<string>,
+  pdvKeys: Set<string>,
+): boolean {
+  if (clienteKeys.has(clienteKey) || (rioLinhaId && clienteKeys.has(rioLinhaId))) return true;
+  return pdvRioKeys.some((k) => pdvKeys.has(k));
+}
+
+function filterMergedForScope(
+  merged: ReturnType<typeof mergeProducaoLayout>,
+  scope: ProducaoDashboardScopeFilter,
+) {
+  if (scope.clienteKeys.size === 0 && scope.pdvKeys.size === 0) return merged;
+  return merged
+    .filter((c) =>
+      clienteNoEscopoDashboard(
+        c.key,
+        c.rioLinhaId,
+        c.pdvs.map((p) => p.rioPdvId),
+        scope.clienteKeys,
+        scope.pdvKeys,
+      ),
+    )
+    .map((c) => {
+      if (scope.clienteKeys.has(c.key) || (c.rioLinhaId && scope.clienteKeys.has(c.rioLinhaId))) {
+        return c;
+      }
+      return {
+        ...c,
+        pdvs: c.pdvs.filter((p) => scope.pdvKeys.has(p.rioPdvId)),
+      };
+    })
+    .filter((c) => c.pdvs.length > 0);
+}
 
 function isSemPing5Dias(
   telemetry: DashboardPdvTelemetry,
@@ -119,7 +167,10 @@ function deriveOnlineStatus(
   return statusPlayer === "Ativo";
 }
 
-export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> {
+export async function getProducaoDashboard(
+  opts?: GetProducaoDashboardOptions,
+): Promise<ProducaoDashboardPayload> {
+  const scoped = Boolean(opts?.scope);
   const meta = await getProducaoCatalogMeta();
   const rioSourceYearMonth = meta.rioSourceYearMonth;
   const month = await prisma.rioCompMonth.findUnique({
@@ -158,7 +209,7 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
   const [playerCtx, progMaps, rawLayout] = await Promise.all([
     loadMergedProducaoPlayerContext(),
     loadProgramacaoMusicalMaps(),
-    getProducaoCatalogLayout({ repairPlacements: true }),
+    getProducaoCatalogLayout({ repairPlacements: !scoped }),
   ]);
   const linkMap = buildPlayerIdMapFromBuckets(playerCtx.buckets, playerCtx.pdvPortalIds);
 
@@ -211,17 +262,28 @@ export async function getProducaoDashboard(): Promise<ProducaoDashboardPayload> 
     acknowledgedPdvs: rawLayout.acknowledgedPdvs,
   };
   const caByLinhaId = buildCaByLinhaId(linhasForProd);
-  const merged = mergeProducaoLayout(base, layoutState, { caByLinhaId }).filter(
+  const mergedAll = mergeProducaoLayout(base, layoutState, { caByLinhaId }).filter(
     (c) => c.pdvCount > 0,
   );
+  const merged =
+    opts?.scope ? filterMergedForScope(mergedAll, opts.scope) : mergedAll;
 
   const pdvKeys = merged.flatMap((c) => c.pdvs.map((p) => p.rioPdvId));
-  const cadastros = await prisma.producaoPdvCadastro.findMany({
-    where: { rioPdvKey: { in: pdvKeys } },
-  });
+  const cadastros =
+    pdvKeys.length > 0 ?
+      await prisma.producaoPdvCadastro.findMany({
+        where: { rioPdvKey: { in: pdvKeys } },
+      })
+    : [];
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
 
-  const portalPdvIds = [...new Set([...playerCtx.pdvPortalIds.values()].filter((id) => id > 0))];
+  const portalPdvIds = [
+    ...new Set(
+      pdvKeys
+        .map((k) => playerCtx.pdvPortalIds.get(k) ?? 0)
+        .filter((id) => id > 0),
+    ),
+  ];
   const gatewayTelemetry = await loadPlayerGatewayTelemetry(portalPdvIds);
 
   let totalPdvs = 0;
