@@ -22,6 +22,7 @@ import {
   type BibliotecaFolderKey,
   type BibliotecaMusicaDragData,
 } from "@/lib/criacao/bibliotecaFolderTypes";
+import { fetchAllBibliotecaMusicaIds } from "@/lib/criacao/bibliotecaFetchAllIds";
 import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaService";
 
 function SelectionDragHandle({
@@ -71,6 +72,15 @@ export function BibliotecaMusicalShell() {
   const [dragOverlayLabel, setDragOverlayLabel] = useState<string | null>(null);
   const [moveToast, setMoveToast] = useState<string | null>(null);
   const musicasOrderRef = useRef<string[]>([]);
+  const folderListMetaRef = useRef<{ total: number; queryBase: string; pageSize: number }>({
+    total: 0,
+    queryBase: "",
+    pageSize: 200,
+  });
+  const allFolderIdsCacheRef = useRef<{ key: string; ids: string[] } | null>(null);
+  const [folderListTotal, setFolderListTotal] = useState(0);
+  const [folderListPageSize, setFolderListPageSize] = useState(200);
+  const [selectingAllFolder, setSelectingAllFolder] = useState(false);
   const panelScrollRef = useRef<HTMLDivElement>(null);
   const panelScrollTopRef = useRef(0);
 
@@ -104,19 +114,61 @@ export function BibliotecaMusicalShell() {
     [anchorId],
   );
 
+  const fetchAllFolderIds = useCallback(async (): Promise<string[]> => {
+    const meta = folderListMetaRef.current;
+    if (meta.total <= 0) return [];
+    const cacheKey = `${meta.queryBase}|${meta.total}|${meta.pageSize}`;
+    if (allFolderIdsCacheRef.current?.key === cacheKey) {
+      return allFolderIdsCacheRef.current.ids;
+    }
+    const ids = await fetchAllBibliotecaMusicaIds(meta.queryBase, meta.total, meta.pageSize);
+    allFolderIdsCacheRef.current = { key: cacheKey, ids };
+    musicasOrderRef.current = ids;
+    return ids;
+  }, []);
+
+  const selectAllInFolder = useCallback(async () => {
+    const meta = folderListMetaRef.current;
+    if (meta.total <= 0) return;
+    if (meta.total <= musicasOrderRef.current.length && musicasOrderRef.current.length > 0) {
+      setSelectedIds(new Set(musicasOrderRef.current));
+      return;
+    }
+    setSelectingAllFolder(true);
+    try {
+      const ids = await fetchAllFolderIds();
+      setSelectedIds(new Set(ids));
+      setAnchorId(ids[0] ?? null);
+    } catch {
+      window.alert("Não foi possível carregar todas as faixas desta pasta. Tente de novo.");
+    } finally {
+      setSelectingAllFolder(false);
+    }
+  }, [fetchAllFolderIds]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
         const t = e.target as HTMLElement | null;
         if (t?.closest("input, textarea, select")) return;
         e.preventDefault();
-        setSelectedIds(new Set(musicasOrderRef.current));
+        void selectAllInFolder();
       }
       if (e.key === "Escape") setSelectedIds(new Set());
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [selectAllInFolder]);
+
+  const onFolderListMeta = useCallback(
+    (meta: { total: number; queryBase: string; pageSize: number }) => {
+      folderListMetaRef.current = meta;
+      setFolderListTotal(meta.total);
+      setFolderListPageSize(meta.pageSize);
+      allFolderIdsCacheRef.current = null;
+    },
+    [],
+  );
 
   const onDragEnd = useCallback(
     async (ev: DragEndEvent) => {
@@ -216,6 +268,7 @@ export function BibliotecaMusicalShell() {
           onSelect={(f) => {
             setFolder(f);
             setSelectedIds(new Set());
+            allFolderIdsCacheRef.current = null;
           }}
           onPastasChange={() => setSidebarRefresh((k) => k + 1)}
         />
@@ -236,7 +289,8 @@ export function BibliotecaMusicalShell() {
                 </p>
               : folder.kind !== "custom" ?
                 <p className="text-[10px] text-slate-400">
-                  Clique na faixa para selecionar · Shift+clique intervalo · ⌘/Ctrl+A todas
+                  Clique na faixa · Shift+clique intervalo · ⌘/Ctrl+A ou «Selecionar todas» inclui
+                  todas as páginas
                 </p>
               : null}
             </div>
@@ -268,6 +322,19 @@ export function BibliotecaMusicalShell() {
                 Slim
               </button>
             </div>
+            {folderListTotal > folderListPageSize ?
+              <button
+                type="button"
+                disabled={selectingAllFolder || folderListTotal === 0}
+                onClick={() => void selectAllInFolder()}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                title="Marca todas as faixas desta pasta (todas as páginas)"
+              >
+                {selectingAllFolder ?
+                  "Carregando…"
+                : `Selecionar todas (${folderListTotal})`}
+              </button>
+            : null}
             <SelectionDragHandle
               count={selectedIds.size}
               label={folder.label}
@@ -306,6 +373,7 @@ export function BibliotecaMusicalShell() {
               onMusicasLoaded={(ids) => {
                 musicasOrderRef.current = ids;
               }}
+              onFolderListMeta={onFolderListMeta}
               refreshToken={panelRefresh}
               removePatch={removePatch}
             />

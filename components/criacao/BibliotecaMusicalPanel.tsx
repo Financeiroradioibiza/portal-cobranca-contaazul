@@ -90,6 +90,8 @@ export type BibliotecaMusicalPanelProps = {
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string, shiftKey: boolean, metaKey?: boolean) => void;
   onMusicasLoaded?: (ids: string[]) => void;
+  /** Filtros atuais da lista (para «selecionar todas» na pasta, além da página). */
+  onFolderListMeta?: (meta: { total: number; queryBase: string; pageSize: number }) => void;
   refreshToken?: number;
   removePatch?: { token: number; ids: string[] } | null;
 };
@@ -209,6 +211,7 @@ export function BibliotecaMusicalPanel({
   selectedIds,
   onToggleSelect,
   onMusicasLoaded,
+  onFolderListMeta,
   refreshToken = 0,
   removePatch = null,
 }: BibliotecaMusicalPanelProps = {}) {
@@ -284,11 +287,8 @@ export function BibliotecaMusicalPanel({
     setPage(1);
   }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, explicitOnlyFilter, folderFilter]);
 
-  const queryString = useMemo(() => {
-    const params = new URLSearchParams({
-      page: String(page),
-      pageSize: String(pageSize),
-    });
+  const queryBase = useMemo(() => {
+    const params = new URLSearchParams();
     if (search.trim()) params.set("search", search.trim());
     if (status !== "all") params.set("status", status);
     if (listFilter !== "all") params.set("listFilter", listFilter);
@@ -302,7 +302,23 @@ export function BibliotecaMusicalPanel({
     if (gravadoraFilter.trim()) params.set("gravadora", gravadoraFilter.trim());
     if (explicitOnlyFilter) params.set("explicitOnly", "1");
     return params.toString();
-  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, explicitOnlyFilter, folderFilter, page, pageSize]);
+  }, [
+    search,
+    status,
+    listFilter,
+    sortBy,
+    tagIdFilter,
+    gravadoraFilter,
+    explicitOnlyFilter,
+    folderFilter,
+  ]);
+
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams(queryBase);
+    params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
+    return params.toString();
+  }, [queryBase, page, pageSize]);
 
   const goToPage = useCallback((next: number) => {
     setPage(next);
@@ -319,12 +335,13 @@ export function BibliotecaMusicalPanel({
       setMusicas(data.musicas);
       setTotal(data.total);
       onMusicasLoaded?.(data.musicas.map((m) => m.id));
+      onFolderListMeta?.({ total: data.total, queryBase, pageSize });
     } catch {
       if (!opts?.silent) setError("Não foi possível carregar a biblioteca.");
     } finally {
       if (!opts?.silent) setLoading(false);
     }
-  }, [queryString, onMusicasLoaded]);
+  }, [queryString, queryBase, pageSize, onMusicasLoaded, onFolderListMeta]);
 
   useEffect(() => {
     if (refreshToken > 0) void load({ silent: true });
