@@ -10,6 +10,7 @@ import { normalizeRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 import { parseYearMonthParam } from "@/lib/manualReminders/yearMonth";
 import { prisma } from "@/lib/prisma";
 import { syncPlayerGatewayAfterRioLinhaTagChange } from "@/lib/player/rioTagPlayerGatewaySync";
+import { isRioPdvMovementListGrupoTag } from "@/lib/rio/rioTurnover";
 
 type Ctx = { params: Promise<{ ym: string; linhaId: string }> };
 
@@ -108,6 +109,9 @@ export async function PATCH(request: Request, context: Ctx) {
       where: { id: patch.rioGrupoId, monthId: month.id },
     });
     if (!g) return NextResponse.json({ error: "grupo_not_found" }, { status: 400 });
+    if (isRioPdvMovementListGrupoTag(g.systemTag)) {
+      return NextResponse.json({ error: "grupo_pdv_movimento_nao_e_marca" }, { status: 400 });
+    }
     patch.grupoSite = g.nome;
   } else if (patch.rioGrupoId === null) {
     patch.grupoSite = "";

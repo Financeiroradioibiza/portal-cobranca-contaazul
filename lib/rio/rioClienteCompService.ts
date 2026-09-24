@@ -23,7 +23,13 @@ import {
   compareRioLinhasByNomeFantasia,
   sortRioCompGruposForDisplay,
 } from "@/lib/rio/sortRioCompLinhas";
-import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
+import {
+  donorYearMonthFor,
+  isRioPdvMovementListGrupoTag,
+  isRioTurnoverMonth,
+  RIO_SYSTEM_GRUPO_NOMES,
+  rioLinhaHasPdvForMovementListTag,
+} from "@/lib/rio/rioTurnover";
 import {
   normalizeRioTagCobranca,
   rioPdvContaParaCobranca,
@@ -198,13 +204,91 @@ export async function reconcileRioCompGrupoLinksTx(tx: Prisma.TransactionClient,
     if (l.rioGrupoId) continue;
     const t = normMarcaNome(l.grupoSite);
     if (!t) continue;
-    const gid = byNome.get(t)?.id ?? null;
-    if (!gid) continue;
+    const g = byNome.get(t);
+    if (!g || isRioPdvMovementListGrupoTag(g.systemTag)) continue;
     await tx.rioCompClienteLinha.update({
       where: { id: l.id },
-      data: { rioGrupoId: gid },
+      data: { rioGrupoId: g.id },
     });
   }
+}
+
+/** Linhas com MARCA = bloco «PDVs entrando/saindo» mas sem PDV nesse movimento ficavam invisíveis na planilha. */
+export async function repairRioLinhasPdvMovementGrupoLimbo(monthId: string, yearMonth: number): Promise<number> {
+  if (!isRioTurnoverMonth(yearMonth)) return 0;
+
+  const linhas = await prisma.rioCompClienteLinha.findMany({
+    where: {
+      monthId,
+      rioGrupo: { systemTag: { in: ["pdv_entrada", "pdv_saida"] } },
+    },
+    include: {
+      pdvs: { select: { movimento: true } },
+      rioGrupo: { select: { systemTag: true, nome: true } },
+    },
+  });
+
+  const stuck = linhas.filter((l) => {
+    const tag = l.rioGrupo?.systemTag;
+    return (
+      (tag === "pdv_entrada" || tag === "pdv_saida") &&
+      !rioLinhaHasPdvForMovementListTag(l, tag)
+    );
+  });
+  if (stuck.length === 0) return 0;
+
+  const donorYm = donorYearMonthFor(yearMonth);
+  const donorMonth = await prisma.rioCompMonth.findUnique({
+    where: { yearMonth: donorYm },
+    include: {
+      linhas: {
+        include: { rioGrupo: { select: { systemTag: true, nome: true } } },
+      },
+      grupos: { select: { id: true, nome: true, systemTag: true } },
+    },
+  });
+  const donorByCa = new Map(
+    (donorMonth?.linhas ?? []).map((l) => [l.caPersonId, l] as const),
+  );
+  const currentUserGrupos = await prisma.rioCompGrupo.findMany({
+    where: { monthId, systemTag: null },
+    select: { id: true, nome: true },
+  });
+  const currentGrupoByNome = new Map(currentUserGrupos.map((g) => [normMarcaNome(g.nome), g.id]));
+
+  let fixed = 0;
+  for (const l of stuck) {
+    const donor = donorByCa.get(l.caPersonId);
+    let grupoSite = "";
+    let rioGrupoId: string | null = null;
+
+    if (donor) {
+      const donorTag = donor.rioGrupo?.systemTag ?? null;
+      if (!isRioPdvMovementListGrupoTag(donorTag)) {
+        grupoSite = normMarcaNome(donor.grupoSite || donor.rioGrupo?.nome || "");
+        if (grupoSite) {
+          rioGrupoId = currentGrupoByNome.get(grupoSite) ?? null;
+        }
+      }
+    }
+
+    if (!grupoSite) {
+      const gs = normMarcaNome(l.grupoSite);
+      if (gs && !RIO_SYSTEM_GRUPO_NOMES.has(gs)) {
+        grupoSite = gs;
+        rioGrupoId = currentGrupoByNome.get(gs) ?? null;
+      }
+    }
+
+    await prisma.rioCompClienteLinha.update({
+      where: { id: l.id },
+      data: { rioGrupoId, grupoSite },
+    });
+    fixed += 1;
+  }
+
+  if (fixed > 0) await reconcileRioCompGrupoLinks(monthId);
+  return fixed;
 }
 
 async function hydrateMonthBundle(yearMonth: number, depth = 0) {
@@ -227,6 +311,11 @@ async function hydrateMonthBundle(yearMonth: number, depth = 0) {
     if (depth >= 10) throw new Error("rio_grupo_reconcile_retry_limit");
     await reconcileRioCompGrupoLinks(month.id);
     return hydrateMonthBundle(yearMonth, depth + 1);
+  }
+
+  if (depth < 3) {
+    const repaired = await repairRioLinhasPdvMovementGrupoLimbo(month.id, yearMonth);
+    if (repaired > 0) return hydrateMonthBundle(yearMonth, depth + 1);
   }
 
   const { grupos: _omitG, linhas: _omitL, ...monthRow } = month;
@@ -1087,6 +1176,7 @@ export async function assignClienteLinhasLayout(
         const g = await tx.rioCompGrupo.findFirst({
           where: { id: it.rio_grupo_id, monthId },
         });
+        if (g && isRioPdvMovementListGrupoTag(g.systemTag)) continue;
         grupoSite = g?.nome ?? linha.grupoSite;
       } else if (it.rio_grupo_id === null) {
         grupoSite = "";
@@ -1245,13 +1335,17 @@ export async function createRioCompClienteLinha(
     data: { caPersonId: `import:unlinked:${created.id}` },
   });
 
+  const { pdv } = await createRioCompPdv(created.id, nomeFantasia);
+  if (documento && !pdv.documento) {
+    await prisma.rioCompPdv.update({
+      where: { id: pdv.id },
+      data: { documento },
+    });
+  }
+
   const full = await getRioCompMonthWithLinhas(month.yearMonth);
   const out = full?.linhas.find((l) => l.id === created.id);
   if (!out) throw new Error("hydrate_failed");
-
-  const { ensurePdvInstalacaoToken } = await import("@/lib/player/pdvInstalacaoToken");
-  const { linhaAsPdvKey } = await import("@/lib/cadastros/producaoHierarchy");
-  await ensurePdvInstalacaoToken(linhaAsPdvKey(created.id));
 
   return out;
 }

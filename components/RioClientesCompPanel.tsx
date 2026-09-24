@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RIO_CA_REFRESH_BATCH_SIZE,
   RIO_CA_REFRESH_BATCH_SIZE_WITH_CONTRACTS,
@@ -16,7 +16,7 @@ import {
   type RioLinhaCb,
 } from "@/components/rio/ClienteMarcaBlock";
 import { PdvMovimentoMarcaBlock } from "@/components/rio/PdvMovimentoMarcaBlock";
-import { isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
+import { isRioPdvMovementListGrupoTag, isRioTurnoverMonth } from "@/lib/rio/rioTurnover";
 import {
   currentBrazilYearMonth,
   formatYearMonthLabel,
@@ -1335,6 +1335,12 @@ export function RioClientesCompPanel() {
         setMsg("MARCA não encontrada — recarregue a página e tente de novo.");
         return;
       }
+      if (g && isRioPdvMovementListGrupoTag(g.systemTag ?? null)) {
+        setMsg(
+          "«PDVs entrando/saindo no mês» é só lista de movimento — escolha a MARCA real do cliente (ex.: Boteco Rainha).",
+        );
+        return;
+      }
 
       const targetList = targetId ? (buckets.get(targetId) ?? []) : orphans;
       const sortOrder = targetList.reduce((m, l) => Math.max(m, l.sortOrder ?? 0), -1) + 1;
@@ -1362,7 +1368,9 @@ export function RioClientesCompPanel() {
       if (!res.ok || !data?.linha) {
         setLinhas((prev) => prev.map((x) => (x.id === linhaId ? ln : x)));
         setMsg(
-          data?.error === "grupo_not_found" ?
+          data?.error === "grupo_pdv_movimento_nao_e_marca" ?
+            "Esse bloco é só lista de PDVs em movimento — escolha uma MARCA de cliente."
+          : data?.error === "grupo_not_found" ?
             "MARCA inválida nesta competência."
           : (data?.error || rawText.slice(0, 200) || "Não foi possível mudar a MARCA do cliente."),
         );
@@ -2350,12 +2358,42 @@ export function RioClientesCompPanel() {
             <>
               {systemGrupoOrd.map((g) =>
                 g.systemTag === "pdv_entrada" || g.systemTag === "pdv_saida" ?
-                  <PdvMovimentoMarcaBlock
-                    key={g.id}
-                    tag={g.systemTag as "pdv_entrada" | "pdv_saida"}
-                    titulo={g.nome}
-                    linhas={linhas}
-                  />
+                  <Fragment key={g.id}>
+                    <PdvMovimentoMarcaBlock
+                      tag={g.systemTag as "pdv_entrada" | "pdv_saida"}
+                      titulo={g.nome}
+                      linhas={linhas}
+                    />
+                    {(buckets.get(g.id) ?? []).length ?
+                      <ClienteMarcaBlock
+                        key={`${g.id}-atribuidos`}
+                        ym={activeYm}
+                        marca={g}
+                        gruposTodos={grupoOrd}
+                        linhasOrdered={buckets.get(g.id) ?? []}
+                        subtitulo="Clientes marcados neste bloco — escolha a MARCA real no dropdown de cada linha."
+                        onReorderLinhasSameMarca={(a, o) => void reorderMesmaMarca(g.id, a, o)}
+                        onMoveMarca={(lid, nid) => void moveLinhaEntreMarcas(lid, nid)}
+                        onRenameMarca={() => {}}
+                        onDeleteMarca={() => {}}
+                        onShiftMarca={() => {}}
+                        onOpenCaLink={onOpenCaLink}
+                        onToggleCaLink={onToggleCaLink}
+                        onAddPdvsBulk={addPdvsBulk}
+                        expanded={expanded}
+                        setExpanded={setExpanded}
+                        patchLinha={patchLinha}
+                        setLinhas={setLinhas}
+                        addPdv={addPdv}
+                        patchPdv={patchPdv}
+                        delPdv={delPdv}
+                        onDeleteLinha={(row) => void delLinha(row)}
+                        monthClosed={monthClosed}
+                        newPdvName={newPdvName}
+                        setNewPdvName={setNewPdvName}
+                      />
+                    : null}
+                  </Fragment>
                 : <ClienteMarcaBlock
                     key={g.id}
                     ym={activeYm}

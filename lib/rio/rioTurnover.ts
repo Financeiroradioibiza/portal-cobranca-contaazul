@@ -1,4 +1,4 @@
-import type { RioCompGrupo } from "@prisma/client";
+import type { RioClienteCompMovimento, RioCompGrupo } from "@prisma/client";
 import { shiftYearMonth } from "@/lib/manualReminders/yearMonth";
 
 /** Primeira competência com virada de mês (cópia do anterior + entradas/saídas PDV). Maio/2025 e anteriores: fluxo antigo. */
@@ -29,6 +29,21 @@ export function isRioSystemGrupoTag(v: string | null | undefined): v is RioSyste
 
 export function isUserMarcaGrupo(g: Pick<RioCompGrupo, "systemTag">): boolean {
   return !g.systemTag;
+}
+
+/** Blocos só de listagem (PDV com movimento entrada/saída) — não são MARCA de cliente. */
+export function isRioPdvMovementListGrupoTag(v: string | null | undefined): v is "pdv_entrada" | "pdv_saida" {
+  return v === "pdv_entrada" || v === "pdv_saida";
+}
+
+export const RIO_SYSTEM_GRUPO_NOMES = new Set(RIO_SYSTEM_GRUPOS.map((g) => g.nome));
+
+export function rioLinhaHasPdvForMovementListTag(
+  linha: { pdvs: { movimento?: RioClienteCompMovimento | string | null }[] },
+  tag: "pdv_entrada" | "pdv_saida",
+): boolean {
+  const mov = tag === "pdv_entrada" ? "entrada" : "saida";
+  return linha.pdvs.some((p) => (p.movimento ?? "estavel") === mov);
 }
 
 export function donorYearMonthFor(targetYm: number): number {

@@ -279,11 +279,13 @@ function SortClientRow(props: {
             title="Coluna MARCA (PDF)"
           >
             <option value="">Sem MARCA</option>
-            {gruposTodos.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.nome}
-              </option>
-            ))}
+            {gruposTodos
+              .filter((g) => g.systemTag !== "pdv_entrada" && g.systemTag !== "pdv_saida")
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.nome}
+                </option>
+              ))}
           </select>
         </td>
         <td
@@ -772,6 +774,8 @@ export function ClienteMarcaBlock(props: {
   monthClosed?: boolean;
   newPdvName: Record<string, string>;
   setNewPdvName: Dispatch<SetStateAction<Record<string, string>>>;
+  /** Texto auxiliar no cabeçalho (ex.: clientes presos em bloco de movimento PDV). */
+  subtitulo?: string | null;
 }) {
   const {
     ym,
@@ -780,6 +784,7 @@ export function ClienteMarcaBlock(props: {
     linhasOrdered,
     grupoIndex,
     grupoCount,
+    subtitulo,
     onReorderLinhasSameMarca,
     onMoveMarca,
     onRenameMarca,
@@ -834,6 +839,9 @@ export function ClienteMarcaBlock(props: {
         <td colSpan={14} className="px-3 py-1">
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold">
             <span className="truncate tracking-wide">MARCA — {headerTitle}</span>
+            {subtitulo ?
+              <span className="text-[10px] font-normal opacity-90">{subtitulo}</span>
+            : null}
             {marca && typeof grupoIndex === "number" && typeof grupoCount === "number" && grupoCount > 1 ?
               <span className="flex shrink-0 items-center gap-1">
                 <button
