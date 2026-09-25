@@ -18,6 +18,10 @@ import type {
 import { displayBrazilianTaxId } from "@/lib/format";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
 import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
+import {
+  parseTelefonesWhatsApp,
+  whatsAppWebHref,
+} from "@/lib/whatsappBrazil";
 
 const BATCH_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_BATCH = BATCH_OPTIONS[0];
@@ -667,6 +671,80 @@ function ContactCell({ value, href, copyLabel }: { value: string; href?: string;
   );
 }
 
+function suporteMailHref(email: string): string | undefined {
+  const e = email.trim();
+  return e ? `mailto:${e.split(/[,;]/)[0]?.trim()}` : undefined;
+}
+
+function WhatsAppPhoneLinesCell({ raw }: { raw: string }) {
+  const trimmed = raw.trim();
+  const links = parseTelefonesWhatsApp(raw);
+  if (!trimmed) return <ContactCell value="" />;
+  if (links.length === 0) {
+    return <ContactCell value={trimmed} copyLabel="Copiar telefone" />;
+  }
+  if (links.length === 1) {
+    const { display, waDigits } = links[0]!;
+    return (
+      <ContactCell
+        value={display}
+        href={whatsAppWebHref(waDigits)}
+        copyLabel="Copiar telefone"
+      />
+    );
+  }
+  return (
+    <ul className="min-w-0 list-none space-y-0.5">
+      {links.map((link) => (
+        <li key={link.waDigits} className="flex min-w-0 items-center gap-0.5">
+          <a
+            href={whatsAppWebHref(link.waDigits)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="min-w-0 truncate text-sky-700 hover:underline dark:text-sky-400"
+            title={`WhatsApp +${link.waDigits}`}
+          >
+            {link.display}
+          </a>
+          <CopyTextButton
+            size="compact"
+            variant="icon"
+            text={link.display}
+            label="Copiar telefone"
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ContactStackCell({
+  items,
+  phoneWhatsApp,
+}: {
+  items: Array<{ value: string; href?: string; copyLabel?: string }>;
+  phoneWhatsApp?: boolean;
+}) {
+  const filled = items.filter((i) => i.value.trim());
+  if (filled.length === 0) return <ContactCell value="" />;
+  return (
+    <div className="flex flex-col gap-1">
+      {filled.map((item, idx) => (
+        <div
+          key={idx}
+          className={
+            idx > 0 ? "border-t border-slate-200/80 pt-1 dark:border-slate-600/80" : undefined
+          }
+        >
+          {phoneWhatsApp ?
+            <WhatsAppPhoneLinesCell raw={item.value} />
+          : <ContactCell {...item} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function IdCell({
   id,
   label,
@@ -967,12 +1045,7 @@ function PdvRow({
     },
   ) => void;
 }) {
-  const telHref =
-    row.contatoLojaTelefone ?
-      `tel:${row.contatoLojaTelefone.replace(/\s/g, "")}`
-    : undefined;
-  const mailHref =
-    row.contatoLojaEmail ? `mailto:${row.contatoLojaEmail.split(/[,;]/)[0]?.trim()}` : undefined;
+  const contatosExtras = row.contatosLojaExtras ?? [];
   const pdvTag = effectiveRioTagCobranca(row.tagCobranca, row.clienteTagCobranca);
   const tagBg = rioTagCobrancaRowBgClass(pdvTag);
   const stickyBg = stickyPdvRowBg(tagBg, row.semPing5Dias);
@@ -1085,16 +1158,36 @@ function PdvRow({
       {showContatosBlock ?
         <>
           <td className={"min-w-[5rem] max-w-[7rem] px-1.5 py-1.5 align-top " + BLOCK_DIVIDER}>
-            <ContactCell value={row.contatoLojaNome} />
+            <ContactStackCell
+              items={[
+                { value: row.contatoLojaNome },
+                ...contatosExtras.map((e) => ({ value: e.nome })),
+              ]}
+            />
           </td>
           <td className="w-[5.5rem] px-1.5 py-1.5 align-top">
-            <ContactCell value={row.contatoLojaTelefone} href={telHref} />
+            <ContactStackCell
+              phoneWhatsApp
+              items={[
+                { value: row.contatoLojaTelefone },
+                ...contatosExtras.map((e) => ({ value: e.telefone })),
+              ]}
+            />
           </td>
           <td className="min-w-[5.5rem] max-w-[8rem] px-1.5 py-1.5 align-top">
-            <ContactCell
-              value={row.contatoLojaEmail}
-              href={mailHref}
-              copyLabel="Copiar e-mail da loja"
+            <ContactStackCell
+              items={[
+                {
+                  value: row.contatoLojaEmail,
+                  href: suporteMailHref(row.contatoLojaEmail),
+                  copyLabel: "Copiar e-mail da loja",
+                },
+                ...contatosExtras.map((e) => ({
+                  value: e.email,
+                  href: suporteMailHref(e.email),
+                  copyLabel: "Copiar e-mail da loja",
+                })),
+              ]}
             />
           </td>
           <td className="w-[3.25rem] px-1.5 py-1.5 align-top">

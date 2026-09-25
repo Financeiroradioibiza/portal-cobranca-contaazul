@@ -21,10 +21,22 @@ export function matchesSuporteSearch(row: SuportePdvRow, needle: string): boolea
     if (row.portalPdvId != null && formatPortalPdvIdDisplay(row.portalPdvId).includes(q)) return true;
   }
 
+  const extras = row.contatosLojaExtras ?? [];
+  const extraHit = extras.some(
+    (e) =>
+      e.nome.toLowerCase().includes(q) ||
+      e.email.toLowerCase().includes(q) ||
+      e.telefone.toLowerCase().includes(q),
+  );
+
   return (
     row.nome.toLowerCase().includes(q) ||
     row.clienteNome.toLowerCase().includes(q) ||
     (row.clienteLoginEmail?.toLowerCase().includes(q) ?? false) ||
-    (row.programacaoCriacaoNome?.toLowerCase().includes(q) ?? false)
+    (row.programacaoCriacaoNome?.toLowerCase().includes(q) ?? false) ||
+    row.contatoLojaNome.toLowerCase().includes(q) ||
+    row.contatoLojaEmail.toLowerCase().includes(q) ||
+    row.contatoLojaTelefone.toLowerCase().includes(q) ||
+    extraHit
   );
 }

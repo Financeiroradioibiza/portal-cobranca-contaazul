@@ -13,6 +13,7 @@ import {
 } from "@/lib/player/loadPlayerGatewayTelemetry";
 import { resolvePortalPdvIdFromRioPdvKey } from "@/lib/player/playerGatewaySync";
 import { clientePlayerPasswordForCliente } from "@/lib/player/clientePlayerLoginService";
+import { parseContatosLojaExtras } from "@/lib/cadastros/contatosLojaExtras";
 import { getProducaoCatalogMeta } from "@/lib/cadastros/producaoCatalogo";
 import type {
   ProducaoSuporteEspelhoStored,
@@ -226,6 +227,7 @@ export async function buildProducaoSuporteEspelhoPayload(): Promise<ProducaoSupo
         contatoLojaNome: true,
         contatoLojaTelefone: true,
         contatoLojaEmail: true,
+        contatosLojaExtrasJson: true,
         createdAt: true,
         playerInstaladoEm: true,
         playerInstalacaoToken: true,
@@ -334,6 +336,7 @@ export async function buildProducaoSuporteEspelhoPayload(): Promise<ProducaoSupo
         contatoLojaNome: cad?.contatoLojaNome?.trim() ?? "",
         contatoLojaTelefone: cad?.contatoLojaTelefone?.trim() ?? "",
         contatoLojaEmail: cad?.contatoLojaEmail?.trim() ?? "",
+        contatosLojaExtras: parseContatosLojaExtras(cad?.contatosLojaExtrasJson),
         googleMapsQuery: maps.query,
         googleMapsUrl: maps.url,
         instaladoAt,

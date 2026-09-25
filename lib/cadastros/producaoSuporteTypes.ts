@@ -1,3 +1,4 @@
+import type { ContatoLojaExtra } from "@/lib/cadastros/contatosLojaExtras";
 import type { DashboardPdvTelemetry } from "@/lib/cadastros/producaoDashboardService";
 
 export type SuportePdvRow = {
@@ -20,6 +21,8 @@ export type SuportePdvRow = {
   contatoLojaNome: string;
   contatoLojaTelefone: string;
   contatoLojaEmail: string;
+  /** Conciliar / cadastro — extras além do gerente principal. */
+  contatosLojaExtras?: ContatoLojaExtra[];
   googleMapsQuery: string;
   googleMapsUrl: string;
   instaladoAt: string;
