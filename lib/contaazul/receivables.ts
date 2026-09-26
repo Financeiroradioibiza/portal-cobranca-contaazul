@@ -46,6 +46,8 @@ function receivableParallelBatch(): number {
  */
 export type FetchReceivableInstallmentsOptions = {
   maxPages?: number;
+  /** Páginas simultâneas após a 1ª (default env CA_RECEIVABLES_PARALLEL). */
+  parallelBatch?: number;
   statuses?: readonly ReceivableStatusFilter[];
   /** Filtro opcional na API — emissão/competência (Conta Azul). */
   dataCompetenciaDe?: string;
@@ -61,7 +63,7 @@ export async function fetchAllReceivableInstallments(
   const all: CaReceivableItem[] = [];
   const tamanho_pagina = 500;
   const maxPages = options?.maxPages ?? receivableMaxPages();
-  const parallel = receivableParallelBatch();
+  const parallel = options?.parallelBatch ?? receivableParallelBatch();
   const statuses = options?.statuses ?? RECEIVABLE_STATUSES_OPEN;
 
   const pushChunk = (rows: readonly unknown[] | undefined) => {

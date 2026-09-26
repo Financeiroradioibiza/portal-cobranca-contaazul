@@ -59,16 +59,18 @@ async function fetchOverviewInstallments(
     20,
     Math.max(5, Number(process.env.CA_OVERVIEW_MAX_PAGES_PER_MONTH ?? "12") || 12),
   );
-  const chunks = await Promise.all(
-    months.map((ym) =>
-      fetchAllReceivableInstallments(token, ymFirstDay(ym), ymLastDay(ym), {
-        maxPages,
-        /** Mês atual: inclui RECEBIDO para bater com «Total do período» no CA. */
-        statuses: ym === currentYm ? RECEIVABLE_STATUSES_PERIOD_TOTAL : undefined,
-      }),
-    ),
-  );
-  return chunks.flat();
+  /** Mês a mês (menos pico na API CA/Akamai que 5× paralelo). */
+  const all: CaReceivableItem[] = [];
+  for (const ym of months) {
+    const chunk = await fetchAllReceivableInstallments(token, ymFirstDay(ym), ymLastDay(ym), {
+      maxPages,
+      parallelBatch: 2,
+      /** Mês atual: inclui RECEBIDO para bater com «Total do período» no CA. */
+      statuses: ym === currentYm ? RECEIVABLE_STATUSES_PERIOD_TOTAL : undefined,
+    });
+    all.push(...chunk);
+  }
+  return all;
 }
 
 export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPayload | { error: string }> {

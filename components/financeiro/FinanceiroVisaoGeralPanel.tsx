@@ -68,7 +68,14 @@ export function FinanceiroVisaoGeralPanel() {
         return;
       }
       if (!res.ok || !json.ok) {
-        setError(json.error ?? "Erro ao carregar dados.");
+        const raw = String(json.error ?? "");
+        const friendly =
+          raw.includes("503") || /indisponível/i.test(raw) ?
+            "A Conta Azul respondeu indisponível (503). Isso costuma ser momentâneo — aguarde um minuto e clique em Tentar novamente."
+          : raw.includes("<HTML") ?
+            "A Conta Azul retornou erro temporário. Tente novamente em instantes."
+          : raw || "Erro ao carregar dados.";
+        setError(friendly);
         setData(null);
         return;
       }
