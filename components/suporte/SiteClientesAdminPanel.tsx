@@ -90,6 +90,18 @@ const PERM_KEYS_COBRANCA = PERM_KEYS.filter(
   (k) => k === "verCobrancas" || k === "baixarBoleto" || k === "baixarNota",
 );
 
+const USUARIO_API_ERROR: Record<string, string> = {
+  login_email_em_uso: "Este e-mail de login já está em uso por outro usuário.",
+  senha_curta: "A senha deve ter pelo menos 6 caracteres.",
+  login_email_obrigatorio: "O login (e-mail de acesso) é obrigatório.",
+};
+
+function permissoesBaseForGrupo(tipo: SiteClienteGrupoTipo): SiteClientePermissoes {
+  return tipo === "cobranca"
+    ? { ...SITE_CLIENTE_PERMISSOES_COBRANCA }
+    : { ...SITE_CLIENTE_PERMISSOES_DEFAULT };
+}
+
 const GRUPO_TIPO_UI: Record<
   SiteClienteGrupoTipo,
   {
@@ -159,6 +171,7 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
   const [novoGrupoTipo, setNovoGrupoTipo] = useState<SiteClienteGrupoTipo>("producao");
   const [buscaCliente, setBuscaCliente] = useState("");
 
+  const [editingUsuarioId, setEditingUsuarioId] = useState<string | null>(null);
   const [usuarioForm, setUsuarioForm] = useState({
     nome: "",
     telefone: "",
@@ -166,6 +179,7 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
     funcao: "",
     loginEmail: "",
     password: "",
+    active: true,
     permissoes: { ...SITE_CLIENTE_PERMISSOES_DEFAULT },
   });
 
@@ -252,9 +266,17 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
     const data = (await res.json()) as { ok?: boolean; grupo?: GrupoDetail };
     if (data.ok && data.grupo) {
       setDetail(data.grupo);
-      if (data.grupo.tipo === "cobranca") {
-        setUsuarioForm((f) => ({ ...f, permissoes: { ...SITE_CLIENTE_PERMISSOES_COBRANCA } }));
-      }
+      setEditingUsuarioId(null);
+      setUsuarioForm({
+        nome: "",
+        telefone: "",
+        email: "",
+        funcao: "",
+        loginEmail: "",
+        password: "",
+        active: true,
+        permissoes: permissoesBaseForGrupo(data.grupo.tipo),
+      });
     }
   }, []);
 
@@ -491,35 +513,127 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
     await saveEscopoCobranca([]);
   }
 
-  async function criarUsuario() {
+  function startEditUsuario(u: Usuario) {
     if (!detail) return;
+    setEditingUsuarioId(u.id);
+    setUsuarioForm({
+      nome: u.nome,
+      telefone: u.telefone,
+      email: u.email,
+      funcao: u.funcao,
+      loginEmail: u.loginEmail,
+      password: "",
+      active: u.active,
+      permissoes: { ...permissoesBaseForGrupo(detail.tipo), ...u.permissoes },
+    });
+    setMsg("");
+  }
+
+  function cancelEditUsuario() {
+    if (!detail) return;
+    setEditingUsuarioId(null);
+    setUsuarioForm({
+      nome: "",
+      telefone: "",
+      email: "",
+      funcao: "",
+      loginEmail: "",
+      password: "",
+      active: true,
+      permissoes: permissoesBaseForGrupo(detail.tipo),
+    });
+    setMsg("");
+  }
+
+  async function criarUsuario() {
+    if (!detail || editingUsuarioId) return;
     setBusy(true);
     setMsg("");
     try {
+      const { active: _active, ...body } = usuarioForm;
       const res = await fetch(`/api/suporte/site-clientes/${detail.id}/usuarios`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(usuarioForm),
+        body: JSON.stringify(body),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
-      setUsuarioForm({
-        nome: "",
-        telefone: "",
-        email: "",
-        funcao: "",
-        loginEmail: "",
-        password: "",
-        permissoes:
-          detail.tipo === "cobranca"
-            ? { ...SITE_CLIENTE_PERMISSOES_COBRANCA }
-            : { ...SITE_CLIENTE_PERMISSOES_DEFAULT },
-      });
+      if (!res.ok || !data.ok) {
+        throw new Error(USUARIO_API_ERROR[data.error ?? ""] ?? data.error ?? "erro");
+      }
+      cancelEditUsuario();
       await loadDetail(detail.id);
       await loadGrupos();
       setMsg("Usuário criado.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Falha ao criar usuário.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function salvarUsuarioEditado() {
+    if (!detail || !editingUsuarioId) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const body: Record<string, unknown> = {
+        nome: usuarioForm.nome,
+        telefone: usuarioForm.telefone,
+        email: usuarioForm.email,
+        funcao: usuarioForm.funcao,
+        loginEmail: usuarioForm.loginEmail,
+        permissoes: usuarioForm.permissoes,
+        active: usuarioForm.active,
+      };
+      if (usuarioForm.password.trim()) body.password = usuarioForm.password.trim();
+
+      const res = await fetch(
+        `/api/suporte/site-clientes/${detail.id}/usuarios/${editingUsuarioId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        throw new Error(USUARIO_API_ERROR[data.error ?? ""] ?? data.error ?? "erro");
+      }
+      cancelEditUsuario();
+      await loadDetail(detail.id);
+      await loadGrupos();
+      setMsg("Usuário atualizado.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao salvar usuário.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function excluirUsuario(u: Usuario) {
+    if (!detail) return;
+    if (
+      !window.confirm(
+        `Excluir o usuário «${u.nome}» (${u.loginEmail})? Ele não poderá mais acessar o site.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(
+        `/api/suporte/site-clientes/${detail.id}/usuarios/${u.id}`,
+        { method: "DELETE" },
+      );
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "erro");
+      if (editingUsuarioId === u.id) cancelEditUsuario();
+      await loadDetail(detail.id);
+      await loadGrupos();
+      setMsg("Usuário excluído.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Falha ao excluir usuário.");
     } finally {
       setBusy(false);
     }
@@ -1085,22 +1199,57 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
               )}
 
               <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-                <h3 className="mb-3 font-semibold">Usuários do grupo</h3>
+                <h3 className="mb-1 font-semibold">Usuários do grupo</h3>
+                <p className="mb-3 text-xs text-zinc-500">
+                  Clientes e PDVs são do grupo (seção de escopo acima), compartilhados por todos os
+                  usuários. Permissões e login são por usuário — use Editar para alterar.
+                </p>
                 {detail.usuarios.length > 0 ? (
                   <ul className="mb-4 space-y-2">
                     {detail.usuarios.map((u) => (
                       <li
                         key={u.id}
-                        className="rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/60"
+                        className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+                          editingUsuarioId === u.id
+                            ? "bg-violet-100 ring-1 ring-violet-300 dark:bg-violet-950/40 dark:ring-violet-700"
+                            : "bg-zinc-50 dark:bg-zinc-800/60"
+                        }`}
                       >
-                        <strong>{u.nome}</strong> — {u.loginEmail}
-                        {u.funcao ? ` · ${u.funcao}` : ""}
+                        <span className="min-w-0 flex-1">
+                          <strong>{u.nome}</strong> — {u.loginEmail}
+                          {u.funcao ? ` · ${u.funcao}` : ""}
+                          {!u.active ? (
+                            <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                              inativo
+                            </span>
+                          ) : null}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+                          disabled={busy}
+                          onClick={() => startEditUsuario(u)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-rose-600 hover:underline"
+                          disabled={busy}
+                          onClick={() => void excluirUsuario(u)}
+                        >
+                          Excluir
+                        </button>
                       </li>
                     ))}
                   </ul>
                 ) : (
                   <p className="mb-4 text-sm text-zinc-500">Nenhum usuário ainda.</p>
                 )}
+
+                <p className="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  {editingUsuarioId ? "Editar usuário" : "Novo usuário"}
+                </p>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <input
@@ -1136,11 +1285,26 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                   <input
                     className="portal-input text-sm"
                     type="password"
-                    placeholder="Senha inicial"
+                    placeholder={
+                      editingUsuarioId ? "Nova senha (deixe vazio para manter)" : "Senha inicial"
+                    }
                     value={usuarioForm.password}
                     onChange={(e) => setUsuarioForm((f) => ({ ...f, password: e.target.value }))}
                   />
                 </div>
+
+                {editingUsuarioId ? (
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={usuarioForm.active}
+                      onChange={(e) =>
+                        setUsuarioForm((f) => ({ ...f, active: e.target.checked }))
+                      }
+                    />
+                    Usuário ativo (pode fazer login no site)
+                  </label>
+                ) : null}
 
                 <div className={`mt-4 ${detailUi?.permBox ?? ""}`}>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
@@ -1165,14 +1329,37 @@ export function SiteClientesAdminPanel({ siteClienteLoginUrl }: SiteClientesAdmi
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  className="portal-btn portal-btn-primary mt-4"
-                  disabled={busy}
-                  onClick={() => void criarUsuario()}
-                >
-                  Adicionar usuário
-                </button>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {editingUsuarioId ? (
+                    <>
+                      <button
+                        type="button"
+                        className="portal-btn portal-btn-primary"
+                        disabled={busy}
+                        onClick={() => void salvarUsuarioEditado()}
+                      >
+                        Salvar alterações
+                      </button>
+                      <button
+                        type="button"
+                        className="portal-btn"
+                        disabled={busy}
+                        onClick={cancelEditUsuario}
+                      >
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="portal-btn portal-btn-primary"
+                      disabled={busy}
+                      onClick={() => void criarUsuario()}
+                    >
+                      Adicionar usuário
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           )}
