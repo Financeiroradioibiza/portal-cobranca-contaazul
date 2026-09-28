@@ -719,11 +719,13 @@ export function InstalacaoPanel() {
         portalPdvId: selected.portalPdvId,
         tipo,
         plataforma: plataformaEnvio,
+        email: destino,
         senhaTemporaria: senhaTemp || undefined,
         codigoPlay: tipo === "pdv_play5" ? codigoPlay || undefined : undefined,
       });
       if (!res.ok || !(data as { ok?: boolean })?.ok) {
-        setStatus({ kind: "err", text: mapErr(data) });
+        const detail = (data as { detail?: string })?.detail;
+        setStatus({ kind: "err", text: detail?.trim() || mapErr(data) });
         return;
       }
       const d = data as { to?: string; senhaTemporaria?: string; link?: string; codigoPlay?: string; exeUrl?: string };
