@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { formatBRL } from "@/lib/format";
 import { chamadoToView, serializeStringArray } from "@/lib/chamados/chamadoUtils";
-import { notifyChamadoCreatedEmail } from "@/lib/chamados/chamadoNotifyEmail";
+import { scheduleChamadoNotifyEmail } from "@/lib/chamados/chamadoNotifyEmail";
 import { validateSiteClienteCobrancaParcela } from "@/lib/site-cliente/siteClienteCobrancaParcelaEscopo";
 import type { SiteClienteSessionPayload } from "@/lib/site-cliente/session";
 
@@ -128,11 +128,7 @@ export async function submitSiteClienteCobrancaComprovante(
     return row;
   });
 
-  try {
-    await notifyChamadoCreatedEmail(chamadoToView(chamado));
-  } catch (e) {
-    console.error("[comprovante] e-mail chamado", e);
-  }
+  scheduleChamadoNotifyEmail(chamadoToView(chamado), "created");
 
   return { ok: true, chamadoId: chamado.id };
 }

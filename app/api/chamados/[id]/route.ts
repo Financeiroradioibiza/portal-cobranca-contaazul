@@ -5,8 +5,12 @@ import {
   parsePrioridade,
   parseStatus,
   parseStringArray,
+  resendChamadoNotifyEmail,
   updateChamado,
 } from "@/lib/chamados/chamadoService";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -48,6 +52,27 @@ export async function PATCH(request: Request, ctx: Ctx) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
     console.error("[chamados PATCH]", e);
+    return NextResponse.json({ error: "server_error" }, { status: 500 });
+  }
+}
+
+/** Reenvia notificação por e-mail (setores + responsáveis atuais). */
+export async function POST(_request: Request, ctx: Ctx) {
+  try {
+    const session = requirePortalSession(await getPortalSession());
+    const userCtx = await getChamadoUserContext(session.email);
+    if (!userCtx) {
+      return NextResponse.json({ error: "user_not_found" }, { status: 404 });
+    }
+
+    const { id } = await ctx.params;
+    const chamado = await resendChamadoNotifyEmail(id);
+    return NextResponse.json({ ok: true, chamado, queued: true });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "server_error";
+    if (msg === "not_found") return NextResponse.json({ error: msg }, { status: 404 });
+    console.error("[chamados POST notify]", e);
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 }

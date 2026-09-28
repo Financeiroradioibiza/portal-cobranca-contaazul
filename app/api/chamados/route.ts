@@ -10,6 +10,9 @@ import {
   parseStringArray,
 } from "@/lib/chamados/chamadoService";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function GET(request: Request) {
   try {
     const session = requirePortalSession(await getPortalSession());

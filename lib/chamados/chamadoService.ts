@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
 import { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
-import { notifyChamadoCreatedEmail } from "@/lib/chamados/chamadoNotifyEmail";
+import { scheduleChamadoNotifyEmail } from "@/lib/chamados/chamadoNotifyEmail";
 import type {
   ChamadoParticipant,
   ChamadoView,
@@ -42,6 +42,11 @@ function normalizeSetores(raw: string[]): string[] {
 
 function normalizeEmails(raw: string[]): string[] {
   return [...new Set(raw.map((e) => normalizePortalEmail(e)).filter((e) => e.includes("@")))];
+}
+
+function assigneeListsEqual(a: string[], b: string[]): boolean {
+  const key = (xs: string[]) => [...new Set(xs.map((x) => x.toLowerCase()))].sort().join("\0");
+  return key(a) === key(b);
 }
 
 export function userParticipatesInChamado(
@@ -205,11 +210,7 @@ export async function createChamado(
     },
   });
   const view = chamadoToView(row);
-  try {
-    await notifyChamadoCreatedEmail(view);
-  } catch (e) {
-    console.error("[chamadoNotify] falha ao enviar e-mail", view.id, e instanceof Error ? e.message : e);
-  }
+  scheduleChamadoNotifyEmail(view, "created");
   return view;
 }
 
@@ -262,7 +263,32 @@ export async function updateChamado(
   }
 
   const row = await prisma.chamado.update({ where: { id }, data });
-  return chamadoToView(row);
+  const view = chamadoToView(row);
+
+  let assigneesChanged = false;
+  if (input.setores !== undefined) {
+    const before = normalizeSetores(parseStringArrayJson(existing.setoresJson));
+    const after = normalizeSetores(input.setores);
+    if (!assigneeListsEqual(before, after)) assigneesChanged = true;
+  }
+  if (input.responsaveis !== undefined) {
+    const before = normalizeEmails(parseStringArrayJson(existing.responsaveisJson));
+    const after = normalizeEmails(input.responsaveis);
+    if (!assigneeListsEqual(before, after)) assigneesChanged = true;
+  }
+  if (assigneesChanged) {
+    scheduleChamadoNotifyEmail(view, "updated");
+  }
+
+  return view;
+}
+
+export async function resendChamadoNotifyEmail(id: string): Promise<ChamadoView> {
+  const row = await prisma.chamado.findUnique({ where: { id } });
+  if (!row) throw new Error("not_found");
+  const view = chamadoToView(row);
+  scheduleChamadoNotifyEmail(view, "updated");
+  return view;
 }
 
 export function parsePrioridade(raw: unknown): ChamadoPrioridade | null {

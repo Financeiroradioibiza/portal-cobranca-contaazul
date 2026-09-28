@@ -142,6 +142,26 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
     return { total: chamados.length, abertos, fechados };
   }, [chamados]);
 
+  async function resendChamadoEmail(id: string) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/chamados/${id}`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        setMsg("Não foi possível reenviar o e-mail do chamado.");
+        return;
+      }
+      setMsg("Notificação por e-mail enfileirada (setores + responsáveis atuais).");
+    } catch {
+      setMsg("Erro de rede ao reenviar e-mail.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function patchChamado(id: string, body: Record<string, unknown>) {
     setBusy(true);
     setMsg(null);
@@ -380,6 +400,7 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
           participants={participants}
           onClose={() => setSelected(null)}
           onPatch={patchChamado}
+          onResendEmail={() => void resendChamadoEmail(selected.id)}
         />
       : null}
     </div>
@@ -581,7 +602,10 @@ function FormModal({
                   checked={responsaveis.includes(p.email)}
                   onChange={() => onToggleResp(p.email)}
                 />
-                <span className="text-sm">{p.displayName}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="text-sm">{p.displayName}</span>{" "}
+                  <span className="text-[10px] text-slate-400">{p.email}</span>
+                </span>
                 <span className="text-[10px] text-slate-400">{p.profileName}</span>
               </label>
             ))}
@@ -615,12 +639,14 @@ function DetailModal({
   participants,
   onClose,
   onPatch,
+  onResendEmail,
 }: {
   chamado: ChamadoView;
   busy: boolean;
   participants: ChamadoParticipant[];
   onClose: () => void;
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
+  onResendEmail: () => void;
 }) {
   const [titulo, setTitulo] = useState(chamado.titulo);
   const [descricao, setDescricao] = useState(chamado.descricao);
@@ -723,7 +749,10 @@ function DetailModal({
                   )
                 }
               />
-              {p.displayName}
+              <span>
+                {p.displayName}{" "}
+                <span className="text-[10px] text-slate-400">{p.email}</span>
+              </span>
             </label>
           ))}
         </div>
@@ -737,6 +766,14 @@ function DetailModal({
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onResendEmail}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+        >
+          Reenviar e-mail
+        </button>
         {chamado.status !== "aberto" ?
           <button
             type="button"

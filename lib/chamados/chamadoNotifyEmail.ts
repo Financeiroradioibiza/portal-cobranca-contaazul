@@ -1,5 +1,6 @@
 import "server-only";
 
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { CHAMADO_PRIORIDADES, CHAMADO_SETORES, setorMeta } from "@/lib/chamados/chamadoConstants";
@@ -49,7 +50,10 @@ export async function resolveChamadoNotifyRecipients(opts: {
   return [...out];
 }
 
-function buildChamadoEmail(chamado: ChamadoView): { subject: string; text: string; html: string } {
+function buildChamadoEmail(
+  chamado: ChamadoView,
+  kind: "created" | "updated",
+): { subject: string; text: string; html: string } {
   const link = `${portalOrigin()}/chamados`;
   const setores = setoresLabel(chamado.setores);
   const responsaveis =
@@ -59,9 +63,12 @@ function buildChamadoEmail(chamado: ChamadoView): { subject: string; text: strin
     (chamado.rioLinhaId ? `Linha ${chamado.rioLinhaId}` : "") ||
     "—";
 
-  const subject = `[Chamado] ${chamado.titulo}`.slice(0, 180);
+  const headline =
+    kind === "updated" ? "Chamado atualizado no portal Radio Ibiza" : "Novo chamado no portal Radio Ibiza";
+  const subjectPrefix = kind === "updated" ? "[Chamado atualizado]" : "[Chamado]";
+  const subject = `${subjectPrefix} ${chamado.titulo}`.slice(0, 180);
   const text = [
-    "Novo chamado no portal Radio Ibiza",
+    headline,
     "",
     `Título: ${chamado.titulo}`,
     `Prioridade: ${prioridadeLabel(chamado.prioridade)}`,
@@ -84,7 +91,7 @@ function buildChamadoEmail(chamado: ChamadoView): { subject: string; text: strin
       .replace(/"/g, "&quot;");
 
   const html = `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#111">
-<p><strong>Novo chamado</strong> no portal Radio Ibiza</p>
+<p><strong>${kind === "updated" ? "Chamado atualizado" : "Novo chamado"}</strong> no portal Radio Ibiza</p>
 <table style="border-collapse:collapse;margin:12px 0">
 <tr><td style="padding:4px 12px 4px 0;color:#555">Título</td><td><strong>${esc(chamado.titulo)}</strong></td></tr>
 <tr><td style="padding:4px 12px 4px 0;color:#555">Prioridade</td><td>${esc(prioridadeLabel(chamado.prioridade))}</td></tr>
@@ -101,7 +108,10 @@ function buildChamadoEmail(chamado: ChamadoView): { subject: string; text: strin
 }
 
 /** Envia e-mail para setores/responsáveis do chamado (não lança — log em falha). */
-export async function notifyChamadoCreatedEmail(chamado: ChamadoView): Promise<void> {
+export async function notifyChamadoEmail(
+  chamado: ChamadoView,
+  kind: "created" | "updated" = "created",
+): Promise<void> {
   if (!isChamadosSmtpConfigured()) {
     console.warn("[chamadoNotify] SMTP chamados não configurado — e-mail não enviado", chamado.id);
     return;
@@ -114,6 +124,7 @@ export async function notifyChamadoCreatedEmail(chamado: ChamadoView): Promise<v
 
   console.info("[chamadoNotify] destinatários", {
     chamadoId: chamado.id,
+    kind,
     setores: chamado.setores,
     responsaveis: chamado.responsaveis,
     recipients,
@@ -124,7 +135,7 @@ export async function notifyChamadoCreatedEmail(chamado: ChamadoView): Promise<v
     return;
   }
 
-  const { subject, text, html } = buildChamadoEmail(chamado);
+  const { subject, text, html } = buildChamadoEmail(chamado, kind);
 
   await sendEmailViaSmtp({
     to: recipients,
@@ -137,6 +148,31 @@ export async function notifyChamadoCreatedEmail(chamado: ChamadoView): Promise<v
 
   console.info("[chamadoNotify] e-mail enviado", {
     chamadoId: chamado.id,
+    kind,
     to: recipients,
+  });
+}
+
+/** Compat — criação de chamado. */
+export async function notifyChamadoCreatedEmail(chamado: ChamadoView): Promise<void> {
+  return notifyChamadoEmail(chamado, "created");
+}
+
+/** Após responder HTTP: evita timeout Netlify enquanto o SMTP termina. */
+export function scheduleChamadoNotifyEmail(
+  chamado: ChamadoView,
+  kind: "created" | "updated" = "created",
+): void {
+  after(async () => {
+    try {
+      await notifyChamadoEmail(chamado, kind);
+    } catch (e) {
+      console.error(
+        "[chamadoNotify] falha ao enviar e-mail",
+        chamado.id,
+        kind,
+        e instanceof Error ? e.message : e,
+      );
+    }
   });
 }
