@@ -11,7 +11,12 @@ import {
 } from "@/lib/cadastros/producaoHierarchy";
 import { getProducaoCatalogLayout } from "@/lib/cadastros/producaoLayoutService";
 import { loadRioLinhasForProducao } from "@/lib/cadastros/producaoMovimento";
+import { resolveProgramacaoAndPlayerVersion } from "@/lib/cadastros/producaoPdvDisplay";
 import { prisma } from "@/lib/prisma";
+import {
+  loadPlayerGatewayTelemetry,
+  mergeGatewayTelemetry,
+} from "@/lib/player/loadPlayerGatewayTelemetry";
 import { listVinculosForMonth } from "@/lib/player/listPortalPlayerRows";
 import { formatPortalPdvIdDisplay } from "@/lib/player/portalPlayerIds";
 import { getRioCompMonthWithLinhas, type RioCompGrupoDto } from "@/lib/rio/rioClienteCompService";
@@ -67,6 +72,10 @@ export type RelaProducaoPdvRow = {
   portalPdvId: number | null;
   portalPdvLabel: string | null;
   isLinhaProxy: boolean;
+  cachePercent: number | null;
+  playerVersion: string | null;
+  primeiroPingEm: string | null;
+  ultimoPingEm: string | null;
 };
 
 export type RelaProducaoClienteRow = {
@@ -264,10 +273,20 @@ export async function buildAtendimentoRelaPayload(): Promise<AtendimentoRelaPayl
           contatoLojaNome: true,
           contatoLojaEmail: true,
           contatoLojaTelefone: true,
+          versaoPlayer: true,
         },
       })
     : [];
   const cadastroByKey = new Map(cadastros.map((c) => [c.rioPdvKey, c]));
+
+  const portalPdvIds = [
+    ...new Set(
+      visiveis.flatMap((c) =>
+        c.pdvs.map((p) => p.portalPlayerId?.portalPdvId ?? 0).filter((id) => id > 0),
+      ),
+    ),
+  ];
+  const gatewayTelemetry = await loadPlayerGatewayTelemetry(portalPdvIds);
 
   const producao: RelaProducaoClienteRow[] = visiveis.map((c) => ({
     key: c.key,
@@ -277,6 +296,15 @@ export async function buildAtendimentoRelaPayload(): Promise<AtendimentoRelaPayl
     pdvCount: c.pdvCount,
     pdvs: c.pdvs.map((p) => {
       const cad = cadastroByKey.get(p.rioPdvId);
+      const portalPdvId = p.portalPlayerId?.portalPdvId ?? null;
+      const { playerVersion: cadPlayerVersion } = resolveProgramacaoAndPlayerVersion({
+        versaoPlayer: cad?.versaoPlayer,
+      });
+      const telemetry = mergeGatewayTelemetry(
+        portalPdvId,
+        gatewayTelemetry.byPdvId,
+        cadPlayerVersion,
+      );
       return {
         rioPdvKey: p.rioPdvId,
         nome: p.nome,
@@ -284,12 +312,14 @@ export async function buildAtendimentoRelaPayload(): Promise<AtendimentoRelaPayl
         contatoLojaNome: formatCampo(cad?.contatoLojaNome),
         contatoLojaEmail: formatCampo(cad?.contatoLojaEmail),
         contatoLojaTelefone: formatCampo(cad?.contatoLojaTelefone),
-        portalPdvId: p.portalPlayerId?.portalPdvId ?? null,
+        portalPdvId,
         portalPdvLabel:
-          p.portalPlayerId ?
-            formatPortalPdvIdDisplay(p.portalPlayerId.portalPdvId)
-          : null,
+          portalPdvId != null ? formatPortalPdvIdDisplay(portalPdvId) : null,
         isLinhaProxy: Boolean(p.isLinhaProxy),
+        cachePercent: telemetry.downloadPercent,
+        playerVersion: telemetry.playerVersion,
+        primeiroPingEm: telemetry.firstPingAt,
+        ultimoPingEm: telemetry.lastPingAt,
       };
     }),
   }));

@@ -17,6 +17,7 @@ import type {
 import type { ClienteFeedbackItem } from "@/lib/clientes/clientesRelacionamentoService";
 import { formatBRL } from "@/lib/format";
 import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
+import { formatPlayerVersionLabel } from "@/lib/player/formatPlayerVersionLabel";
 import { formatRioPrimeiroPing } from "@/lib/rio/enrichRioLinhasPrimeiroPing";
 import {
   rioTagCobrancaRowBgClass,
@@ -699,6 +700,22 @@ function formatDoc(raw: string | null | undefined): string {
   return t || "—";
 }
 
+function RelaPdvCacheBar({ percent }: { percent: number | null }) {
+  const p = percent ?? 0;
+  const label = percent == null ? "—" : `${Math.round(p)}%`;
+  return (
+    <div className="min-w-[4.5rem] max-w-[6rem]">
+      <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+        <div
+          className="h-full rounded-full bg-violet-500 transition-all"
+          style={{ width: `${Math.min(100, Math.max(0, p))}%` }}
+        />
+      </div>
+      <span className="text-[10px] tabular-nums text-zinc-500">{label}</span>
+    </div>
+  );
+}
+
 function RelaProducaoPdvsTable({
   c,
   onCadastro,
@@ -717,6 +734,10 @@ function RelaProducaoPdvsTable({
               </th>
               <th className="px-2 py-1">PDV</th>
               <th className="px-2 py-1">CNPJ</th>
+              <th className="min-w-[7rem] px-2 py-1">Cache</th>
+              <th className="px-2 py-1">Versão</th>
+              <th className="px-2 py-1">1º ping</th>
+              <th className="px-2 py-1">Últ. ping</th>
               <th className="px-2 py-1">Contato loja</th>
               <th className="px-2 py-1">E-mail loja</th>
               <th className="px-2 py-1">Telefone loja</th>
@@ -755,6 +776,18 @@ function RelaProducaoPdvsTable({
                 </td>
                 <td className="whitespace-nowrap px-2 py-2">
                   <CopyCell text={formatDoc(p.documento)} label="Copiar CNPJ" mono />
+                </td>
+                <td className="px-2 py-2">
+                  <RelaPdvCacheBar percent={p.cachePercent} />
+                </td>
+                <td className="whitespace-nowrap px-2 py-2 text-[10px]">
+                  {formatPlayerVersionLabel(p.playerVersion) ?? "—"}
+                </td>
+                <td className="whitespace-nowrap px-2 py-2 tabular-nums text-[10px]">
+                  {formatRioPrimeiroPing(p.primeiroPingEm)}
+                </td>
+                <td className="whitespace-nowrap px-2 py-2 tabular-nums text-[10px]">
+                  {formatRioPrimeiroPing(p.ultimoPingEm)}
                 </td>
                 <td className="px-2 py-2">
                   <CopyCell text={p.contatoLojaNome} label="Copiar contato da loja" />
@@ -812,6 +845,26 @@ function RelaProducaoPdvsTable({
                 <dd>
                   <CopyCell text={formatDoc(p.documento)} label="Copiar CNPJ" mono />
                 </dd>
+              </div>
+              <div>
+                <dt className="font-medium">Cache:</dt>
+                <dd className="mt-0.5">
+                  <RelaPdvCacheBar percent={p.cachePercent} />
+                </dd>
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <div>
+                  <dt className="font-medium">Versão:</dt>
+                  <dd>{formatPlayerVersionLabel(p.playerVersion) ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">1º ping:</dt>
+                  <dd>{formatRioPrimeiroPing(p.primeiroPingEm)}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium">Últ. ping:</dt>
+                  <dd>{formatRioPrimeiroPing(p.ultimoPingEm)}</dd>
+                </div>
               </div>
               <div className="flex items-center gap-1">
                 <dt className="font-medium">Contato:</dt>
