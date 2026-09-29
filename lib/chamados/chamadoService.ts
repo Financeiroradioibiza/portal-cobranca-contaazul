@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
 import { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
-import { scheduleChamadoNotifyEmail } from "@/lib/chamados/chamadoNotifyEmail";
+import {
+  scheduleChamadoNotifyEmail,
+  type ChamadoNotifyKind,
+} from "@/lib/chamados/chamadoNotifyEmail";
 import type {
   ChamadoParticipant,
   ChamadoView,
@@ -47,6 +50,36 @@ function normalizeEmails(raw: string[]): string[] {
 function assigneeListsEqual(a: string[], b: string[]): boolean {
   const key = (xs: string[]) => [...new Set(xs.map((x) => x.toLowerCase()))].sort().join("\0");
   return key(a) === key(b);
+}
+
+/** Dispara e-mail quando houve alteração relevante (inclui conclusão). */
+function resolveChamadoNotifyOnUpdate(
+  existing: Chamado,
+  input: UpdateChamadoInput,
+): ChamadoNotifyKind | null {
+  if (input.status === "fechado" && existing.status !== "fechado") {
+    return "closed";
+  }
+
+  let changed = false;
+  if (input.titulo !== undefined && input.titulo.trim() !== existing.titulo.trim()) changed = true;
+  if (input.descricao !== undefined && input.descricao.trim() !== existing.descricao.trim()) {
+    changed = true;
+  }
+  if (input.prioridade !== undefined && input.prioridade !== existing.prioridade) changed = true;
+  if (input.status !== undefined && input.status !== existing.status) changed = true;
+  if (input.setores !== undefined) {
+    const before = normalizeSetores(parseStringArrayJson(existing.setoresJson));
+    const after = normalizeSetores(input.setores);
+    if (!assigneeListsEqual(before, after)) changed = true;
+  }
+  if (input.responsaveis !== undefined) {
+    const before = normalizeEmails(parseStringArrayJson(existing.responsaveisJson));
+    const after = normalizeEmails(input.responsaveis);
+    if (!assigneeListsEqual(before, after)) changed = true;
+  }
+
+  return changed ? "updated" : null;
 }
 
 export function userParticipatesInChamado(
@@ -274,19 +307,9 @@ export async function updateChamado(
   const row = await prisma.chamado.update({ where: { id }, data });
   const view = chamadoToView(row);
 
-  let assigneesChanged = false;
-  if (input.setores !== undefined) {
-    const before = normalizeSetores(parseStringArrayJson(existing.setoresJson));
-    const after = normalizeSetores(input.setores);
-    if (!assigneeListsEqual(before, after)) assigneesChanged = true;
-  }
-  if (input.responsaveis !== undefined) {
-    const before = normalizeEmails(parseStringArrayJson(existing.responsaveisJson));
-    const after = normalizeEmails(input.responsaveis);
-    if (!assigneeListsEqual(before, after)) assigneesChanged = true;
-  }
-  if (assigneesChanged) {
-    scheduleChamadoNotifyEmail(view, "updated");
+  const notifyKind = resolveChamadoNotifyOnUpdate(existing, input);
+  if (notifyKind) {
+    scheduleChamadoNotifyEmail(view, notifyKind);
   }
 
   return view;
