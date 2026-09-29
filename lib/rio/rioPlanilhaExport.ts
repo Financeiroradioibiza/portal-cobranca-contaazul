@@ -1,6 +1,6 @@
 import { COMPANY_NAME } from "@/lib/brand";
 import { displayBrazilianTaxId } from "@/lib/format";
-import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
+import { currentBrazilYearMonth, formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 import { categoriaSiteLabel } from "@/lib/rio/categoriaSiteStyles";
 import {
   formatRioValorTotal,
@@ -90,6 +90,11 @@ function downloadBlob(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Mês civil Brasil no PDF/Excel por cliente (OC) — não a competência da aba da planilha. */
+function rioClienteExportYearMonth(): number {
+  return currentBrazilYearMonth();
 }
 
 function solidFill(argb: string): import("exceljs").Fill {
@@ -331,7 +336,8 @@ export async function downloadRioClientePdvsExcel(opts: {
 }) {
   const ExcelJS = (await import("exceljs")).default;
   const company = opts.companyName ?? COMPANY_NAME;
-  const ymLabel = formatYearMonthLabel(opts.yearMonth);
+  const exportYm = rioClienteExportYearMonth();
+  const ymLabel = formatYearMonthLabel(exportYm);
   const pdvs = pdvsAtivos(opts.linha);
   const valor = rioLinhaValorDisplay(opts.linha);
 
@@ -419,7 +425,7 @@ export async function downloadRioClientePdvsExcel(opts: {
     new Blob([buf], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
-    `${sanitizeFilePart(company).toLowerCase()}-pdvs-${slug}-${opts.yearMonth}.xlsx`,
+    `${sanitizeFilePart(company).toLowerCase()}-pdvs-${slug}-${exportYm}.xlsx`,
   );
 }
 
@@ -449,7 +455,8 @@ export function printRioClientePdvsPdf(opts: {
   companyName?: string;
 }) {
   const company = opts.companyName ?? COMPANY_NAME;
-  const ymLabel = formatYearMonthLabel(opts.yearMonth);
+  const exportYm = rioClienteExportYearMonth();
+  const ymLabel = formatYearMonthLabel(exportYm);
   const pdvs = pdvsAtivos(opts.linha);
   const valor = rioLinhaValorDisplay(opts.linha);
   const valorFmt = valor === "—" ? "—" : `R$ ${valor}`;
