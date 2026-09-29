@@ -23,6 +23,8 @@ import {
   rioTagCobrancaTextClass,
 } from "@/lib/rio/rioTagCobranca";
 
+type Modo = "financeiro" | "producao";
+
 type ProducaoDetalheTab = "pdvs" | "historico" | "feedbacks" | "atrasados";
 
 function fmtWhen(iso: string | null | undefined): string {
@@ -176,6 +178,7 @@ function producaoPdvCopyAll(p: RelaProducaoClienteRow["pdvs"][number]): string {
 }
 
 export function AtendimentoRelaPanel() {
+  const [modo, setModo] = useState<Modo>("producao");
   const [data, setData] = useState<AtendimentoRelaPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -298,6 +301,33 @@ export function AtendimentoRelaPanel() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 dark:border-zinc-700 dark:bg-zinc-900">
+          <button
+            type="button"
+            onClick={() => setModo("producao")}
+            className={
+              "rounded-md px-3 py-1.5 text-sm font-semibold transition " +
+              (modo === "producao" ?
+                "bg-violet-100 text-violet-950 shadow-sm dark:bg-violet-950/50 dark:text-violet-100"
+              : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100")
+            }
+          >
+            Clientes produção
+          </button>
+          <button
+            type="button"
+            onClick={() => setModo("financeiro")}
+            className={
+              "rounded-md px-3 py-1.5 text-sm font-semibold transition " +
+              (modo === "financeiro" ?
+                "bg-emerald-100 text-emerald-950 shadow-sm dark:bg-emerald-950/50 dark:text-emerald-100"
+              : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100")
+            }
+          >
+            Clientes financeiro
+          </button>
+        </div>
+
         {data ?
           <span className="text-xs text-zinc-500">
             Espelho Rio: {formatYearMonthLabel(data.yearMonth)} · somente leitura
@@ -327,7 +357,7 @@ export function AtendimentoRelaPanel() {
         <p className="text-sm text-zinc-500">Carregando…</p>
       : null}
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
+      {modo === "producao" ?
         <div className="overflow-hidden rounded-xl border border-violet-200 bg-white dark:border-violet-900/50 dark:bg-zinc-900">
           <div className="border-b border-violet-100 bg-violet-50/80 px-4 py-2 dark:border-violet-900/40 dark:bg-violet-950/20">
             <p className="text-xs font-bold uppercase tracking-wide text-violet-900 dark:text-violet-200">
@@ -337,7 +367,7 @@ export function AtendimentoRelaPanel() {
               {producao.length} grupo(s) · expandir para PDVs, chamados, feedbacks e atrasados
             </p>
           </div>
-          <div className="max-h-[min(72vh,900px)] divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800">
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {producao.length === 0 ?
               <p className="px-4 py-8 text-center text-sm text-zinc-500">Nenhum cliente na produção.</p>
             : producao.map((c) => {
@@ -461,8 +491,7 @@ export function AtendimentoRelaPanel() {
             }
           </div>
         </div>
-
-        <div className="overflow-hidden rounded-xl border border-slate-300 bg-[#FAFAF7] dark:border-slate-700 dark:bg-slate-950">
+      : <div className="overflow-hidden rounded-xl border border-slate-300 bg-[#FAFAF7] dark:border-slate-700 dark:bg-slate-950">
           <div className="border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-900">
             <div className="flex flex-wrap items-center gap-3">
               <div>
@@ -500,7 +529,7 @@ export function AtendimentoRelaPanel() {
               </div>
             </div>
           </div>
-          <div className="max-h-[min(72vh,900px)] overflow-x-auto overflow-y-auto p-2">
+          <div className="overflow-x-auto p-2">
             {financeiro.length === 0 ?
               <p className="px-3 py-8 text-center text-sm text-slate-500">Nenhum cliente encontrado.</p>
             : <table className="min-w-full border-collapse text-[11px]">
@@ -649,7 +678,7 @@ export function AtendimentoRelaPanel() {
             }
           </div>
         </div>
-      </div>
+      }
 
       {cadastroPdvKey ?
         <div className="fixed inset-0 z-50 flex justify-end bg-black/45">
