@@ -461,15 +461,33 @@ export function printRioClientePdvsPdf(opts: {
   const valor = rioLinhaValorDisplay(opts.linha);
   const valorFmt = valor === "—" ? "—" : `R$ ${valor}`;
 
+  const PDF = {
+    emeraldHeader: "#065f46",
+    emeraldRow: "#ecfdf5",
+    amberTitle: "#78350f",
+    slateHeader: "#334155",
+    slateTotals: "#e2e8f0",
+    border: "#cbd5e1",
+    rowLine: "#e2e8f0",
+  } as const;
+
+  const thStyle = `background:${PDF.slateHeader};color:#fff;text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;font-weight:700;`;
+  const thCenter = `${thStyle}text-align:center;`;
+
   const rowsHtml =
     pdvs.length > 0 ?
       pdvs
         .map((p, i) => {
           const doc = displayBrazilianTaxId(p.documento);
-          return `<tr><td class="num">${i + 1}</td><td>${escapeHtml(p.nome)}</td><td class="doc">${doc === "—" ? "" : escapeHtml(doc)}</td></tr>`;
+          const rowBg = i % 2 === 0 ? "#ffffff" : PDF.emeraldRow;
+          return `<tr>
+            <td class="num" style="width:48px;text-align:center;font-weight:700;color:${PDF.emeraldHeader};background:${PDF.emeraldRow};padding:8px 12px;border-top:1px solid ${PDF.rowLine};">${i + 1}</td>
+            <td style="background:${rowBg};padding:8px 12px;border-top:1px solid ${PDF.rowLine};font-size:13px;">${escapeHtml(p.nome)}</td>
+            <td class="doc" style="width:160px;background:${rowBg};padding:8px 12px;border-top:1px solid ${PDF.rowLine};font-family:ui-monospace,monospace;font-size:12px;">${doc === "—" ? "" : escapeHtml(doc)}</td>
+          </tr>`;
         })
         .join("")
-    : `<tr><td colspan="3" class="empty">Nenhum PDV cadastrado neste mês.</td></tr>`;
+    : `<tr><td colspan="3" class="empty" style="text-align:center;font-style:italic;color:#64748b;padding:12px;background:${PDF.emeraldRow};">Nenhum PDV cadastrado neste mês.</td></tr>`;
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -478,38 +496,47 @@ export function printRioClientePdvsPdf(opts: {
 <title>${escapeHtml(company)} — ${escapeHtml(opts.linha.nomeFantasia)} — ${ymLabel}</title>
 <style>
   @page { margin: 18mm 16mm; }
+  html, body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   body { font-family: "Segoe UI", system-ui, sans-serif; color: #0f172a; margin: 0; padding: 24px; }
-  .brand { background: #065f46; color: #fff; text-align: center; padding: 14px; border-radius: 8px 8px 0 0; font-size: 22px; font-weight: 700; letter-spacing: 0.02em; }
-  .cliente { background: #ecfdf5; padding: 12px 16px; font-size: 16px; font-weight: 600; border-left: 1px solid #065f46; border-right: 1px solid #065f46; }
-  .titulo { background: #78350f; color: #fff; padding: 10px 16px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-left: 1px solid #78350f; border-right: 1px solid #78350f; }
-  table { width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; border-top: none; }
-  th { background: #334155; color: #fff; text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; }
-  td { padding: 8px 12px; border-top: 1px solid #e2e8f0; font-size: 13px; }
-  tr:nth-child(even) td { background: #f8fafc; }
-  td.num { width: 48px; text-align: center; font-weight: 600; color: #065f46; }
-  td.doc { width: 160px; font-family: ui-monospace, monospace; font-size: 12px; }
-  td.empty { text-align: center; font-style: italic; color: #64748b; }
-  .total { margin-top: 16px; padding: 12px 16px; background: #e2e8f0; border-radius: 8px; text-align: right; font-size: 15px; font-weight: 700; }
-  .total span { color: #065f46; }
-  .tributacao { margin-top: 28px; padding: 16px 18px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; line-height: 1.55; color: #334155; page-break-inside: avoid; }
+  .brand { text-align: center; padding: 14px; border-radius: 8px 8px 0 0; font-size: 22px; font-weight: 700; letter-spacing: 0.02em; }
+  .cliente { padding: 12px 16px; font-size: 16px; font-weight: 600; border-left: 1px solid ${PDF.emeraldHeader}; border-right: 1px solid ${PDF.emeraldHeader}; }
+  .titulo { padding: 10px 16px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-left: 1px solid ${PDF.amberTitle}; border-right: 1px solid ${PDF.amberTitle}; }
+  table { width: 100%; border-collapse: collapse; border: 1px solid ${PDF.border}; border-top: none; }
+  td.doc { font-family: ui-monospace, monospace; font-size: 12px; }
+  .total { margin-top: 0; padding: 12px 16px; border-radius: 0 0 8px 8px; text-align: right; font-size: 15px; font-weight: 700; border: 1px solid ${PDF.border}; border-top: none; }
+  .total span { color: ${PDF.emeraldHeader}; }
+  .tributacao { margin-top: 28px; padding: 16px 18px; border: 1px solid ${PDF.border}; border-radius: 8px; font-size: 12px; line-height: 1.55; color: #334155; page-break-inside: avoid; }
   .tributacao p { margin: 0 0 10px; }
   .tributacao-intro { font-weight: 600; color: #0f172a; }
   .tributacao-obrigado { margin-top: 18px !important; font-weight: 600; }
-  .tributacao-assinatura { margin-top: 4px !important; font-weight: 700; color: #065f46; }
-  @media print { body { padding: 0; } }
+  .tributacao-assinatura { margin-top: 4px !important; font-weight: 700; color: ${PDF.emeraldHeader}; }
+  @media print {
+    html, body, .brand, .cliente, .titulo, table, th, td, .total {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body { padding: 0; }
+  }
 </style>
 </head>
 <body>
-  <div class="brand">${escapeHtml(company)}</div>
-  <div class="cliente">Cliente: ${escapeHtml(opts.linha.nomeFantasia)}</div>
-  <div class="titulo">PDVs do cliente — ${escapeHtml(ymLabel)}</div>
+  <div class="brand" style="background:${PDF.emeraldHeader};color:#fff;">${escapeHtml(company)}</div>
+  <div class="cliente" style="background:${PDF.emeraldRow};">Cliente: ${escapeHtml(opts.linha.nomeFantasia)}</div>
+  <div class="titulo" style="background:${PDF.amberTitle};color:#fff;">PDVs do cliente — ${escapeHtml(ymLabel)}</div>
   <table>
-    <thead><tr><th>#</th><th>PDV</th><th>CNPJ</th></tr></thead>
+    <thead><tr>
+      <th style="${thCenter}">#</th>
+      <th style="${thStyle}">PDV</th>
+      <th style="${thStyle}">CNPJ</th>
+    </tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
-  <div class="total">Valor total: <span>${escapeHtml(valorFmt)}</span></div>
+  <div class="total" style="background:${PDF.slateTotals};">Valor total: <span>${escapeHtml(valorFmt)}</span></div>
   ${rioClientePdfTributacaoHtml(company)}
-  <script>window.onload = function(){ window.print(); };</script>
+  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 300); };</script>
 </body>
 </html>`;
 
