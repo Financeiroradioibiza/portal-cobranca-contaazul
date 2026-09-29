@@ -156,6 +156,7 @@ export async function getClienteRelacionamentoDetail(
     listChamadosForCliente({
       rioLinhaId: cliente.rioLinhaId,
       rioPdvKeys,
+      clienteNome: cliente.nome,
     }),
     emptyKeys ?
       Promise.resolve([])

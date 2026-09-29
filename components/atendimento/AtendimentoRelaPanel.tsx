@@ -1,23 +1,49 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { PdvCadastroDrawer } from "@/components/cadastros/PdvCadastroDrawer";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
-import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
+import { CHAMADO_COLUNAS, prioridadeMeta } from "@/lib/chamados/chamadoConstants";
+import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
+import type { RelaProducaoClienteDetailPayload } from "@/lib/atendimento/relaClienteDetailService";
 import type {
   AtendimentoRelaPayload,
   RelaFinanceiroClienteRow,
   RelaFinanceiroMarcaBlock,
   RelaProducaoClienteRow,
 } from "@/lib/atendimento/relaService";
+import type { ClienteFeedbackItem } from "@/lib/clientes/clientesRelacionamentoService";
+import { formatBRL } from "@/lib/format";
+import { formatYearMonthLabel } from "@/lib/manualReminders/yearMonth";
 import { formatRioPrimeiroPing } from "@/lib/rio/enrichRioLinhasPrimeiroPing";
 import {
   rioTagCobrancaRowBgClass,
   rioTagCobrancaTextClass,
 } from "@/lib/rio/rioTagCobranca";
 
-type Modo = "financeiro" | "producao";
+type ProducaoDetalheTab = "pdvs" | "historico" | "feedbacks" | "atrasados";
+
+function fmtWhen(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(iso));
+  } catch {
+    return "—";
+  }
+}
+
+function fmtYmd(ymd: string): string {
+  if (!ymd?.trim()) return "—";
+  const [y, m, d] = ymd.slice(0, 10).split("-");
+  if (!y || !m || !d) return ymd;
+  return `${d}/${m}/${y}`;
+}
 
 function matchQ(text: string, q: string): boolean {
   if (!q.trim()) return true;
@@ -150,12 +176,17 @@ function producaoPdvCopyAll(p: RelaProducaoClienteRow["pdvs"][number]): string {
 }
 
 export function AtendimentoRelaPanel() {
-  const [modo, setModo] = useState<Modo>("financeiro");
   const [data, setData] = useState<AtendimentoRelaPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
   const [openClientes, setOpenClientes] = useState<Set<string>>(new Set());
+  const [openProducao, setOpenProducao] = useState<Set<string>>(new Set());
+  const [producaoTabByKey, setProducaoTabByKey] = useState<Record<string, ProducaoDetalheTab>>({});
+  const [producaoExtras, setProducaoExtras] = useState<
+    Record<string, RelaProducaoClienteDetailPayload | "error">
+  >({});
+  const [producaoExtrasLoading, setProducaoExtrasLoading] = useState<Set<string>>(new Set());
   const [collapsedMarcas, setCollapsedMarcas] = useState<Set<string>>(new Set());
   const [marcasFechadas, setMarcasFechadas] = useState(true);
   const [cadastroPdvKey, setCadastroPdvKey] = useState<string | null>(null);
@@ -202,6 +233,24 @@ export function AtendimentoRelaPanel() {
     setCollapsedMarcas(fechadas ? new Set(ids) : new Set());
   }
 
+  const loadProducaoExtras = useCallback(async (key: string) => {
+    setProducaoExtrasLoading((prev) => new Set(prev).add(key));
+    try {
+      const res = await fetch(`/api/atendimento/rela/cliente/${encodeURIComponent(key)}`);
+      const json = (await res.json()) as RelaProducaoClienteDetailPayload & { error?: string; ok?: boolean };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Falha ao carregar detalhes.");
+      setProducaoExtras((prev) => ({ ...prev, [key]: json }));
+    } catch {
+      setProducaoExtras((prev) => ({ ...prev, [key]: "error" }));
+    } finally {
+      setProducaoExtrasLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, []);
+
   function toggleCliente(id: string) {
     setOpenClientes((prev) => {
       const next = new Set(prev);
@@ -209,6 +258,28 @@ export function AtendimentoRelaPanel() {
       else next.add(id);
       return next;
     });
+  }
+
+  function toggleProducaoCliente(key: string) {
+    setOpenProducao((prev) => {
+      const next = new Set(prev);
+      const opening = !next.has(key);
+      if (opening) {
+        next.add(key);
+        setProducaoTabByKey((tabs) => ({ ...tabs, [key]: tabs[key] ?? "pdvs" }));
+        if (!producaoExtras[key]) void loadProducaoExtras(key);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    });
+  }
+
+  function setProducaoTab(key: string, tab: ProducaoDetalheTab) {
+    setProducaoTabByKey((prev) => ({ ...prev, [key]: tab }));
+    if (tab !== "pdvs" && !producaoExtras[key] && !producaoExtrasLoading.has(key)) {
+      void loadProducaoExtras(key);
+    }
   }
 
   function toggleMarca(id: string) {
@@ -227,33 +298,6 @@ export function AtendimentoRelaPanel() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 dark:border-zinc-700 dark:bg-zinc-900">
-          <button
-            type="button"
-            onClick={() => setModo("financeiro")}
-            className={
-              "rounded-md px-3 py-1.5 text-sm font-semibold transition " +
-              (modo === "financeiro" ?
-                "bg-emerald-100 text-emerald-950 shadow-sm dark:bg-emerald-950/50 dark:text-emerald-100"
-              : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100")
-            }
-          >
-            Clientes financeiro
-          </button>
-          <button
-            type="button"
-            onClick={() => setModo("producao")}
-            className={
-              "rounded-md px-3 py-1.5 text-sm font-semibold transition " +
-              (modo === "producao" ?
-                "bg-violet-100 text-violet-950 shadow-sm dark:bg-violet-950/50 dark:text-violet-100"
-              : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100")
-            }
-          >
-            Clientes produção
-          </button>
-        </div>
-
         {data ?
           <span className="text-xs text-zinc-500">
             Espelho Rio: {formatYearMonthLabel(data.yearMonth)} · somente leitura
@@ -283,13 +327,147 @@ export function AtendimentoRelaPanel() {
         <p className="text-sm text-zinc-500">Carregando…</p>
       : null}
 
-      {modo === "financeiro" ?
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        <div className="overflow-hidden rounded-xl border border-violet-200 bg-white dark:border-violet-900/50 dark:bg-zinc-900">
+          <div className="border-b border-violet-100 bg-violet-50/80 px-4 py-2 dark:border-violet-900/40 dark:bg-violet-950/20">
+            <p className="text-xs font-bold uppercase tracking-wide text-violet-900 dark:text-violet-200">
+              Clientes produção
+            </p>
+            <p className="text-xs text-violet-800/80 dark:text-violet-300/80">
+              {producao.length} grupo(s) · expandir para PDVs, chamados, feedbacks e atrasados
+            </p>
+          </div>
+          <div className="max-h-[min(72vh,900px)] divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800">
+            {producao.length === 0 ?
+              <p className="px-4 py-8 text-center text-sm text-zinc-500">Nenhum cliente na produção.</p>
+            : producao.map((c) => {
+                const open = openProducao.has(c.key);
+                const tab = producaoTabByKey[c.key] ?? "pdvs";
+                const extras = producaoExtras[c.key];
+                const extrasBusy = producaoExtrasLoading.has(c.key);
+                return (
+                  <div key={c.key}>
+                    <div className="flex w-full items-center gap-2 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        onClick={() => toggleProducaoCliente(c.key)}
+                      >
+                        <span className="text-zinc-400">{open ? "▾" : "▸"}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="truncate font-semibold text-zinc-900 dark:text-zinc-100">{c.nome}</span>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500">
+                            <span>{c.pdvCount} PDV(s)</span>
+                            {c.documento ?
+                              <span className="font-mono">{formatDoc(c.documento)}</span>
+                            : null}
+                          </span>
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <CopyTextButton
+                          size="compact"
+                          variant="icon"
+                          text={copyableText(c.nome)}
+                          label="Copiar nome do cliente"
+                        />
+                        {c.documento ?
+                          <CopyTextButton
+                            size="compact"
+                            variant="icon"
+                            text={copyableText(c.documento)}
+                            label="Copiar CNPJ do cliente"
+                          />
+                        : null}
+                        {producaoClienteCopyAll(c) ?
+                          <CopyTextButton
+                            size="compact"
+                            variant="icon"
+                            text={producaoClienteCopyAll(c)}
+                            label="Copiar todas as informações do cliente"
+                          />
+                        : null}
+                      </div>
+                    </div>
+                    {open ?
+                      <div className="border-t border-zinc-100 px-2 py-2 dark:border-zinc-800">
+                        <div className="mb-2 flex flex-wrap gap-1">
+                          {(
+                            [
+                              ["pdvs", "PDVs"],
+                              ["historico", "Histórico"],
+                              ["feedbacks", "Feedbacks"],
+                              ["atrasados", "Atrasados"],
+                            ] as const
+                          ).map(([id, label]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => setProducaoTab(c.key, id)}
+                              className={
+                                "rounded-md px-2.5 py-1 text-[11px] font-semibold transition " +
+                                (tab === id ?
+                                  "bg-violet-600 text-white"
+                                : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200")
+                              }
+                            >
+                              {label}
+                              {id === "historico" && extras && extras !== "error" ?
+                                ` (${extras.chamados.length})`
+                              : null}
+                              {id === "feedbacks" && extras && extras !== "error" ?
+                                ` (${extras.feedbacks.length})`
+                              : null}
+                              {id === "atrasados" && extras && extras !== "error" ?
+                                ` (${extras.atrasados.length})`
+                              : null}
+                            </button>
+                          ))}
+                        </div>
+
+                        {tab === "pdvs" ?
+                          <RelaProducaoPdvsTable c={c} onCadastro={openCadastro} />
+                        : extrasBusy ?
+                          <p className="px-2 py-4 text-sm text-zinc-500">Carregando…</p>
+                        : extras === "error" ?
+                          <p className="px-2 py-4 text-sm text-rose-600">
+                            Não foi possível carregar chamados/cobrança.{" "}
+                            <button
+                              type="button"
+                              className="font-semibold underline"
+                              onClick={() => void loadProducaoExtras(c.key)}
+                            >
+                              Tentar de novo
+                            </button>
+                          </p>
+                        : extras ?
+                          <>
+                            {tab === "historico" ?
+                              <RelaChamadosList chamados={extras.chamados} />
+                            : null}
+                            {tab === "feedbacks" ?
+                              <RelaFeedbacksList items={extras.feedbacks} />
+                            : null}
+                            {tab === "atrasados" ?
+                              <RelaAtrasadosList detail={extras} />
+                            : null}
+                          </>
+                        : null}
+                      </div>
+                    : null}
+                  </div>
+                );
+              })
+            }
+          </div>
+        </div>
+
         <div className="overflow-hidden rounded-xl border border-slate-300 bg-[#FAFAF7] dark:border-slate-700 dark:bg-slate-950">
           <div className="border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-900">
             <div className="flex flex-wrap items-center gap-3">
               <div>
                 <p className="text-[9px] font-bold uppercase tracking-widest text-[#C4146A]">
-                  Planilha Rio · espelho financeiro
+                  Clientes financeiro · Planilha Rio
                 </p>
                 <p className="text-xs text-slate-500">
                   {financeiroClienteTotal} cliente(s) · {financeiro.length} marca(s) · sem vínculo Conta Azul
@@ -322,7 +500,7 @@ export function AtendimentoRelaPanel() {
               </div>
             </div>
           </div>
-          <div className="overflow-x-auto p-2">
+          <div className="max-h-[min(72vh,900px)] overflow-x-auto overflow-y-auto p-2">
             {financeiro.length === 0 ?
               <p className="px-3 py-8 text-center text-sm text-slate-500">Nenhum cliente encontrado.</p>
             : <table className="min-w-full border-collapse text-[11px]">
@@ -471,223 +649,7 @@ export function AtendimentoRelaPanel() {
             }
           </div>
         </div>
-      : <div className="overflow-hidden rounded-xl border border-violet-200 bg-white dark:border-violet-900/50 dark:bg-zinc-900">
-          <div className="border-b border-violet-100 bg-violet-50/80 px-4 py-2 dark:border-violet-900/40 dark:bg-violet-950/20">
-            <p className="text-xs font-bold uppercase tracking-wide text-violet-900 dark:text-violet-200">
-              Produção musical
-            </p>
-            <p className="text-xs text-violet-800/80 dark:text-violet-300/80">
-              {producao.length} grupo(s) · use o botão «Cadastro» para editar cada PDV
-            </p>
-          </div>
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {producao.length === 0 ?
-              <p className="px-4 py-8 text-center text-sm text-zinc-500">Nenhum cliente na produção.</p>
-            : producao.map((c) => {
-                const open = openClientes.has(c.key);
-                return (
-                  <div key={c.key}>
-                    <div className="flex w-full items-center gap-2 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                      <button
-                        type="button"
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        onClick={() => toggleCliente(c.key)}
-                      >
-                        <span className="text-zinc-400">{open ? "▾" : "▸"}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="truncate font-semibold text-zinc-900 dark:text-zinc-100">{c.nome}</span>
-                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500">
-                            <span>{c.pdvCount} PDV(s)</span>
-                            {c.documento ?
-                              <span className="font-mono">{formatDoc(c.documento)}</span>
-                            : null}
-                          </span>
-                        </span>
-                      </button>
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <CopyTextButton
-                          size="compact"
-                          variant="icon"
-                          text={copyableText(c.nome)}
-                          label="Copiar nome do cliente"
-                        />
-                        {c.documento ?
-                          <CopyTextButton
-                            size="compact"
-                            variant="icon"
-                            text={copyableText(c.documento)}
-                            label="Copiar CNPJ do cliente"
-                          />
-                        : null}
-                        {producaoClienteCopyAll(c) ?
-                          <CopyTextButton
-                            size="compact"
-                            variant="icon"
-                            text={producaoClienteCopyAll(c)}
-                            label="Copiar todas as informações do cliente"
-                          />
-                        : null}
-                      </div>
-                    </div>
-                    {open ?
-                      <div className="border-t border-zinc-100 px-2 py-2 dark:border-zinc-800">
-                        <div className="hidden overflow-x-auto md:block">
-                          <table className="min-w-full text-xs">
-                            <thead>
-                              <tr className="text-left text-[10px] uppercase tracking-wide text-zinc-500">
-                                <th className="w-8 px-2 py-1" title="Copiar linha completa">
-                                  ⧉
-                                </th>
-                                <th className="px-2 py-1">PDV</th>
-                                <th className="px-2 py-1">CNPJ</th>
-                                <th className="px-2 py-1">Contato loja</th>
-                                <th className="px-2 py-1">E-mail loja</th>
-                                <th className="px-2 py-1">Telefone loja</th>
-                                <th className="px-2 py-1">Player</th>
-                                <th className="px-2 py-1" />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {c.pdvs.map((p) => (
-                                <tr
-                                  key={p.rioPdvKey}
-                                  className="border-t border-zinc-100 dark:border-zinc-800"
-                                >
-                                  <td className="px-2 py-2 align-middle">
-                                    {producaoPdvCopyAll(p) ?
-                                      <CopyTextButton
-                                        size="compact"
-                                        variant="icon"
-                                        text={producaoPdvCopyAll(p)}
-                                        label="Copiar todas as informações do PDV"
-                                      />
-                                    : null}
-                                  </td>
-                                  <td className="px-2 py-2">
-                                    <div className="flex min-w-0 items-center gap-0.5 font-medium">
-                                      <span className="min-w-0 truncate">
-                                        {p.nome}
-                                        {p.isLinhaProxy ?
-                                          <span className="ml-1 text-[10px] text-amber-600">· cliente = PDV</span>
-                                        : null}
-                                      </span>
-                                      <CopyTextButton
-                                        size="compact"
-                                        variant="icon"
-                                        text={copyableText(p.nome)}
-                                        label="Copiar nome do PDV"
-                                      />
-                                    </div>
-                                  </td>
-                                  <td className="whitespace-nowrap px-2 py-2">
-                                    <CopyCell text={formatDoc(p.documento)} label="Copiar CNPJ" mono />
-                                  </td>
-                                  <td className="px-2 py-2">
-                                    <CopyCell text={p.contatoLojaNome} label="Copiar contato da loja" />
-                                  </td>
-                                  <td className="max-w-[10rem] px-2 py-2">
-                                    <CopyCell text={p.contatoLojaEmail} label="Copiar e-mail da loja" />
-                                  </td>
-                                  <td className="whitespace-nowrap px-2 py-2">
-                                    <CopyCell text={p.contatoLojaTelefone} label="Copiar telefone da loja" />
-                                  </td>
-                                  <td className="whitespace-nowrap px-2 py-2">
-                                    {p.portalPdvLabel ?
-                                      <CopyCell text={p.portalPdvLabel} label="Copiar nº player" mono />
-                                    : <span className="text-amber-700 dark:text-amber-400">Sem ID</span>}
-                                  </td>
-                                  <td className="px-2 py-2 text-right">
-                                    <button
-                                      type="button"
-                                      className="rounded-md border border-violet-400 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-900 hover:bg-violet-100 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950/60"
-                                      onClick={() => openCadastro(p.rioPdvKey)}
-                                    >
-                                      Cadastro
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className="space-y-2 md:hidden">
-                          {c.pdvs.map((p) => (
-                            <div
-                              key={p.rioPdvKey}
-                              className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="flex min-w-0 flex-1 items-center gap-1 font-semibold">
-                                  <span className="min-w-0 truncate">{p.nome}</span>
-                                  <CopyTextButton
-                                    size="compact"
-                                    variant="icon"
-                                    text={copyableText(p.nome)}
-                                    label="Copiar nome do PDV"
-                                  />
-                                </p>
-                                {producaoPdvCopyAll(p) ?
-                                  <CopyTextButton
-                                    size="compact"
-                                    variant="icon"
-                                    text={producaoPdvCopyAll(p)}
-                                    label="Copiar todas as informações do PDV"
-                                  />
-                                : null}
-                              </div>
-                              <dl className="mt-2 grid gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                                <div className="flex items-center gap-1">
-                                  <dt className="font-medium">CNPJ:</dt>
-                                  <dd>
-                                    <CopyCell text={formatDoc(p.documento)} label="Copiar CNPJ" mono />
-                                  </dd>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <dt className="font-medium">Contato:</dt>
-                                  <dd>
-                                    <CopyCell text={p.contatoLojaNome} label="Copiar contato" />
-                                  </dd>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <dt className="font-medium">E-mail:</dt>
-                                  <dd>
-                                    <CopyCell text={p.contatoLojaEmail} label="Copiar e-mail" />
-                                  </dd>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <dt className="font-medium">Telefone:</dt>
-                                  <dd>
-                                    <CopyCell text={p.contatoLojaTelefone} label="Copiar telefone" />
-                                  </dd>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <dt className="font-medium">Player:</dt>
-                                  <dd>
-                                    {p.portalPdvLabel ?
-                                      <CopyCell text={p.portalPdvLabel} label="Copiar nº player" mono />
-                                    : "Sem ID"}
-                                  </dd>
-                                </div>
-                              </dl>
-                              <button
-                                type="button"
-                                className="mt-2 w-full rounded-md border border-violet-400 bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-900 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-100"
-                                onClick={() => openCadastro(p.rioPdvKey)}
-                              >
-                                Cadastro
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    : null}
-                  </div>
-                );
-              })
-            }
-          </div>
-        </div>
-      }
+      </div>
 
       {cadastroPdvKey ?
         <div className="fixed inset-0 z-50 flex justify-end bg-black/45">
@@ -706,4 +668,255 @@ export function AtendimentoRelaPanel() {
 function formatDoc(raw: string | null | undefined): string {
   const t = raw?.trim();
   return t || "—";
+}
+
+function RelaProducaoPdvsTable({
+  c,
+  onCadastro,
+}: {
+  c: RelaProducaoClienteRow;
+  onCadastro: (rioPdvKey: string) => void;
+}) {
+  return (
+    <>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="min-w-full text-xs">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wide text-zinc-500">
+              <th className="w-8 px-2 py-1" title="Copiar linha completa">
+                ⧉
+              </th>
+              <th className="px-2 py-1">PDV</th>
+              <th className="px-2 py-1">CNPJ</th>
+              <th className="px-2 py-1">Contato loja</th>
+              <th className="px-2 py-1">E-mail loja</th>
+              <th className="px-2 py-1">Telefone loja</th>
+              <th className="px-2 py-1">Player</th>
+              <th className="px-2 py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {c.pdvs.map((p) => (
+              <tr key={p.rioPdvKey} className="border-t border-zinc-100 dark:border-zinc-800">
+                <td className="px-2 py-2 align-middle">
+                  {producaoPdvCopyAll(p) ?
+                    <CopyTextButton
+                      size="compact"
+                      variant="icon"
+                      text={producaoPdvCopyAll(p)}
+                      label="Copiar todas as informações do PDV"
+                    />
+                  : null}
+                </td>
+                <td className="px-2 py-2">
+                  <div className="flex min-w-0 items-center gap-0.5 font-medium">
+                    <span className="min-w-0 truncate">
+                      {p.nome}
+                      {p.isLinhaProxy ?
+                        <span className="ml-1 text-[10px] text-amber-600">· cliente = PDV</span>
+                      : null}
+                    </span>
+                    <CopyTextButton
+                      size="compact"
+                      variant="icon"
+                      text={copyableText(p.nome)}
+                      label="Copiar nome do PDV"
+                    />
+                  </div>
+                </td>
+                <td className="whitespace-nowrap px-2 py-2">
+                  <CopyCell text={formatDoc(p.documento)} label="Copiar CNPJ" mono />
+                </td>
+                <td className="px-2 py-2">
+                  <CopyCell text={p.contatoLojaNome} label="Copiar contato da loja" />
+                </td>
+                <td className="max-w-[10rem] px-2 py-2">
+                  <CopyCell text={p.contatoLojaEmail} label="Copiar e-mail da loja" />
+                </td>
+                <td className="whitespace-nowrap px-2 py-2">
+                  <CopyCell text={p.contatoLojaTelefone} label="Copiar telefone da loja" />
+                </td>
+                <td className="whitespace-nowrap px-2 py-2">
+                  {p.portalPdvLabel ?
+                    <CopyCell text={p.portalPdvLabel} label="Copiar nº player" mono />
+                  : <span className="text-amber-700 dark:text-amber-400">Sem ID</span>}
+                </td>
+                <td className="px-2 py-2 text-right">
+                  <button
+                    type="button"
+                    className="rounded-md border border-violet-400 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-900 hover:bg-violet-100 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-100 dark:hover:bg-violet-950/60"
+                    onClick={() => onCadastro(p.rioPdvKey)}
+                  >
+                    Cadastro
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="space-y-2 md:hidden">
+        {c.pdvs.map((p) => (
+          <div key={p.rioPdvKey} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+            <div className="flex items-start justify-between gap-2">
+              <p className="flex min-w-0 flex-1 items-center gap-1 font-semibold">
+                <span className="min-w-0 truncate">{p.nome}</span>
+                <CopyTextButton
+                  size="compact"
+                  variant="icon"
+                  text={copyableText(p.nome)}
+                  label="Copiar nome do PDV"
+                />
+              </p>
+              {producaoPdvCopyAll(p) ?
+                <CopyTextButton
+                  size="compact"
+                  variant="icon"
+                  text={producaoPdvCopyAll(p)}
+                  label="Copiar todas as informações do PDV"
+                />
+              : null}
+            </div>
+            <dl className="mt-2 grid gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+              <div className="flex items-center gap-1">
+                <dt className="font-medium">CNPJ:</dt>
+                <dd>
+                  <CopyCell text={formatDoc(p.documento)} label="Copiar CNPJ" mono />
+                </dd>
+              </div>
+              <div className="flex items-center gap-1">
+                <dt className="font-medium">Contato:</dt>
+                <dd>
+                  <CopyCell text={p.contatoLojaNome} label="Copiar contato" />
+                </dd>
+              </div>
+              <div className="flex items-center gap-1">
+                <dt className="font-medium">E-mail:</dt>
+                <dd>
+                  <CopyCell text={p.contatoLojaEmail} label="Copiar e-mail" />
+                </dd>
+              </div>
+              <div className="flex items-center gap-1">
+                <dt className="font-medium">Telefone:</dt>
+                <dd>
+                  <CopyCell text={p.contatoLojaTelefone} label="Copiar telefone" />
+                </dd>
+              </div>
+              <div className="flex items-center gap-1">
+                <dt className="font-medium">Player:</dt>
+                <dd>
+                  {p.portalPdvLabel ?
+                    <CopyCell text={p.portalPdvLabel} label="Copiar nº player" mono />
+                  : "Sem ID"}
+                </dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className="mt-2 w-full rounded-md border border-violet-400 bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-900 dark:border-violet-600 dark:bg-violet-950/40 dark:text-violet-100"
+              onClick={() => onCadastro(p.rioPdvKey)}
+            >
+              Cadastro
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function RelaChamadosList({ chamados }: { chamados: ChamadoView[] }) {
+  if (chamados.length === 0) {
+    return <p className="px-2 py-3 text-sm text-zinc-500">Nenhum chamado vinculado a este cliente.</p>;
+  }
+  return (
+    <ul className="max-h-64 space-y-1.5 overflow-y-auto px-1">
+      {chamados.map((c) => {
+        const pri = prioridadeMeta(c.prioridade);
+        const col = CHAMADO_COLUNAS.find((x) => x.id === c.status);
+        return (
+          <li
+            key={c.id}
+            className="flex flex-wrap items-start gap-2 rounded-lg border border-zinc-200 px-2.5 py-2 text-xs dark:border-zinc-700"
+          >
+            <span className={"mt-1 h-2 w-2 shrink-0 rounded-full " + pri.dot} />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-zinc-900 dark:text-zinc-100">{c.titulo}</p>
+              <p className="mt-0.5 text-[10px] text-zinc-500">
+                {col?.label ?? c.status} · {pri.label} · {fmtWhen(c.updatedAt)}
+                {c.clienteNome ? ` · ${c.clienteNome}` : null}
+                {c.rioPdvKey ? " · PDV" : null}
+              </p>
+            </div>
+            <Link href="/chamados" className="text-[10px] font-semibold text-violet-700 hover:underline dark:text-violet-300">
+              Quadro
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function RelaFeedbacksList({ items }: { items: ClienteFeedbackItem[] }) {
+  if (items.length === 0) {
+    return <p className="px-2 py-3 text-sm text-zinc-500">Nenhum feedback do player para estes PDVs.</p>;
+  }
+  return (
+    <ul className="max-h-64 space-y-1.5 overflow-y-auto px-1">
+      {items.map((f) => (
+        <li
+          key={f.id}
+          className="rounded-lg border border-zinc-200 px-2.5 py-2 text-xs dark:border-zinc-700"
+        >
+          <p className="font-medium text-zinc-900 dark:text-zinc-100">{f.pdvNome}</p>
+          <p className="mt-1 whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{f.mensagem}</p>
+          <p className="mt-1 text-[10px] text-zinc-500">
+            {f.status} · {fmtWhen(f.createdAt)}
+            {f.chamadoId ? " · virou chamado" : null}
+          </p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RelaAtrasadosList({ detail }: { detail: RelaProducaoClienteDetailPayload }) {
+  if (!detail.cobranca.caConnected) {
+    return (
+      <p className="px-2 py-3 text-sm text-amber-700 dark:text-amber-400">
+        Conta Azul não conectada — não foi possível listar cobranças atrasadas.
+      </p>
+    );
+  }
+  if (!detail.cobranca.caLinked) {
+    return (
+      <p className="px-2 py-3 text-sm text-zinc-500">
+        Cliente sem vínculo Conta Azul na Planilha Rio — sem parcelas atrasadas aqui.
+      </p>
+    );
+  }
+  if (detail.atrasados.length === 0) {
+    return <p className="px-2 py-3 text-sm text-zinc-500">Nenhuma cobrança atrasada nos últimos 12 meses.</p>;
+  }
+  return (
+    <ul className="max-h-64 space-y-1.5 overflow-y-auto px-1">
+      {detail.atrasados.map((a) => (
+        <li
+          key={a.id}
+          className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-rose-200 bg-rose-50/50 px-2.5 py-2 text-xs dark:border-rose-900/50 dark:bg-rose-950/20"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-medium text-zinc-900 dark:text-zinc-100">{a.descricao}</p>
+            <p className="text-[10px] text-zinc-500">
+              Venc. {fmtYmd(a.dataVencimento)} · {a.statusLabel}
+            </p>
+          </div>
+          <span className="shrink-0 font-semibold tabular-nums text-rose-800 dark:text-rose-300">
+            {formatBRL(a.valorAberto)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 }

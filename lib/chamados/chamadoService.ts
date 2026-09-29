@@ -135,6 +135,8 @@ export async function listChamadosForUser(ctx: ChamadoUserContext): Promise<Cham
 export async function listChamadosForCliente(opts: {
   rioLinhaId: string;
   rioPdvKeys: string[];
+  /** Chamados criados só com o nome do cliente (sem linha/PDV). */
+  clienteNome?: string;
 }): Promise<ChamadoView[]> {
   let ingestIds: string[] = [];
   if (opts.rioPdvKeys.length > 0) {
@@ -150,13 +152,20 @@ export async function listChamadosForCliente(opts: {
     ];
   }
 
-  const or: Array<Record<string, unknown>> = [{ rioLinhaId: opts.rioLinhaId }];
+  const or: Array<Record<string, unknown>> = [];
+  const linhaId = opts.rioLinhaId?.trim();
+  if (linhaId) or.push({ rioLinhaId: linhaId });
   if (opts.rioPdvKeys.length > 0) {
     or.push({ rioPdvKey: { in: opts.rioPdvKeys } });
   }
   if (ingestIds.length > 0) {
     or.push({ id: { in: ingestIds } });
   }
+  const nome = opts.clienteNome?.trim();
+  if (nome) {
+    or.push({ clienteNome: { equals: nome, mode: "insensitive" } });
+  }
+  if (or.length === 0) return [];
 
   try {
     const rows = await prisma.chamado.findMany({
