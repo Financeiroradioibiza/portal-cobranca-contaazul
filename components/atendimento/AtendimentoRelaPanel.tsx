@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { PdvCadastroDrawer } from "@/components/cadastros/PdvCadastroDrawer";
 import { CopyTextButton } from "@/components/CopyTextButton";
 import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
-import { CHAMADO_COLUNAS, prioridadeMeta } from "@/lib/chamados/chamadoConstants";
+import { CHAMADO_COLUNAS, prioridadeMeta, setorMeta } from "@/lib/chamados/chamadoConstants";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
 import type { RelaProducaoClienteDetailPayload } from "@/lib/atendimento/relaClienteDetailService";
 import type {
@@ -912,10 +912,11 @@ function RelaChamadosList({ chamados }: { chamados: ChamadoView[] }) {
     return <p className="px-2 py-3 text-sm text-zinc-500">Nenhum chamado vinculado a este cliente.</p>;
   }
   return (
-    <ul className="max-h-64 space-y-1.5 overflow-y-auto px-1">
+    <ul className="max-h-80 space-y-1.5 overflow-y-auto px-1">
       {chamados.map((c) => {
         const pri = prioridadeMeta(c.prioridade);
         const col = CHAMADO_COLUNAS.find((x) => x.id === c.status);
+        const mensagem = c.descricao?.trim() ?? "";
         return (
           <li
             key={c.id}
@@ -926,9 +927,49 @@ function RelaChamadosList({ chamados }: { chamados: ChamadoView[] }) {
               <p className="font-semibold text-zinc-900 dark:text-zinc-100">{c.titulo}</p>
               <p className="mt-0.5 text-[10px] text-zinc-500">
                 {col?.label ?? c.status} · {pri.label} · {fmtWhen(c.updatedAt)}
-                {c.clienteNome ? ` · ${c.clienteNome}` : null}
-                {c.rioPdvKey ? " · PDV" : null}
+                {c.rioPdvKey ? " · PDV específico" : null}
               </p>
+              {mensagem ?
+                <p className="mt-1.5 whitespace-pre-wrap text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">
+                  {mensagem}
+                </p>
+              : null}
+              <div className="mt-1.5 space-y-1">
+                {c.setores.length > 0 ?
+                  <div className="flex flex-wrap gap-1">
+                    {c.setores.map((s) => {
+                      const m = setorMeta(s);
+                      return (
+                        <span
+                          key={s}
+                          className={"rounded-full px-1.5 py-0.5 text-[9px] font-semibold " + m.bg}
+                        >
+                          {m.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                : null}
+                {c.criadoPorNome?.trim() || c.responsaveis.length > 0 ?
+                  <p className="text-[10px] leading-snug text-zinc-500">
+                    {c.criadoPorNome?.trim() ?
+                      <>
+                        Aberto por{" "}
+                        <span className="font-medium text-zinc-600 dark:text-zinc-400">{c.criadoPorNome}</span>
+                      </>
+                    : null}
+                    {c.responsaveis.length > 0 ?
+                      <>
+                        {c.criadoPorNome?.trim() ? " · " : null}
+                        Responsáveis:{" "}
+                        <span className="font-medium text-zinc-600 dark:text-zinc-400">
+                          {c.responsaveis.join(", ")}
+                        </span>
+                      </>
+                    : null}
+                  </p>
+                : null}
+              </div>
             </div>
             <Link href="/chamados" className="text-[10px] font-semibold text-violet-700 hover:underline dark:text-violet-300">
               Quadro
