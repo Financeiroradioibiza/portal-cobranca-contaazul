@@ -31,6 +31,11 @@ import {
 } from "@/lib/rio/rioTagCobranca";
 import { formatRioValorTotal, sumRioLinhasTotals } from "@/lib/rio/rioPlanilhaTotals";
 import { valorClienteTextoFromPdvUnit } from "@/lib/rio/valorClienteCalc";
+import {
+  EMPTY_RELA_CONTATO,
+  listRelaContatosByClienteKeys,
+  type RelaContatoRelacionamento,
+} from "@/lib/atendimento/relaContatoRelacionamentoService";
 
 export type RelaFinanceiroPdvRow = {
   id: string;
@@ -84,6 +89,7 @@ export type RelaProducaoClienteRow = {
   rioLinhaId: string;
   documento: string | null;
   pdvCount: number;
+  contatoRelacionamento: RelaContatoRelacionamento;
   pdvs: RelaProducaoPdvRow[];
 };
 
@@ -288,12 +294,15 @@ export async function buildAtendimentoRelaPayload(): Promise<AtendimentoRelaPayl
   ];
   const gatewayTelemetry = await loadPlayerGatewayTelemetry(portalPdvIds);
 
+  const contatosByKey = await listRelaContatosByClienteKeys(visiveis.map((c) => c.key));
+
   const producao: RelaProducaoClienteRow[] = visiveis.map((c) => ({
     key: c.key,
     nome: c.nome,
     rioLinhaId: c.rioLinhaId,
     documento: c.documento,
     pdvCount: c.pdvCount,
+    contatoRelacionamento: contatosByKey.get(c.key) ?? EMPTY_RELA_CONTATO,
     pdvs: c.pdvs.map((p) => {
       const cad = cadastroByKey.get(p.rioPdvId);
       const portalPdvId = p.portalPlayerId?.portalPdvId ?? null;

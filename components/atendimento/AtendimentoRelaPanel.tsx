@@ -8,6 +8,7 @@ import { RioTagCobrancaNome } from "@/components/rio/RioTagCobrancaNome";
 import { CHAMADO_COLUNAS, prioridadeMeta, setorMeta } from "@/lib/chamados/chamadoConstants";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
 import type { RelaProducaoClienteDetailPayload } from "@/lib/atendimento/relaClienteDetailService";
+import type { RelaContatoRelacionamento } from "@/lib/atendimento/relaContatoRelacionamentoService";
 import type {
   AtendimentoRelaPayload,
   RelaFinanceiroClienteRow,
@@ -194,6 +195,7 @@ export function AtendimentoRelaPanel() {
   const [collapsedMarcas, setCollapsedMarcas] = useState<Set<string>>(new Set());
   const [marcasFechadas, setMarcasFechadas] = useState(true);
   const [cadastroPdvKey, setCadastroPdvKey] = useState<string | null>(null);
+  const [contatoByKey, setContatoByKey] = useState<Record<string, RelaContatoRelacionamento>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -376,12 +378,13 @@ export function AtendimentoRelaPanel() {
                 const tab = producaoTabByKey[c.key] ?? "pdvs";
                 const extras = producaoExtras[c.key];
                 const extrasBusy = producaoExtrasLoading.has(c.key);
+                const contato = contatoByKey[c.key] ?? c.contatoRelacionamento;
                 return (
                   <div key={c.key}>
-                    <div className="flex w-full items-center gap-2 px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+                    <div className="flex w-full flex-col gap-2 px-4 py-3 hover:bg-zinc-50 sm:flex-row sm:items-center dark:hover:bg-zinc-800/40">
                       <button
                         type="button"
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left sm:max-w-[min(100%,22rem)]"
                         onClick={() => toggleProducaoCliente(c.key)}
                       >
                         <span className="text-zinc-400">{open ? "▾" : "▸"}</span>
@@ -395,7 +398,12 @@ export function AtendimentoRelaPanel() {
                           </span>
                         </span>
                       </button>
-                      <div className="flex shrink-0 items-center gap-0.5">
+                      <RelaContatoRelacionamentoBlock
+                        clienteKey={c.key}
+                        contato={contato}
+                        onSaved={(next) => setContatoByKey((prev) => ({ ...prev, [c.key]: next }))}
+                      />
+                      <div className="flex shrink-0 items-center gap-0.5 sm:ms-auto">
                         <CopyTextButton
                           size="compact"
                           variant="icon"
@@ -698,6 +706,150 @@ export function AtendimentoRelaPanel() {
 function formatDoc(raw: string | null | undefined): string {
   const t = raw?.trim();
   return t || "—";
+}
+
+function relaContatoDisplay(value: string): string {
+  const t = value.trim();
+  return t || "—";
+}
+
+function RelaContatoRelacionamentoBlock({
+  clienteKey,
+  contato,
+  onSaved,
+}: {
+  clienteKey: string;
+  contato: RelaContatoRelacionamento;
+  onSaved: (next: RelaContatoRelacionamento) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(contato);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!editing) setDraft(contato);
+  }, [contato, editing]);
+
+  async function save() {
+    setBusy(true);
+    setErr("");
+    try {
+      const res = await fetch(
+        `/api/atendimento/rela/contato-relacionamento/${encodeURIComponent(clienteKey)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(draft),
+        },
+      );
+      const json = (await res.json()) as {
+        ok?: boolean;
+        contato?: RelaContatoRelacionamento;
+        error?: string;
+      };
+      if (!res.ok || !json.ok || !json.contato) {
+        throw new Error(json.error ?? "Falha ao salvar contato.");
+      }
+      onSaved(json.contato);
+      setEditing(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Erro ao salvar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function cancel() {
+    setDraft(contato);
+    setEditing(false);
+    setErr("");
+  }
+
+  return (
+    <div
+      className="min-w-0 flex-1 rounded-lg border border-violet-200/80 bg-violet-50/40 px-2.5 py-2 dark:border-violet-900/50 dark:bg-violet-950/20"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
+        <p className="text-[9px] font-bold uppercase tracking-wide text-violet-800 dark:text-violet-300">
+          Contato relacionamento
+        </p>
+        {editing ?
+          <div className="flex flex-wrap gap-1">
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded border border-zinc-300 px-2 py-0.5 text-[10px] font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
+              onClick={cancel}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-violet-500 disabled:opacity-50"
+              onClick={() => void save()}
+            >
+              {busy ? "…" : "Salvar"}
+            </button>
+          </div>
+        : <button
+            type="button"
+            className="rounded border border-violet-400 px-2 py-0.5 text-[10px] font-semibold text-violet-900 hover:bg-violet-100 dark:border-violet-600 dark:text-violet-100 dark:hover:bg-violet-950/50"
+            onClick={() => setEditing(true)}
+          >
+            Editar
+          </button>
+        }
+      </div>
+      {editing ?
+        <div className="grid gap-1.5 sm:grid-cols-3">
+          <label className="block text-[10px]">
+            <span className="font-medium text-zinc-600 dark:text-zinc-400">Nome</span>
+            <input
+              className="portal-input mt-0.5 w-full text-xs"
+              value={draft.nome}
+              onChange={(e) => setDraft((d) => ({ ...d, nome: e.target.value }))}
+            />
+          </label>
+          <label className="block text-[10px]">
+            <span className="font-medium text-zinc-600 dark:text-zinc-400">WhatsApp</span>
+            <input
+              className="portal-input mt-0.5 w-full text-xs"
+              value={draft.whatsapp}
+              onChange={(e) => setDraft((d) => ({ ...d, whatsapp: e.target.value }))}
+            />
+          </label>
+          <label className="block text-[10px]">
+            <span className="font-medium text-zinc-600 dark:text-zinc-400">E-mail</span>
+            <input
+              type="email"
+              className="portal-input mt-0.5 w-full text-xs"
+              value={draft.email}
+              onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+            />
+          </label>
+        </div>
+      : <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-zinc-700 dark:text-zinc-300">
+          <span>
+            <span className="font-medium text-zinc-500">Nome:</span> {relaContatoDisplay(contato.nome)}
+          </span>
+          <span>
+            <span className="font-medium text-zinc-500">WhatsApp:</span> {relaContatoDisplay(contato.whatsapp)}
+          </span>
+          <span className="min-w-0 break-all">
+            <span className="font-medium text-zinc-500">E-mail:</span> {relaContatoDisplay(contato.email)}
+          </span>
+        </div>
+      }
+      {err ?
+        <p className="mt-1 text-[10px] text-rose-600 dark:text-rose-400">{err}</p>
+      : null}
+    </div>
+  );
 }
 
 function RelaPdvCacheBar({ percent }: { percent: number | null }) {

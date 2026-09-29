@@ -1468,6 +1468,17 @@ model MusicboardClienteConfig {
   @@map("musicboard_cliente_config")
 }
 
+/// Contato de relacionamento (Atendimento → Rela) por bucket cliente produção.
+model RelaClienteContatoRelacionamento {
+  clienteKey String   @id @map("cliente_key") @db.VarChar(120)
+  nome       String   @default("") @db.VarChar(200)
+  whatsapp   String   @default("") @db.VarChar(40)
+  email      String   @default("") @db.VarChar(200)
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("rela_cliente_contato_relacionamento")
+}
+
 enum DownloadProvider {
   spotizerr
   deemix
