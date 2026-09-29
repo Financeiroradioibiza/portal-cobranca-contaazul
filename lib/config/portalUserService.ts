@@ -214,6 +214,7 @@ export async function createPortalUser(input: {
 export async function updatePortalUser(
   id: string,
   patch: {
+    email?: string;
     displayName?: string;
     jobTitle?: string;
     profileId?: string;
@@ -225,6 +226,7 @@ export async function updatePortalUser(
   },
 ): Promise<{ user: DbPortalUserView; totpSecret?: string }> {
   const data: {
+    email?: string;
     displayName?: string;
     jobTitle?: string;
     profileId?: string;
@@ -234,6 +236,17 @@ export async function updatePortalUser(
     tagIniciais?: string;
     tagCor?: string;
   } = {};
+
+  if (patch.email !== undefined) {
+    const email = normalizePortalEmail(patch.email);
+    if (!email.includes("@")) throw new Error("email_invalid");
+    const dup = await prisma.portalUser.findFirst({
+      where: { email, NOT: { id } },
+      select: { id: true },
+    });
+    if (dup) throw new Error("email_exists");
+    data.email = email;
+  }
 
   if (patch.displayName !== undefined) data.displayName = patch.displayName.trim();
   if (patch.jobTitle !== undefined) data.jobTitle = patch.jobTitle.trim();

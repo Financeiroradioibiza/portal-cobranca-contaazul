@@ -256,6 +256,7 @@ export function ConfigUsuariosPanel() {
 
   function openEditUser(u: UserRow) {
     setEditUser(u);
+    setFormEmail(u.email);
     setFormName(u.displayName);
     setFormJob(u.jobTitle);
     setFormProfileId(u.profile.id);
@@ -302,6 +303,7 @@ export function ConfigUsuariosPanel() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          email: formEmail.trim() !== editUser.email ? formEmail : undefined,
           displayName: formName,
           jobTitle: formJob,
           profileId: formProfileId,
@@ -311,9 +313,13 @@ export function ConfigUsuariosPanel() {
           tagCor: formTagCor,
         }),
       });
-      const data = (await res.json()) as { totpSecret?: string };
+      const data = (await res.json()) as { error?: string; totpSecret?: string };
       if (!res.ok) {
-        alert("Erro ao salvar usuário.");
+        alert(
+          data.error === "email_exists" ? "E-mail já cadastrado."
+          : data.error === "email_invalid" ? "E-mail inválido."
+          : "Erro ao salvar usuário.",
+        );
         return;
       }
       setEditUser(null);
@@ -580,17 +586,20 @@ export function ConfigUsuariosPanel() {
               {editUser ? "Editar usuário" : "Novo usuário"}
             </h2>
             <div className="mt-4 space-y-3">
-              {!editUser ?
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">E-mail</span>
-                  <input
-                    type="email"
-                    value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
-                  />
-                </label>
-              : null}
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">E-mail (login)</span>
+                <input
+                  type="email"
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
+                />
+                {editUser ?
+                  <span className="mt-1 block text-[11px] text-slate-500">
+                    Alterar o login exige que a pessoa use o novo e-mail no próximo acesso.
+                  </span>
+                : null}
+              </label>
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">Nome</span>
                 <input
