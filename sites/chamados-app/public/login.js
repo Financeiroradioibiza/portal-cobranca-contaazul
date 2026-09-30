@@ -5,13 +5,7 @@
   var auth = window.ChamadosAppAuth;
   if (!form || !err || !btn || !auth) return;
 
-  if (auth.getToken()) {
-    auth.requireSession().then(function () {
-      window.location.replace("/app.html");
-    }).catch(function () {
-      auth.setToken(null);
-    });
-  }
+  auth.redirectIfLoggedIn();
 
   form.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -34,11 +28,17 @@
         });
       })
       .then(function (x) {
-        if (!x.data.ok || !x.data.sessionToken) {
+        if (!x.data.ok) {
           err.textContent =
             x.status === 401 ? "E-mail, senha ou código incorretos."
             : x.status === 503 ? "Login indisponível. Tente mais tarde."
             : "Não foi possível entrar.";
+          err.hidden = false;
+          return;
+        }
+        if (!x.data.sessionToken) {
+          err.textContent =
+            "Login OK, mas o portal não devolveu sessão para o app. Confira deploy do portal (commit 588e87c+) e proxy Netlify.";
           err.hidden = false;
           return;
         }

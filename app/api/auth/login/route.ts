@@ -11,6 +11,7 @@ import {
   touchPortalUserLastLogin,
 } from "@/lib/config/portalUserService";
 import { recordPortalAuditLog } from "@/lib/audit/portalAuditLog";
+import { isChamadosAppLoginRequest } from "@/lib/auth/chamadosAppLoginDetect";
 import {
   isPortalAuthConfigured,
   isPortalAuthDisabled,
@@ -86,9 +87,7 @@ export async function POST(request: Request) {
     console.error("[auth/login audit]", e);
   }
 
-  const viaChamadosApp =
-    request.headers.get("x-chamados-app-proxy") === "1" ||
-    request.headers.get("X-Chamados-App-Proxy") === "1";
+  const viaChamadosApp = isChamadosAppLoginRequest(request);
 
   const res = NextResponse.json({
     ok: true,
