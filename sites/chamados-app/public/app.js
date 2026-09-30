@@ -27,7 +27,9 @@
     ticketComments: [],
     ticketAnexos: [],
     detailDraft: null,
+    detailPeopleOpen: false,
     loading: true,
+    ptrRefreshing: false,
   };
 
   var mainEl = document.getElementById("main");
@@ -361,6 +363,7 @@
 
   function openTicket(c) {
     state.selectedTicket = c;
+    state.detailPeopleOpen = false;
     state.detailDraft = {
       titulo: c.titulo,
       descricao: c.descricao || "",
@@ -489,13 +492,55 @@
       });
   }
 
+  function setorLabels(ids) {
+    return ids
+      .map(function (id) {
+        var s = SETORES.find(function (x) {
+          return x.id === id;
+        });
+        return s ? s.label : id;
+      })
+      .join(", ");
+  }
+
+  function involvedPeopleEmails(c, d) {
+    var seen = {};
+    var out = [];
+    function add(email) {
+      var key = String(email || "").toLowerCase();
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      out.push(email);
+    }
+    add(c.criadoPorEmail);
+    (d.responsaveis || []).forEach(add);
+    return out;
+  }
+
+  function avatarStackHtml(emails, max) {
+    var list = emails.slice(0, max || 5);
+    var extra = emails.length - list.length;
+    var html = '<span class="avatar-stack">';
+    list.forEach(function (email) {
+      var p = participantByEmail(email);
+      html += avatarHtml(email, (p && p.displayName) || email, "avatar-xs");
+    });
+    if (extra > 0) {
+      html += '<span class="avatar avatar-xs" style="background:#64748b">+' + extra + "</span>";
+    }
+    html += "</span>";
+    return html;
+  }
+
   function renderTicketDetail() {
     var c = state.selectedTicket;
     var d = state.detailDraft;
     if (!c || !d) return renderTickets();
     navEl.hidden = true;
-    setScreenHeader("Radio Ibiza · Chamados", c.titulo, false, true);
+    setScreenHeader("Radio Ibiza · Chamados", "Detalhe", true);
     var st = STATUS[c.status] || STATUS.aberto;
+    var pr = PRI[c.prioridade] || PRI.media;
+    var involved = involvedPeopleEmails(c, d);
 
     var setoresHtml = SETORES.map(function (s) {
       var on = d.setores.indexOf(s.id) >= 0;
@@ -572,44 +617,48 @@
 
     var html =
       '<button type="button" class="back-link" id="back-tickets">← Voltar</button>' +
-      '<div class="ticket-meta" style="margin-bottom:0.75rem">' +
+      '<div class="ticket-head-meta">' +
+      '<span class="badge ' +
+      pr.cls +
+      '">' +
+      pr.label +
+      "</span>" +
       '<span class="badge ' +
       st.cls +
       '">' +
       st.label +
       "</span></div>" +
-      '<div class="detail-block">' +
-      "<h3>Pedido inicial</h3>" +
+      '<h2 class="ticket-head-title">' +
+      escapeHtml(c.titulo) +
+      "</h2>" +
+      '<div class="detail-block detail-block-tight">' +
       '<div class="thread-list">' +
       initialHtml +
-      "</div>" +
-      "<label><span>Prioridade</span>" +
-      '<select id="d-pri">' +
-      ["baixa", "media", "alta", "urgente"]
-        .map(function (p) {
-          return (
-            '<option value="' +
-            p +
-            '"' +
-            (d.prioridade === p ? " selected" : "") +
-            ">" +
-            (PRI[p] ? PRI[p].label : p) +
-            "</option>"
-          );
-        })
-        .join("") +
-      "</select></label>" +
+      "</div></div>" +
+      '<div class="detail-block">' +
+      '<button type="button" class="people-summary" id="toggle-people-panel">' +
+      '<span class="setor-summary">' +
+      escapeHtml(setorLabels(d.setores) || "Setores") +
+      "</span>" +
+      avatarStackHtml(involved, 4) +
+      '<span class="people-summary-label">Pessoas</span>' +
+      '<span class="people-summary-chevron">' +
+      (state.detailPeopleOpen ? "▾" : "▸") +
+      "</span></button>" +
+      '<div id="people-panel" class="people-panel"' +
+      (state.detailPeopleOpen ? "" : " hidden") +
+      ">" +
       "<p><span>Setores</span></p>" +
       setoresHtml +
-      '<p style="margin-top:0.75rem;font-size:0.75rem;font-weight:700;color:var(--muted)">Pessoas no chamado</p>' +
+      '<p style="margin:0.5rem 0 0;font-size:0.75rem;font-weight:700;color:var(--muted)">Responsáveis</p>' +
       '<div class="people-list">' +
       peopleHtml +
-      "</div></div>" +
+      "</div></div></div>" +
       '<div class="detail-block"><h3>Respostas</h3>' +
       commentsHtml +
-      '<form id="form-reply" style="margin-top:0.75rem">' +
-      '<textarea id="reply-body" placeholder="Responder…" rows="3"></textarea>' +
-      '<button type="submit" class="btn-primary" style="margin-top:0.5rem;width:100%">Enviar resposta</button></form></div>' +
+      '<form id="form-reply" class="reply-form">' +
+      '<textarea id="reply-body" placeholder="Responder…" rows="2"></textarea>' +
+      '<button type="submit" class="btn-primary" style="margin-top:0.4rem;width:100%">Enviar resposta</button></form></div>' +
       '<div class="detail-block"><h3>Anexos</h3>' +
       anexosHtml +
       '<label style="display:block;margin-top:0.75rem"><span>Adicionar arquivo</span>' +
@@ -631,9 +680,18 @@
     document.getElementById("back-tickets").onclick = function () {
       state.selectedTicket = null;
       state.detailDraft = null;
+      state.detailPeopleOpen = false;
       navEl.hidden = false;
       renderTickets();
     };
+
+    var togglePeople = document.getElementById("toggle-people-panel");
+    if (togglePeople) {
+      togglePeople.onclick = function () {
+        state.detailPeopleOpen = !state.detailPeopleOpen;
+        renderTicketDetail();
+      };
+    }
 
     mainEl.querySelectorAll("[data-setor]").forEach(function (btn) {
       btn.onclick = function () {
@@ -653,10 +711,6 @@
         if (!inp.checked && idx >= 0) d.responsaveis.splice(idx, 1);
       };
     });
-
-    document.getElementById("d-pri").onchange = function (e) {
-      d.prioridade = e.target.value;
-    };
 
     document.getElementById("form-reply").onsubmit = function (e) {
       e.preventDefault();
@@ -728,7 +782,6 @@
       var btn = document.getElementById("btn-save-ticket");
       btn.disabled = true;
       patchTicket({
-        prioridade: d.prioridade,
         setores: d.setores,
         responsaveis: d.responsaveis,
         notificar: true,
@@ -987,12 +1040,164 @@
     updateNavBadges();
   }
 
+  function refreshCurrentView() {
+    if (state.ptrRefreshing || (overlayEl && !overlayEl.hidden)) {
+      return Promise.resolve();
+    }
+    state.ptrRefreshing = true;
+    var tasks = [loadParticipants(), loadChamados(), loadAssuntos()];
+    return Promise.all(tasks)
+      .then(function () {
+        if (state.selectedTicket) {
+          var id = state.selectedTicket.id;
+          var fresh = state.chamados.find(function (c) {
+            return c.id === id;
+          });
+          if (fresh) {
+            state.selectedTicket = fresh;
+            state.detailDraft = {
+              titulo: fresh.titulo,
+              descricao: fresh.descricao || "",
+              prioridade: fresh.prioridade,
+              setores: (fresh.setores || []).slice(),
+              responsaveis: (fresh.responsaveis || []).slice(),
+            };
+          }
+          return loadTicketThread(id).then(function () {
+            renderTicketDetail();
+          });
+        }
+        if (state.selectedAssunto) {
+          var sid = state.selectedAssunto.id;
+          var ass = state.assuntos.find(function (a) {
+            return a.id === sid;
+          });
+          if (ass) state.selectedAssunto = ass;
+          return loadMessages(state.selectedAssunto.id).then(function () {
+            renderChatThread();
+            renderMessages();
+          });
+        }
+        render();
+      })
+      .catch(function () {
+        alert("Não foi possível atualizar agora.");
+      })
+      .finally(function () {
+        state.ptrRefreshing = false;
+      });
+  }
+
+  function initPullToRefresh() {
+    var ptrEl = document.getElementById("ptr");
+    var ptrLabel = document.getElementById("ptr-label");
+    if (!ptrEl || !mainEl) return;
+
+    var startY = 0;
+    var pulling = false;
+    var THRESHOLD = 56;
+
+    function scrollRoot() {
+      return mainEl;
+    }
+
+    function atTop() {
+      return scrollRoot().scrollTop <= 0;
+    }
+
+    function resetPtr() {
+      pulling = false;
+      startY = 0;
+      ptrEl.classList.remove("ptr-open", "ptr-loading");
+      ptrEl.hidden = true;
+      mainEl.classList.remove("ptr-shift");
+      mainEl.style.transform = "";
+      if (ptrLabel) ptrLabel.textContent = "Puxe para atualizar";
+    }
+
+    function setPull(px) {
+      var pull = Math.max(0, Math.min(px, 80));
+      if (pull <= 2) {
+        resetPtr();
+        return;
+      }
+      ptrEl.hidden = false;
+      ptrEl.classList.add("ptr-open");
+      mainEl.classList.add("ptr-shift");
+      mainEl.style.transform = "translateY(" + Math.min(pull, 48) + "px)";
+      if (ptrLabel) {
+        ptrLabel.textContent = pull >= THRESHOLD ? "Solte para atualizar" : "Puxe para atualizar";
+      }
+    }
+
+    mainEl.addEventListener(
+      "touchstart",
+      function (e) {
+        if (state.ptrRefreshing || (overlayEl && !overlayEl.hidden)) return;
+        if (!atTop() || !e.touches[0]) return;
+        startY = e.touches[0].clientY;
+        pulling = true;
+      },
+      { passive: true },
+    );
+
+    mainEl.addEventListener(
+      "touchmove",
+      function (e) {
+        if (!pulling || state.ptrRefreshing || !e.touches[0]) return;
+        var dy = e.touches[0].clientY - startY;
+        if (dy <= 0) {
+          resetPtr();
+          return;
+        }
+        if (!atTop()) {
+          resetPtr();
+          return;
+        }
+        e.preventDefault();
+        setPull(dy * 0.45);
+      },
+      { passive: false },
+    );
+
+    mainEl.addEventListener(
+      "touchend",
+      function () {
+        if (!pulling || state.ptrRefreshing) {
+          resetPtr();
+          return;
+        }
+        var open = ptrEl.classList.contains("ptr-open");
+        var label = ptrLabel ? ptrLabel.textContent : "";
+        resetPtr();
+        if (open && label === "Solte para atualizar") {
+          ptrEl.hidden = false;
+          ptrEl.classList.add("ptr-open", "ptr-loading");
+          if (ptrLabel) ptrLabel.textContent = "Atualizando…";
+          refreshCurrentView().finally(function () {
+            resetPtr();
+          });
+        }
+      },
+      { passive: true },
+    );
+
+    mainEl.addEventListener(
+      "touchcancel",
+      function () {
+        resetPtr();
+      },
+      { passive: true },
+    );
+  }
+
   navEl.querySelectorAll(".nav-btn").forEach(function (btn) {
     btn.onclick = function () {
       state.tab = btn.getAttribute("data-tab");
       state.selectedTicket = null;
       state.selectedAssunto = null;
       state.detailDraft = null;
+      state.detailPeopleOpen = false;
       render();
     };
   });
@@ -1025,6 +1230,7 @@
       }
       state.loading = false;
       render();
+      initPullToRefresh();
     })
     .catch(function () {
       window.location.replace("/login.html");
