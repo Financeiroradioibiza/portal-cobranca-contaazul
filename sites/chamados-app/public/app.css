@@ -416,6 +416,124 @@ body {
   margin-top: 0.5rem;
 }
 
+.sheet-block {
+  margin-bottom: 0.85rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: #f8f7f4;
+  border: 1px solid #ebe6df;
+}
+
+.sheet-block-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--ri-blue-deep);
+}
+
+.sheet-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.sheet-hint-err {
+  color: #c62828;
+  font-weight: 600;
+}
+
+.sheet-vinculo-resumo {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ri-blue-mid);
+}
+
+.modo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.modo-chip {
+  border: 2px solid #ebe6df;
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.modo-chip.on {
+  border-color: var(--ri-blue-mid);
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--ri-blue-deep);
+}
+
+.create-opcoes-list {
+  max-height: 11rem;
+  overflow: auto;
+  border: 2px solid #ebe6df;
+  border-radius: 12px;
+  background: #fff;
+  margin-top: 0.35rem;
+}
+
+.create-opcao-group-title {
+  margin: 0;
+  padding: 0.45rem 0.75rem 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.create-opcao-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #f0ebe3;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  font-size: 0.95rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+.create-opcao-item.selected {
+  background: rgba(37, 99, 235, 0.1);
+  font-weight: 800;
+}
+
+.create-opcao-pdv {
+  padding-left: 1.25rem;
+}
+
+.create-opcao-item .muted {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.sheet-people {
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.setor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .btn-primary,
 .btn-secondary {
   flex: 1;

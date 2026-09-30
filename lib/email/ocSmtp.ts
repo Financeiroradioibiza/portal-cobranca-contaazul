@@ -10,7 +10,7 @@ const INTERNAL_COBRANCA_CC_DEFAULT = "cobranca@radioibiza.com.br";
 const SUPORTE_FROM_DEFAULT = "suporte@radioibiza.com.br";
 const SUPORTE_FROM_NAME_DEFAULT = "Radio Ibiza — Suporte";
 const CHAMADOS_FROM_DEFAULT = "chamados@radioibiza.com.br";
-const CHAMADOS_FROM_NAME_DEFAULT = "Radio Ibiza — Chamados";
+const CHAMADOS_FROM_NAME_DEFAULT = "IbiZap — Chamados";
 
 export type OcSmtpMailProfile = "default" | "suporte" | "chamados";
 
@@ -236,6 +236,8 @@ export async function sendEmailViaSmtp(opts: {
   attachments?: EmailAttachment[];
   replyTo?: string;
   mailProfile?: OcSmtpMailProfile;
+  /** Sobrescreve nome exibido no From (ex.: IbiZap — Chat). */
+  fromName?: string;
 }): Promise<SendEmailViaSmtpResult> {
   if (!opts.to.length) throw new Error("Nenhum destinatário válido");
 
@@ -261,11 +263,12 @@ export async function sendEmailViaSmtp(opts: {
     throw new Error("SMTP não configurado: defina OC_EMAIL_FROM no ambiente");
   }
   const fromName =
-    profile === "suporte"
+    opts.fromName?.trim() ||
+    (profile === "suporte"
       ? envStr("OC_EMAIL_FROM_NAME_SUPORTE") ?? SUPORTE_FROM_NAME_DEFAULT
       : profile === "chamados"
         ? envStr("OC_EMAIL_FROM_NAME_CHAMADOS") ?? CHAMADOS_FROM_NAME_DEFAULT
-        : envStr("OC_EMAIL_FROM_NAME") ?? "Radio Ibiza — Cobrança";
+        : envStr("OC_EMAIL_FROM_NAME") ?? "Radio Ibiza — Cobrança");
 
   /** Envelope MAIL FROM = usuário autenticado (Locaweb exige para Gmail/externos). */
   const envelopeFrom = auth.user;

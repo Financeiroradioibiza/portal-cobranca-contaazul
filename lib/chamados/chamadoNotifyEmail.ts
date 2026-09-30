@@ -5,21 +5,22 @@ import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { CHAMADO_COLUNAS, CHAMADO_PRIORIDADES, setorMeta } from "@/lib/chamados/chamadoConstants";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
-import { COMPANY_NAME } from "@/lib/brand";
+import {
+  IBIZAP_CHAMADOS_FROM_NAME,
+  RI_BLUE,
+  RI_BLUE_MID,
+  RI_BORDER,
+  RI_MUTED,
+  RI_ORANGE,
+  RI_PAGE,
+  RI_TEXT,
+  escChamadosEmailHtml,
+  ibizapChamadosEmailAttachments,
+  wrapIbizapChamadosEmailHtml,
+} from "@/lib/chamados/chamadosEmailLayout";
 import { isChamadosSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
 import { chamadosMobilePushUrl } from "@/lib/push/chamadosPushUrls";
 import { sendPushToEmails } from "@/lib/push/sendPush";
-
-/** Cores marca Radio Ibiza (e-mail — azul player → rosa). */
-const RI_BLUE = "#1565c0";
-const RI_BLUE_MID = "#2563eb";
-const RI_PINK = "#c4146a";
-const RI_ORANGE = "#c4511a";
-const RI_GRADIENT = `linear-gradient(135deg,${RI_BLUE} 0%,${RI_BLUE_MID} 45%,${RI_PINK} 100%)`;
-const RI_PAGE = "#fafaf7";
-const RI_BORDER = "#e5e2dc";
-const RI_TEXT = "#222222";
-const RI_MUTED = "#666666";
 
 type ChamadoEmailHighlight = {
   label: string;
@@ -30,14 +31,6 @@ type ChamadoEmailHighlight = {
 function portalOrigin(): string {
   const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://portal.radioibiza.app.br";
   return raw.replace(/\/$/, "");
-}
-
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 function prioridadeLabel(id: string): string {
@@ -119,9 +112,9 @@ function buildChamadoEmail(
   const situacao = statusLabel(chamado.status);
 
   const headline =
-    kind === "closed" ? "Chamado concluído no portal Radio Ibiza"
-    : kind === "updated" ? "Chamado atualizado no portal Radio Ibiza"
-    : "Novo chamado no portal Radio Ibiza";
+    kind === "closed" ? "Chamado concluído — IbiZap"
+    : kind === "updated" ? "Chamado atualizado — IbiZap"
+    : "Novo chamado — IbiZap";
   const subjectPrefix =
     kind === "closed" ? "[Chamado concluído]"
     : kind === "updated" ? "[Chamado atualizado]"
@@ -168,12 +161,7 @@ function buildChamadoEmail(
     `Abrir chamados: ${link}`,
   ].join("\n");
 
-  const esc = (s: string) =>
-    s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+  const esc = escChamadosEmailHtml;
 
   const banner =
     highlight ? "Nova resposta"
@@ -206,29 +194,7 @@ function buildChamadoEmail(
   <td style="padding:8px 0;font-size:14px;color:${RI_TEXT}">${strong ? `<strong>${value}</strong>` : value}</td>
 </tr>`;
 
-  const html = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:${RI_PAGE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:${RI_TEXT}">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${RI_PAGE};padding:24px 12px">
-    <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid ${RI_BORDER};box-shadow:0 4px 24px rgba(21,101,192,0.12)">
-        <tr>
-          <td style="padding:20px 24px;background:${RI_GRADIENT};color:#ffffff">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;opacity:0.92">${esc(COMPANY_NAME)}</td>
-                <td align="right">
-                  <span style="display:inline-block;background:${badgeBg};color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.04em">${esc(banner)}</span>
-                </td>
-              </tr>
-              <tr><td colspan="2" style="padding-top:10px;font-size:20px;font-weight:700;line-height:1.25">${esc(chamado.titulo)}</td></tr>
-            </table>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 24px">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+  const bodyHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
               ${row("Situação", esc(situacao))}
               ${row("Prioridade", `<span style="display:inline-block;background:${priBadge};color:#fff;font-size:12px;font-weight:600;padding:2px 10px;border-radius:999px">${esc(priLabel)}</span>`)}
               ${row("Setores", esc(setores))}
@@ -244,19 +210,23 @@ function buildChamadoEmail(
             <p style="margin:14px 0 6px;font-size:11px;font-weight:600;color:${RI_MUTED};text-transform:uppercase;letter-spacing:0.05em">Pedido inicial</p>
             <div style="padding:12px 14px;background:${RI_PAGE};border:1px solid ${RI_BORDER};border-radius:8px;font-size:13px;color:${RI_MUTED};white-space:pre-wrap">${esc(descricaoInicial)}</div>`
               : `<div style="margin-top:16px;padding:14px 16px;background:${RI_PAGE};border:1px solid ${RI_BORDER};border-left:4px solid ${RI_BLUE};border-radius:8px;font-size:14px;color:${RI_TEXT};white-space:pre-wrap">${esc(descricaoInicial)}</div>`
-            }
-            <p style="margin:24px 0 8px;text-align:center">
-              <a href="${esc(link)}" style="display:inline-block;background:${RI_GRADIENT};color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;box-shadow:0 2px 8px rgba(21,101,192,0.35)">Abrir chamados no portal</a>
-            </p>
-            <p style="margin:0;text-align:center;font-size:11px;color:${RI_MUTED}">Portal ${esc(COMPANY_NAME)} · comunicação interna</p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
+            }`;
+
+  const html = wrapIbizapChamadosEmailHtml({
+    product: "chamados",
+    banner,
+    bannerBg: badgeBg,
+    headline: chamado.titulo,
+    bodyHtml,
+    ctaHref: link,
+    ctaLabel: "Abrir chamados no portal",
+  });
 
   return { subject, text, html };
+}
+
+function chamadoEmailAttachments() {
+  return ibizapChamadosEmailAttachments();
 }
 
 /** Envia e-mail para setores/responsáveis do chamado (não lança — log em falha). */
@@ -306,8 +276,10 @@ export async function notifyChamadoEmail(
       subject,
       text,
       html,
+      attachments: chamadoEmailAttachments(),
       replyTo: chamado.criadoPorEmail,
       mailProfile: "chamados",
+      fromName: IBIZAP_CHAMADOS_FROM_NAME,
     });
 
     console.info("[chamadoNotify] e-mail enviado", {
@@ -365,8 +337,10 @@ export async function notifyChamadoCommentEmail(
       subject,
       text,
       html,
+      attachments: chamadoEmailAttachments(),
       replyTo: chamado.criadoPorEmail,
       mailProfile: "chamados",
+      fromName: IBIZAP_CHAMADOS_FROM_NAME,
     });
   }
 

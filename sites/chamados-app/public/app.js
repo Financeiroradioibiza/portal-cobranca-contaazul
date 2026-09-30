@@ -30,6 +30,7 @@
     detailPeopleOpen: false,
     loading: true,
     ptrRefreshing: false,
+    createDraft: null,
   };
 
   var mainEl = document.getElementById("main");
@@ -228,6 +229,449 @@
     overlayEl.hidden = true;
     overlayEl.setAttribute("hidden", "");
     overlayEl.innerHTML = "";
+    state.createDraft = null;
+  }
+
+  function emptyCreateDraft() {
+    return {
+      modo: "livre",
+      rioLinhaId: null,
+      rioPdvKey: null,
+      clienteNome: "",
+      clienteKey: null,
+      pdvKey: null,
+      titulo: "",
+      tituloManual: false,
+      descricao: "",
+      prioridade: "media",
+      setores: [],
+      responsaveis: [],
+      busca: "",
+      opcoes: [],
+      opcoesLoading: false,
+      opcoesErr: "",
+      opcoesTimer: null,
+    };
+  }
+
+  function tituloChamadoParaCliente(nome) {
+    return String(nome || "").trim().slice(0, 200);
+  }
+
+  function tituloChamadoParaPdv(pdvNome, clienteNome) {
+    var pdv = String(pdvNome || "").trim();
+    var cli = String(clienteNome || "").trim();
+    if (!pdv) return cli.slice(0, 200);
+    if (!cli || pdv.toLowerCase() === cli.toLowerCase()) return pdv.slice(0, 200);
+    return (pdv + " — " + cli).slice(0, 200);
+  }
+
+  function createDraftResumoVinculo(d) {
+    if (d.modo === "cliente" && d.clienteNome) return "Cliente: " + d.clienteNome;
+    if (d.modo === "pdv" && d.pdvKey && d.clienteNome) {
+      var pdvLabel = d.pdvKey;
+      for (var i = 0; i < d.opcoes.length; i += 1) {
+        var c = d.opcoes[i];
+        if (c.key !== d.clienteKey) continue;
+        for (var j = 0; j < (c.pdvs || []).length; j += 1) {
+          if (c.pdvs[j].rioPdvKey === d.pdvKey) {
+            pdvLabel = c.pdvs[j].nome;
+            break;
+          }
+        }
+      }
+      return "PDV: " + pdvLabel + " (" + d.clienteNome + ")";
+    }
+    return "";
+  }
+
+  function renderCreateOpcoesHtml(d) {
+    if (d.modo === "livre") return "";
+    var html = "";
+    if (d.opcoesErr) {
+      html += '<p class="sheet-hint sheet-hint-err">' + escapeHtml(d.opcoesErr) + "</p>";
+    }
+    if (d.opcoesLoading) {
+      html += '<p class="sheet-hint">Carregando catálogo…</p>';
+    }
+    if (!d.opcoesLoading && d.opcoes.length > 0) {
+      html += '<div class="create-opcoes-list" id="create-opcoes-list">';
+      d.opcoes.forEach(function (c) {
+        if (d.modo === "cliente") {
+          html +=
+            '<button type="button" class="create-opcao-item' +
+            (d.clienteKey === c.key ? " selected" : "") +
+            '" data-pick-cliente="' +
+            escapeHtml(c.key) +
+            '">' +
+            escapeHtml(c.nome) +
+            '<span class="muted">' +
+            (c.pdvs ? c.pdvs.length : 0) +
+            " PDV(s)</span></button>";
+        } else {
+          html += '<div class="create-opcao-group"><p class="create-opcao-group-title">' + escapeHtml(c.nome) + "</p>";
+          (c.pdvs || []).forEach(function (p) {
+            html +=
+              '<button type="button" class="create-opcao-item create-opcao-pdv' +
+              (d.pdvKey === p.rioPdvKey ? " selected" : "") +
+              '" data-pick-pdv="' +
+              escapeHtml(c.key) +
+              '" data-pdv-key="' +
+              escapeHtml(p.rioPdvKey) +
+              '">' +
+              escapeHtml(p.nome) +
+              "</button>";
+          });
+          html += "</div>";
+        }
+      });
+      html += "</div>";
+    }
+    if (!d.opcoesLoading && d.busca.trim() && d.opcoes.length === 0) {
+      html += '<p class="sheet-hint">Nenhum resultado. Use «Assunto livre».</p>';
+    }
+    var resumo = createDraftResumoVinculo(d);
+    if (resumo) {
+      html += '<p class="sheet-vinculo-resumo">' + escapeHtml(resumo) + "</p>";
+    }
+    return html;
+  }
+
+  function renderNewTicketSheet() {
+    var d = state.createDraft;
+    if (!d) return;
+    var setoresHtml = SETORES.map(function (s) {
+      var on = d.setores.indexOf(s.id) >= 0;
+      return (
+        '<button type="button" class="setor-chip' +
+        (on ? " on" : "") +
+        '" data-create-setor="' +
+        s.id +
+        '">' +
+        escapeHtml(s.label) +
+        "</button>"
+      );
+    }).join("");
+
+    var peopleHtml = state.participants
+      .map(function (p) {
+        var checked = d.responsaveis.indexOf(p.email) >= 0;
+        return (
+          '<label class="person-row">' +
+          '<input type="checkbox" data-create-resp="' +
+          escapeHtml(p.email) +
+          '"' +
+          (checked ? " checked" : "") +
+          " />" +
+          avatarHtml(p.email, p.displayName) +
+          '<span class="person-name">' +
+          escapeHtml(p.displayName) +
+          "</span></label>"
+        );
+      })
+      .join("");
+
+    var vinculoBlock =
+      d.modo !== "livre" ?
+        '<label><span>Buscar ' +
+        (d.modo === "cliente" ? "cliente" : "cliente ou PDV") +
+        '</span><input type="search" id="create-busca" value="' +
+        escapeHtml(d.busca) +
+        '" placeholder="Digite para filtrar…" autocomplete="off" /></label>' +
+        '<div id="create-opcoes-wrap">' +
+        renderCreateOpcoesHtml(d) +
+        "</div>"
+      : "";
+
+    var inner =
+      "<h2>Novo chamado</h2>" +
+      '<form id="form-ticket-create">' +
+      '<div class="sheet-block">' +
+      '<p class="sheet-block-title">Vínculo (opcional)</p>' +
+      '<p class="sheet-hint">Assunto livre ou cliente/PDV da Produção.</p>' +
+      '<div class="modo-row">' +
+      ['livre', 'Assunto livre', 'cliente', 'Cliente', 'pdv', 'PDV']
+        .reduce(function (acc, _v, i, arr) {
+          if (i % 2 !== 0) return acc;
+          var id = arr[i];
+          var label = arr[i + 1];
+          acc +=
+            '<button type="button" class="modo-chip' +
+            (d.modo === id ? " on" : "") +
+            '" data-create-modo="' +
+            id +
+            '">' +
+            label +
+            "</button>";
+          return acc;
+        }, "") +
+      "</div>" +
+      vinculoBlock +
+      "</div>" +
+      '<label><span>Assunto</span><input name="titulo" id="create-titulo" required maxlength="200" value="' +
+      escapeHtml(d.titulo) +
+      '" placeholder="' +
+      (d.modo === "livre" ? "Ex.: Prospect — reunião" : "Preenchido ao escolher cliente/PDV") +
+      '" /></label>' +
+      '<label><span>Descrição</span><textarea name="descricao" id="create-descricao" placeholder="Detalhes do que precisa ser feito…">' +
+      escapeHtml(d.descricao) +
+      "</textarea></label>" +
+      '<label><span>Prioridade</span><select name="prioridade" id="create-prioridade">' +
+      '<option value="media"' +
+      (d.prioridade === "media" ? " selected" : "") +
+      ">Média</option>" +
+      '<option value="baixa"' +
+      (d.prioridade === "baixa" ? " selected" : "") +
+      ">Baixa</option>" +
+      '<option value="alta"' +
+      (d.prioridade === "alta" ? " selected" : "") +
+      ">Alta</option>" +
+      '<option value="urgente"' +
+      (d.prioridade === "urgente" ? " selected" : "") +
+      ">Urgente</option></select></label>" +
+      '<div class="sheet-block"><p class="sheet-block-title">Setores</p><div class="setor-row">' +
+      setoresHtml +
+      "</div></div>" +
+      (peopleHtml ?
+        '<div class="sheet-block sheet-people"><p class="sheet-block-title">Pessoas</p>' +
+        peopleHtml +
+        "</div>"
+      : '<p class="sheet-hint">Carregando lista de pessoas…</p>') +
+      '<div class="sheet-actions">' +
+      '<button type="button" class="btn-secondary" id="cancel-sheet">Cancelar</button>' +
+      '<button type="submit" class="btn-primary">Criar chamado</button></div></form>';
+
+    showOverlay(inner);
+    bindNewTicketSheetEvents();
+  }
+
+  function fetchCreateProducaoOpcoes() {
+    var d = state.createDraft;
+    if (!d || d.modo === "livre") return;
+    if (d.opcoesTimer) clearTimeout(d.opcoesTimer);
+    var q = d.busca.trim();
+    d.opcoesTimer = setTimeout(function () {
+      if (!state.createDraft) return;
+      d.opcoesLoading = true;
+      d.opcoesErr = "";
+      var wrap = document.getElementById("create-opcoes-wrap");
+      if (wrap) wrap.innerHTML = renderCreateOpcoesHtml(d);
+      var url =
+        q.length > 0 ?
+          "/api/chamados/producao-opcoes?q=" + encodeURIComponent(q)
+        : "/api/chamados/producao-opcoes";
+      auth
+        .apiFetch(url)
+        .then(function (r) {
+          if (!r.ok) throw new Error("load");
+          return r.json();
+        })
+        .then(function (data) {
+          if (!state.createDraft) return;
+          d.opcoes = (data && data.clientes) || [];
+          d.opcoesLoading = false;
+          var w = document.getElementById("create-opcoes-wrap");
+          if (w) w.innerHTML = renderCreateOpcoesHtml(d);
+          bindCreateOpcoesPickers();
+        })
+        .catch(function () {
+          if (!state.createDraft) return;
+          d.opcoesLoading = false;
+          d.opcoesErr = "Não foi possível carregar o catálogo.";
+          d.opcoes = [];
+          var w2 = document.getElementById("create-opcoes-wrap");
+          if (w2) w2.innerHTML = renderCreateOpcoesHtml(d);
+        });
+    }, q ? 250 : 0);
+  }
+
+  function bindCreateOpcoesPickers() {
+    var d = state.createDraft;
+    if (!d) return;
+    overlayEl.querySelectorAll("[data-pick-cliente]").forEach(function (btn) {
+      btn.onclick = function () {
+        var key = btn.getAttribute("data-pick-cliente");
+        var c = null;
+        for (var i = 0; i < d.opcoes.length; i += 1) {
+          if (d.opcoes[i].key === key) {
+            c = d.opcoes[i];
+            break;
+          }
+        }
+        if (!c) return;
+        d.modo = "cliente";
+        d.clienteKey = c.key;
+        d.clienteNome = c.nome;
+        d.rioLinhaId = c.rioLinhaId;
+        d.rioPdvKey = null;
+        d.pdvKey = null;
+        d.busca = c.nome;
+        if (!d.tituloManual) d.titulo = tituloChamadoParaCliente(c.nome);
+        syncCreateTituloInput();
+        fetchCreateProducaoOpcoes();
+      };
+    });
+    overlayEl.querySelectorAll("[data-pick-pdv]").forEach(function (btn) {
+      btn.onclick = function () {
+        var cKey = btn.getAttribute("data-pick-pdv");
+        var pdvKey = btn.getAttribute("data-pdv-key");
+        var c = null;
+        var p = null;
+        for (var i = 0; i < d.opcoes.length; i += 1) {
+          if (d.opcoes[i].key === cKey) {
+            c = d.opcoes[i];
+            for (var j = 0; j < (c.pdvs || []).length; j += 1) {
+              if (c.pdvs[j].rioPdvKey === pdvKey) {
+                p = c.pdvs[j];
+                break;
+              }
+            }
+            break;
+          }
+        }
+        if (!c || !p) return;
+        d.modo = "pdv";
+        d.clienteKey = c.key;
+        d.clienteNome = c.nome;
+        d.rioLinhaId = c.rioLinhaId;
+        d.rioPdvKey = p.rioPdvKey;
+        d.pdvKey = p.rioPdvKey;
+        d.busca = p.nome + " — " + c.nome;
+        if (!d.tituloManual) d.titulo = tituloChamadoParaPdv(p.nome, c.nome);
+        syncCreateTituloInput();
+        fetchCreateProducaoOpcoes();
+      };
+    });
+  }
+
+  function syncCreateTituloInput() {
+    var d = state.createDraft;
+    var el = document.getElementById("create-titulo");
+    if (d && el) el.value = d.titulo;
+  }
+
+  function bindNewTicketSheetEvents() {
+    var d = state.createDraft;
+    if (!d) return;
+    document.getElementById("cancel-sheet").onclick = closeOverlay;
+
+    overlayEl.querySelectorAll("[data-create-modo]").forEach(function (btn) {
+      btn.onclick = function () {
+        var modo = btn.getAttribute("data-create-modo");
+        d.modo = modo;
+        d.rioLinhaId = null;
+        d.rioPdvKey = null;
+        d.clienteNome = "";
+        d.clienteKey = null;
+        d.pdvKey = null;
+        d.busca = "";
+        d.opcoes = [];
+        d.tituloManual = false;
+        if (modo === "livre") d.titulo = "";
+        renderNewTicketSheet();
+        if (modo !== "livre") fetchCreateProducaoOpcoes();
+      };
+    });
+
+    overlayEl.querySelectorAll("[data-create-setor]").forEach(function (btn) {
+      btn.onclick = function () {
+        var id = btn.getAttribute("data-create-setor");
+        var idx = d.setores.indexOf(id);
+        if (idx >= 0) d.setores.splice(idx, 1);
+        else d.setores.push(id);
+        btn.classList.toggle("on", d.setores.indexOf(id) >= 0);
+      };
+    });
+
+    overlayEl.querySelectorAll("[data-create-resp]").forEach(function (inp) {
+      inp.onchange = function () {
+        var email = inp.getAttribute("data-create-resp");
+        var idx = d.responsaveis.indexOf(email);
+        if (inp.checked && idx < 0) d.responsaveis.push(email);
+        if (!inp.checked && idx >= 0) d.responsaveis.splice(idx, 1);
+      };
+    });
+
+    var buscaEl = document.getElementById("create-busca");
+    if (buscaEl) {
+      buscaEl.oninput = function () {
+        d.busca = buscaEl.value;
+        fetchCreateProducaoOpcoes();
+      };
+    }
+
+    var tituloEl = document.getElementById("create-titulo");
+    if (tituloEl) {
+      tituloEl.oninput = function () {
+        d.tituloManual = true;
+        d.titulo = tituloEl.value;
+      };
+    }
+
+    var descEl = document.getElementById("create-descricao");
+    if (descEl) {
+      descEl.oninput = function () {
+        d.descricao = descEl.value;
+      };
+    }
+
+    var priEl = document.getElementById("create-prioridade");
+    if (priEl) {
+      priEl.onchange = function () {
+        d.prioridade = priEl.value;
+      };
+    }
+
+    bindCreateOpcoesPickers();
+
+    document.getElementById("form-ticket-create").onsubmit = function (e) {
+      e.preventDefault();
+      d.titulo = (document.getElementById("create-titulo").value || "").trim();
+      d.descricao = (document.getElementById("create-descricao").value || "").trim();
+      d.prioridade = document.getElementById("create-prioridade").value;
+
+      if (d.modo === "cliente" && !d.clienteKey) {
+        alert("Selecione um cliente ou use «Assunto livre».");
+        return;
+      }
+      if (d.modo === "pdv" && !d.pdvKey) {
+        alert("Selecione um PDV ou use «Assunto livre».");
+        return;
+      }
+      if (!d.titulo) {
+        alert("Informe o assunto do chamado.");
+        return;
+      }
+
+      var body = {
+        titulo: d.titulo,
+        descricao: d.descricao,
+        prioridade: d.prioridade,
+        setores: d.setores.slice(),
+        responsaveis: d.responsaveis.slice(),
+        rioLinhaId: d.modo !== "livre" ? d.rioLinhaId : null,
+        rioPdvKey: d.modo === "pdv" ? d.rioPdvKey : null,
+        clienteNome: d.modo !== "livre" ? d.clienteNome : "",
+      };
+
+      auth
+        .apiFetch("/api/chamados", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+        .then(function (r) {
+          if (!r.ok) throw new Error("create");
+          closeOverlay();
+          return loadChamados();
+        })
+        .then(function () {
+          renderTickets();
+        })
+        .catch(function () {
+          alert("Erro ao criar chamado.");
+        });
+    };
   }
 
   function loadParticipants() {
@@ -965,46 +1409,15 @@
   }
 
   function openNewTicketSheet() {
-    showOverlay(
-      "<h2>Novo chamado</h2>" +
-        '<form id="form-ticket">' +
-        '<label><span>Título</span><input name="titulo" required maxlength="200" /></label>' +
-        '<label><span>Descrição</span><textarea name="descricao" required></textarea></label>' +
-        '<label><span>Prioridade</span><select name="prioridade">' +
-        '<option value="media">Média</option><option value="baixa">Baixa</option>' +
-        '<option value="alta">Alta</option><option value="urgente">Urgente</option></select></label>' +
-        '<div class="sheet-actions">' +
-        '<button type="button" class="btn-secondary" id="cancel-sheet">Cancelar</button>' +
-        '<button type="submit" class="btn-primary">Criar</button></div></form>',
-    );
-    document.getElementById("cancel-sheet").onclick = closeOverlay;
-    document.getElementById("form-ticket").onsubmit = function (e) {
-      e.preventDefault();
-      var fd = new FormData(e.target);
-      auth
-        .apiFetch("/api/chamados", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            titulo: fd.get("titulo"),
-            descricao: fd.get("descricao"),
-            prioridade: fd.get("prioridade"),
-            setores: ["geral"],
-            responsaveis: [],
-          }),
-        })
-        .then(function (r) {
-          if (!r.ok) throw new Error("create");
-          closeOverlay();
-          return loadChamados();
-        })
-        .then(function () {
-          renderTickets();
-        })
-        .catch(function () {
-          alert("Erro ao criar chamado.");
-        });
-    };
+    if (!state.participants.length) {
+      loadParticipants().then(function () {
+        state.createDraft = emptyCreateDraft();
+        renderNewTicketSheet();
+      });
+    } else {
+      state.createDraft = emptyCreateDraft();
+      renderNewTicketSheet();
+    }
   }
 
   function openNewChannelSheet() {
