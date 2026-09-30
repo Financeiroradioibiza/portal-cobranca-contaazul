@@ -282,7 +282,19 @@ export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout 
   return (
     <div className="space-y-4">
       {embeddedLayout ?
-        null
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">{subtitle}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatPill label="Abertos" value={stats.abertos} tone="sky" />
+            <button
+              type="button"
+              onClick={openCreate}
+              className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-violet-500"
+            >
+              + Novo chamado
+            </button>
+          </div>
+        </div>
       : embedded ?
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div>
