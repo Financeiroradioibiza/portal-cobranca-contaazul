@@ -99,23 +99,13 @@ body {
   text-align: center;
 }
 
-.topbar-brand {
-  margin: 0;
-  font-size: clamp(1.85rem, 8vw, 2.35rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-  background: linear-gradient(
-    90deg,
-    #e8487a 0%,
-    #f59e42 28%,
-    #eab308 52%,
-    #34d399 78%,
-    #38bdf8 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.topbar-brand-logo {
+  display: block;
+  margin: 0 auto;
+  height: 3.35rem;
+  width: auto;
+  max-width: min(72vw, 14rem);
+  object-fit: contain;
 }
 
 .topbar-screen {

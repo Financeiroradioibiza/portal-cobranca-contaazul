@@ -4,18 +4,14 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useMyOpenChamados } from "@/components/chamados/ChamadosDashboardWidget";
 
-function StatusBadge({ count, tone }: { count: number; tone: "red" | "orange" }) {
+function UnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
     <span
-      className={
-        tone === "red" ?
-          "portal-sidebar-chamados-badge portal-sidebar-chamados-badge-red"
-        : "portal-sidebar-chamados-badge portal-sidebar-chamados-badge-orange"
-      }
-      aria-label={`${count} chamado${count === 1 ? "" : "s"}`}
+      className="portal-sidebar-chamados-badge portal-sidebar-chamados-badge-red"
+      aria-label={`${count} não lido${count === 1 ? "" : "s"}`}
     >
-      {count}
+      {count > 99 ? "99+" : count}
     </span>
   );
 }
@@ -23,14 +19,12 @@ function StatusBadge({ count, tone }: { count: number; tone: "red" | "orange" })
 export function PortalSidebarChamados() {
   const { allItems, loading } = useMyOpenChamados();
 
-  const { aberto, emAndamento } = useMemo(() => {
-    let a = 0;
-    let e = 0;
+  const naoLidos = useMemo(() => {
+    let n = 0;
     for (const c of allItems) {
-      if (c.status === "aberto") a += 1;
-      else if (c.status === "em_andamento") e += 1;
+      n += c.unreadCount ?? 0;
     }
-    return { aberto: a, emAndamento: e };
+    return n;
   }, [allItems]);
 
   return (
@@ -41,8 +35,7 @@ export function PortalSidebarChamados() {
       <span className="portal-sidebar-chamados-title">Chamados abertos</span>
       {!loading ?
         <span className="portal-sidebar-chamados-badges">
-          <StatusBadge count={aberto} tone="red" />
-          <StatusBadge count={emAndamento} tone="orange" />
+          <UnreadBadge count={naoLidos} />
         </span>
       : null}
     </Link>

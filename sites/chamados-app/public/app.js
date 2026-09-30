@@ -304,6 +304,15 @@
       });
   }
 
+  function ticketUnreadTotal() {
+    if (!state.chamados || !state.chamados.length) {
+      return (state.resumo && state.resumo.chamadosNaoLidos) || 0;
+    }
+    return state.chamados.reduce(function (acc, c) {
+      return acc + (Number(c.unreadCount) || 0);
+    }, 0);
+  }
+
   function updateNavBadges() {
     var r = state.resumo || {};
     navEl.querySelectorAll(".nav-btn").forEach(function (btn) {
@@ -311,14 +320,14 @@
       var old = btn.querySelector(".nav-badge");
       if (old) old.parentNode.removeChild(old);
       var n = 0;
-      if (tab === "tickets") n = r.chamadosNaoLidos || 0;
+      if (tab === "tickets") n = ticketUnreadTotal();
       if (tab === "chat") {
-        n = r.conversasNaoLidas || 0;
         if (r.conversasMencoes > 0) n = r.conversasMencoes;
+        else n = r.conversasNaoLidas || 0;
       }
       if (n > 0) {
         var badge = document.createElement("span");
-        badge.className = "nav-badge";
+        badge.className = "nav-badge nav-badge-unread";
         badge.textContent = tab === "chat" && r.conversasMencoes > 0 ? "@" : n > 99 ? "99+" : String(n);
         btn.appendChild(badge);
       }

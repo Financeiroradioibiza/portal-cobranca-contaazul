@@ -1,6 +1,6 @@
 {
-  "name": "Chamados Radio Ibiza",
-  "short_name": "Chamados",
+  "name": "IbiZap Chamados",
+  "short_name": "IbiZap",
   "description": "Kanban e chat # da equipe",
   "start_url": "/app.html",
   "scope": "/",
