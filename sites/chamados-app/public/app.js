@@ -34,7 +34,6 @@
 
   var mainEl = document.getElementById("main");
   var titleEl = document.getElementById("screen-title");
-  var kickerEl = document.querySelector(".topbar-kicker");
   var overlayEl = document.getElementById("overlay");
   var navEl = document.getElementById("bottom-nav");
   var fabEl = null;
@@ -64,12 +63,8 @@
     }
   }
 
-  function setScreenHeader(kicker, title, brandTitle, plainLong) {
-    if (kickerEl) kickerEl.textContent = kicker || "Radio Ibiza";
-    titleEl.textContent = title || "";
-    titleEl.classList.remove("brand-title", "plain-title");
-    if (plainLong) titleEl.classList.add("plain-title");
-    else if (brandTitle) titleEl.classList.add("brand-title");
+  function setScreenHeader(sectionTitle) {
+    titleEl.textContent = (sectionTitle || "Chamados").toUpperCase();
   }
 
   function messageRowHtml(opts) {
@@ -380,7 +375,7 @@
   }
 
   function renderTickets() {
-    setScreenHeader("Radio Ibiza", "Chamados", true);
+    setScreenHeader("Chamados");
     navEl.hidden = false;
     var list = filteredTickets();
     var html = noticeBarHtml() +
@@ -537,7 +532,7 @@
     var d = state.detailDraft;
     if (!c || !d) return renderTickets();
     navEl.hidden = true;
-    setScreenHeader("Radio Ibiza · Chamados", "Detalhe", true);
+    setScreenHeader("Detalhe");
     var st = STATUS[c.status] || STATUS.aberto;
     var pr = PRI[c.prioridade] || PRI.media;
     var involved = involvedPeopleEmails(c, d);
@@ -802,7 +797,7 @@
   }
 
   function renderChatList() {
-    setScreenHeader("Radio Ibiza", "Chat", true);
+    setScreenHeader("Chat");
     navEl.hidden = false;
     state.selectedAssunto = null;
     state.messages = [];
@@ -852,7 +847,7 @@
     var a = state.selectedAssunto;
     if (!a) return renderChatList();
     navEl.hidden = true;
-    setScreenHeader("Radio Ibiza", "Chat", true);
+    setScreenHeader("Chat");
     setUrl();
 
     var channelLabel = String(a.display || a.slug || "").replace(/^#+/, "");
