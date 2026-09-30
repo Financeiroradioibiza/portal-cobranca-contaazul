@@ -1,7 +1,12 @@
 :root {
+  --ri-blue-deep: #0c4a6e;
+  --ri-blue: #1565c0;
+  --ri-blue-mid: #2563eb;
+  --ri-cyan: #38bdf8;
   --ri-pink: #c4146a;
-  --ri-orange: #c4511a;
-  --bg: #faf8f5;
+  --brand-gradient: linear-gradient(135deg, #0c4a6e 0%, #1565c0 38%, #2563eb 78%, #c4146a 100%);
+  --brand-gradient-btn: linear-gradient(135deg, #0f5694 0%, #2563eb 55%, #3b82f6 85%);
+  --bg: #eef4fb;
   --text: #1a1a1a;
   --muted: #5c5c5c;
   --card: #ffffff;
@@ -16,7 +21,7 @@
 body {
   margin: 0;
   min-height: 100dvh;
-  background: linear-gradient(160deg, #ffe8f2 0%, var(--bg) 45%, #fff3e8 100%);
+  background: linear-gradient(165deg, #dbeafe 0%, var(--bg) 40%, #e0f2fe 70%, #f8fafc 100%);
   color: var(--text);
   font-size: 18px;
 }
@@ -37,13 +42,13 @@ body {
   height: 72px;
   margin: 0 auto 1rem;
   border-radius: 22px;
-  background: linear-gradient(135deg, var(--ri-pink), var(--ri-orange));
+  background: var(--brand-gradient);
   color: #fff;
   font-size: 2.25rem;
   font-weight: 800;
   display: grid;
   place-items: center;
-  box-shadow: 0 12px 32px rgba(196, 20, 106, 0.35);
+  box-shadow: 0 12px 32px rgba(21, 101, 192, 0.4);
 }
 
 .brand h1 {
@@ -51,6 +56,7 @@ body {
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: -0.02em;
+  color: var(--ri-blue-deep);
 }
 
 .sub {
@@ -63,7 +69,7 @@ body {
   background: var(--card);
   border-radius: var(--radius);
   padding: 1.35rem;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 40px rgba(15, 76, 129, 0.1);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -82,14 +88,14 @@ input {
   font: inherit;
   font-size: 1.1rem;
   padding: 0.85rem 1rem;
-  border: 2px solid #ece8e2;
+  border: 2px solid #dce8f5;
   border-radius: 14px;
   background: #fff;
 }
 
 input:focus {
   outline: none;
-  border-color: var(--ri-pink);
+  border-color: var(--ri-blue-mid);
 }
 
 button {
@@ -101,7 +107,7 @@ button {
   border: 0;
   border-radius: 14px;
   color: #fff;
-  background: linear-gradient(135deg, var(--ri-pink), #e91e7a);
+  background: var(--brand-gradient-btn);
   cursor: pointer;
 }
 

@@ -1,7 +1,14 @@
 :root {
+  /* Player / Radio Ibiza — azul dominante, rosa só no acento */
+  --ri-blue-deep: #0c4a6e;
+  --ri-blue: #1565c0;
+  --ri-blue-mid: #2563eb;
+  --ri-cyan: #38bdf8;
   --ri-pink: #c4146a;
   --ri-orange: #c4511a;
-  --bg: #f4f2ef;
+  --brand-gradient: linear-gradient(135deg, #0c4a6e 0%, #1565c0 38%, #2563eb 78%, #c4146a 100%);
+  --brand-gradient-btn: linear-gradient(135deg, #0f5694 0%, #2563eb 55%, #3b82f6 85%);
+  --bg: #eef4fb;
   --text: #141414;
   --muted: #5a5a5a;
   --radius: 16px;
@@ -47,7 +54,7 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--ri-pink);
+  color: var(--ri-blue);
 }
 
 .topbar h1 {
@@ -107,8 +114,8 @@ body {
 }
 
 .nav-btn.active {
-  background: linear-gradient(135deg, rgba(196, 20, 106, 0.12), rgba(196, 81, 26, 0.12));
-  color: var(--ri-pink);
+  background: linear-gradient(135deg, rgba(21, 101, 192, 0.14), rgba(56, 189, 248, 0.12));
+  color: var(--ri-blue-deep);
 }
 
 .nav-emoji {
@@ -135,7 +142,7 @@ body {
 }
 
 .pill.active {
-  background: var(--ri-pink);
+  background: var(--brand-gradient-btn);
   color: #fff;
 }
 
@@ -239,8 +246,8 @@ body {
   border: 0;
   font-size: 1.75rem;
   color: #fff;
-  background: linear-gradient(135deg, var(--ri-pink), var(--ri-orange));
-  box-shadow: 0 8px 28px rgba(196, 20, 106, 0.45);
+  background: var(--brand-gradient);
+  box-shadow: 0 8px 28px rgba(21, 101, 192, 0.45);
   cursor: pointer;
   z-index: 5;
 }
@@ -319,7 +326,7 @@ body {
 }
 
 .btn-primary {
-  background: var(--ri-pink);
+  background: var(--brand-gradient-btn);
   color: #fff;
 }
 
@@ -347,7 +354,7 @@ body {
 
 .msg.mine {
   align-self: flex-end;
-  background: linear-gradient(135deg, var(--ri-pink), #d91a72);
+  background: linear-gradient(135deg, #1565c0 0%, #2563eb 65%, #c4146a 100%);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
@@ -389,7 +396,7 @@ body {
   border-radius: 14px;
   padding: 0 1.1rem;
   font-weight: 800;
-  background: var(--ri-pink);
+  background: var(--brand-gradient-btn);
   color: #fff;
   font-size: 1rem;
 }
@@ -403,13 +410,13 @@ body {
   background: none;
   font: inherit;
   font-weight: 700;
-  color: var(--ri-pink);
+  color: var(--ri-blue);
   cursor: pointer;
   font-size: 1rem;
 }
 
 .channel-hash {
-  color: var(--ri-orange);
+  color: var(--ri-cyan);
   font-weight: 800;
 }
 
@@ -417,7 +424,7 @@ body {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--ri-pink);
+  background: var(--ri-blue-mid);
   display: inline-block;
 }
 
