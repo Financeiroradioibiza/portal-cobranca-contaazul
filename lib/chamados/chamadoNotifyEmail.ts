@@ -5,7 +5,16 @@ import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { CHAMADO_COLUNAS, CHAMADO_PRIORIDADES, setorMeta } from "@/lib/chamados/chamadoConstants";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
+import { COMPANY_NAME } from "@/lib/brand";
 import { isChamadosSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
+
+/** Cores marca Radio Ibiza (ver app/globals.css — e-mail usa hex fixo). */
+const RI_PINK = "#c4146a";
+const RI_ORANGE = "#c4511a";
+const RI_PAGE = "#fafaf7";
+const RI_BORDER = "#e5e2dc";
+const RI_TEXT = "#222222";
+const RI_MUTED = "#666666";
 
 function portalOrigin(): string {
   const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://portal.radioibiza.app.br";
@@ -124,25 +133,72 @@ function buildChamadoEmail(
     kind === "closed" ? "Chamado concluído"
     : kind === "updated" ? "Chamado atualizado"
     : "Novo chamado";
+  const badgeBg =
+    kind === "closed" ? "#059669"
+    : kind === "updated" ? RI_ORANGE
+    : RI_PINK;
+  const priLabel = prioridadeLabel(chamado.prioridade);
+  const priBadge =
+    chamado.prioridade === "urgente" ? "#dc2626"
+    : chamado.prioridade === "alta" ? RI_ORANGE
+    : chamado.prioridade === "media" ? "#2563eb"
+    : "#64748b";
+
   const fechadoHtml =
     kind === "closed" && chamado.fechadoPorNome ?
-      `<tr><td style="padding:4px 12px 4px 0;color:#555">Concluído por</td><td>${esc(chamado.fechadoPorNome)}${chamado.fechadoPorEmail ? ` (${esc(chamado.fechadoPorEmail)})` : ""}</td></tr>`
+      `<tr>
+  <td style="padding:8px 16px 8px 0;color:${RI_MUTED};font-size:13px;vertical-align:top;width:120px">Concluído por</td>
+  <td style="padding:8px 0;font-size:14px;color:${RI_TEXT}">${esc(chamado.fechadoPorNome)}${chamado.fechadoPorEmail ? ` <span style="color:${RI_MUTED}">(${esc(chamado.fechadoPorEmail)})</span>` : ""}</td>
+</tr>`
     : "";
 
-  const html = `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;line-height:1.5;color:#111">
-<p><strong>${banner}</strong> no portal Radio Ibiza</p>
-<table style="border-collapse:collapse;margin:12px 0">
-<tr><td style="padding:4px 12px 4px 0;color:#555">Título</td><td><strong>${esc(chamado.titulo)}</strong></td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#555">Situação</td><td>${esc(situacao)}</td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#555">Prioridade</td><td>${esc(prioridadeLabel(chamado.prioridade))}</td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#555">Setores</td><td>${esc(setores)}</td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#555">Responsáveis</td><td>${esc(responsaveis)}</td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#555">Cliente</td><td>${esc(cliente)}</td></tr>
-<tr><td style="padding:4px 12px 4px 0;color:#555">Aberto por</td><td>${esc(chamado.criadoPorNome)} (${esc(chamado.criadoPorEmail)})</td></tr>
-${fechadoHtml}
-</table>
-<p style="white-space:pre-wrap;background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0">${esc(chamado.descricao?.trim() || "(sem descrição)")}</p>
-<p><a href="${esc(link)}" style="display:inline-block;background:#7c3aed;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Abrir chamados no portal</a></p>
+  const row = (label: string, value: string, strong = false) =>
+    `<tr>
+  <td style="padding:8px 16px 8px 0;color:${RI_MUTED};font-size:13px;vertical-align:top;width:120px">${label}</td>
+  <td style="padding:8px 0;font-size:14px;color:${RI_TEXT}">${strong ? `<strong>${value}</strong>` : value}</td>
+</tr>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:${RI_PAGE};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;color:${RI_TEXT}">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${RI_PAGE};padding:24px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid ${RI_BORDER};box-shadow:0 4px 24px rgba(196,20,106,0.08)">
+        <tr>
+          <td style="padding:20px 24px;background:linear-gradient(135deg,${RI_PINK} 0%,${RI_ORANGE} 100%);color:#ffffff">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;opacity:0.92">${esc(COMPANY_NAME)}</td>
+                <td align="right">
+                  <span style="display:inline-block;background:${badgeBg};color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.04em">${esc(banner)}</span>
+                </td>
+              </tr>
+              <tr><td colspan="2" style="padding-top:10px;font-size:20px;font-weight:700;line-height:1.25">${esc(chamado.titulo)}</td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 24px">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+              ${row("Situação", esc(situacao))}
+              ${row("Prioridade", `<span style="display:inline-block;background:${priBadge};color:#fff;font-size:12px;font-weight:600;padding:2px 10px;border-radius:999px">${esc(priLabel)}</span>`)}
+              ${row("Setores", esc(setores))}
+              ${row("Responsáveis", esc(responsaveis))}
+              ${row("Cliente", esc(cliente))}
+              ${row("Aberto por", `${esc(chamado.criadoPorNome)} <span style="color:${RI_MUTED}">(${esc(chamado.criadoPorEmail)})</span>`)}
+              ${fechadoHtml}
+            </table>
+            <div style="margin-top:16px;padding:14px 16px;background:${RI_PAGE};border:1px solid ${RI_BORDER};border-left:4px solid ${RI_PINK};border-radius:8px;font-size:14px;color:${RI_TEXT};white-space:pre-wrap">${esc(chamado.descricao?.trim() || "(sem descrição)")}</div>
+            <p style="margin:24px 0 8px;text-align:center">
+              <a href="${esc(link)}" style="display:inline-block;background:${RI_PINK};color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;box-shadow:0 2px 8px rgba(196,20,106,0.35)">Abrir chamados no portal</a>
+            </p>
+            <p style="margin:0;text-align:center;font-size:11px;color:${RI_MUTED}">Portal ${esc(COMPANY_NAME)} · comunicação interna</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
 </body></html>`;
 
   return { subject, text, html };
