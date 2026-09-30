@@ -5,6 +5,7 @@ import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
 import { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
 import {
+  notifyChamadoEmail,
   scheduleChamadoNotifyEmail,
   type ChamadoNotifyKind,
 } from "@/lib/chamados/chamadoNotifyEmail";
@@ -315,9 +316,24 @@ export async function updateChamado(
   const row = await prisma.chamado.update({ where: { id }, data });
   const view = chamadoToView(row);
 
-  const notifyKind = resolveChamadoNotifyOnUpdate(existing, input);
+  let notifyKind = resolveChamadoNotifyOnUpdate(existing, input);
+  if (!notifyKind && input.notificar) {
+    notifyKind =
+      input.status === "fechado" && existing.status !== "fechado" ? "closed"
+      : view.status === "fechado" ? "closed"
+      : "updated";
+  }
   if (notifyKind) {
-    scheduleChamadoNotifyEmail(view, notifyKind);
+    try {
+      await notifyChamadoEmail(view, notifyKind);
+    } catch (e) {
+      console.error(
+        "[chamadoService] falha e-mail pós-atualização",
+        view.id,
+        notifyKind,
+        e instanceof Error ? e.message : e,
+      );
+    }
   }
 
   return view;
@@ -327,7 +343,7 @@ export async function resendChamadoNotifyEmail(id: string): Promise<ChamadoView>
   const row = await prisma.chamado.findUnique({ where: { id } });
   if (!row) throw new Error("not_found");
   const view = chamadoToView(row);
-  scheduleChamadoNotifyEmail(view, "updated");
+  await notifyChamadoEmail(view, "updated");
   return view;
 }
 

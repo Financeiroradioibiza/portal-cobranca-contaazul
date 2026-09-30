@@ -48,4 +48,6 @@ export type UpdateChamadoInput = {
   status?: ChamadoStatus;
   setores?: string[];
   responsaveis?: string[];
+  /** Salvar no portal — sempre notificar setores/responsáveis (como reenviar). */
+  notificar?: boolean;
 };

@@ -187,6 +187,9 @@ export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout 
       } else {
         await load();
       }
+      if (body.notificar === true) {
+        setMsg("Chamado salvo. Notificação por e-mail enviada (setores + responsáveis).");
+      }
     } catch {
       setMsg("Erro de rede ao atualizar.");
     } finally {
@@ -808,7 +811,7 @@ function DetailModal({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onPatch(chamado.id, { status: "aberto" })}
+            onClick={() => onPatch(chamado.id, { status: "aberto", notificar: true })}
             className="rounded-lg bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-200"
           >
             Reabrir
@@ -818,7 +821,7 @@ function DetailModal({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onPatch(chamado.id, { status: "em_andamento" })}
+            onClick={() => onPatch(chamado.id, { status: "em_andamento", notificar: true })}
             className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200"
           >
             Em andamento
@@ -828,7 +831,7 @@ function DetailModal({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onPatch(chamado.id, { status: "fechado" })}
+            onClick={() => onPatch(chamado.id, { status: "fechado", notificar: true })}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
           >
             Resolver / fechar
@@ -844,6 +847,7 @@ function DetailModal({
               prioridade,
               setores,
               responsaveis,
+              notificar: true,
             })
           }
           className="ml-auto rounded-lg bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-60"
