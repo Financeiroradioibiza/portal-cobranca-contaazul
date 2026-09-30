@@ -9,7 +9,7 @@ import {
   prioridadeMeta,
   setorMeta,
 } from "@/lib/chamados/chamadoConstants";
-import type { ChamadoParticipant, ChamadoView } from "@/lib/chamados/chamadoTypes";
+import type { ChamadoParticipant, ChamadosResumoView, ChamadoView } from "@/lib/chamados/chamadoTypes";
 import {
   CHAMADO_VINCULO_VAZIO,
   ChamadoProducaoVinculoFields,
@@ -17,6 +17,7 @@ import {
 } from "@/components/chamados/ChamadoProducaoVinculoFields";
 import { ChamadoAnexosBlock } from "@/components/chamados/ChamadoAnexosBlock";
 import { ChamadoComentariosBlock } from "@/components/chamados/ChamadoComentariosBlock";
+import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -58,6 +59,9 @@ const PRI_WEIGHT: Record<ChamadoPrioridade, number> = {
 };
 
 function sortCards(a: ChamadoView, b: ChamadoView): number {
+  const ua = a.unreadCount ?? 0;
+  const ub = b.unreadCount ?? 0;
+  if (ub !== ua) return ub - ua;
   const pw = PRI_WEIGHT[b.prioridade] - PRI_WEIGHT[a.prioridade];
   if (pw !== 0) return pw;
   return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
@@ -89,6 +93,7 @@ export function ChamadosBoard({
   const [selected, setSelected] = useState<ChamadoView | null>(null);
   const [creating, setCreating] = useState(false);
   const [viewerEmail, setViewerEmail] = useState("");
+  const [resumo, setResumo] = useState<ChamadosResumoView | null>(null);
 
   const [formTitulo, setFormTitulo] = useState("");
   const [formTituloManual, setFormTituloManual] = useState(false);
@@ -111,6 +116,8 @@ export function ChamadosBoard({
       const cData = cRes.ok ? await cRes.json() : null;
       const pData = pRes.ok ? await pRes.json() : null;
       setChamados(parseChamados(cData));
+      const r = (cData as { resumo?: ChamadosResumoView })?.resumo;
+      setResumo(r && typeof r === "object" ? r : null);
       setParticipants(parseParticipants(pData));
     } catch {
       setMsg("Não foi possível carregar os chamados.");
@@ -132,11 +139,33 @@ export function ChamadosBoard({
       .catch(() => {});
   }, []);
 
+  const openChamado = useCallback((c: ChamadoView) => {
+    setSelected(c);
+    if ((c.unreadCount ?? 0) > 0) {
+      void fetch(`/api/chamados/${encodeURIComponent(c.id)}/read`, {
+        method: "POST",
+        credentials: "same-origin",
+      }).then(() => {
+        setChamados((prev) =>
+          prev.map((x) => (x.id === c.id ? { ...x, unreadCount: 0 } : x)),
+        );
+        setResumo((prev) =>
+          prev ?
+            {
+              ...prev,
+              chamadosNaoLidos: Math.max(0, prev.chamadosNaoLidos - (c.unreadCount ?? 0)),
+            }
+          : prev,
+        );
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (!initialChamadoId || loading) return;
     const c = chamados.find((x) => x.id === initialChamadoId);
-    if (c) setSelected(c);
-  }, [initialChamadoId, chamados, loading]);
+    if (c) openChamado(c);
+  }, [initialChamadoId, chamados, loading, openChamado]);
 
   const filtered = useMemo(() => {
     let list = chamados;
@@ -206,8 +235,14 @@ export function ChamadosBoard({
       }
       const updated = (data as { chamado?: ChamadoView }).chamado;
       if (updated) {
-        setChamados((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-        setSelected((prev) => (prev?.id === updated.id ? updated : prev));
+        setChamados((prev) =>
+          prev.map((c) =>
+            c.id === updated.id ? { ...updated, unreadCount: c.unreadCount ?? 0 } : c,
+          ),
+        );
+        setSelected((prev) =>
+          prev?.id === updated.id ? { ...updated, unreadCount: prev.unreadCount ?? 0 } : prev,
+        );
       } else {
         await load();
       }
@@ -387,6 +422,22 @@ export function ChamadosBoard({
         ))}
       </div>
 
+      {resumo && (resumo.chamadosNaoLidos > 0 || resumo.conversasMencoes > 0 || resumo.conversasNaoLidas > 0) ?
+        <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100">
+          {resumo.chamadosNaoLidos > 0 ?
+            <span className="font-semibold">{resumo.chamadosNaoLidos} não lido(s) em chamados</span>
+          : null}
+          {resumo.chamadosNaoLidos > 0 && (resumo.conversasNaoLidas > 0 || resumo.conversasMencoes > 0) ?
+            " · "
+          : null}
+          {resumo.conversasMencoes > 0 ?
+            <span>{resumo.conversasMencoes} menção(ões) no chat</span>
+          : resumo.conversasNaoLidas > 0 ?
+            <span>{resumo.conversasNaoLidas} mensagem(ns) no chat</span>
+          : null}
+        </p>
+      : null}
+
       {msg ?
         <p className="text-sm text-rose-600 dark:text-rose-400">{msg}</p>
       : null}
@@ -417,7 +468,12 @@ export function ChamadosBoard({
               {byColumn[col.id].length === 0 ?
                 <p className="py-8 text-center text-xs text-slate-400">Nenhum chamado aqui</p>
               : byColumn[col.id].map((c) => (
-                  <ChamadoCard key={c.id} chamado={c} onOpen={() => setSelected(c)} />
+                  <ChamadoCard
+                    key={c.id}
+                    chamado={c}
+                    participants={participants}
+                    onOpen={() => openChamado(c)}
+                  />
                 ))
               }
             </div>
@@ -487,20 +543,41 @@ function StatPill({
   );
 }
 
-function ChamadoCard({ chamado, onOpen }: { chamado: ChamadoView; onOpen: () => void }) {
+function ChamadoCard({
+  chamado,
+  participants,
+  onOpen,
+}: {
+  chamado: ChamadoView;
+  participants: ChamadoParticipant[];
+  onOpen: () => void;
+}) {
   const pri = prioridadeMeta(chamado.prioridade);
+  const unread = chamado.unreadCount ?? 0;
+  const byEmail = useMemo(() => {
+    const m = new Map<string, ChamadoParticipant>();
+    for (const p of participants) m.set(p.email.toLowerCase(), p);
+    return m;
+  }, [participants]);
+
   return (
     <button
       type="button"
       onClick={onOpen}
       className={
-        "group w-full rounded-lg border border-slate-200/90 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 " +
-        "ring-1 ring-transparent hover:ring-violet-300 dark:hover:ring-violet-700"
+        "group relative w-full rounded-lg border border-slate-200/90 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 " +
+        "ring-1 ring-transparent hover:ring-violet-300 dark:hover:ring-violet-700" +
+        (unread > 0 ? " border-violet-400 ring-violet-200 dark:border-violet-600" : "")
       }
     >
+      {unread > 0 ?
+        <span className="absolute right-2 top-2 inline-flex min-h-[1.25rem] min-w-[1.25rem] items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-bold text-white">
+          {unread > 99 ? "99+" : unread}
+        </span>
+      : null}
       <div className="mb-2 flex items-start gap-2">
         <span className={"mt-1 h-2.5 w-2.5 shrink-0 rounded-full " + pri.dot} title={pri.label} />
-        <p className="line-clamp-2 flex-1 text-sm font-semibold text-slate-900 dark:text-white">
+        <p className="line-clamp-2 flex-1 pr-8 text-sm font-semibold text-slate-900 dark:text-white">
           {chamado.titulo}
         </p>
       </div>
@@ -529,15 +606,21 @@ function ChamadoCard({ chamado, onOpen }: { chamado: ChamadoView; onOpen: () => 
       </div>
       {chamado.responsaveis.length > 0 ?
         <div className="mt-2 flex -space-x-1">
-          {chamado.responsaveis.slice(0, 4).map((email) => (
-            <span
-              key={email}
-              title={email}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-[9px] font-bold text-white ring-2 ring-white dark:ring-slate-900"
-            >
-              {initials(email.split("@")[0] ?? email)}
-            </span>
-          ))}
+          {chamado.responsaveis.slice(0, 4).map((email) => {
+            const p = byEmail.get(email.toLowerCase());
+            return (
+              <span key={email} title={email} className="ring-2 ring-white dark:ring-slate-900">
+                <PortalUserAvatar
+                  userId={p?.userId}
+                  displayName={p?.displayName ?? email.split("@")[0] ?? email}
+                  email={email}
+                  hasAvatar={p?.hasAvatar}
+                  avatarVersion={p?.avatarVersion}
+                  size="xs"
+                />
+              </span>
+            );
+          })}
         </div>
       : null}
     </button>
@@ -762,7 +845,11 @@ function DetailModal({
         />
       </label>
 
-      <ChamadoComentariosBlock chamadoId={chamado.id} viewerEmail={viewerEmail} />
+      <ChamadoComentariosBlock
+        chamadoId={chamado.id}
+        viewerEmail={viewerEmail}
+        participants={participants}
+      />
 
       <div className="mt-3 flex flex-wrap gap-2">
         {CHAMADO_PRIORIDADES.map((p) => (
@@ -810,6 +897,14 @@ function DetailModal({
                     prev.includes(p.email) ? prev.filter((x) => x !== p.email) : [...prev, p.email],
                   )
                 }
+              />
+              <PortalUserAvatar
+                userId={p.userId}
+                displayName={p.displayName}
+                email={p.email}
+                hasAvatar={p.hasAvatar}
+                avatarVersion={p.avatarVersion}
+                size="xs"
               />
               <span>
                 {p.displayName}{" "}

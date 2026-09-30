@@ -739,6 +739,7 @@ model Chamado {
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
   comentarios ChamadoComentario[]
+  inboxRows   ChamadoInboxUsuario[]
 
   @@index([status, updatedAt])
   @@index([criadoPorEmail])
@@ -760,6 +761,20 @@ model ChamadoComentario {
 
   @@index([chamadoId, createdAt])
   @@map("chamado_comentario")
+}
+
+/// Contador de não lidos por usuário/chamado (badge + push).
+model ChamadoInboxUsuario {
+  userEmail   String   @map("user_email") @db.VarChar(200)
+  chamadoId   String   @map("chamado_id") @db.VarChar(64)
+  unreadCount Int      @default(0) @map("unread_count")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  chamado Chamado @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+
+  @@id([userEmail, chamadoId])
+  @@index([userEmail])
+  @@map("chamado_inbox_usuario")
 }
 
 /// Anexo em chamado kanban (imagem, PDF, áudio, etc.).

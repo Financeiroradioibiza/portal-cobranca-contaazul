@@ -1,7 +1,7 @@
 import { normalizePortalEmail } from "@/lib/auth/users";
 import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
 
-function slugifyName(name: string): string {
+export function slugifyName(name: string): string {
   return name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -42,6 +42,42 @@ export function resolveMentionEmails(
   }
   return { mencoes: [...mencoes], corpoRender: corpo };
 }
+
+const TAG_COR_RE = /^#[0-9a-fA-F]{6}$/;
+
+export function normalizeParticipantTagCor(raw: string | undefined | null): string {
+  const c = raw?.trim() ?? "";
+  return TAG_COR_RE.test(c) ? c : "#6366f1";
+}
+
+/** Resolve token @… (com ou sem @) para participante. */
+export function participantForMentionToken(
+  rawToken: string,
+  participants: ChamadoParticipant[],
+): ChamadoParticipant | null {
+  const token = rawToken.replace(/^@/, "").trim();
+  if (!token) return null;
+  if (token.includes("@")) {
+    const email = normalizePortalEmail(token);
+    return participants.find((p) => p.email.toLowerCase() === email.toLowerCase()) ?? null;
+  }
+  const needle = token.toLowerCase();
+  for (const p of participants) {
+    const emailLocal = p.email.split("@")[0]!.toLowerCase();
+    const nameSlug = slugifyName(p.displayName);
+    if (
+      emailLocal === needle ||
+      nameSlug === needle ||
+      nameSlug.startsWith(needle) ||
+      p.displayName.toLowerCase().includes(needle)
+    ) {
+      return p;
+    }
+  }
+  return null;
+}
+
+export const CHAMADO_MENTION_SPLIT_RE = /(@[a-zA-Z0-9._\-]+(?:@[a-zA-Z0-9.\-]+)?)/g;
 
 export function normalizeConversaSlug(raw: string): string {
   const s = raw

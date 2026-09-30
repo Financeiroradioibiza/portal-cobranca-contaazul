@@ -7,7 +7,7 @@ import {
   ChamadosConversasPanel,
   type ConversaAssuntoListItem,
 } from "@/components/chamados/ChamadosConversasPanel";
-import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
+import type { ChamadoParticipant, ChamadosResumoView } from "@/lib/chamados/chamadoTypes";
 
 type MainView = "kanban" | "conversa";
 
@@ -30,12 +30,24 @@ export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
   const [mainView, setMainView] = useState<MainView>(conversaSlug ? "conversa" : "kanban");
   const [selectedAssunto, setSelectedAssunto] = useState<ConversaAssuntoListItem | null>(null);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
+  const [resumo, setResumo] = useState<ChamadosResumoView | null>(null);
 
   useEffect(() => {
-    void fetch("/api/chamados/participants", { credentials: "same-origin" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setParticipants(parseParticipants(d)))
-      .catch(() => setParticipants([]));
+    void Promise.all([
+      fetch("/api/chamados/participants", { credentials: "same-origin" }).then((r) =>
+        r.ok ? r.json() : null,
+      ),
+      fetch("/api/chamados", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([pData, cData]) => {
+        setParticipants(parseParticipants(pData));
+        const r = (cData as { resumo?: ChamadosResumoView })?.resumo;
+        setResumo(r && typeof r === "object" ? r : null);
+      })
+      .catch(() => {
+        setParticipants([]);
+        setResumo(null);
+      });
   }, []);
 
   const onSelectAssunto = useCallback((a: ConversaAssuntoListItem | null) => {
@@ -72,6 +84,11 @@ export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
           }
         >
           Quadro kanban
+          {resumo && resumo.chamadosNaoLidos > 0 ?
+            <span className="ml-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              {resumo.chamadosNaoLidos > 99 ? "99+" : resumo.chamadosNaoLidos}
+            </span>
+          : null}
         </button>
         <button
           type="button"
@@ -84,6 +101,11 @@ export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
           }
         >
           Conversas {selectedAssunto ? `· ${selectedAssunto.display}` : ""}
+          {resumo && (resumo.conversasNaoLidas > 0 || resumo.conversasMencoes > 0) ?
+            <span className="ml-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              {resumo.conversasMencoes > 0 ? "@" : resumo.conversasNaoLidas > 99 ? "99+" : resumo.conversasNaoLidas}
+            </span>
+          : null}
         </button>
       </div>
 

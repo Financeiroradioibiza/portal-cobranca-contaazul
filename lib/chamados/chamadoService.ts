@@ -4,6 +4,7 @@ import { normalizePortalEmail } from "@/lib/auth/users";
 import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
 import { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
+import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
 import {
   notifyChamadoEmail,
   scheduleChamadoNotifyEmail,
@@ -130,6 +131,7 @@ export async function listChamadoParticipants(): Promise<ChamadoParticipant[]> {
         id: true,
         email: true,
         displayName: true,
+        tagCor: true,
         avatarMime: true,
         avatarBase64: true,
         updatedAt: true,
@@ -142,6 +144,7 @@ export async function listChamadoParticipants(): Promise<ChamadoParticipant[]> {
       displayName: r.displayName.trim() || r.email,
       profileSlug: r.profile.slug,
       profileName: r.profile.name,
+      tagCor: r.tagCor?.trim() || "#6366f1",
       hasAvatar: portalUserHasAvatar(r),
       avatarVersion: r.updatedAt.toISOString(),
     }));
@@ -262,6 +265,11 @@ export async function createChamado(
   });
   const view = chamadoToView(row);
   scheduleChamadoNotifyEmail(view, "created");
+  try {
+    await bumpChamadoInbox(view, { kind: "created", actorEmail: ctx.email });
+  } catch (e) {
+    console.error("[chamadoService] inbox create", view.id, e);
+  }
   return view;
 }
 
@@ -336,6 +344,15 @@ export async function updateChamado(
         notifyKind,
         e instanceof Error ? e.message : e,
       );
+    }
+    try {
+      const inboxKind =
+        notifyKind === "closed" ? "closed"
+        : notifyKind === "created" ? "created"
+        : "updated";
+      await bumpChamadoInbox(view, { kind: inboxKind, actorEmail: ctx.email });
+    } catch (e) {
+      console.error("[chamadoService] inbox update", view.id, e);
     }
   }
 

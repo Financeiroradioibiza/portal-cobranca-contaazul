@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
 import { ConversaAnexoPreview } from "@/components/chamados/ChamadoAnexosBlock";
+import { ChamadoMentionCorpo } from "@/components/chamados/ChamadoMentionCorpo";
 import { ChamadoMentionTextarea } from "@/components/chamados/ChamadoMentionTextarea";
 import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 
@@ -35,17 +36,6 @@ function fmtWhen(iso: string): string {
   } catch {
     return "—";
   }
-}
-
-function renderCorpoWithMentions(corpo: string): ReactNode {
-  const parts = corpo.split(/(@[a-zA-Z0-9._\-]+(?:@[a-zA-Z0-9.\-]+)?)/g);
-  return parts.map((p, i) =>
-    p.startsWith("@") ?
-      <span key={i} className="font-semibold text-violet-700 dark:text-violet-300">
-        {p}
-      </span>
-    : p,
-  );
 }
 
 type Props = {
@@ -328,7 +318,7 @@ export function ChamadosConversasPanel({
                         <span className="text-[10px] text-slate-400">{fmtWhen(m.createdAt)}</span>
                       </div>
                       <p className="mt-1 break-words whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
-                        {renderCorpoWithMentions(m.corpo)}
+                        <ChamadoMentionCorpo corpo={m.corpo} participants={participants} />
                       </p>
                       {m.anexos.map((an) => (
                         <ConversaAnexoPreview key={an.id} anexo={an} />

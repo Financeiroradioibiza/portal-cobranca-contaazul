@@ -9,6 +9,7 @@ import {
   mentionInsertToken,
   parseActiveMentionQuery,
 } from "@/lib/chamados/chamadoMentionAutocomplete";
+import { normalizeParticipantTagCor } from "@/lib/chamados/chamadoMentions";
 
 type Props = {
   value: string;
@@ -118,7 +119,11 @@ export function ChamadoMentionTextarea({
                   {p.displayName}
                 </span>
                 <span className="block truncate text-[10px] text-slate-400">
-                  @{mentionInsertToken(p)} · {p.profileName}
+                  <span className="font-bold" style={{ color: normalizeParticipantTagCor(p.tagCor) }}>
+                    @{mentionInsertToken(p)}
+                  </span>
+                  {" · "}
+                  {p.profileName}
                 </span>
               </span>
             </button>

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import {
+  attachInboxToChamados,
+  inboxUnreadByChamadoId,
+  sortChamadosByInboxThenPriority,
+} from "@/lib/chamados/chamadoInboxService";
+import { getChamadosResumoForUser } from "@/lib/chamados/chamadosResumo";
+import {
   createChamado,
   getChamadoUserContext,
   listAllChamados,
@@ -22,11 +28,15 @@ export async function GET(request: Request) {
     }
 
     const scope = new URL(request.url).searchParams.get("scope");
-    const chamados =
+    let chamados =
       scope === "mine" ? await listOpenChamadosForUser(ctx)
       : scope === "mine-all" ? await listChamadosForUser(ctx)
       : await listAllChamados();
-    return NextResponse.json({ ok: true, chamados });
+
+    const inbox = await inboxUnreadByChamadoId(ctx.email);
+    chamados = attachInboxToChamados(chamados, inbox).sort(sortChamadosByInboxThenPriority);
+    const resumo = await getChamadosResumoForUser(ctx.email);
+    return NextResponse.json({ ok: true, chamados, resumo });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[chamados GET]", e);

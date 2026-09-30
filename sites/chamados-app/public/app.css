@@ -371,9 +371,22 @@ body {
 
 .msg.theirs {
   align-self: flex-start;
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  max-width: 100%;
+}
+
+.msg.theirs .msg-body {
   background: #fff;
   border-bottom-left-radius: 4px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  padding: 0.75rem 0.9rem;
+  border-radius: 16px;
+  max-width: 92%;
 }
 
 .msg-author {
@@ -442,4 +455,154 @@ body {
   text-align: center;
   padding: 2rem;
   color: var(--muted);
+}
+
+.nav-badge {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.35rem;
+  min-width: 1.1rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: #e53935;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.bottom-nav .nav-btn {
+  position: relative;
+}
+
+.ticket-unread {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  min-width: 1.25rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  background: #e53935;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.ticket-card {
+  position: relative;
+}
+
+.notice-bar {
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  background: #e3f2fd;
+  color: #0d47a1;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #fff;
+  overflow: hidden;
+}
+
+.avatar-xs {
+  width: 28px;
+  height: 28px;
+  font-size: 0.6rem;
+}
+
+.detail-block {
+  margin: 1rem 0;
+  padding: 0.85rem;
+  border-radius: 14px;
+  border: 1px solid #e8e2da;
+  background: #fafafa;
+}
+
+.detail-block h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.detail-block label span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.detail-block input,
+.detail-block textarea,
+.detail-block select {
+  width: 100%;
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 2px solid #e8e2da;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.detail-block textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.person-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  font-size: 0.92rem;
+}
+
+.comment-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.comment-bubble {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #eee;
+  font-size: 0.92rem;
+}
+
+.comment-bubble.mine {
+  background: #1565c0;
+  color: #fff;
+  border-color: transparent;
+}
+
+.setor-chip {
+  display: inline-block;
+  margin: 0.15rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 2px solid #e0e0e0;
+  background: #fff;
+}
+
+.setor-chip.on {
+  border-color: #1565c0;
+  background: #e3f2fd;
+  color: #0d47a1;
 }

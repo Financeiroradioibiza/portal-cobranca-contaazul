@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ChamadoComentarioView } from "@/lib/chamados/chamadoTypes";
+import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
+import type { ChamadoComentarioView, ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
 
 function fmtWhen(iso: string): string {
   try {
@@ -19,9 +20,10 @@ type Props = {
   chamadoId: string;
   /** E-mail da sessão — destaca mensagens próprias. */
   viewerEmail?: string;
+  participants?: ChamadoParticipant[];
 };
 
-export function ChamadoComentariosBlock({ chamadoId, viewerEmail }: Props) {
+export function ChamadoComentariosBlock({ chamadoId, viewerEmail, participants = [] }: Props) {
   const [comentarios, setComentarios] = useState<ChamadoComentarioView[]>([]);
   const [loading, setLoading] = useState(true);
   const [corpo, setCorpo] = useState("");
@@ -79,6 +81,7 @@ export function ChamadoComentariosBlock({ chamadoId, viewerEmail }: Props) {
   }
 
   const me = viewerEmail?.trim().toLowerCase() ?? "";
+  const byEmail = new Map(participants.map((p) => [p.email.toLowerCase(), p]));
 
   return (
     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40">
@@ -94,20 +97,39 @@ export function ChamadoComentariosBlock({ chamadoId, viewerEmail }: Props) {
           <p className="text-xs text-slate-500">Nenhuma resposta ainda. Escreva abaixo.</p>
         : comentarios.map((c) => {
             const mine = me && c.autorEmail.toLowerCase() === me;
+            const author = byEmail.get(c.autorEmail.toLowerCase());
             return (
               <div
                 key={c.id}
                 className={
-                  "rounded-lg px-3 py-2 text-sm " +
-                  (mine ?
-                    "ml-6 bg-violet-600 text-white"
-                  : "mr-6 bg-white shadow-sm dark:bg-slate-900 dark:text-slate-100")
+                  "flex gap-2 rounded-lg px-2 py-2 text-sm " +
+                  (mine ? "ml-4 flex-row-reverse" : "mr-4")
                 }
               >
-                <div className={"text-[10px] font-bold " + (mine ? "text-violet-100" : "text-slate-500")}>
-                  {c.autorNome} · {fmtWhen(c.createdAt)}
+                {!mine ?
+                  <PortalUserAvatar
+                    userId={author?.userId}
+                    displayName={c.autorNome}
+                    email={c.autorEmail}
+                    hasAvatar={author?.hasAvatar}
+                    avatarVersion={author?.avatarVersion}
+                    size="xs"
+                    className="mt-0.5"
+                  />
+                : null}
+                <div
+                  className={
+                    "min-w-0 flex-1 rounded-lg px-3 py-2 " +
+                    (mine ?
+                      "bg-violet-600 text-white"
+                    : "bg-white shadow-sm dark:bg-slate-900 dark:text-slate-100")
+                  }
+                >
+                  <div className={"text-[10px] font-bold " + (mine ? "text-violet-100" : "text-slate-500")}>
+                    {c.autorNome} · {fmtWhen(c.createdAt)}
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap leading-relaxed">{c.corpo}</p>
                 </div>
-                <p className="mt-1 whitespace-pre-wrap leading-relaxed">{c.corpo}</p>
               </div>
             );
           })

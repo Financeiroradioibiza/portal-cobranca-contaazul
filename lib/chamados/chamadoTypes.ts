@@ -18,6 +18,14 @@ export type ChamadoView = {
   clienteNome: string;
   createdAt: string;
   updatedAt: string;
+  /** Não lidos para o usuário da sessão (inbox). */
+  unreadCount?: number;
+};
+
+export type ChamadosResumoView = {
+  chamadosNaoLidos: number;
+  conversasNaoLidas: number;
+  conversasMencoes: number;
 };
 
 export type ChamadoParticipant = {
@@ -26,6 +34,8 @@ export type ChamadoParticipant = {
   displayName: string;
   profileSlug: string;
   profileName: string;
+  /** Cor hex das menções @ (Config → Usuários). */
+  tagCor: string;
   hasAvatar: boolean;
   avatarVersion: string | null;
 };

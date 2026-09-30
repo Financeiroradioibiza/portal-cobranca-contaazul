@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { ChamadoComentarioView } from "@/lib/chamados/chamadoTypes";
 import type { ChamadoUserContext } from "@/lib/chamados/chamadoService";
 import { chamadoToView } from "@/lib/chamados/chamadoUtils";
+import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
 import { notifyChamadoCommentEmail } from "@/lib/chamados/chamadoNotifyEmail";
 
 function toView(row: {
@@ -66,6 +67,12 @@ export async function postChamadoComentario(
     });
   } catch (e) {
     console.error("[chamadoComentario] falha e-mail resposta", chamadoId, e);
+  }
+
+  try {
+    await bumpChamadoInbox(view, { kind: "comment", actorEmail: ctx.email });
+  } catch (e) {
+    console.error("[chamadoComentario] inbox resposta", chamadoId, e);
   }
 
   return toView(row);

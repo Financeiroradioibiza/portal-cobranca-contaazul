@@ -3,6 +3,8 @@ import {
   CHAMADO_ANEXO_MAX_BYTES,
   isAllowedChamadoAnexoMime,
 } from "@/lib/chamados/chamadoAnexoLimits";
+import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
+import { chamadoToView } from "@/lib/chamados/chamadoUtils";
 import type { ChamadoUserContext } from "@/lib/chamados/chamadoService";
 
 export type ChamadoAnexoView = {
@@ -60,7 +62,7 @@ export async function addChamadoAnexo(
   file: { name: string; mimeType: string; bytes: Buffer },
   ctx: ChamadoUserContext,
 ): Promise<ChamadoAnexoView> {
-  const existing = await prisma.chamado.findUnique({ where: { id: chamadoId }, select: { id: true } });
+  const existing = await prisma.chamado.findUnique({ where: { id: chamadoId } });
   if (!existing) throw new Error("not_found");
   if (file.bytes.length > CHAMADO_ANEXO_MAX_BYTES) throw new Error("file_too_large");
   const mimeType = file.mimeType.trim().slice(0, 120) || "application/octet-stream";
@@ -77,6 +79,11 @@ export async function addChamadoAnexo(
       uploadedByNome: ctx.displayName,
     },
   });
+  try {
+    await bumpChamadoInbox(chamadoToView(existing), { kind: "updated", actorEmail: ctx.email });
+  } catch (e) {
+    console.error("[chamadoAnexo] inbox", chamadoId, e);
+  }
   return anexoToView(row);
 }
 
