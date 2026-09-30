@@ -1,0 +1,5 @@
+{
+  "name": "chamados-radioibiza-static",
+  "private": true,
+  "description": "Site estático — NÃO usar plugin Next.js no Netlify deste site."
+}

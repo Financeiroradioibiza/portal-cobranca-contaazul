@@ -36,6 +36,13 @@
   headers = {X-Chamados-App-Proxy = "1"}
 
 [[redirects]]
+  from = "/api/chamados"
+  to = "https://portal.radioibiza.app.br/api/chamados"
+  status = 200
+  force = true
+  headers = {X-Chamados-App-Proxy = "1"}
+
+[[redirects]]
   from = "/api/chamados/*"
   to = "https://portal.radioibiza.app.br/api/chamados/:splat"
   status = 200
