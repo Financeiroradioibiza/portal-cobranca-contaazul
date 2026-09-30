@@ -32,6 +32,7 @@
 
   var mainEl = document.getElementById("main");
   var titleEl = document.getElementById("screen-title");
+  var kickerEl = document.querySelector(".topbar-kicker");
   var overlayEl = document.getElementById("overlay");
   var navEl = document.getElementById("bottom-nav");
   var fabEl = null;
@@ -59,6 +60,35 @@
     } catch (e) {
       return "";
     }
+  }
+
+  function setScreenHeader(kicker, title, brandTitle, plainLong) {
+    if (kickerEl) kickerEl.textContent = kicker || "Radio Ibiza";
+    titleEl.textContent = title || "";
+    titleEl.classList.remove("brand-title", "plain-title");
+    if (plainLong) titleEl.classList.add("plain-title");
+    else if (brandTitle) titleEl.classList.add("brand-title");
+  }
+
+  function messageRowHtml(opts) {
+    var email = opts.email || "";
+    var name = opts.name || email;
+    var corpo = opts.corpo || "";
+    var when = opts.when || "";
+    var mine = !!opts.mine;
+    return (
+      '<div class="msg-row' +
+      (mine ? " msg-row-mine" : "") +
+      '">' +
+      avatarHtml(email, name) +
+      '<div class="msg-body">' +
+      '<div class="msg-author">' +
+      escapeHtml(name) +
+      "</div>" +
+      corpoWithMentionsHtml(corpo) +
+      (when ? '<div class="msg-time">' + escapeHtml(when) + "</div>" : "") +
+      "</div></div>"
+    );
   }
 
   function escapeHtml(s) {
@@ -347,7 +377,7 @@
   }
 
   function renderTickets() {
-    titleEl.textContent = "Chamados";
+    setScreenHeader("Radio Ibiza", "Chamados", true);
     navEl.hidden = false;
     var list = filteredTickets();
     var html = noticeBarHtml() +
@@ -464,7 +494,7 @@
     var d = state.detailDraft;
     if (!c || !d) return renderTickets();
     navEl.hidden = true;
-    titleEl.textContent = "Detalhe";
+    setScreenHeader("Radio Ibiza · Chamados", c.titulo, false, true);
     var st = STATUS[c.status] || STATUS.aberto;
 
     var setoresHtml = SETORES.map(function (s) {
@@ -491,37 +521,37 @@
           (checked ? " checked" : "") +
           " />" +
           avatarHtml(p.email, p.displayName) +
-          "<span>" +
+          '<span class="person-name">' +
           escapeHtml(p.displayName) +
           "</span></label>"
         );
       })
       .join("");
 
+    var initialHtml = messageRowHtml({
+      email: c.criadoPorEmail,
+      name: c.criadoPorNome || c.criadoPorEmail,
+      corpo: c.descricao || "—",
+      when: fmtWhen(c.createdAt),
+      mine: c.criadoPorEmail === (state.user && state.user.email),
+    });
+
     var commentsHtml =
       state.ticketComments.length === 0 ?
         '<p class="muted">Nenhuma resposta ainda.</p>'
-      : state.ticketComments
+      : '<div class="thread-list">' +
+        state.ticketComments
           .map(function (cm) {
-            var mine = cm.autorEmail === (state.user && state.user.email);
-            return (
-              '<div class="comment-row' +
-              (mine ? " mine" : "") +
-              '">' +
-              (mine ? "" : avatarHtml(cm.autorEmail, cm.autorNome)) +
-              '<div class="comment-bubble' +
-              (mine ? " mine" : "") +
-              '">' +
-              '<div class="muted" style="font-size:0.72rem;margin-bottom:0.25rem">' +
-              escapeHtml(cm.autorNome) +
-              " · " +
-              fmtWhen(cm.createdAt) +
-              "</div>" +
-              corpoWithMentionsHtml(cm.corpo) +
-              "</div></div>"
-            );
+            return messageRowHtml({
+              email: cm.autorEmail,
+              name: cm.autorNome || cm.autorEmail,
+              corpo: cm.corpo,
+              when: fmtWhen(cm.createdAt),
+              mine: cm.autorEmail === (state.user && state.user.email),
+            });
           })
-          .join("");
+          .join("") +
+        "</div>";
 
     var anexosHtml =
       state.ticketAnexos.length === 0 ?
@@ -549,14 +579,10 @@
       st.label +
       "</span></div>" +
       '<div class="detail-block">' +
-      "<label><span>Título</span>" +
-      '<input id="d-titulo" value="' +
-      escapeHtml(d.titulo) +
-      '" maxlength="200" /></label>' +
-      "<label><span>Pedido inicial</span>" +
-      '<textarea id="d-desc">' +
-      escapeHtml(d.descricao) +
-      "</textarea></label>" +
+      "<h3>Pedido inicial</h3>" +
+      '<div class="thread-list">' +
+      initialHtml +
+      "</div>" +
       "<label><span>Prioridade</span>" +
       '<select id="d-pri">' +
       ["baixa", "media", "alta", "urgente"]
@@ -575,8 +601,8 @@
       "</select></label>" +
       "<p><span>Setores</span></p>" +
       setoresHtml +
-      '<p style="margin-top:0.75rem"><span>Pessoas</span></p>' +
-      '<div style="max-height:160px;overflow:auto">' +
+      '<p style="margin-top:0.75rem;font-size:0.75rem;font-weight:700;color:var(--muted)">Pessoas no chamado</p>' +
+      '<div class="people-list">' +
       peopleHtml +
       "</div></div>" +
       '<div class="detail-block"><h3>Respostas</h3>' +
@@ -598,7 +624,7 @@
       (c.status === "fechado" ?
         '<button type="button" class="btn-secondary" data-quick-status="aberto">Reabrir</button>'
       : "") +
-      '<button type="button" class="btn-primary" id="btn-save-ticket">Salvar alterações</button></div>';
+      '<button type="button" class="btn-primary" id="btn-save-ticket">Salvar setores e pessoas</button></div>';
 
     mainEl.innerHTML = html;
 
@@ -628,12 +654,6 @@
       };
     });
 
-    document.getElementById("d-titulo").oninput = function (e) {
-      d.titulo = e.target.value;
-    };
-    document.getElementById("d-desc").oninput = function (e) {
-      d.descricao = e.target.value;
-    };
     document.getElementById("d-pri").onchange = function (e) {
       d.prioridade = e.target.value;
     };
@@ -708,8 +728,6 @@
       var btn = document.getElementById("btn-save-ticket");
       btn.disabled = true;
       patchTicket({
-        titulo: d.titulo,
-        descricao: d.descricao,
         prioridade: d.prioridade,
         setores: d.setores,
         responsaveis: d.responsaveis,
@@ -731,7 +749,7 @@
   }
 
   function renderChatList() {
-    titleEl.textContent = "Chat";
+    setScreenHeader("Radio Ibiza", "Chat", true);
     navEl.hidden = false;
     state.selectedAssunto = null;
     state.messages = [];
@@ -781,11 +799,15 @@
     var a = state.selectedAssunto;
     if (!a) return renderChatList();
     navEl.hidden = true;
-    titleEl.textContent = "#" + (a.display || a.slug);
+    setScreenHeader("Radio Ibiza", "Chat", true);
     setUrl();
 
+    var channelLabel = String(a.display || a.slug || "").replace(/^#+/, "");
     mainEl.innerHTML =
       '<button type="button" class="back-link" id="back-chat">← Canais</button>' +
+      '<p class="channel-heading">#' +
+      escapeHtml(channelLabel) +
+      "</p>" +
       '<div class="chat-thread" id="thread"><p class="loading">Carregando…</p></div>' +
       '<form class="composer" id="composer">' +
       '<input id="msg-input" placeholder="Mensagem… use @ para mencionar" autocomplete="off" />' +
@@ -842,19 +864,13 @@
     }
     thread.innerHTML = state.messages
       .map(function (m) {
-        var mine = m.autorEmail === me;
-        return (
-          '<div class="msg ' +
-          (mine ? "mine" : "theirs") +
-          '">' +
-          (mine ? "" : avatarHtml(m.autorEmail, m.autorNome || m.autorEmail)) +
-          '<div class="msg-body">' +
-          (mine ? "" : '<div class="msg-author">' + escapeHtml(m.autorNome || m.autorEmail) + "</div>") +
-          corpoWithMentionsHtml(m.corpo) +
-          '<div class="muted" style="font-size:0.75rem;margin-top:0.35rem">' +
-          fmtWhen(m.createdAt) +
-          "</div></div></div>"
-        );
+        return messageRowHtml({
+          email: m.autorEmail,
+          name: m.autorNome || m.autorEmail,
+          corpo: m.corpo,
+          when: fmtWhen(m.createdAt),
+          mine: m.autorEmail === me,
+        });
       })
       .join("");
     thread.scrollTop = thread.scrollHeight;
