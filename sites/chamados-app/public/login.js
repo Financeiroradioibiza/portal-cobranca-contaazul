@@ -1,0 +1,56 @@
+(function () {
+  var form = document.getElementById("form");
+  var err = document.getElementById("err");
+  var btn = document.getElementById("btn");
+  var auth = window.ChamadosAppAuth;
+  if (!form || !err || !btn || !auth) return;
+
+  if (auth.getToken()) {
+    auth.requireSession().then(function () {
+      window.location.replace("/app.html");
+    }).catch(function () {
+      auth.setToken(null);
+    });
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    err.hidden = true;
+    btn.disabled = true;
+
+    fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        email: document.getElementById("email").value.trim(),
+        password: document.getElementById("password").value,
+        totpCode: document.getElementById("totp").value.trim(),
+      }),
+    })
+      .then(function (r) {
+        return r.json().then(function (d) {
+          return { status: r.status, data: d };
+        });
+      })
+      .then(function (x) {
+        if (!x.data.ok || !x.data.sessionToken) {
+          err.textContent =
+            x.status === 401 ? "E-mail, senha ou código incorretos."
+            : x.status === 503 ? "Login indisponível. Tente mais tarde."
+            : "Não foi possível entrar.";
+          err.hidden = false;
+          return;
+        }
+        auth.setToken(x.data.sessionToken);
+        window.location.replace("/app.html");
+      })
+      .catch(function () {
+        err.textContent = "Erro de conexão. Verifique a internet.";
+        err.hidden = false;
+      })
+      .finally(function () {
+        btn.disabled = false;
+      });
+  });
+})();

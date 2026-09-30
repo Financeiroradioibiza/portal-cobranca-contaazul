@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#c4146a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Chamados — Radio Ibiza</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/chamados-icon-180.png" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="topbar-kicker">Radio Ibiza</p>
+          <h1 id="screen-title">Chamados</h1>
+        </div>
+        <button type="button" id="btn-logout" class="icon-btn" aria-label="Sair">⎋</button>
+      </header>
+      <div id="main" class="main" role="main"></div>
+      <nav class="bottom-nav" id="bottom-nav">
+        <button type="button" data-tab="tickets" class="nav-btn active">
+          <span class="nav-emoji">📋</span>
+          <span>Chamados</span>
+        </button>
+        <button type="button" data-tab="chat" class="nav-btn">
+          <span class="nav-emoji">💬</span>
+          <span>Chat</span>
+        </button>
+      </nav>
+    </div>
+    <div id="overlay" class="overlay" hidden></div>
+    <script src="/auth.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

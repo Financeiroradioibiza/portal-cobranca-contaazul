@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import type { NextRequest } from "next/server";
-import { PORTAL_SESSION_COOKIE } from "@/lib/auth/constants";
+import { portalSessionTokenFromNextRequest } from "@/lib/auth/portalSessionTokenFromRequest";
 import { shouldRecordPortalAudit } from "@/lib/audit/describeAuditAction";
 import {
   finishVerifiedPortalSession,
@@ -24,12 +24,6 @@ import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatc
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const hostHeader = (request.headers.get("host") ?? "").split(":")[0]?.toLowerCase() ?? "";
-
-  if (hostHeader === "chamados.radioibiza.app.br" && (pathname === "/" || pathname === "")) {
-    return NextResponse.redirect(new URL("/m/chamados", request.url));
-  }
-
   /** Cron SMTP «pedido OC»: não exige sessão do portal — só Bearer com OC_EMAIL_CRON_SECRET / CRON_SECRET. */
   if (pathname === "/api/manual-envios/oc-email/auto-dispatch") {
     const auth = authorizeOcAutoDispatchCron(request);
@@ -61,7 +55,7 @@ export async function middleware(request: NextRequest) {
     const portalVariant = resolvePortalMobileRedirect(request);
     if (portalVariant) return portalVariant;
     if (configured) {
-      const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
+      const raw = portalSessionTokenFromNextRequest(request);
       const session = await verifyPortalSessionToken(raw);
       if (session) {
         return NextResponse.redirect(new URL("/", request.url));
@@ -158,7 +152,7 @@ export async function middleware(request: NextRequest) {
 
   if (isMobilePortalLogin) {
     if (configured) {
-      const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
+      const raw = portalSessionTokenFromNextRequest(request);
       const session = await verifyPortalSessionToken(raw);
       if (session) {
         const next = safeInternalPath(request.nextUrl.searchParams.get("next"));
@@ -190,7 +184,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(u);
   }
 
-  const raw = request.cookies.get(PORTAL_SESSION_COOKIE)?.value;
+  const raw = portalSessionTokenFromNextRequest(request);
   if (!raw?.trim()) {
     const isBrowserOAuthStart =
       pathname === "/api/contaazul/login" ||

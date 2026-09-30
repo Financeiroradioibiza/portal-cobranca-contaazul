@@ -13,6 +13,7 @@ import {
   isRouteAccessAllowed,
   resolveRouteAccessRule,
 } from "@/lib/auth/routeAccess";
+import { portalSessionTokenFromHeaders } from "@/lib/auth/portalSessionTokenFromRequest";
 import {
   verifyPortalSessionToken,
   type PortalSessionPayload,
@@ -75,7 +76,9 @@ export async function getPortalSession(): Promise<PortalSessionPayload | null> {
   let raw = jar.get(PORTAL_SESSION_COOKIE)?.value;
   const h = await headers();
   if (!raw?.trim()) {
-    raw = readCookieValue(h.get("cookie"), PORTAL_SESSION_COOKIE);
+    raw =
+      portalSessionTokenFromHeaders(h, h.get("cookie")) ??
+      readCookieValue(h.get("cookie"), PORTAL_SESSION_COOKIE);
   }
   const fromCookie = await verifyPortalSessionToken(raw);
   if (fromCookie) return fromCookie;

@@ -1,15 +1,22 @@
 import "server-only";
 
-function siteOrigin(): string {
-  const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://portal.radioibiza.app.br";
-  return raw.replace(/\/$/, "");
+function chamadosAppOrigin(): string {
+  const app =
+    process.env.NEXT_PUBLIC_CHAMADOS_APP_URL?.trim() ||
+    process.env.CHAMADOS_APP_PUBLIC_ORIGIN?.trim() ||
+    "https://chamados.radioibiza.app.br";
+  return app.replace(/\/$/, "");
 }
 
-/** Deep link PWA (mobile staff). */
+/** Deep link app Chamados (site separado). */
 export function chamadosMobilePushUrl(query?: { conversa?: string }): string {
-  const base = `${siteOrigin()}/m/chamados`;
+  const base = `${chamadosAppOrigin()}/`;
   if (query?.conversa?.trim()) {
-    return `${base}?conversa=${encodeURIComponent(query.conversa.trim())}`;
+    const qs = new URLSearchParams({
+      view: "chat",
+      conversa: query.conversa.trim(),
+    });
+    return `${base}?${qs.toString()}`;
   }
   return base;
 }

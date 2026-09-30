@@ -86,7 +86,16 @@ export async function POST(request: Request) {
     console.error("[auth/login audit]", e);
   }
 
-  const res = NextResponse.json({ ok: true, email: user.email });
+  const viaChamadosApp =
+    request.headers.get("x-chamados-app-proxy") === "1" ||
+    request.headers.get("X-Chamados-App-Proxy") === "1";
+
+  const res = NextResponse.json({
+    ok: true,
+    email: user.email,
+    displayName: user.displayName,
+    ...(viaChamadosApp ? { sessionToken: token } : {}),
+  });
   res.cookies.set(PORTAL_SESSION_COOKIE, token, portalSessionCookieOptions());
   return res;
 }
