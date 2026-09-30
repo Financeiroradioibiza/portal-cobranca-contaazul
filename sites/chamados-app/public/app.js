@@ -76,6 +76,7 @@
 
   function showOverlay(innerHtml) {
     overlayEl.innerHTML = '<div class="sheet" role="dialog">' + innerHtml + "</div>";
+    overlayEl.removeAttribute("hidden");
     overlayEl.hidden = false;
     overlayEl.onclick = function (e) {
       if (e.target === overlayEl) closeOverlay();
@@ -84,6 +85,7 @@
 
   function closeOverlay() {
     overlayEl.hidden = true;
+    overlayEl.setAttribute("hidden", "");
     overlayEl.innerHTML = "";
   }
 
@@ -469,6 +471,8 @@
   document.getElementById("btn-logout").onclick = function () {
     auth.logout();
   };
+
+  closeOverlay();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(function () {});
