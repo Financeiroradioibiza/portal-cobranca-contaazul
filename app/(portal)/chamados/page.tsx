@@ -1,4 +1,5 @@
-import { ChamadosBoard } from "@/components/chamados/ChamadosBoard";
+import { Suspense } from "react";
+import { ChamadosWorkspace } from "@/components/chamados/ChamadosWorkspace";
 
 export default function ChamadosPage() {
   return (
@@ -10,7 +11,9 @@ export default function ChamadosPage() {
         </div>
       </header>
       <div className="portal-page-body">
-        <ChamadosBoard />
+        <Suspense fallback={<p className="text-sm text-slate-500">Carregando chamados…</p>}>
+          <ChamadosWorkspace />
+        </Suspense>
       </div>
     </div>
   );

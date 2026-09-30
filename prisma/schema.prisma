@@ -724,6 +724,82 @@ model Chamado {
   @@map("chamado")
 }
 
+/// Anexo em chamado kanban (imagem, PDF, áudio, etc.).
+model ChamadoAnexo {
+  id              String   @id @default(cuid())
+  chamadoId       String   @map("chamado_id") @db.VarChar(64)
+  fileName        String   @map("file_name") @db.VarChar(255)
+  mimeType        String   @map("mime_type") @db.VarChar(120)
+  sizeBytes       Int      @map("size_bytes")
+  fileBase64      String   @map("file_base64") @db.Text
+  uploadedByEmail String   @map("uploaded_by_email") @db.VarChar(200)
+  uploadedByNome  String   @map("uploaded_by_nome") @db.VarChar(120)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([chamadoId])
+  @@map("chamado_anexo")
+}
+
+/// Assunto de conversa interna (estilo canal #nome).
+model ChamadoConversaAssunto {
+  id             String   @id @default(cuid())
+  slug           String   @unique @db.VarChar(80)
+  titulo         String   @db.VarChar(120)
+  criadoPorEmail String   @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome  String   @map("criado_por_nome") @db.VarChar(120)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  mensagens ChamadoConversaMensagem[]
+  leituras  ChamadoConversaLeitura[]
+
+  @@map("chamado_conversa_assunto")
+}
+
+model ChamadoConversaMensagem {
+  id          String   @id @default(cuid())
+  assuntoId   String   @map("assunto_id") @db.VarChar(64)
+  corpo       String   @db.Text
+  /// JSON: e-mails mencionados (@).
+  mencoesJson String   @default("[]") @map("mencoes_json") @db.Text
+  autorEmail  String   @map("autor_email") @db.VarChar(200)
+  autorNome   String   @map("autor_nome") @db.VarChar(120)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  assunto ChamadoConversaAssunto @relation(fields: [assuntoId], references: [id], onDelete: Cascade)
+  anexos  ChamadoConversaAnexo[]
+
+  @@index([assuntoId, createdAt])
+  @@map("chamado_conversa_mensagem")
+}
+
+model ChamadoConversaLeitura {
+  id         String   @id @default(cuid())
+  assuntoId  String   @map("assunto_id") @db.VarChar(64)
+  userEmail  String   @map("user_email") @db.VarChar(200)
+  lastReadAt DateTime @map("last_read_at")
+
+  assunto ChamadoConversaAssunto @relation(fields: [assuntoId], references: [id], onDelete: Cascade)
+
+  @@unique([assuntoId, userEmail])
+  @@map("chamado_conversa_leitura")
+}
+
+model ChamadoConversaAnexo {
+  id         String   @id @default(cuid())
+  mensagemId String   @map("mensagem_id") @db.VarChar(64)
+  fileName   String   @map("file_name") @db.VarChar(255)
+  mimeType   String   @map("mime_type") @db.VarChar(120)
+  sizeBytes  Int      @map("size_bytes")
+  fileBase64 String   @map("file_base64") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  mensagem ChamadoConversaMensagem @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
+
+  @@index([mensagemId])
+  @@map("chamado_conversa_anexo")
+}
+
 enum ProspectEstagio {
   lead
   em_contato

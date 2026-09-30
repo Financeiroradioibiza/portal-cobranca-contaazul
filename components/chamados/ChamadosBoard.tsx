@@ -15,6 +15,7 @@ import {
   ChamadoProducaoVinculoFields,
   type ChamadoVinculoState,
 } from "@/components/chamados/ChamadoProducaoVinculoFields";
+import { ChamadoAnexosBlock } from "@/components/chamados/ChamadoAnexosBlock";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -66,15 +67,17 @@ type ChamadosBoardProps = {
   scope?: "all" | "mine";
   /** Layout compacto para embutir no dashboard (sem banner grande). */
   embedded?: boolean;
+  /** Dentro do workspace (sem banner duplicado da página). */
+  embeddedLayout?: boolean;
 };
 
-export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoardProps) {
+export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout = false }: ChamadosBoardProps) {
   const [chamados, setChamados] = useState<ChamadoView[]>([]);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [filter, setFilter] = useState<FilterTab>(scope === "mine" ? "abertos" : "todos");
+  const [filter, setFilter] = useState<FilterTab>("abertos");
   const [selected, setSelected] = useState<ChamadoView | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -270,9 +273,17 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
       "Chamados em que você ou seu setor participa."
     : "Comunicação interna entre setores e pessoas — estilo kanban, simples e colorido.";
 
+  const visibleColumns = useMemo(() => {
+    if (filter === "fechados") return CHAMADO_COLUNAS.filter((c) => c.id === "fechado");
+    if (filter === "abertos") return CHAMADO_COLUNAS.filter((c) => c.id !== "fechado");
+    return CHAMADO_COLUNAS;
+  }, [filter]);
+
   return (
     <div className="space-y-4">
-      {embedded ?
+      {embeddedLayout ?
+        null
+      : embedded ?
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</p>
@@ -342,8 +353,13 @@ export function ChamadosBoard({ scope = "all", embedded = false }: ChamadosBoard
         <p className="text-sm text-slate-500">Carregando quadro…</p>
       : null}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        {CHAMADO_COLUNAS.map((col) => (
+      <div
+        className={
+          "grid gap-4 " +
+          (visibleColumns.length === 1 ? "lg:grid-cols-1" : visibleColumns.length === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3")
+        }
+      >
+        {visibleColumns.map((col) => (
           <div
             key={col.id}
             className={"flex min-h-[320px] flex-col rounded-xl border-2 " + col.column}
@@ -764,6 +780,8 @@ function DetailModal({
           <> · Fechado por {chamado.fechadoPorNome} em {fmtWhen(chamado.fechadoEm)}</>
         : null}
       </p>
+
+      <ChamadoAnexosBlock chamadoId={chamado.id} />
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button

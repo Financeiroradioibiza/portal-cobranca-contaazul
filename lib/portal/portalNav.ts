@@ -127,7 +127,7 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
   },
   chamados: {
     section: "Chamados",
-    items: [{ href: "/chamados", icon: "🎫", label: "Quadro kanban" }],
+    items: [{ href: "/chamados", icon: "🎫", label: "Kanban e conversas" }],
   },
   config: {
     section: "Configuração",
