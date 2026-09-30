@@ -215,7 +215,7 @@ export function ChamadosConversasPanel({
     : "Use @nome ou @email para mencionar alguém";
 
   const sidebar = (
-      <aside className="flex h-full w-full shrink-0 flex-col border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 lg:border-b-0 lg:border-r">
+      <aside className="flex h-full max-h-[38vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 sm:max-h-none lg:w-56 lg:max-w-[14rem] lg:border-b-0 lg:border-r xl:w-60">
         <div className="border-b border-slate-200 p-3 dark:border-slate-700">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Assuntos</p>
           <input
@@ -250,7 +250,7 @@ export function ChamadosConversasPanel({
             <p className="mt-1 text-[10px] text-rose-600">{msg}</p>
           : null}
         </div>
-        <div className="max-h-48 overflow-y-auto lg:max-h-none lg:flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {loading ?
             <p className="p-3 text-xs text-slate-400">Carregando…</p>
           : assuntos.length === 0 ?
@@ -294,7 +294,7 @@ export function ChamadosConversasPanel({
   );
 
   const chatPane = (
-      <div className="flex min-h-[320px] min-w-0 flex-1 flex-col bg-white dark:bg-slate-900">
+      <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-slate-900">
         {!selected ?
           <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-slate-500">
             <p>Selecione um assunto à esquerda para abrir a conversa.</p>
@@ -305,14 +305,14 @@ export function ChamadosConversasPanel({
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">{selected.display}</h3>
               <p className="text-[10px] text-slate-400">{mentionHint}</p>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
               {mensagens.map((m) => (
-                <div key={m.id} className="mb-4 border-b border-slate-100 pb-3 last:border-0 dark:border-slate-800">
+                <div key={m.id} className="mb-4 max-w-full border-b border-slate-100 pb-3 last:border-0 dark:border-slate-800">
                   <div className="flex items-baseline gap-2">
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{m.autorNome}</span>
                     <span className="text-[10px] text-slate-400">{fmtWhen(m.createdAt)}</span>
                   </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
+                  <p className="mt-1 break-words whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
                     {renderCorpoWithMentions(m.corpo)}
                   </p>
                   {m.anexos.map((an) => (
@@ -372,7 +372,7 @@ export function ChamadosConversasPanel({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col lg:flex-row lg:gap-0">
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden lg:flex-row lg:gap-0">
       {sidebar}
       {hideChat ? null : chatPane}
     </div>

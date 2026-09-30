@@ -44,7 +44,7 @@ export function ChamadosWorkspace() {
   }, []);
 
   return (
-    <div className="flex min-h-[calc(100vh-12rem)] flex-col rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div className="flex max-h-[calc(100vh-9rem)] min-h-[420px] w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
         <button
           type="button"
@@ -74,12 +74,12 @@ export function ChamadosWorkspace() {
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row">
         <div
           className={
             mainView === "kanban" ?
-              "w-full shrink-0 border-b border-slate-200 dark:border-slate-700 lg:w-56 lg:border-b-0 lg:border-r xl:w-64"
-            : "flex min-h-[360px] min-w-0 flex-1 flex-col"
+              "h-full max-h-full w-full shrink-0 overflow-hidden border-b border-slate-200 dark:border-slate-700 lg:w-56 lg:max-w-[14rem] lg:border-b-0 lg:border-r xl:w-60"
+            : "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           }
         >
           <ChamadosConversasPanel
@@ -92,7 +92,7 @@ export function ChamadosWorkspace() {
         </div>
 
         {mainView === "kanban" ?
-          <div className="min-w-0 flex-1 overflow-auto p-4">
+          <div className="min-h-0 min-w-0 flex-1 overflow-auto p-4">
             <ChamadosBoard embeddedLayout />
           </div>
         : null}

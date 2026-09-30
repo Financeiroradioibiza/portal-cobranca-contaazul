@@ -107,7 +107,7 @@ export function ChamadoAnexosBlock({ chamadoId }: { chamadoId: string }) {
                 <img
                   src={fileUrl(a.id, "chamado")}
                   alt=""
-                  className="mt-1 max-h-40 rounded border border-slate-200 dark:border-slate-700"
+                  className="mt-1 max-h-40 max-w-full rounded border border-slate-200 dark:border-slate-700"
                 />
               : null}
               {a.mimeType.startsWith("audio/") ?
@@ -134,7 +134,7 @@ export function ConversaAnexoPreview({
       </a>
       <span className="ml-1 text-[10px] text-slate-400">({fmtSize(anexo.sizeBytes)})</span>
       {anexo.mimeType.startsWith("image/") ?
-        <img src={url} alt="" className="mt-1 max-h-48 rounded" />
+        <img src={url} alt="" className="mt-1 max-h-48 max-w-full rounded" />
       : null}
       {anexo.mimeType.startsWith("audio/") ?
         <audio controls className="mt-1 w-full" src={url} />
