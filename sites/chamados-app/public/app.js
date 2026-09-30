@@ -337,9 +337,13 @@
       });
     }
     list.sort(function (a, b) {
-      var ua = a.unreadCount || 0;
-      var ub = b.unreadCount || 0;
+      var ua = Number(a.unreadCount) || 0;
+      var ub = Number(b.unreadCount) || 0;
       if (ub !== ua) return ub - ua;
+      var pw = { urgente: 4, alta: 3, media: 2, baixa: 1 };
+      var pa = pw[a.prioridade] || 0;
+      var pb = pw[b.prioridade] || 0;
+      if (pb !== pa) return pb - pa;
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
     return list;
@@ -401,17 +405,25 @@
       list.forEach(function (c) {
         var st = STATUS[c.status] || STATUS.aberto;
         var pr = PRI[c.prioridade] || PRI.media;
-        var unread = c.unreadCount || 0;
+        var unread = Number(c.unreadCount) || 0;
         html +=
-          '<button type="button" class="ticket-card" data-ticket="' +
+          '<button type="button" class="ticket-card' +
+          (unread > 0 ? " has-unread" : "") +
+          '" data-ticket="' +
           escapeHtml(c.id) +
           '">' +
-          (unread > 0 ?
-            '<span class="ticket-unread">' + (unread > 99 ? "99+" : unread) + "</span>"
-          : "") +
+          '<div class="ticket-title-row">' +
           '<h3 class="ticket-title">' +
           escapeHtml(c.titulo) +
           "</h3>" +
+          (unread > 0 ?
+            '<span class="ticket-title-badge" aria-label="' +
+            unread +
+            ' não lidas">' +
+            (unread > 99 ? "99+" : String(unread)) +
+            "</span>"
+          : "") +
+          "</div>" +
           '<div class="ticket-meta">' +
           '<span class="badge ' +
           st.cls +
