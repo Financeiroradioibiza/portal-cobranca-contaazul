@@ -317,12 +317,15 @@ export async function updateChamado(
   const view = chamadoToView(row);
 
   let notifyKind = resolveChamadoNotifyOnUpdate(existing, input);
-  if (!notifyKind && input.notificar) {
-    notifyKind =
-      input.status === "fechado" && existing.status !== "fechado" ? "closed"
-      : view.status === "fechado" ? "closed"
-      : "updated";
+
+  if (input.notificar === true) {
+    if (input.status === "fechado" && existing.status !== "fechado") {
+      notifyKind = "closed";
+    } else if (!notifyKind) {
+      notifyKind = "updated";
+    }
   }
+
   if (notifyKind) {
     try {
       await notifyChamadoEmail(view, notifyKind);

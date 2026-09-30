@@ -16,6 +16,7 @@ import {
   type ChamadoVinculoState,
 } from "@/components/chamados/ChamadoProducaoVinculoFields";
 import { ChamadoAnexosBlock } from "@/components/chamados/ChamadoAnexosBlock";
+import { ChamadoComentariosBlock } from "@/components/chamados/ChamadoComentariosBlock";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -69,9 +70,16 @@ type ChamadosBoardProps = {
   embedded?: boolean;
   /** Dentro do workspace (sem banner duplicado da página). */
   embeddedLayout?: boolean;
+  /** Abrir detalhe ao carregar (link do e-mail). */
+  initialChamadoId?: string | null;
 };
 
-export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout = false }: ChamadosBoardProps) {
+export function ChamadosBoard({
+  scope = "all",
+  embedded = false,
+  embeddedLayout = false,
+  initialChamadoId = null,
+}: ChamadosBoardProps) {
   const [chamados, setChamados] = useState<ChamadoView[]>([]);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +88,7 @@ export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout 
   const [filter, setFilter] = useState<FilterTab>("abertos");
   const [selected, setSelected] = useState<ChamadoView | null>(null);
   const [creating, setCreating] = useState(false);
+  const [viewerEmail, setViewerEmail] = useState("");
 
   const [formTitulo, setFormTitulo] = useState("");
   const [formTituloManual, setFormTituloManual] = useState(false);
@@ -113,6 +122,21 @@ export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void fetch("/api/auth/me", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.email === "string") setViewerEmail(d.email);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!initialChamadoId || loading) return;
+    const c = chamados.find((x) => x.id === initialChamadoId);
+    if (c) setSelected(c);
+  }, [initialChamadoId, chamados, loading]);
 
   const filtered = useMemo(() => {
     let list = chamados;
@@ -188,7 +212,9 @@ export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout 
         await load();
       }
       if (body.notificar === true) {
-        setMsg("Chamado salvo. Notificação por e-mail enviada (setores + responsáveis).");
+        setMsg("Chamado salvo. E-mail enviado para setores, responsáveis e quem abriu o chamado.");
+      } else {
+        setMsg("Chamado atualizado.");
       }
     } catch {
       setMsg("Erro de rede ao atualizar.");
@@ -429,6 +455,7 @@ export function ChamadosBoard({ scope = "all", embedded = false, embeddedLayout 
           chamado={selected}
           busy={busy}
           participants={participants}
+          viewerEmail={viewerEmail}
           onClose={() => setSelected(null)}
           onPatch={patchChamado}
           onResendEmail={() => void resendChamadoEmail(selected.id)}
@@ -668,6 +695,7 @@ function DetailModal({
   chamado,
   busy,
   participants,
+  viewerEmail,
   onClose,
   onPatch,
   onResendEmail,
@@ -675,6 +703,7 @@ function DetailModal({
   chamado: ChamadoView;
   busy: boolean;
   participants: ChamadoParticipant[];
+  viewerEmail: string;
   onClose: () => void;
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
   onResendEmail: () => void;
@@ -724,14 +753,16 @@ function DetailModal({
         />
       </label>
       <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
-        Descrição
+        Pedido inicial
         <textarea
           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-          rows={4}
+          rows={3}
           value={descricao}
           onChange={(e) => setDescricao(e.target.value)}
         />
       </label>
+
+      <ChamadoComentariosBlock chamadoId={chamado.id} viewerEmail={viewerEmail} />
 
       <div className="mt-3 flex flex-wrap gap-2">
         {CHAMADO_PRIORIDADES.map((p) => (

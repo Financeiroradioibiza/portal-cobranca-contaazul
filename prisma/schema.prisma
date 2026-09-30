@@ -738,11 +738,28 @@ model Chamado {
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
+  comentarios ChamadoComentario[]
+
   @@index([status, updatedAt])
   @@index([criadoPorEmail])
   @@index([rioLinhaId])
   @@index([rioPdvKey])
   @@map("chamado")
+}
+
+/// Respostas / thread no chamado (separado da descrição inicial).
+model ChamadoComentario {
+  id         String   @id @default(cuid())
+  chamadoId  String   @map("chamado_id")
+  corpo      String   @db.Text
+  autorEmail String   @map("autor_email") @db.VarChar(200)
+  autorNome  String   @map("autor_nome") @db.VarChar(120)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  chamado Chamado @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+
+  @@index([chamadoId, createdAt])
+  @@map("chamado_comentario")
 }
 
 /// Anexo em chamado kanban (imagem, PDF, áudio, etc.).

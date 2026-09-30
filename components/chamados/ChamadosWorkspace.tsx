@@ -25,6 +25,7 @@ type ChamadosWorkspaceProps = {
 export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
   const searchParams = useSearchParams();
   const conversaSlug = searchParams.get("conversa");
+  const chamadoId = searchParams.get("chamado");
 
   const [mainView, setMainView] = useState<MainView>(conversaSlug ? "conversa" : "kanban");
   const [selectedAssunto, setSelectedAssunto] = useState<ConversaAssuntoListItem | null>(null);
@@ -105,7 +106,7 @@ export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
 
         {mainView === "kanban" ?
           <div className="min-h-0 min-w-0 flex-1 overflow-auto p-4">
-            <ChamadosBoard embeddedLayout />
+            <ChamadosBoard embeddedLayout initialChamadoId={chamadoId} />
           </div>
         : null}
       </div>

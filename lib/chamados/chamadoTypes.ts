@@ -41,6 +41,15 @@ export type CreateChamadoInput = {
   clienteNome?: string;
 };
 
+export type ChamadoComentarioView = {
+  id: string;
+  chamadoId: string;
+  corpo: string;
+  autorEmail: string;
+  autorNome: string;
+  createdAt: string;
+};
+
 export type UpdateChamadoInput = {
   titulo?: string;
   descricao?: string;

@@ -9,14 +9,20 @@ function chamadosAppOrigin(): string {
 }
 
 /** Deep link app Chamados (site separado). */
-export function chamadosMobilePushUrl(query?: { conversa?: string }): string {
+export function chamadosMobilePushUrl(query?: {
+  conversa?: string;
+  chamadoId?: string;
+}): string {
   const base = `${chamadosAppOrigin()}/`;
+  const qs = new URLSearchParams();
   if (query?.conversa?.trim()) {
-    const qs = new URLSearchParams({
-      view: "chat",
-      conversa: query.conversa.trim(),
-    });
-    return `${base}?${qs.toString()}`;
+    qs.set("view", "chat");
+    qs.set("conversa", query.conversa.trim());
   }
-  return base;
+  if (query?.chamadoId?.trim()) {
+    qs.set("view", "tickets");
+    qs.set("chamado", query.chamadoId.trim());
+  }
+  const s = qs.toString();
+  return s ? `${base}?${s}` : base;
 }

@@ -23,6 +23,14 @@ function portalOrigin(): string {
   return raw.replace(/\/$/, "");
 }
 
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function prioridadeLabel(id: string): string {
   return CHAMADO_PRIORIDADES.find((p) => p.id === id)?.label ?? id;
 }
@@ -78,7 +86,7 @@ function buildChamadoEmail(
   chamado: ChamadoView,
   kind: ChamadoNotifyKind,
 ): { subject: string; text: string; html: string } {
-  const link = `${portalOrigin()}/chamados`;
+  const link = `${portalOrigin()}/chamados?chamado=${encodeURIComponent(chamado.id)}`;
   const setores = setoresLabel(chamado.setores);
   const responsaveis =
     chamado.responsaveis.length > 0 ? chamado.responsaveis.join(", ") : "—";
@@ -258,10 +266,65 @@ export async function notifyChamadoEmail(
     await sendPushToEmails(recipients, {
       title: subject.slice(0, 120),
       body: `${statusLabel(chamado.status)} · ${chamado.titulo}`.slice(0, 240),
-      url: chamadosMobilePushUrl(),
+      url: chamadosMobilePushUrl({ chamadoId: chamado.id }),
     });
   } catch (e) {
     console.error("[chamadoNotify] falha push", chamado.id, e);
+  }
+}
+
+/** Nova resposta na thread do chamado — notifica envolvidos (exceto autor). */
+export async function notifyChamadoCommentEmail(
+  chamado: ChamadoView,
+  opts: { autorNome: string; corpo: string; excludeEmail?: string },
+): Promise<void> {
+  const exclude = normalizePortalEmail(opts.excludeEmail ?? "");
+  const recipients = (
+    await resolveChamadoNotifyRecipients({
+      setores: chamado.setores,
+      responsaveis: chamado.responsaveis,
+      extraEmails: [chamado.criadoPorEmail],
+    })
+  ).filter((e) => normalizePortalEmail(e) !== exclude);
+
+  if (recipients.length === 0) {
+    console.warn("[chamadoNotify] resposta sem destinatários", chamado.id);
+    return;
+  }
+
+  const link = `${portalOrigin()}/chamados?chamado=${encodeURIComponent(chamado.id)}`;
+  const preview = opts.corpo.trim().slice(0, 500);
+  const subject = `[Chamado] Nova resposta — ${chamado.titulo}`.slice(0, 180);
+  const text = [
+    `${opts.autorNome} respondeu no chamado «${chamado.titulo}».`,
+    "",
+    preview,
+    "",
+    `Abrir chamado: ${link}`,
+  ].join("\n");
+  const html = `<p><strong>${escHtml(opts.autorNome)}</strong> respondeu no chamado <strong>${escHtml(chamado.titulo)}</strong>.</p>
+<p style="white-space:pre-wrap;background:#fafaf7;border-left:4px solid #c4146a;padding:12px 14px;border-radius:8px">${escHtml(preview)}</p>
+<p><a href="${escHtml(link)}" style="display:inline-block;background:#c4146a;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Abrir chamado no portal</a></p>`;
+
+  if (isChamadosSmtpConfigured()) {
+    await sendEmailViaSmtp({
+      to: recipients,
+      subject,
+      text,
+      html,
+      replyTo: chamado.criadoPorEmail,
+      mailProfile: "chamados",
+    });
+  }
+
+  try {
+    await sendPushToEmails(recipients, {
+      title: subject.slice(0, 120),
+      body: `${opts.autorNome}: ${preview.slice(0, 160)}`,
+      url: chamadosMobilePushUrl({ chamadoId: chamado.id }),
+    });
+  } catch (e) {
+    console.error("[chamadoNotify] falha push resposta", chamado.id, e);
   }
 }
 
