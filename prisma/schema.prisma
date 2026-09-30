@@ -611,6 +611,9 @@ model PortalUser {
   tagIniciais  String    @default("") @map("tag_iniciais") @db.VarChar(8)
   /// Cor hex padrão das tags deste criativo
   tagCor       String    @default("#6366f1") @map("tag_cor") @db.VarChar(9)
+  /// Foto de rosto (PNG/JPEG/WebP) — base64 para avatar no chat e listagens.
+  avatarMime   String    @default("") @map("avatar_mime") @db.VarChar(80)
+  avatarBase64 String    @default("") @map("avatar_base64") @db.Text
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 

@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth/users";
 import { generatePortalTotpSecret } from "@/lib/auth/totp";
 import { parseRolesJson } from "@/lib/portal/menuPermissions";
+import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 
 export type DbPortalUserView = {
   id: string;
@@ -17,8 +18,10 @@ export type DbPortalUserView = {
   jobTitle: string;
   tagIniciais: string;
   tagCor: string;
+  hasAvatar: boolean;
   active: boolean;
   lastLoginAt: Date | null;
+  updatedAt: Date;
   profile: {
     id: string;
     slug: string;
@@ -26,6 +29,35 @@ export type DbPortalUserView = {
     icon: string;
   };
 };
+
+function mapDbUserView(r: {
+  id: string;
+  email: string;
+  displayName: string;
+  jobTitle: string;
+  tagIniciais: string;
+  tagCor: string;
+  avatarMime: string;
+  avatarBase64: string;
+  active: boolean;
+  lastLoginAt: Date | null;
+  updatedAt: Date;
+  profile: { id: string; slug: string; name: string; icon: string };
+}): DbPortalUserView {
+  return {
+    id: r.id,
+    email: r.email,
+    displayName: r.displayName,
+    jobTitle: r.jobTitle,
+    tagIniciais: r.tagIniciais,
+    tagCor: r.tagCor,
+    hasAvatar: portalUserHasAvatar(r),
+    active: r.active,
+    lastLoginAt: r.lastLoginAt,
+    updatedAt: r.updatedAt,
+    profile: r.profile,
+  };
+}
 
 const TAG_PALETTE = [
   "#eab308", "#f97316", "#ef4444", "#ec4899", "#a855f7",
@@ -128,17 +160,7 @@ export async function listPortalUsers(): Promise<DbPortalUserView[]> {
       profile: { select: { id: true, slug: true, name: true, icon: true } },
     },
   });
-  return rows.map((r) => ({
-    id: r.id,
-    email: r.email,
-    displayName: r.displayName,
-    jobTitle: r.jobTitle,
-    tagIniciais: r.tagIniciais,
-    tagCor: r.tagCor,
-    active: r.active,
-    lastLoginAt: r.lastLoginAt,
-    profile: r.profile,
-  }));
+  return rows.map(mapDbUserView);
 }
 
 export async function listPortalProfiles() {
@@ -196,17 +218,7 @@ export async function createPortalUser(input: {
   });
 
   return {
-    user: {
-      id: row.id,
-      email: row.email,
-      displayName: row.displayName,
-      jobTitle: row.jobTitle,
-      tagIniciais: row.tagIniciais,
-      tagCor: row.tagCor,
-      active: row.active,
-      lastLoginAt: row.lastLoginAt,
-      profile: row.profile,
-    },
+    user: mapDbUserView(row),
     totpSecret,
   };
 }
@@ -279,17 +291,7 @@ export async function updatePortalUser(
   });
 
   return {
-    user: {
-      id: row.id,
-      email: row.email,
-      displayName: row.displayName,
-      jobTitle: row.jobTitle,
-      tagIniciais: row.tagIniciais,
-      tagCor: row.tagCor,
-      active: row.active,
-      lastLoginAt: row.lastLoginAt,
-      profile: row.profile,
-    },
+    user: mapDbUserView(row),
     totpSecret: newTotp,
   };
 }

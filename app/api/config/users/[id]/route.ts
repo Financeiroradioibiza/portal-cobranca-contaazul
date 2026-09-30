@@ -24,6 +24,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
       user: {
         ...result.user,
         lastLoginAt: result.user.lastLoginAt?.toISOString() ?? null,
+        updatedAt: result.user.updatedAt.toISOString(),
       },
       totpSecret: result.totpSecret,
     });

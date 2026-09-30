@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
 import { ConversaAnexoPreview } from "@/components/chamados/ChamadoAnexosBlock";
+import { ChamadoMentionTextarea } from "@/components/chamados/ChamadoMentionTextarea";
+import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 
 export type ConversaAssuntoListItem = {
   id: string;
@@ -108,6 +110,12 @@ export function ChamadosConversasPanel({
     [assuntos, selectedId],
   );
 
+  const participantByEmail = useMemo(() => {
+    const map = new Map<string, (typeof participants)[number]>();
+    for (const p of participants) map.set(p.email.toLowerCase(), p);
+    return map;
+  }, [participants]);
+
   const loadMensagens = useCallback(async (assuntoId: string) => {
     try {
       const res = await fetch(`/api/chamados/conversas/${assuntoId}/mensagens`, { credentials: "same-origin" });
@@ -209,11 +217,6 @@ export function ChamadosConversasPanel({
     }
   }
 
-  const mentionHint =
-    participants.length > 0 ?
-      `Use @ para mencionar (ex.: @${participants[0]!.email.split("@")[0]})`
-    : "Use @nome ou @email para mencionar alguém";
-
   const sidebar = (
       <aside className="flex h-full max-h-[38vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 sm:max-h-none lg:w-56 lg:max-w-[14rem] lg:border-b-0 lg:border-r xl:w-60">
         <div className="border-b border-slate-200 p-3 dark:border-slate-700">
@@ -303,23 +306,37 @@ export function ChamadosConversasPanel({
         : <>
             <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">{selected.display}</h3>
-              <p className="text-[10px] text-slate-400">{mentionHint}</p>
+              <p className="text-[10px] text-slate-400">Digite @ para escolher quem mencionar na lista.</p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
-              {mensagens.map((m) => (
-                <div key={m.id} className="mb-4 max-w-full border-b border-slate-100 pb-3 last:border-0 dark:border-slate-800">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{m.autorNome}</span>
-                    <span className="text-[10px] text-slate-400">{fmtWhen(m.createdAt)}</span>
+              {mensagens.map((m) => {
+                const author = participantByEmail.get(m.autorEmail.toLowerCase());
+                return (
+                  <div key={m.id} className="mb-4 flex max-w-full gap-2 border-b border-slate-100 pb-3 last:border-0 dark:border-slate-800">
+                    <PortalUserAvatar
+                      userId={author?.userId}
+                      displayName={m.autorNome}
+                      email={m.autorEmail}
+                      hasAvatar={author?.hasAvatar}
+                      avatarVersion={author?.avatarVersion}
+                      size="sm"
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-2">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{m.autorNome}</span>
+                        <span className="text-[10px] text-slate-400">{fmtWhen(m.createdAt)}</span>
+                      </div>
+                      <p className="mt-1 break-words whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
+                        {renderCorpoWithMentions(m.corpo)}
+                      </p>
+                      {m.anexos.map((an) => (
+                        <ConversaAnexoPreview key={an.id} anexo={an} />
+                      ))}
+                    </div>
                   </div>
-                  <p className="mt-1 break-words whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
-                    {renderCorpoWithMentions(m.corpo)}
-                  </p>
-                  {m.anexos.map((an) => (
-                    <ConversaAnexoPreview key={an.id} anexo={an} />
-                  ))}
-                </div>
-              ))}
+                );
+              })}
               <div ref={bottomRef} />
             </div>
             <div className="border-t border-slate-200 p-3 dark:border-slate-700">
@@ -328,18 +345,14 @@ export function ChamadosConversasPanel({
                   {pendingFiles.length} arquivo(s): {pendingFiles.map((f) => f.name).join(", ")}
                 </p>
               : null}
-              <textarea
-                rows={2}
+              <ChamadoMentionTextarea
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Mensagem… @rodolfo para notificar"
+                onChange={setDraft}
+                participants={participants}
+                placeholder="Mensagem… digite @ para mencionar"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void sendMessage();
-                  }
-                }}
+                disabled={chatBusy}
+                onEnterSubmit={() => void sendMessage()}
               />
               <div className="mt-2 flex flex-wrap gap-2">
                 <label className="cursor-pointer rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold dark:border-slate-600">

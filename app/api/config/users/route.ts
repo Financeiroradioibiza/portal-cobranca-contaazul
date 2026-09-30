@@ -14,6 +14,7 @@ export async function GET() {
       users: users.map((u) => ({
         ...u,
         lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
+        updatedAt: u.updatedAt.toISOString(),
       })),
       profiles,
       stats: computeUserStats(users),
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
       user: {
         ...result.user,
         lastLoginAt: result.user.lastLoginAt?.toISOString() ?? null,
+        updatedAt: result.user.updatedAt.toISOString(),
       },
       totpSecret: result.totpSecret,
     });

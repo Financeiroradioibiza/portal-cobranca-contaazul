@@ -14,6 +14,7 @@ import {
   profileBadgeClass,
   profileBadgeLabel,
 } from "@/lib/config/portalUserService";
+import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 
 type ProfileRow = {
   id: string;
@@ -33,8 +34,10 @@ type UserRow = {
   jobTitle: string;
   tagIniciais: string;
   tagCor: string;
+  hasAvatar: boolean;
   active: boolean;
   lastLoginAt: string | null;
+  updatedAt: string;
   profile: { id: string; slug: string; name: string; icon: string };
 };
 
@@ -54,15 +57,6 @@ function parseProfilePerm(raw: string): PortalPermissionsMap | "all" {
     /* ignore */
   }
   return {};
-}
-
-function avatarGradient(seed: string): string {
-  const hues = [320, 260, 210, 170, 30, 280];
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h + seed.charCodeAt(i) * 17) % hues.length;
-  const a = hues[h]!;
-  const b = hues[(h + 2) % hues.length]!;
-  return `linear-gradient(135deg, hsl(${a} 70% 45%), hsl(${b} 65% 50%))`;
 }
 
 function StatCard({
@@ -119,6 +113,8 @@ export function ConfigUsuariosPanel() {
   const [formTagIniciais, setFormTagIniciais] = useState("");
   const [formTagCor, setFormTagCor] = useState(TAG_CORES[5]!);
   const [formSaving, setFormSaving] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarMsg, setAvatarMsg] = useState<string | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((p) => p.id === selectedProfileId) ?? profiles[0] ?? null,
@@ -266,6 +262,57 @@ export function ConfigUsuariosPanel() {
     setFormTagCor(u.tagCor || TAG_CORES[5]!);
     setShowNewUser(false);
     setTotpReveal(null);
+    setAvatarMsg(null);
+  }
+
+  async function uploadUserAvatar(file: File) {
+    if (!editUser) return;
+    setAvatarBusy(true);
+    setAvatarMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`/api/config/users/${editUser.id}/avatar`, {
+        method: "POST",
+        credentials: "same-origin",
+        body: fd,
+      });
+      if (!res.ok) {
+        setAvatarMsg("Não foi possível enviar a foto (máx. 512 KB, JPG/PNG/WebP).");
+        return;
+      }
+      setEditUser((prev) =>
+        prev ? { ...prev, hasAvatar: true, updatedAt: new Date().toISOString() } : prev,
+      );
+      await load();
+    } catch {
+      setAvatarMsg("Erro de rede ao enviar foto.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function removeUserAvatar() {
+    if (!editUser || !editUser.hasAvatar) return;
+    if (!confirm("Remover a foto deste usuário?")) return;
+    setAvatarBusy(true);
+    setAvatarMsg(null);
+    try {
+      const res = await fetch(`/api/config/users/${editUser.id}/avatar`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        setAvatarMsg("Não foi possível remover a foto.");
+        return;
+      }
+      setEditUser((prev) =>
+        prev ? { ...prev, hasAvatar: false, updatedAt: new Date().toISOString() } : prev,
+      );
+      await load();
+    } finally {
+      setAvatarBusy(false);
+    }
   }
 
   async function submitNewUser() {
@@ -425,12 +472,14 @@ export function ConfigUsuariosPanel() {
                 (u.active ? "" : "opacity-50")
               }
             >
-              <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-                style={{ background: avatarGradient(u.email) }}
-              >
-                {initials(u.displayName, u.email)}
-              </div>
+              <PortalUserAvatar
+                userId={u.id}
+                displayName={u.displayName}
+                email={u.email}
+                hasAvatar={u.hasAvatar}
+                avatarVersion={u.updatedAt}
+                size="md"
+              />
               <div className="min-w-0">
                 <div className="truncate font-semibold">{u.displayName || "—"}</div>
                 <div className="truncate text-xs text-slate-500">{u.email}</div>
@@ -650,6 +699,51 @@ export function ConfigUsuariosPanel() {
                   />
                   Usuário ativo
                 </label>
+              : null}
+              {editUser ?
+                <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                  <p className="mb-2 text-sm font-medium">Foto de rosto (chat e listagens)</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <PortalUserAvatar
+                      userId={editUser.id}
+                      displayName={formName || editUser.displayName}
+                      email={formEmail || editUser.email}
+                      hasAvatar={editUser.hasAvatar}
+                      avatarVersion={editUser.updatedAt}
+                      size="lg"
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="cursor-pointer rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
+                        {avatarBusy ? "Enviando…" : "Enviar foto"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          className="hidden"
+                          disabled={avatarBusy}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void uploadUserAvatar(f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      {editUser.hasAvatar ?
+                        <button
+                          type="button"
+                          disabled={avatarBusy}
+                          className="text-left text-[11px] font-semibold text-rose-600 underline"
+                          onClick={() => void removeUserAvatar()}
+                        >
+                          Remover foto
+                        </button>
+                      : null}
+                      <span className="text-[10px] text-slate-500">Até 512 KB · JPG, PNG ou WebP</span>
+                    </div>
+                  </div>
+                  {avatarMsg ?
+                    <p className="mt-2 text-[11px] text-rose-600">{avatarMsg}</p>
+                  : null}
+                </div>
               : null}
               {editUser ?
                 <>

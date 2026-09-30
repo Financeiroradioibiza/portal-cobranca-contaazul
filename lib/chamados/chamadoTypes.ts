@@ -21,10 +21,13 @@ export type ChamadoView = {
 };
 
 export type ChamadoParticipant = {
+  userId: string;
   email: string;
   displayName: string;
   profileSlug: string;
   profileName: string;
+  hasAvatar: boolean;
+  avatarVersion: string | null;
 };
 
 export type CreateChamadoInput = {

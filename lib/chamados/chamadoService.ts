@@ -1,6 +1,7 @@
 import type { Chamado, ChamadoPrioridade, ChamadoStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
+import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
 import { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
 import {
@@ -125,16 +126,23 @@ export async function listChamadoParticipants(): Promise<ChamadoParticipant[]> {
       where: { active: true },
       orderBy: [{ displayName: "asc" }, { email: "asc" }],
       select: {
+        id: true,
         email: true,
         displayName: true,
+        avatarMime: true,
+        avatarBase64: true,
+        updatedAt: true,
         profile: { select: { slug: true, name: true } },
       },
     });
     return rows.map((r) => ({
+      userId: r.id,
       email: r.email,
       displayName: r.displayName.trim() || r.email,
       profileSlug: r.profile.slug,
       profileName: r.profile.name,
+      hasAvatar: portalUserHasAvatar(r),
+      avatarVersion: r.updatedAt.toISOString(),
     }));
   } catch {
     return [];
