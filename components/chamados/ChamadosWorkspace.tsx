@@ -17,7 +17,12 @@ function parseParticipants(data: unknown): ChamadoParticipant[] {
   return Array.isArray(rows) ? (rows as ChamadoParticipant[]) : [];
 }
 
-export function ChamadosWorkspace() {
+type ChamadosWorkspaceProps = {
+  /** Layout mais alto no shell /m (PWA). */
+  mobile?: boolean;
+};
+
+export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
   const searchParams = useSearchParams();
   const conversaSlug = searchParams.get("conversa");
 
@@ -44,7 +49,14 @@ export function ChamadosWorkspace() {
   }, []);
 
   return (
-    <div className="flex max-h-[calc(100vh-9rem)] min-h-[420px] w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div
+      className={
+        "flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 " +
+        (mobile ?
+          "min-h-[60vh] max-h-[calc(100dvh-11rem)]"
+        : "min-h-[420px] max-h-[calc(100vh-9rem)]")
+      }
+    >
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
         <button
           type="button"

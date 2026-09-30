@@ -7,6 +7,8 @@ import { CHAMADO_COLUNAS, CHAMADO_PRIORIDADES, setorMeta } from "@/lib/chamados/
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
 import { COMPANY_NAME } from "@/lib/brand";
 import { isChamadosSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
+import { chamadosMobilePushUrl } from "@/lib/push/chamadosPushUrls";
+import { sendPushToEmails } from "@/lib/push/sendPush";
 
 /** Cores marca Radio Ibiza (ver app/globals.css — e-mail usa hex fixo). */
 const RI_PINK = "#c4146a";
@@ -209,11 +211,6 @@ export async function notifyChamadoEmail(
   chamado: ChamadoView,
   kind: ChamadoNotifyKind = "created",
 ): Promise<void> {
-  if (!isChamadosSmtpConfigured()) {
-    console.warn("[chamadoNotify] SMTP chamados não configurado — e-mail não enviado", chamado.id);
-    return;
-  }
-
   const extraEmails =
     kind === "created" ? [] : [chamado.criadoPorEmail].filter(Boolean);
 
@@ -238,20 +235,34 @@ export async function notifyChamadoEmail(
 
   const { subject, text, html } = buildChamadoEmail(chamado, kind);
 
-  await sendEmailViaSmtp({
-    to: recipients,
-    subject,
-    text,
-    html,
-    replyTo: chamado.criadoPorEmail,
-    mailProfile: "chamados",
-  });
+  if (isChamadosSmtpConfigured()) {
+    await sendEmailViaSmtp({
+      to: recipients,
+      subject,
+      text,
+      html,
+      replyTo: chamado.criadoPorEmail,
+      mailProfile: "chamados",
+    });
 
-  console.info("[chamadoNotify] e-mail enviado", {
-    chamadoId: chamado.id,
-    kind,
-    to: recipients,
-  });
+    console.info("[chamadoNotify] e-mail enviado", {
+      chamadoId: chamado.id,
+      kind,
+      to: recipients,
+    });
+  } else {
+    console.warn("[chamadoNotify] SMTP chamados não configurado — só push (se houver)", chamado.id);
+  }
+
+  try {
+    await sendPushToEmails(recipients, {
+      title: subject.slice(0, 120),
+      body: `${statusLabel(chamado.status)} · ${chamado.titulo}`.slice(0, 240),
+      url: chamadosMobilePushUrl(),
+    });
+  } catch (e) {
+    console.error("[chamadoNotify] falha push", chamado.id, e);
+  }
 }
 
 /** Compat — criação de chamado. */

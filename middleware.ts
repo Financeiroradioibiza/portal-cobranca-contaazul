@@ -24,6 +24,11 @@ import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatc
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const hostHeader = (request.headers.get("host") ?? "").split(":")[0]?.toLowerCase() ?? "";
+
+  if (hostHeader === "chamados.radioibiza.app.br" && (pathname === "/" || pathname === "")) {
+    return NextResponse.redirect(new URL("/m/chamados", request.url));
+  }
 
   /** Cron SMTP «pedido OC»: não exige sessão do portal — só Bearer com OC_EMAIL_CRON_SECRET / CRON_SECRET. */
   if (pathname === "/api/manual-envios/oc-email/auto-dispatch") {
@@ -38,7 +43,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/email/") ||
     pathname === "/favicon.ico" ||
     pathname === "/privacidade" ||
-    pathname === "/privacidade.html"
+    pathname === "/privacidade.html" ||
+    pathname === "/chamados-sw.js" ||
+    pathname === "/chamados.webmanifest" ||
+    pathname.startsWith("/chamados-icon-")
   ) {
     return NextResponse.next();
   }

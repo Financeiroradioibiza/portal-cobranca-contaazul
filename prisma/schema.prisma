@@ -619,9 +619,27 @@ model PortalUser {
 
   profile   PortalProfile    @relation(fields: [profileId], references: [id], onDelete: Restrict)
   auditLogs PortalAuditLog[]
+  pushSubscriptions PortalPushSubscription[]
 
   @@index([profileId])
   @@map("portal_user")
+}
+
+/// Web Push (PWA chamados) — um registro por browser/dispositivo.
+model PortalPushSubscription {
+  id        String   @id @default(cuid())
+  userEmail String   @map("user_email") @db.VarChar(200)
+  endpoint  String   @unique @db.Text
+  p256dh    String   @db.VarChar(200)
+  auth      String   @db.VarChar(80)
+  userAgent String   @default("") @map("user_agent") @db.VarChar(400)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user PortalUser @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([userEmail])
+  @@map("portal_push_subscription")
 }
 
 /// Registro de ações dos usuários no portal (auditoria).

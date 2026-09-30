@@ -41,7 +41,7 @@ import { LoginsClientesPanel } from "@/components/suporte/LoginsClientesPanel";
 import { SiteClientesAdminPanel } from "@/components/suporte/SiteClientesAdminPanel";
 import { PlayerAvisosPanel } from "@/components/suporte/PlayerAvisosPanel";
 import { InstalacaoPanel } from "@/components/suporte/InstalacaoPanel";
-import { ChamadosBoard } from "@/components/chamados/ChamadosBoard";
+import { ChamadosMobilePage } from "@/components/chamados/ChamadosMobilePage";
 import { ConfigParametrosPanel } from "@/components/config/ConfigParametrosPanel";
 import { ConfigUsuariosPanel } from "@/components/config/ConfigUsuariosPanel";
 import { ConfigServidoresPanel } from "@/components/config/ConfigServidoresPanel";
@@ -318,8 +318,9 @@ const PAGES: Record<string, PageDef> = {
   },
   "/chamados": {
     section: "Chamados",
-    title: "Quadro kanban",
-    render: () => <ChamadosBoard />,
+    title: "Chamados",
+    description: "Kanban, conversas e notificações",
+    render: () => <ChamadosMobilePage />,
   },
   "/config/parametros": {
     section: "Configuração",

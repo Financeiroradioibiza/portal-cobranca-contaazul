@@ -4,6 +4,8 @@ import { after } from "next/server";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { conversaDisplayTitulo } from "@/lib/chamados/chamadoMentions";
 import { isChamadosSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
+import { chamadosMobilePushUrl } from "@/lib/push/chamadosPushUrls";
+import { sendPushToEmails } from "@/lib/push/sendPush";
 
 function portalOrigin(): string {
   const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://portal.radioibiza.app.br";
@@ -64,6 +66,16 @@ export function scheduleConversaMentionEmails(opts: {
         console.error("[conversaNotify] falha envio menção", to, e);
       }
     }
+
+    try {
+      await sendPushToEmails(recipients, {
+        title: subject.slice(0, 120),
+        body: `${opts.autorNome}: ${preview.slice(0, 180)}`,
+        url: chamadosMobilePushUrl({ conversa: opts.assuntoSlug }),
+      });
+    } catch (e) {
+      console.error("[conversaNotify] falha push menção", e);
+    }
   });
 }
 
@@ -88,6 +100,16 @@ export function scheduleConversaActivityEmail(opts: {
       await sendEmailViaSmtp({ to: [to], subject, text, html, mailProfile: "chamados" });
     } catch (e) {
       console.error("[conversaNotify] falha activity", to, e);
+    }
+
+    try {
+      await sendPushToEmails([to], {
+        title: subject.slice(0, 120),
+        body: `${opts.autorNome} em ${label}`.slice(0, 200),
+        url: chamadosMobilePushUrl({ conversa: opts.assuntoSlug }),
+      });
+    } catch (e) {
+      console.error("[conversaNotify] falha push activity", e);
     }
   });
 }
