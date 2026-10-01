@@ -108,7 +108,7 @@ type ChamadosBoardProps = {
 };
 
 export function ChamadosBoard({
-  scope = "all",
+  scope = "mine",
   embedded = false,
   embeddedLayout = false,
   initialChamadoId = null,

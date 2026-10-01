@@ -86,13 +86,24 @@ function resolveChamadoNotifyOnUpdate(
 }
 
 export function userParticipatesInChamado(
-  row: Pick<Chamado, "criadoPorEmail" | "responsaveisJson" | "setoresJson">,
+  row: Pick<
+    Chamado,
+    "criadoPorEmail" | "responsaveisJson" | "setoresJson" | "status" | "sequenciaGrupoId"
+  >,
   ctx: ChamadoUserContext,
 ): boolean {
   const email = ctx.email.toLowerCase();
-  if (row.criadoPorEmail.toLowerCase() === email) return true;
+  const isCreator = row.criadoPorEmail.toLowerCase() === email;
   const responsaveis = parseStringArrayJson(row.responsaveisJson).map((r) => r.toLowerCase());
-  if (responsaveis.includes(email)) return true;
+  const inResponsaveis = responsaveis.includes(email);
+
+  /** Etapa futura da sequência: só quem abriu o fluxo + pessoas nomeadas (setor entra quando abrir). */
+  if (row.sequenciaGrupoId && row.status === "aguardando") {
+    return isCreator || inResponsaveis;
+  }
+
+  if (isCreator) return true;
+  if (inResponsaveis) return true;
   const setores = parseStringArrayJson(row.setoresJson);
   if (setores.includes(ctx.profileSlug)) return true;
   return false;

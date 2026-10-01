@@ -68,7 +68,12 @@ export function ChamadosWorkspace({
     >
       {mainView === "kanban" ?
         <div className="min-h-0 min-w-0 flex-1 overflow-auto p-4">
-          <ChamadosBoard embeddedLayout initialChamadoId={chamadoId} refreshToken={refreshToken} />
+          <ChamadosBoard
+            scope="mine"
+            embeddedLayout
+            initialChamadoId={chamadoId}
+            refreshToken={refreshToken}
+          />
         </div>
       : <ChamadosConversasPanel
           selectedId={selectedAssunto?.id ?? null}
