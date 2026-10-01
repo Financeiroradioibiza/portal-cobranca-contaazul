@@ -62,10 +62,8 @@ export function ChamadosWorkspace({
   return (
     <div
       className={
-        "flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 " +
-        (mobile ?
-          "min-h-[60vh] max-h-[calc(100dvh-11rem)]"
-        : "min-h-[420px] max-h-[calc(100vh-9rem)]")
+        "flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 " +
+        (mobile ? "min-h-[60vh] max-h-[calc(100dvh-11rem)]" : "min-h-[320px]")
       }
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row">

@@ -171,7 +171,7 @@ export function ChamadosConversasPanel({
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [grupoEmails, setGrupoEmails] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const initialSlugHandled = useRef(false);
 
   const loadInbox = useCallback(async (opts?: { silent?: boolean }) => {
@@ -354,7 +354,9 @@ export function ChamadosConversasPanel({
   }, [selectedId, loadMensagens, hideChat]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [mensagens]);
 
   useEffect(() => {
@@ -593,7 +595,7 @@ export function ChamadosConversasPanel({
           : "")
         }
       >
-        <div className="border-b border-slate-200 p-3 dark:border-slate-700">
+        <div className="shrink-0 border-b border-slate-200 p-3 dark:border-slate-700">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Conversas</p>
             <button
@@ -875,7 +877,7 @@ export function ChamadosConversasPanel({
             <p className="mt-1 text-xs">Ou volte ao quadro kanban.</p>
           </div>
         : <>
-            <div className="border-b border-slate-200 px-3 py-2.5 dark:border-slate-700 sm:px-4 sm:py-3">
+            <div className="shrink-0 border-b border-slate-200 px-3 py-2.5 dark:border-slate-700 sm:px-4 sm:py-3">
               <div className="flex items-start gap-2">
                 <button
                   type="button"
@@ -901,14 +903,19 @@ export function ChamadosConversasPanel({
                 </button>
               </div>
             </div>
-            <ConversaGrupoMembros
-              assuntoId={selectedId!}
-              grupoEmails={grupoEmails}
-              participants={participants}
-              highlightEmpty={mensagens.length === 0}
-              onSaved={(emails) => setGrupoEmails(emails)}
-            />
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
+            <div className="shrink-0">
+              <ConversaGrupoMembros
+                assuntoId={selectedId!}
+                grupoEmails={grupoEmails}
+                participants={participants}
+                highlightEmpty={mensagens.length === 0}
+                onSaved={(emails) => setGrupoEmails(emails)}
+              />
+            </div>
+            <div
+              ref={messagesScrollRef}
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-3"
+            >
               {mensagens.map((m) => (
                 <ConversaChatMessage
                   key={m.id}
@@ -923,9 +930,8 @@ export function ChamadosConversasPanel({
                   }}
                 />
               ))}
-              <div ref={bottomRef} />
             </div>
-            <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+            <div className="shrink-0 border-t border-slate-200 p-3 dark:border-slate-700">
               {replyTo ?
                 <div className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] dark:border-violet-800 dark:bg-violet-950/40">
                   <span>

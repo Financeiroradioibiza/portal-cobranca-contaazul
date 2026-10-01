@@ -80,7 +80,13 @@ export function ChamadosPortalShell({ view, mobile = false }: Props) {
   }, [pathname, selectedAssunto?.slug]);
 
   return (
-    <div className={mobile ? "flex min-h-0 flex-col gap-3" : "portal-page min-w-0"}>
+    <div
+      className={
+        mobile ?
+          "flex min-h-0 flex-col gap-3"
+        : "portal-page flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+      }
+    >
       {!mobile ?
         <header className="portal-page-header flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -98,7 +104,13 @@ export function ChamadosPortalShell({ view, mobile = false }: Props) {
           </button>
         </header>
       : null}
-      <div className={mobile ? undefined : "portal-page-body"}>
+      <div
+        className={
+          mobile ? undefined : (
+            "portal-page-body flex min-h-0 flex-1 flex-col overflow-hidden !pb-4 !pt-3"
+          )
+        }
+      >
         <Suspense
           fallback={
             <p className="text-sm text-slate-500">{mobile ? "Carregando IbiZap…" : "Carregando…"}</p>
