@@ -758,9 +758,25 @@ model ChamadoComentario {
   createdAt  DateTime @default(now()) @map("created_at")
 
   chamado Chamado @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  anexos  ChamadoAnexo[]
+  reacoes ChamadoComentarioReacao[]
 
   @@index([chamadoId, createdAt])
   @@map("chamado_comentario")
+}
+
+model ChamadoComentarioReacao {
+  id           String   @id @default(cuid())
+  comentarioId String   @map("comentario_id") @db.VarChar(64)
+  userEmail    String   @map("user_email") @db.VarChar(200)
+  tipo         String   @db.VarChar(32)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  comentario ChamadoComentario @relation(fields: [comentarioId], references: [id], onDelete: Cascade)
+
+  @@unique([comentarioId, userEmail, tipo])
+  @@index([comentarioId])
+  @@map("chamado_comentario_reacao")
 }
 
 /// Contador de não lidos por usuário/chamado (badge + push).
@@ -781,6 +797,8 @@ model ChamadoInboxUsuario {
 model ChamadoAnexo {
   id              String   @id @default(cuid())
   chamadoId       String   @map("chamado_id") @db.VarChar(64)
+  /// Null = anexo do pedido inicial; preenchido = anexo de uma resposta.
+  comentarioId    String?  @map("comentario_id") @db.VarChar(64)
   fileName        String   @map("file_name") @db.VarChar(255)
   mimeType        String   @map("mime_type") @db.VarChar(120)
   sizeBytes       Int      @map("size_bytes")
@@ -789,7 +807,10 @@ model ChamadoAnexo {
   uploadedByNome  String   @map("uploaded_by_nome") @db.VarChar(120)
   createdAt       DateTime @default(now()) @map("created_at")
 
+  comentario ChamadoComentario? @relation(fields: [comentarioId], references: [id], onDelete: Cascade)
+
   @@index([chamadoId])
+  @@index([comentarioId])
   @@map("chamado_anexo")
 }
 

@@ -21,21 +21,74 @@ function fileUrl(id: string, kind: "chamado" | "conversa"): string {
   return `/api/chamados/anexos/${id}/file?kind=${kind}`;
 }
 
-export function ChamadoAnexosBlock({ chamadoId }: { chamadoId: string }) {
+export function ChamadoAnexoMedia({
+  anexo,
+}: {
+  anexo: { id: string; fileName: string; mimeType: string; sizeBytes: number };
+}) {
+  const url = fileUrl(anexo.id, "chamado");
+  return (
+    <div className="mt-1.5">
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+      >
+        {anexo.fileName}
+      </a>
+      <span className="ml-1 text-[10px] text-slate-400">({fmtSize(anexo.sizeBytes)})</span>
+      {anexo.mimeType.startsWith("image/") ?
+        <img
+          src={url}
+          alt=""
+          className="mt-1 max-h-40 max-w-full rounded border border-slate-200 dark:border-slate-700"
+        />
+      : null}
+      {anexo.mimeType.startsWith("audio/") ?
+        <audio controls className="mt-1 w-full max-w-md" src={url} />
+      : null}
+    </div>
+  );
+}
+
+type BlockProps = {
+  chamadoId: string;
+  /** Pedido inicial (sem comentarioId). */
+  scope?: "initial";
+  comentarioId?: string;
+  compact?: boolean;
+  label?: string;
+};
+
+export function ChamadoAnexosBlock({
+  chamadoId,
+  scope,
+  comentarioId,
+  compact = false,
+  label = "Anexos",
+}: BlockProps) {
   const [anexos, setAnexos] = useState<ChamadoAnexoListItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const querySuffix =
+    scope === "initial" ? "?comentarioId=initial"
+    : comentarioId ? `?comentarioId=${encodeURIComponent(comentarioId)}`
+    : "";
+
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/chamados/${chamadoId}/anexos`, { credentials: "same-origin" });
+      const res = await fetch(`/api/chamados/${chamadoId}/anexos${querySuffix}`, {
+        credentials: "same-origin",
+      });
       const data = res.ok ? await res.json() : null;
       const rows = (data as { anexos?: ChamadoAnexoListItem[] })?.anexos;
       setAnexos(Array.isArray(rows) ? rows : []);
     } catch {
       setAnexos([]);
     }
-  }, [chamadoId]);
+  }, [chamadoId, querySuffix]);
 
   useEffect(() => {
     void load();
@@ -47,6 +100,8 @@ export function ChamadoAnexosBlock({ chamadoId }: { chamadoId: string }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
+      if (scope === "initial") fd.append("comentarioId", "initial");
+      else if (comentarioId) fd.append("comentarioId", comentarioId);
       const res = await fetch(`/api/chamados/${chamadoId}/anexos`, {
         method: "POST",
         credentials: "same-origin",
@@ -65,16 +120,29 @@ export function ChamadoAnexosBlock({ chamadoId }: { chamadoId: string }) {
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+    <div
+      className={
+        compact ?
+          "mt-2"
+        : "mt-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+      }
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Anexos</p>
-        <label className="cursor-pointer rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
+        {!compact ?
+          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">{label}</p>
+        : null}
+        <label
+          className={
+            "cursor-pointer rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 " +
+            (compact ? "" : "ml-auto")
+          }
+        >
           {busy ? "Enviando…" : "+ Arquivo"}
           <input
             type="file"
             className="hidden"
             disabled={busy}
-            accept="image/*,audio/*,video/*,application/pdf,.zip"
+            accept="image/*,audio/*,.mp3,audio/mpeg,video/*,application/pdf"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void onUpload(f);
@@ -87,32 +155,13 @@ export function ChamadoAnexosBlock({ chamadoId }: { chamadoId: string }) {
         <p className="mt-1 text-[11px] text-rose-600">{err}</p>
       : null}
       {anexos.length === 0 ?
-        <p className="mt-2 text-[11px] text-slate-400">Nenhum anexo (imagem, PDF, MP3… até 10 MB).</p>
-      : <ul className="mt-2 space-y-2">
+        compact ?
+          null
+        : <p className="mt-2 text-[11px] text-slate-400">Nenhum anexo (imagem, MP3… até 10 MB).</p>
+      : <ul className={compact ? "space-y-1" : "mt-2 space-y-2"}>
           {anexos.map((a) => (
-            <li key={a.id} className="text-xs">
-              <a
-                href={fileUrl(a.id, "chamado")}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-medium text-violet-700 hover:underline dark:text-violet-300"
-              >
-                {a.fileName}
-              </a>
-              <span className="text-slate-400">
-                {" "}
-                · {fmtSize(a.sizeBytes)} · {a.uploadedByNome}
-              </span>
-              {a.mimeType.startsWith("image/") ?
-                <img
-                  src={fileUrl(a.id, "chamado")}
-                  alt=""
-                  className="mt-1 max-h-40 max-w-full rounded border border-slate-200 dark:border-slate-700"
-                />
-              : null}
-              {a.mimeType.startsWith("audio/") ?
-                <audio controls className="mt-1 w-full max-w-md" src={fileUrl(a.id, "chamado")} />
-              : null}
+            <li key={a.id}>
+              <ChamadoAnexoMedia anexo={a} />
             </li>
           ))}
         </ul>

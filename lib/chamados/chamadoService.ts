@@ -293,12 +293,7 @@ export async function updateChamado(
     fechadoEm?: Date | null;
   } = {};
 
-  if (input.titulo !== undefined) {
-    const t = input.titulo.trim().slice(0, 200);
-    if (!t) throw new Error("titulo_obrigatorio");
-    data.titulo = t;
-  }
-  if (input.descricao !== undefined) data.descricao = input.descricao.trim().slice(0, 8000);
+  /** Pedido inicial (título + descrição) não muda após abertura — só respostas na thread. */
   if (input.prioridade !== undefined && VALID_PRIORIDADES.has(input.prioridade)) {
     data.prioridade = input.prioridade;
   }
@@ -324,14 +319,18 @@ export async function updateChamado(
   const row = await prisma.chamado.update({ where: { id }, data });
   const view = chamadoToView(row);
 
-  let notifyKind = resolveChamadoNotifyOnUpdate(existing, input);
-
-  if (input.notificar === true) {
+  let notifyKind: ChamadoNotifyKind | null = null;
+  if (input.notificar === false) {
+    notifyKind = null;
+  } else if (input.notificar === true) {
+    notifyKind = resolveChamadoNotifyOnUpdate(existing, input);
     if (input.status === "fechado" && existing.status !== "fechado") {
       notifyKind = "closed";
     } else if (!notifyKind) {
       notifyKind = "updated";
     }
+  } else {
+    notifyKind = resolveChamadoNotifyOnUpdate(existing, input);
   }
 
   if (notifyKind) {

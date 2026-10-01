@@ -58,6 +58,13 @@ const PRI_WEIGHT: Record<ChamadoPrioridade, number> = {
   baixa: 1,
 };
 
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
+}
+
 function sortCards(a: ChamadoView, b: ChamadoView): number {
   const ua = a.unreadCount ?? 0;
   const ub = b.unreadCount ?? 0;
@@ -104,6 +111,7 @@ export function ChamadosBoard({
   const [formPri, setFormPri] = useState<ChamadoPrioridade>("media");
   const [formSetores, setFormSetores] = useState<string[]>([]);
   const [formResp, setFormResp] = useState<string[]>([]);
+  const [formCreateFiles, setFormCreateFiles] = useState<File[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -256,7 +264,7 @@ export function ChamadosBoard({
       if (body.notificar === true) {
         setMsg("Chamado salvo. E-mail enviado para setores, responsáveis e quem abriu o chamado.");
       } else {
-        setMsg("Chamado atualizado.");
+        setMsg("Alterações salvas (sem novo e-mail).");
       }
     } catch {
       setMsg("Erro de rede ao atualizar.");
@@ -302,8 +310,21 @@ export function ChamadosBoard({
         return;
       }
       const created = (data as { chamado?: ChamadoView }).chamado;
-      if (created) setChamados((prev) => [created, ...prev]);
+      if (created) {
+        setChamados((prev) => [created, ...prev]);
+        for (const file of formCreateFiles) {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("comentarioId", "initial");
+          await fetch(`/api/chamados/${encodeURIComponent(created.id)}/anexos`, {
+            method: "POST",
+            credentials: "same-origin",
+            body: fd,
+          });
+        }
+      }
       setCreating(false);
+      setFormCreateFiles([]);
       setFormTitulo("");
       setFormTituloManual(false);
       setFormVinculo(CHAMADO_VINCULO_VAZIO);
@@ -328,6 +349,7 @@ export function ChamadosBoard({
     setFormPri("media");
     setFormSetores([]);
     setFormResp([]);
+    setFormCreateFiles([]);
   }
 
   function toggleSetor(id: string) {
@@ -532,6 +554,8 @@ export function ChamadosBoard({
           onPri={setFormPri}
           onToggleSetor={toggleSetor}
           onToggleResp={toggleResp}
+          pendingFiles={formCreateFiles}
+          onPendingFiles={setFormCreateFiles}
           onClose={() => setCreating(false)}
           onSubmit={createChamado}
           submitLabel="Abrir chamado"
@@ -677,6 +701,8 @@ function FormModal({
   onPri,
   onToggleSetor,
   onToggleResp,
+  pendingFiles,
+  onPendingFiles,
   onClose,
   onSubmit,
   submitLabel,
@@ -698,6 +724,8 @@ function FormModal({
   onPri: (v: ChamadoPrioridade) => void;
   onToggleSetor: (id: string) => void;
   onToggleResp: (email: string) => void;
+  pendingFiles: File[];
+  onPendingFiles: (files: File[]) => void;
   onClose: () => void;
   onSubmit: () => void;
   submitLabel: string;
@@ -722,6 +750,25 @@ function FormModal({
           placeholder="Detalhes do que precisa ser feito…"
         />
       </label>
+      <div className="mt-2">
+        <label className="cursor-pointer text-xs font-semibold text-violet-700 dark:text-violet-300">
+          + Anexar imagem ou MP3 ao pedido
+          <input
+            type="file"
+            className="hidden"
+            multiple
+            accept="image/*,audio/*,.mp3,audio/mpeg"
+            onChange={(e) => {
+              const list = e.target.files ? [...e.target.files] : [];
+              if (list.length) onPendingFiles([...pendingFiles, ...list]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        {pendingFiles.length > 0 ?
+          <p className="mt-1 text-[10px] text-slate-500">{pendingFiles.map((f) => f.name).join(", ")}</p>
+        : null}
+      </div>
       <div className="mt-3">
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Prioridade</p>
         <div className="mt-1 flex flex-wrap gap-2">
@@ -823,138 +870,168 @@ function DetailModal({
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
   onResendEmail: () => void;
 }) {
-  const [titulo, setTitulo] = useState(chamado.titulo);
-  const [descricao, setDescricao] = useState(chamado.descricao);
   const [prioridade, setPrioridade] = useState(chamado.prioridade);
   const [setores, setSetores] = useState(chamado.setores);
   const [responsaveis, setResponsaveis] = useState(chamado.responsaveis);
+  const [editMeta, setEditMeta] = useState(false);
 
   useEffect(() => {
-    setTitulo(chamado.titulo);
-    setDescricao(chamado.descricao);
     setPrioridade(chamado.prioridade);
     setSetores(chamado.setores);
     setResponsaveis(chamado.responsaveis);
+    setEditMeta(false);
   }, [chamado]);
 
-  const pri = prioridadeMeta(chamado.prioridade);
+  const pri = prioridadeMeta(prioridade);
   const col = CHAMADO_COLUNAS.find((c) => c.id === chamado.status);
+  const metaDirty =
+    prioridade !== chamado.prioridade ||
+    !arraysEqual(setores, chamado.setores) ||
+    !arraysEqual(responsaveis, chamado.responsaveis);
+
+  const byEmail = useMemo(() => {
+    const m = new Map<string, ChamadoParticipant>();
+    for (const p of participants) m.set(p.email.toLowerCase(), p);
+    return m;
+  }, [participants]);
 
   return (
     <ModalShell title="Chamado" onClose={onClose}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className={"inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold " + (col?.header ?? "")}>
+      <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3 dark:border-slate-700">
+        <span className={"inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold " + (col?.header ?? "")}>
           {col?.label ?? chamado.status}
         </span>
-        <span className={"inline-flex items-center gap-1 text-xs font-semibold " + pri.dot.replace("bg-", "text-")}>
+        <span className={"inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold " + pri.dot.replace("bg-", "text-")}>
           <span className={"h-2 w-2 rounded-full " + pri.dot} />
           {pri.label}
         </span>
+        <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900 dark:text-white">{chamado.titulo}</h3>
+        <div className="flex shrink-0 items-center -space-x-1.5">
+          {responsaveis.slice(0, 6).map((email) => {
+            const p = byEmail.get(email.toLowerCase());
+            return (
+              <span key={email} title={email} className="ring-2 ring-white dark:ring-slate-900">
+                <PortalUserAvatar
+                  userId={p?.userId}
+                  displayName={p?.displayName ?? email.split("@")[0] ?? email}
+                  email={email}
+                  hasAvatar={p?.hasAvatar}
+                  avatarVersion={p?.avatarVersion}
+                  size="xs"
+                />
+              </span>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className="shrink-0 text-[11px] font-semibold text-violet-600 hover:underline dark:text-violet-400"
+          onClick={() => setEditMeta((v) => !v)}
+        >
+          {editMeta ? "Fechar" : "Editar"}
+        </button>
       </div>
 
+      {editMeta ?
+        <div className="mb-3 space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3 dark:border-violet-800 dark:bg-violet-950/20">
+          <div>
+            <p className="text-[10px] font-bold uppercase text-slate-500">Prioridade</p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {CHAMADO_PRIORIDADES.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPrioridade(p.id)}
+                  className={
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold " +
+                    (prioridade === p.id ? "ring-2 " + p.ring : "opacity-60")
+                  }
+                >
+                  <span className={"h-2 w-2 rounded-full " + p.dot} />
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase text-slate-500">Setores</p>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {CHAMADO_SETORES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() =>
+                    setSetores((prev) => (prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id]))
+                  }
+                  className={
+                    "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                    (setores.includes(s.id) ? s.bg : "bg-slate-100 opacity-50")
+                  }
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {participants.length > 0 ?
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-600 dark:bg-slate-900">
+              <p className="text-[10px] font-bold uppercase text-slate-500">Pessoas envolvidas</p>
+              {participants.map((p) => (
+                <label key={p.email} className="flex items-center gap-2 py-0.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={responsaveis.includes(p.email)}
+                    onChange={() =>
+                      setResponsaveis((prev) =>
+                        prev.includes(p.email) ? prev.filter((x) => x !== p.email) : [...prev, p.email],
+                      )
+                    }
+                  />
+                  <PortalUserAvatar
+                    userId={p.userId}
+                    displayName={p.displayName}
+                    email={p.email}
+                    hasAvatar={p.hasAvatar}
+                    avatarVersion={p.avatarVersion}
+                    size="xs"
+                  />
+                  <span className="truncate">{p.displayName}</span>
+                </label>
+              ))}
+            </div>
+          : null}
+        </div>
+      : null}
+
       {chamado.clienteNome?.trim() ?
-        <p className="mb-3 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
+        <p className="mb-2 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-800 dark:bg-violet-950/40 dark:text-violet-200">
           <span className="font-semibold">Produção:</span> {chamado.clienteNome}
           {chamado.rioPdvKey ? " · PDV vinculado" : ""}
         </p>
       : null}
 
-      <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
-        Título
-        <input
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-          value={titulo}
-          onChange={(e) => setTitulo(e.target.value)}
-        />
-      </label>
-      <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
-        Pedido inicial
-        <textarea
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-          rows={3}
-          value={descricao}
-          onChange={(e) => setDescricao(e.target.value)}
-        />
-      </label>
+      <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40">
+        <p className="text-[10px] font-bold uppercase text-slate-500">
+          Pedido inicial · {chamado.criadoPorNome} · {fmtWhen(chamado.createdAt)}
+        </p>
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-slate-100">
+          {chamado.descricao || "—"}
+        </p>
+        <ChamadoAnexosBlock chamadoId={chamado.id} scope="initial" compact label="Anexos do pedido" />
+      </div>
 
       <ChamadoComentariosBlock
         chamadoId={chamado.id}
         viewerEmail={viewerEmail}
         participants={participants}
+        onReplySent={onClose}
       />
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {CHAMADO_PRIORIDADES.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setPrioridade(p.id)}
-            className={
-              "rounded-full px-2 py-0.5 text-[11px] font-semibold " +
-              (prioridade === p.id ? "ring-2 " + p.ring : "opacity-60")
-            }
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1">
-        {CHAMADO_SETORES.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() =>
-              setSetores((prev) => (prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id]))
-            }
-            className={
-              "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
-              (setores.includes(s.id) ? s.bg : "bg-slate-100 opacity-50")
-            }
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-
-      {participants.length > 0 ?
-        <div className="mt-3 max-h-32 overflow-y-auto rounded-lg border border-slate-200 p-2 dark:border-slate-700">
-          {participants.map((p) => (
-            <label key={p.email} className="flex items-center gap-2 py-0.5 text-sm">
-              <input
-                type="checkbox"
-                checked={responsaveis.includes(p.email)}
-                onChange={() =>
-                  setResponsaveis((prev) =>
-                    prev.includes(p.email) ? prev.filter((x) => x !== p.email) : [...prev, p.email],
-                  )
-                }
-              />
-              <PortalUserAvatar
-                userId={p.userId}
-                displayName={p.displayName}
-                email={p.email}
-                hasAvatar={p.hasAvatar}
-                avatarVersion={p.avatarVersion}
-                size="xs"
-              />
-              <span>
-                {p.displayName}{" "}
-                <span className="text-[10px] text-slate-400">{p.email}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-      : null}
-
-      <p className="mt-3 text-[11px] text-slate-500">
-        Aberto por {chamado.criadoPorNome} em {fmtWhen(chamado.createdAt)}
+      <p className="mt-2 text-[11px] text-slate-500">
         {chamado.fechadoEm ?
-          <> · Fechado por {chamado.fechadoPorNome} em {fmtWhen(chamado.fechadoEm)}</>
+          <>Fechado por {chamado.fechadoPorNome} em {fmtWhen(chamado.fechadoEm)}</>
         : null}
       </p>
-
-      <ChamadoAnexosBlock chamadoId={chamado.id} />
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
@@ -969,7 +1046,7 @@ function DetailModal({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onPatch(chamado.id, { status: "aberto", notificar: true })}
+            onClick={() => void onPatch(chamado.id, { status: "aberto", notificar: true })}
             className="rounded-lg bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-200"
           >
             Reabrir
@@ -979,7 +1056,7 @@ function DetailModal({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onPatch(chamado.id, { status: "em_andamento", notificar: true })}
+            onClick={() => void onPatch(chamado.id, { status: "em_andamento", notificar: true })}
             className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200"
           >
             Em andamento
@@ -989,7 +1066,7 @@ function DetailModal({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onPatch(chamado.id, { status: "fechado", notificar: true })}
+            onClick={() => void onPatch(chamado.id, { status: "fechado", notificar: true })}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
           >
             Resolver / fechar
@@ -997,18 +1074,17 @@ function DetailModal({
         : null}
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !metaDirty}
+          title={metaDirty ? "Salva prioridade, setores e pessoas (sem e-mail)" : "Nenhuma alteração pendente"}
           onClick={() =>
-            onPatch(chamado.id, {
-              titulo,
-              descricao,
+            void onPatch(chamado.id, {
               prioridade,
               setores,
               responsaveis,
-              notificar: true,
-            })
+              notificar: false,
+            }).then(() => setEditMeta(false))
           }
-          className="ml-auto rounded-lg bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-60"
+          className="ml-auto rounded-lg bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-40"
         >
           Salvar alterações
         </button>

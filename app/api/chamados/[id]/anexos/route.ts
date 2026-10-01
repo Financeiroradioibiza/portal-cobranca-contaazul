@@ -6,11 +6,18 @@ import { getChamadoUserContext } from "@/lib/chamados/chamadoService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(req: Request, ctx: Ctx) {
   try {
     requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
-    const anexos = await listChamadoAnexos(id);
+    const url = new URL(req.url);
+    const comentarioParam = url.searchParams.get("comentarioId");
+    const anexos =
+      comentarioParam === "initial" ?
+        await listChamadoAnexos(id, { comentarioId: null })
+      : comentarioParam ?
+        await listChamadoAnexos(id, { comentarioId: comentarioParam })
+      : await listChamadoAnexos(id);
     return NextResponse.json({ ok: true, anexos });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -34,11 +41,19 @@ export async function POST(req: Request, ctx: Ctx) {
     if (file.size > CHAMADO_ANEXO_MAX_BYTES) {
       return NextResponse.json({ error: "file_too_large" }, { status: 413 });
     }
+    const comentarioRaw = form.get("comentarioId");
+    const comentarioId =
+      comentarioRaw === "initial" || comentarioRaw === "" || comentarioRaw === null ?
+        null
+      : typeof comentarioRaw === "string" ?
+        comentarioRaw
+      : null;
     const bytes = Buffer.from(await file.arrayBuffer());
     const anexo = await addChamadoAnexo(
       id,
       { name: file.name, mimeType: file.type, bytes },
       userCtx,
+      { comentarioId },
     );
     return NextResponse.json({ ok: true, anexo });
   } catch (e) {

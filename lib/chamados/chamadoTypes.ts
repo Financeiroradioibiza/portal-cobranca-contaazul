@@ -51,6 +51,21 @@ export type CreateChamadoInput = {
   clienteNome?: string;
 };
 
+export type ChamadoComentarioAnexoView = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+export type ChamadoComentarioReacaoView = {
+  tipo: string;
+  emoji: string;
+  label: string;
+  count: number;
+  mine: boolean;
+};
+
 export type ChamadoComentarioView = {
   id: string;
   chamadoId: string;
@@ -58,6 +73,8 @@ export type ChamadoComentarioView = {
   autorEmail: string;
   autorNome: string;
   createdAt: string;
+  anexos: ChamadoComentarioAnexoView[];
+  reacoes: ChamadoComentarioReacaoView[];
 };
 
 export type UpdateChamadoInput = {

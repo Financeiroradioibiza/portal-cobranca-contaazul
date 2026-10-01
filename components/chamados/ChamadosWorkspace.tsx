@@ -66,32 +66,21 @@ export function ChamadosWorkspace({
         (mobile ? "min-h-[60vh] max-h-[calc(100dvh-11rem)]" : "min-h-[320px]")
       }
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <div
-          className={
-            mainView === "kanban" ?
-              "h-full max-h-full w-full shrink-0 overflow-hidden border-b border-slate-200 dark:border-slate-700 lg:w-56 lg:max-w-[14rem] lg:border-b-0 lg:border-r xl:w-60"
-            : "flex h-full max-h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-          }
-        >
-          <ChamadosConversasPanel
-            selectedId={selectedAssunto?.id ?? null}
-            selectedItem={selectedAssunto}
-            onSelect={onSelectAssunto}
-            participants={participants}
-            viewerEmail={viewerEmail}
-            initialSlug={conversaSlug}
-            hideChat={mainView === "kanban"}
-            refreshToken={refreshToken}
-          />
+      {mainView === "kanban" ?
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto p-4">
+          <ChamadosBoard embeddedLayout initialChamadoId={chamadoId} refreshToken={refreshToken} />
         </div>
-
-        {mainView === "kanban" ?
-          <div className="min-h-0 min-w-0 flex-1 overflow-auto p-4">
-            <ChamadosBoard embeddedLayout initialChamadoId={chamadoId} refreshToken={refreshToken} />
-          </div>
-        : null}
-      </div>
+      : <ChamadosConversasPanel
+          selectedId={selectedAssunto?.id ?? null}
+          selectedItem={selectedAssunto}
+          onSelect={onSelectAssunto}
+          participants={participants}
+          viewerEmail={viewerEmail}
+          initialSlug={conversaSlug}
+          hideChat={false}
+          refreshToken={refreshToken}
+        />
+      }
     </div>
   );
 }

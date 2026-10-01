@@ -10,6 +10,7 @@ import type { ChamadoUserContext } from "@/lib/chamados/chamadoService";
 export type ChamadoAnexoView = {
   id: string;
   chamadoId: string;
+  comentarioId: string | null;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
@@ -30,6 +31,7 @@ export type ConversaAnexoView = {
 function anexoToView(row: {
   id: string;
   chamadoId: string;
+  comentarioId?: string | null;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
@@ -40,6 +42,7 @@ function anexoToView(row: {
   return {
     id: row.id,
     chamadoId: row.chamadoId,
+    comentarioId: row.comentarioId ?? null,
     fileName: row.fileName,
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes,
@@ -49,9 +52,16 @@ function anexoToView(row: {
   };
 }
 
-export async function listChamadoAnexos(chamadoId: string): Promise<ChamadoAnexoView[]> {
+export async function listChamadoAnexos(
+  chamadoId: string,
+  opts?: { comentarioId?: string | null },
+): Promise<ChamadoAnexoView[]> {
+  const where: { chamadoId: string; comentarioId?: string | null } = { chamadoId };
+  if (opts && Object.prototype.hasOwnProperty.call(opts, "comentarioId")) {
+    where.comentarioId = opts.comentarioId ?? null;
+  }
   const rows = await prisma.chamadoAnexo.findMany({
-    where: { chamadoId },
+    where,
     orderBy: { createdAt: "asc" },
   });
   return rows.map(anexoToView);
@@ -61,6 +71,7 @@ export async function addChamadoAnexo(
   chamadoId: string,
   file: { name: string; mimeType: string; bytes: Buffer },
   ctx: ChamadoUserContext,
+  opts?: { comentarioId?: string | null },
 ): Promise<ChamadoAnexoView> {
   const existing = await prisma.chamado.findUnique({ where: { id: chamadoId } });
   if (!existing) throw new Error("not_found");
@@ -68,9 +79,17 @@ export async function addChamadoAnexo(
   const mimeType = file.mimeType.trim().slice(0, 120) || "application/octet-stream";
   if (!isAllowedChamadoAnexoMime(mimeType)) throw new Error("mime_not_allowed");
   const fileName = file.name.replace(/[^\w.\-() ]+/g, "_").slice(0, 255) || "anexo";
+  if (opts?.comentarioId) {
+    const com = await prisma.chamadoComentario.findFirst({
+      where: { id: opts.comentarioId, chamadoId },
+    });
+    if (!com) throw new Error("comentario_nao_encontrado");
+  }
+
   const row = await prisma.chamadoAnexo.create({
     data: {
       chamadoId,
+      comentarioId: opts?.comentarioId ?? null,
       fileName,
       mimeType,
       sizeBytes: file.bytes.length,
