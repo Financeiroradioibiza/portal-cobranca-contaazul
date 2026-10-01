@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
 import { ChamadoMentionTextarea } from "@/components/chamados/ChamadoMentionTextarea";
 import { ConversaChatMessage } from "@/components/chamados/ConversaChatMessage";
+import { ConversaGrupoMembros } from "@/components/chamados/ConversaGrupoMembros";
 import { ConversaInboxSection } from "@/components/chamados/ConversaInboxSection";
 import { ConversaUnreadBadges } from "@/components/chamados/ConversaUnreadBadges";
 import type { ConversaReacaoView } from "@/lib/chamados/conversaMessageService";
@@ -113,6 +114,7 @@ export function ChamadosConversasPanel({
   const [assuntos, setAssuntos] = useState<ConversaAssuntoListItem[]>([]);
   const [clienteFilter, setClienteFilter] = useState("");
   const [expandedClienteKey, setExpandedClienteKey] = useState<string | null>(null);
+  const [expandedMinhasAssuntoIds, setExpandedMinhasAssuntoIds] = useState<Set<string>>(() => new Set());
   const [sectionsOpen, setSectionsOpen] = useState({
     urgentes: true,
     canais: true,
@@ -131,6 +133,7 @@ export function ChamadosConversasPanel({
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<ConversaMensagemItem | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [grupoEmails, setGrupoEmails] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const initialSlugHandled = useRef(false);
 
@@ -180,9 +183,56 @@ export function ChamadosConversasPanel({
           });
         }
       }
+      for (const m of inbox.minhasEnviadas ?? []) {
+        if (map.has(m.assuntoId)) continue;
+        map.set(m.assuntoId, {
+          id: m.assuntoId,
+          slug: m.assuntoSlug,
+          titulo: m.assuntoDisplay,
+          display: m.assuntoDisplay,
+          unreadCount: 0,
+          unreadGeneralCount: 0,
+          unreadMentionCount: 0,
+          mentionUnread: false,
+          lastMessagePreview: m.corpoPreview,
+        });
+      }
     }
     return map;
   }, [assuntos, inbox]);
+
+  const minhasEnviadasGrupos = useMemo(() => {
+    const items = inbox?.minhasEnviadas ?? [];
+    const byAssunto = new Map<string, InboxData["minhasEnviadas"]>();
+    for (const m of items) {
+      const list = byAssunto.get(m.assuntoId) ?? [];
+      list.push(m);
+      byAssunto.set(m.assuntoId, list);
+    }
+    return [...byAssunto.entries()]
+      .map(([assuntoId, mensagens]) => {
+        const sorted = [...mensagens].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const head = sorted[0]!;
+        return {
+          assuntoId,
+          assuntoDisplay: head.assuntoDisplay,
+          assuntoSlug: head.assuntoSlug,
+          mensagens: sorted,
+        };
+      })
+      .sort((a, b) =>
+        (b.mensagens[0]?.createdAt ?? "").localeCompare(a.mensagens[0]?.createdAt ?? ""),
+      );
+  }, [inbox?.minhasEnviadas]);
+
+  function toggleMinhasAssunto(assuntoId: string) {
+    setExpandedMinhasAssuntoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(assuntoId)) next.delete(assuntoId);
+      else next.add(assuntoId);
+      return next;
+    });
+  }
 
   const selected = useMemo(
     () => (selectedId ? (allAssuntos.get(selectedId) ?? null) : null),
@@ -210,9 +260,17 @@ export function ChamadosConversasPanel({
   useEffect(() => {
     if (hideChat || !selectedId) {
       if (hideChat) setMensagens([]);
+      if (!selectedId) setGrupoEmails([]);
       return;
     }
     void loadMensagens(selectedId);
+    void fetch(`/api/chamados/conversas/${encodeURIComponent(selectedId)}`, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const emails = (data as { assunto?: { grupoEmails?: string[] } })?.assunto?.grupoEmails;
+        setGrupoEmails(Array.isArray(emails) ? emails : []);
+      })
+      .catch(() => setGrupoEmails([]));
     const iv = setInterval(() => void loadMensagens(selectedId), 15000);
     return () => clearInterval(iv);
   }, [selectedId, loadMensagens, hideChat]);
@@ -372,6 +430,11 @@ export function ChamadosConversasPanel({
     }, 400);
   }
 
+  function voltarParaListaConversas() {
+    setReplyTo(null);
+    onSelect(null);
+  }
+
   function renderListRow(
     key: string,
     label: string,
@@ -402,8 +465,19 @@ export function ChamadosConversasPanel({
     );
   }
 
+  const showChatMobile = Boolean(selectedId && !hideChat);
+
   const sidebar = (
-      <aside className="flex h-full max-h-[38vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 sm:max-h-none lg:w-64 lg:max-w-[16rem] lg:border-b-0 lg:border-r xl:w-72">
+      <aside
+        className={
+          "flex h-full w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 lg:w-64 lg:max-w-[16rem] lg:border-b-0 lg:border-r xl:w-72 " +
+          (hideChat ?
+            "max-h-[38vh] sm:max-h-none"
+          : showChatMobile ?
+            "hidden lg:flex"
+          : "min-h-0 flex-1 max-h-none lg:max-h-none")
+        }
+      >
         <div className="border-b border-slate-200 p-3 dark:border-slate-700">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Conversas</p>
           <div className="mt-2 flex gap-1">
@@ -532,25 +606,55 @@ export function ChamadosConversasPanel({
                 }
               </ConversaInboxSection>
 
-              {inbox && inbox.minhasEnviadas.length > 0 ?
+              {minhasEnviadasGrupos.length > 0 ?
                 <ConversaInboxSection
                   title="Minhas enviadas"
                   open={sectionsOpen.minhas}
                   onToggle={() => toggleSection("minhas")}
-                  count={inbox.minhasEnviadas.length}
+                  count={inbox?.minhasEnviadas.length ?? 0}
                   headerClass="bg-sky-50 text-sky-900 dark:bg-sky-950/40 dark:text-sky-100"
                 >
-                  {inbox.minhasEnviadas.slice(0, 20).map((m) =>
-                    renderListRow(
-                      "me-" + m.mensagemId,
-                      m.assuntoDisplay,
-                      m.corpoPreview,
-                      0,
-                      0,
-                      false,
-                      () => jumpToMessage(m.assuntoId, m.mensagemId),
-                    ),
-                  )}
+                  {minhasEnviadasGrupos.map((g) => {
+                    const expanded = expandedMinhasAssuntoIds.has(g.assuntoId);
+                    const activeAssunto = selectedId === g.assuntoId;
+                    return (
+                      <div key={g.assuntoId} className="border-b border-slate-100 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => toggleMinhasAssunto(g.assuntoId)}
+                          className={
+                            "flex w-full items-start gap-2 px-3 py-2 text-left transition hover:bg-white dark:hover:bg-slate-900 " +
+                            (activeAssunto ? "bg-white dark:bg-slate-900" : "")
+                          }
+                        >
+                          <span className="mt-0.5 text-[10px] text-slate-400">{expanded ? "▾" : "▸"}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-100">
+                              {g.assuntoDisplay}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] text-slate-400">
+                              {g.mensagens.length} enviada{g.mensagens.length === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                        </button>
+                        {expanded ?
+                          <div className="pb-1 pl-6 pr-2">
+                            {g.mensagens.map((m) =>
+                              renderListRow(
+                                "me-" + m.mensagemId,
+                                m.corpoPreview,
+                                fmtWhen(m.createdAt),
+                                0,
+                                0,
+                                false,
+                                () => jumpToMessage(m.assuntoId, m.mensagemId),
+                              ),
+                            )}
+                          </div>
+                        : null}
+                      </div>
+                    );
+                  })}
                 </ConversaInboxSection>
               : null}
 
@@ -617,17 +721,40 @@ export function ChamadosConversasPanel({
   );
 
   const chatPane = (
-      <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-slate-900">
+      <div
+        className={
+          "flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-slate-900 " +
+          (selected ? "max-lg:flex" : "max-lg:hidden lg:flex")
+        }
+      >
         {!selected ?
           <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-slate-500">
             <p>Selecione um assunto à esquerda para abrir a conversa.</p>
             <p className="mt-1 text-xs">Ou volte ao quadro kanban.</p>
           </div>
         : <>
-            <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">{selected.display}</h3>
-              <p className="text-[10px] text-slate-400">Digite @ para escolher quem mencionar na lista.</p>
+            <div className="border-b border-slate-200 px-3 py-2.5 dark:border-slate-700 sm:px-4 sm:py-3">
+              <div className="flex items-start gap-2">
+                <button
+                  type="button"
+                  onClick={voltarParaListaConversas}
+                  className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/50"
+                >
+                  ← Voltar
+                </button>
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">{selected.display}</h3>
+                  <p className="text-[10px] text-slate-400">Digite @ para escolher quem mencionar na lista.</p>
+                </div>
+              </div>
             </div>
+            <ConversaGrupoMembros
+              assuntoId={selectedId!}
+              grupoEmails={grupoEmails}
+              participants={participants}
+              highlightEmpty={mensagens.length === 0}
+              onSaved={(emails) => setGrupoEmails(emails)}
+            />
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
               {mensagens.map((m) => (
                 <ConversaChatMessage
@@ -701,7 +828,12 @@ export function ChamadosConversasPanel({
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden lg:flex-row lg:gap-0">
+    <div
+      className={
+        "flex h-full min-h-0 w-full min-w-0 max-w-full overflow-hidden lg:flex-row lg:gap-0 " +
+        (showChatMobile ? "flex-col" : "flex-col lg:flex-row")
+      }
+    >
       {sidebar}
       {hideChat ? null : chatPane}
     </div>

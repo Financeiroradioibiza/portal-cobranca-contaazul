@@ -812,6 +812,8 @@ model ChamadoConversaAssunto {
   rioLinhaId     String?                     @map("rio_linha_id") @db.VarChar(64)
   criadoPorEmail String                      @map("criado_por_email") @db.VarChar(200)
   criadoPorNome  String                      @map("criado_por_nome") @db.VarChar(120)
+  /// JSON: e-mails do grupo fixo (notificados em toda mensagem do assunto).
+  grupoEmailsJson String                     @default("[]") @map("grupo_emails_json") @db.Text
   createdAt      DateTime                    @default(now()) @map("created_at")
   updatedAt      DateTime                    @updatedAt @map("updated_at")
 

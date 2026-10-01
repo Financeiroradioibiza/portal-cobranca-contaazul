@@ -12,7 +12,10 @@ import {
   type ConversaAnexoView,
 } from "@/lib/chamados/chamadoAnexoService";
 import { listChamadoParticipants, type ChamadoUserContext } from "@/lib/chamados/chamadoService";
-import { scheduleConversaMentionEmails } from "@/lib/chamados/conversaNotifyEmail";
+import {
+  scheduleConversaGrupoActivityEmails,
+  scheduleConversaMentionEmails,
+} from "@/lib/chamados/conversaNotifyEmail";
 import { computeConversaUnreadMap } from "@/lib/chamados/conversaUnread";
 import {
   loadEstadosForMensagens,
@@ -38,6 +41,7 @@ export type ConversaAssuntoView = {
   mentionUnread: boolean;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
+  grupoEmails: string[];
 };
 
 export type ConversaMensagemReplyPreview = {
@@ -81,6 +85,7 @@ export function assuntoFromRow(
     clientePapel?: string | null;
     criadoPorEmail: string;
     criadoPorNome: string;
+    grupoEmailsJson?: string;
     createdAt: Date;
     updatedAt: Date;
   },
@@ -105,7 +110,52 @@ export function assuntoFromRow(
     mentionUnread: unread.unreadMention > 0,
     lastMessageAt: last?.createdAt.toISOString() ?? null,
     lastMessagePreview: last?.corpo.trim().slice(0, 120) ?? null,
+    grupoEmails: parseStringArrayJson(row.grupoEmailsJson ?? "[]"),
   };
+}
+
+export async function getConversaAssuntoDetail(
+  assuntoId: string,
+  viewerEmail: string,
+): Promise<ConversaAssuntoView | null> {
+  const row = await prisma.chamadoConversaAssunto.findUnique({ where: { id: assuntoId } });
+  if (!row) return null;
+  const unreadMap = await computeConversaUnreadMap([row.id], viewerEmail);
+  const u = unreadMap.get(row.id) ?? { unreadGeneral: 0, unreadMention: 0 };
+  const last = await prisma.chamadoConversaMensagem.findFirst({
+    where: { assuntoId },
+    orderBy: { createdAt: "desc" },
+    select: { corpo: true, createdAt: true },
+  });
+  return assuntoFromRow(row, u, last ?? undefined);
+}
+
+export async function updateConversaGrupoEmails(
+  assuntoId: string,
+  emailsRaw: unknown,
+  ctx: ChamadoUserContext,
+): Promise<string[]> {
+  const assunto = await prisma.chamadoConversaAssunto.findUnique({ where: { id: assuntoId } });
+  if (!assunto) throw new Error("not_found");
+
+  const participants = await listChamadoParticipants();
+  const allowed = new Set(participants.map((p) => normalizePortalEmail(p.email)));
+
+  let emails: string[] = [];
+  if (Array.isArray(emailsRaw)) {
+    emails = emailsRaw
+      .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+      .map((x) => normalizePortalEmail(x.trim()))
+      .filter((e) => allowed.has(e));
+  }
+  emails = [...new Set(emails)];
+
+  await prisma.chamadoConversaAssunto.update({
+    where: { id: assuntoId },
+    data: { grupoEmailsJson: serializeStringArray(emails) },
+  });
+
+  return emails;
 }
 
 export async function listConversaAssuntos(userEmail: string): Promise<ConversaAssuntoView[]> {
@@ -248,6 +298,18 @@ export async function postConversaMensagem(
   await prisma.chamadoConversaAssunto.update({
     where: { id: assuntoId },
     data: { updatedAt: new Date() },
+  });
+
+  const grupoEmails = parseStringArrayJson(assunto.grupoEmailsJson);
+
+  scheduleConversaGrupoActivityEmails({
+    assuntoSlug: assunto.slug,
+    assuntoTitulo: assunto.titulo,
+    autorNome: ctx.displayName,
+    corpo,
+    grupoEmails,
+    mencoes,
+    excludeEmail: ctx.email,
   });
 
   scheduleConversaMentionEmails({
