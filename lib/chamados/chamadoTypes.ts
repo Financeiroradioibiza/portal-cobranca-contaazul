@@ -18,6 +18,12 @@ export type ChamadoView = {
   clienteNome: string;
   createdAt: string;
   updatedAt: string;
+  prazoEntrega: string | null;
+  templateKind: string | null;
+  sequenciaGrupoId: string | null;
+  sequenciaPasso: number | null;
+  sequenciaTotal: number | null;
+  sequenciaRotulo: string | null;
   /** Não lidos para o usuário da sessão (inbox). */
   unreadCount?: number;
 };

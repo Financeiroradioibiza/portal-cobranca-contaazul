@@ -32,6 +32,12 @@ export function chamadoToView(row: Chamado): ChamadoView {
     rioLinhaId: row.rioLinhaId,
     rioPdvKey: row.rioPdvKey,
     clienteNome: row.clienteNome,
+    prazoEntrega: row.prazoEntrega?.toISOString() ?? null,
+    templateKind: row.templateKind,
+    sequenciaGrupoId: row.sequenciaGrupoId,
+    sequenciaPasso: row.sequenciaPasso,
+    sequenciaTotal: row.sequenciaTotal,
+    sequenciaRotulo: row.sequenciaRotulo,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

@@ -15,6 +15,8 @@ import {
   parsePrioridade,
   parseStringArray,
 } from "@/lib/chamados/chamadoService";
+import { parseClienteNovoSteps } from "@/lib/chamados/chamadoTemplateClienteNovo";
+import { createClienteNovoSequencia } from "@/lib/chamados/chamadoSequenciaService";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -67,6 +69,26 @@ export async function POST(request: Request) {
     const rioLinhaId = typeof body.rioLinhaId === "string" ? body.rioLinhaId : null;
     const rioPdvKey = typeof body.rioPdvKey === "string" ? body.rioPdvKey : null;
     const clienteNome = typeof body.clienteNome === "string" ? body.clienteNome : "";
+
+    const template = typeof body.template === "string" ? body.template.trim() : "padrao";
+
+    if (template === "cliente_novo") {
+      const steps = parseClienteNovoSteps(body.clienteNovoSteps);
+      if (!steps) {
+        return NextResponse.json({ error: "cliente_novo_steps_invalido" }, { status: 400 });
+      }
+      const seq = await createClienteNovoSequencia(titulo, steps, ctx, {
+        prioridade,
+        rioLinhaId,
+        rioPdvKey,
+        clienteNome,
+      });
+      return NextResponse.json({
+        ok: true,
+        sequencia: seq,
+        chamado: seq.chamados[0] ?? null,
+      });
+    }
 
     const chamado = await createChamado(
       { titulo, descricao, prioridade, setores, responsaveis, rioLinhaId, rioPdvKey, clienteNome },

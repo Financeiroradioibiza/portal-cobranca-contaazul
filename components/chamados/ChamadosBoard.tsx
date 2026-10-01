@@ -16,8 +16,16 @@ import {
   type ChamadoVinculoState,
 } from "@/components/chamados/ChamadoProducaoVinculoFields";
 import { ChamadoAnexosBlock } from "@/components/chamados/ChamadoAnexosBlock";
+import { ChamadoClienteNovoStepsEditor } from "@/components/chamados/ChamadoClienteNovoStepsEditor";
 import { ChamadoComentariosBlock } from "@/components/chamados/ChamadoComentariosBlock";
 import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
+import {
+  buildDefaultClienteNovoSteps,
+  type ChamadoTemplateKind,
+  type ClienteNovoStepDraft,
+  type PrazoModo,
+  enabledSteps,
+} from "@/lib/chamados/chamadoTemplateClienteNovo";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -112,6 +120,12 @@ export function ChamadosBoard({
   const [formSetores, setFormSetores] = useState<string[]>([]);
   const [formResp, setFormResp] = useState<string[]>([]);
   const [formCreateFiles, setFormCreateFiles] = useState<File[]>([]);
+  const [formTemplate, setFormTemplate] = useState<ChamadoTemplateKind>("padrao");
+  const [formPrazoModo, setFormPrazoModo] = useState<PrazoModo>("um_dia_util");
+  const [formDataInstalacao, setFormDataInstalacao] = useState("");
+  const [formClienteNovoSteps, setFormClienteNovoSteps] = useState<ClienteNovoStepDraft[]>(() =>
+    buildDefaultClienteNovoSteps(new Date(), "um_dia_util"),
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -183,7 +197,7 @@ export function ChamadosBoard({
   }, [initialChamadoId, chamados, loading, openChamado]);
 
   const filtered = useMemo(() => {
-    let list = chamados;
+    let list = chamados.filter((c) => c.status !== "aguardando");
     if (filter === "abertos") {
       list = list.filter((c) => c.status === "aberto" || c.status === "em_andamento");
     } else if (filter === "fechados") {
@@ -196,6 +210,7 @@ export function ChamadosBoard({
     const map: Record<ChamadoStatus, ChamadoView[]> = {
       aberto: [],
       em_andamento: [],
+      aguardando: [],
       fechado: [],
     };
     for (const c of filtered) {
@@ -288,35 +303,59 @@ export function ChamadosBoard({
     }
     setBusy(true);
     setMsg(null);
+    if (formTemplate === "cliente_novo" && enabledSteps(formClienteNovoSteps).length === 0) {
+      setMsg("Marque pelo menos uma etapa do template Cliente novo.");
+      return;
+    }
     try {
+      const body =
+        formTemplate === "cliente_novo" ?
+          {
+            template: "cliente_novo",
+            titulo: formTitulo,
+            prioridade: formPri,
+            clienteNovoSteps: formClienteNovoSteps,
+            rioLinhaId: formVinculo.rioLinhaId,
+            rioPdvKey: formVinculo.rioPdvKey,
+            clienteNome: formVinculo.clienteNome,
+          }
+        : {
+            template: "padrao",
+            titulo: formTitulo,
+            descricao: formDesc,
+            prioridade: formPri,
+            setores: formSetores,
+            responsaveis: formResp,
+            rioLinhaId: formVinculo.rioLinhaId,
+            rioPdvKey: formVinculo.rioPdvKey,
+            clienteNome: formVinculo.clienteNome,
+          };
+
       const res = await fetch("/api/chamados", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({
-          titulo: formTitulo,
-          descricao: formDesc,
-          prioridade: formPri,
-          setores: formSetores,
-          responsaveis: formResp,
-          rioLinhaId: formVinculo.rioLinhaId,
-          rioPdvKey: formVinculo.rioPdvKey,
-          clienteNome: formVinculo.clienteNome,
-        }),
+        body: JSON.stringify(body),
       });
       const data = res.ok ? await res.json() : null;
       if (!res.ok) {
         setMsg("Não foi possível criar o chamado.");
         return;
       }
-      const created = (data as { chamado?: ChamadoView }).chamado;
-      if (created) {
-        setChamados((prev) => [created, ...prev]);
+      const seq = (data as { sequencia?: { chamados: ChamadoView[] } })?.sequencia;
+      const created = seq?.chamados?.length ?
+        seq.chamados
+      : (data as { chamado?: ChamadoView }).chamado ?
+        [(data as { chamado: ChamadoView }).chamado]
+      : [];
+      if (created.length) {
+        setChamados((prev) => [...created, ...prev]);
+        const uploadTarget = created[0]!;
         for (const file of formCreateFiles) {
           const fd = new FormData();
           fd.append("file", file);
           fd.append("comentarioId", "initial");
-          await fetch(`/api/chamados/${encodeURIComponent(created.id)}/anexos`, {
+          await fetch(`/api/chamados/${encodeURIComponent(uploadTarget.id)}/anexos`, {
             method: "POST",
             credentials: "same-origin",
             body: fd,
@@ -350,6 +389,10 @@ export function ChamadosBoard({
     setFormSetores([]);
     setFormResp([]);
     setFormCreateFiles([]);
+    setFormTemplate("padrao");
+    setFormPrazoModo("um_dia_util");
+    setFormDataInstalacao("");
+    setFormClienteNovoSteps(buildDefaultClienteNovoSteps(new Date(), "um_dia_util"));
   }
 
   function toggleSetor(id: string) {
@@ -556,6 +599,19 @@ export function ChamadosBoard({
           onToggleResp={toggleResp}
           pendingFiles={formCreateFiles}
           onPendingFiles={setFormCreateFiles}
+          template={formTemplate}
+          onTemplate={(t) => {
+            setFormTemplate(t);
+            if (t === "cliente_novo") {
+              setFormClienteNovoSteps(buildDefaultClienteNovoSteps(new Date(), formPrazoModo, formDataInstalacao || undefined));
+            }
+          }}
+          clienteNovoSteps={formClienteNovoSteps}
+          onClienteNovoSteps={setFormClienteNovoSteps}
+          prazoModo={formPrazoModo}
+          onPrazoModo={setFormPrazoModo}
+          dataInstalacao={formDataInstalacao}
+          onDataInstalacao={setFormDataInstalacao}
           onClose={() => setCreating(false)}
           onSubmit={createChamado}
           submitLabel="Abrir chamado"
@@ -571,6 +627,39 @@ export function ChamadosBoard({
           onClose={() => setSelected(null)}
           onPatch={patchChamado}
           onResendEmail={() => void resendChamadoEmail(selected.id)}
+          onSequenciaProximo={async (id) => {
+            setBusy(true);
+            try {
+              const res = await fetch(`/api/chamados/${encodeURIComponent(id)}/sequencia/proximo`, {
+                method: "POST",
+                credentials: "same-origin",
+              });
+              const data = res.ok ? await res.json() : null;
+              if (!res.ok) {
+                setMsg("Não foi possível avançar a sequência.");
+                return;
+              }
+              const fechado = (data as { fechado?: ChamadoView }).fechado;
+              const proximo = (data as { proximo?: ChamadoView | null }).proximo;
+              const fim = Boolean((data as { fim?: boolean }).fim);
+              if (fechado) {
+                setChamados((prev) => prev.map((c) => (c.id === fechado.id ? fechado : c)));
+              }
+              if (proximo) {
+                setChamados((prev) => {
+                  const has = prev.some((c) => c.id === proximo.id);
+                  return has ? prev.map((c) => (c.id === proximo.id ? proximo : c)) : [proximo, ...prev];
+                });
+                setSelected(proximo);
+              } else if (fim && fechado) {
+                setSelected(fechado);
+              }
+              setMsg(fim ? "Fluxo cliente novo concluído." : "Próxima etapa aberta.");
+              await load();
+            } finally {
+              setBusy(false);
+            }
+          }}
         />
       : null}
     </div>
@@ -703,6 +792,14 @@ function FormModal({
   onToggleResp,
   pendingFiles,
   onPendingFiles,
+  template,
+  onTemplate,
+  clienteNovoSteps,
+  onClienteNovoSteps,
+  prazoModo,
+  onPrazoModo,
+  dataInstalacao,
+  onDataInstalacao,
   onClose,
   onSubmit,
   submitLabel,
@@ -726,12 +823,41 @@ function FormModal({
   onToggleResp: (email: string) => void;
   pendingFiles: File[];
   onPendingFiles: (files: File[]) => void;
+  template: ChamadoTemplateKind;
+  onTemplate: (t: ChamadoTemplateKind) => void;
+  clienteNovoSteps: ClienteNovoStepDraft[];
+  onClienteNovoSteps: (s: ClienteNovoStepDraft[]) => void;
+  prazoModo: PrazoModo;
+  onPrazoModo: (m: PrazoModo) => void;
+  dataInstalacao: string;
+  onDataInstalacao: (v: string) => void;
   onClose: () => void;
   onSubmit: () => void;
   submitLabel: string;
 }) {
   return (
     <ModalShell title={title} onClose={onClose}>
+      <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Tipo de chamado</p>
+      <div className="mt-1 flex flex-col gap-1">
+        {(
+          [
+            { id: "padrao" as const, label: "Padrão — chamado único (como hoje)" },
+            { id: "cliente_novo" as const, label: "Cliente novo — 4 etapas em série" },
+          ] as const
+        ).map((opt) => (
+          <label key={opt.id} className="flex cursor-pointer items-center gap-2 text-xs">
+            <input
+              type="radio"
+              name="chamado-template"
+              checked={template === opt.id}
+              onChange={() => onTemplate(opt.id)}
+            />
+            {opt.label}
+          </label>
+        ))}
+        <p className="text-[10px] text-slate-400">Mais templates em breve.</p>
+      </div>
+
       <ChamadoProducaoVinculoFields
         vinculo={vinculo}
         titulo={titulo}
@@ -740,16 +866,29 @@ function FormModal({
         onTituloChange={onTitulo}
         onTituloManualChange={onTituloManual}
       />
-      <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
-        Descrição
-        <textarea
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-          rows={4}
-          value={descricao}
-          onChange={(e) => onDesc(e.target.value)}
-          placeholder="Detalhes do que precisa ser feito…"
+      {template === "cliente_novo" ?
+        <ChamadoClienteNovoStepsEditor
+          steps={clienteNovoSteps}
+          onChange={onClienteNovoSteps}
+          prazoModo={prazoModo}
+          onPrazoModo={onPrazoModo}
+          dataInstalacao={dataInstalacao}
+          onDataInstalacao={onDataInstalacao}
+          participants={participants}
         />
-      </label>
+      : <>
+          <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
+            Descrição
+            <textarea
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+              rows={4}
+              value={descricao}
+              onChange={(e) => onDesc(e.target.value)}
+              placeholder="Detalhes do que precisa ser feito…"
+            />
+          </label>
+        </>
+      }
       <div className="mt-2">
         <label className="cursor-pointer text-xs font-semibold text-violet-700 dark:text-violet-300">
           + Anexar imagem ou MP3 ao pedido
@@ -790,47 +929,51 @@ function FormModal({
           ))}
         </div>
       </div>
-      <div className="mt-3">
-        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Setores</p>
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {CHAMADO_SETORES.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => onToggleSetor(s.id)}
-              className={
-                "rounded-full px-2.5 py-1 text-[11px] font-semibold transition " +
-                (setores.includes(s.id) ? s.bg + " ring-2 ring-violet-400" : "bg-slate-100 text-slate-600 dark:bg-slate-800")
-              }
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {participants.length > 0 ?
-        <div className="mt-3 max-h-40 overflow-y-auto">
-          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Pessoas</p>
-          <div className="mt-1 space-y-1">
-            {participants.map((p) => (
-              <label
-                key={p.email}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                <input
-                  type="checkbox"
-                  checked={responsaveis.includes(p.email)}
-                  onChange={() => onToggleResp(p.email)}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="text-sm">{p.displayName}</span>{" "}
-                  <span className="text-[10px] text-slate-400">{p.email}</span>
-                </span>
-                <span className="text-[10px] text-slate-400">{p.profileName}</span>
-              </label>
-            ))}
+      {template === "padrao" ?
+        <>
+          <div className="mt-3">
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Setores</p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {CHAMADO_SETORES.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => onToggleSetor(s.id)}
+                  className={
+                    "rounded-full px-2.5 py-1 text-[11px] font-semibold transition " +
+                    (setores.includes(s.id) ? s.bg + " ring-2 ring-violet-400" : "bg-slate-100 text-slate-600 dark:bg-slate-800")
+                  }
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+          {participants.length > 0 ?
+            <div className="mt-3 max-h-40 overflow-y-auto">
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Pessoas</p>
+              <div className="mt-1 space-y-1">
+                {participants.map((p) => (
+                  <label
+                    key={p.email}
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={responsaveis.includes(p.email)}
+                      onChange={() => onToggleResp(p.email)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="text-sm">{p.displayName}</span>{" "}
+                      <span className="text-[10px] text-slate-400">{p.email}</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">{p.profileName}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          : null}
+        </>
       : null}
       <div className="mt-4 flex justify-end gap-2">
         <button
@@ -861,6 +1004,7 @@ function DetailModal({
   onClose,
   onPatch,
   onResendEmail,
+  onSequenciaProximo,
 }: {
   chamado: ChamadoView;
   busy: boolean;
@@ -869,6 +1013,7 @@ function DetailModal({
   onClose: () => void;
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
   onResendEmail: () => void;
+  onSequenciaProximo: (id: string) => Promise<void>;
 }) {
   const [prioridade, setPrioridade] = useState(chamado.prioridade);
   const [setores, setSetores] = useState(chamado.setores);
@@ -889,6 +1034,17 @@ function DetailModal({
     !arraysEqual(setores, chamado.setores) ||
     !arraysEqual(responsaveis, chamado.responsaveis);
 
+  const sequenciaAtiva =
+    Boolean(chamado.sequenciaGrupoId) &&
+    chamado.status !== "fechado" &&
+    chamado.status !== "aguardando" &&
+    (chamado.sequenciaPasso ?? 0) < (chamado.sequenciaTotal ?? 0);
+
+  const sequenciaUltima =
+    Boolean(chamado.sequenciaGrupoId) &&
+    chamado.sequenciaPasso === chamado.sequenciaTotal &&
+    chamado.status !== "fechado";
+
   const byEmail = useMemo(() => {
     const m = new Map<string, ChamadoParticipant>();
     for (const p of participants) m.set(p.email.toLowerCase(), p);
@@ -905,7 +1061,20 @@ function DetailModal({
           <span className={"h-2 w-2 rounded-full " + pri.dot} />
           {pri.label}
         </span>
-        <h3 className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900 dark:text-white">{chamado.titulo}</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">{chamado.titulo}</h3>
+          {chamado.sequenciaRotulo ?
+            <p className="truncate text-[10px] text-amber-700 dark:text-amber-300">{chamado.sequenciaRotulo}</p>
+          : null}
+          {chamado.prazoEntrega ?
+            <p className="text-[10px] text-slate-500">
+              Prazo:{" "}
+              {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(
+                new Date(chamado.prazoEntrega),
+              )}
+            </p>
+          : null}
+        </div>
         <div className="flex shrink-0 items-center -space-x-1.5">
           {responsaveis.slice(0, 6).map((email) => {
             const p = byEmail.get(email.toLowerCase());
@@ -1062,7 +1231,25 @@ function DetailModal({
             Em andamento
           </button>
         : null}
-        {chamado.status !== "fechado" ?
+        {sequenciaAtiva ?
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onSequenciaProximo(chamado.id)}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+          >
+            Encerrar / próximo processo
+          </button>
+        : sequenciaUltima ?
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onSequenciaProximo(chamado.id)}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+          >
+            Encerrar fluxo
+          </button>
+        : chamado.status !== "fechado" ?
           <button
             type="button"
             disabled={busy}

@@ -1,3 +1,4 @@
+import { ChamadosAgendaPanel } from "@/components/chamados/ChamadosAgendaPanel";
 import { ProducaoDashboardPanel } from "@/components/producao/ProducaoDashboardPanel";
 
 export default function PortalHomePage() {
@@ -10,6 +11,7 @@ export default function PortalHomePage() {
         </div>
       </header>
       <div className="portal-page-body">
+        <ChamadosAgendaPanel />
         <ProducaoDashboardPanel />
       </div>
     </div>

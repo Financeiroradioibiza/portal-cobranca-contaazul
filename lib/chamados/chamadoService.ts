@@ -19,7 +19,7 @@ import type {
 
 const VALID_SETORES = new Set(CHAMADO_SETORES.map((s) => s.id));
 const VALID_PRIORIDADES = new Set<ChamadoPrioridade>(["baixa", "media", "alta", "urgente"]);
-const VALID_STATUS = new Set<ChamadoStatus>(["aberto", "em_andamento", "fechado"]);
+const VALID_STATUS = new Set<ChamadoStatus>(["aberto", "em_andamento", "aguardando", "fechado"]);
 
 export type ChamadoUserContext = {
   email: string;
