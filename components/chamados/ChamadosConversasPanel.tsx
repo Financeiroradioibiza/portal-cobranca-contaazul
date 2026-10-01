@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
 import { ChamadoMentionTextarea } from "@/components/chamados/ChamadoMentionTextarea";
 import { ConversaChatMessage } from "@/components/chamados/ConversaChatMessage";
+import { ConversaInboxSection } from "@/components/chamados/ConversaInboxSection";
 import { ConversaUnreadBadges } from "@/components/chamados/ConversaUnreadBadges";
 import type { ConversaReacaoView } from "@/lib/chamados/conversaMessageService";
 
@@ -32,14 +33,22 @@ export type ConversaMensagemItem = {
   naoLida: boolean;
 };
 
-type InboxClienteRow = {
-  clienteKey: string;
-  nome: string;
+type InboxClienteCanalRow = {
+  papel: "sup" | "mus";
+  label: string;
   assuntoId: string | null;
   assuntoSlug: string | null;
   unreadGeneral: number;
   unreadMention: number;
   lastMessagePreview: string | null;
+};
+
+type InboxClienteRow = {
+  clienteKey: string;
+  nome: string;
+  unreadGeneral: number;
+  unreadMention: number;
+  canais: InboxClienteCanalRow[];
 };
 
 type InboxData = {
@@ -61,8 +70,13 @@ type InboxData = {
     createdAt: string;
   }[];
   canais: ConversaAssuntoListItem[];
+  prospects: ConversaAssuntoListItem[];
   clientes: InboxClienteRow[];
 };
+
+function assuntoToListItem(a: ConversaAssuntoListItem): ConversaAssuntoListItem {
+  return a;
+}
 
 function fmtWhen(iso: string): string {
   try {
@@ -96,9 +110,19 @@ export function ChamadosConversasPanel({
   const [inbox, setInbox] = useState<InboxData | null>(null);
   const [assuntos, setAssuntos] = useState<ConversaAssuntoListItem[]>([]);
   const [clienteFilter, setClienteFilter] = useState("");
+  const [expandedClienteKey, setExpandedClienteKey] = useState<string | null>(null);
+  const [sectionsOpen, setSectionsOpen] = useState({
+    urgentes: true,
+    canais: true,
+    prospects: false,
+    minhas: false,
+    clientes: true,
+  });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [creatingProspect, setCreatingProspect] = useState(false);
   const [newTitulo, setNewTitulo] = useState("");
+  const [newProspectNome, setNewProspectNome] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [mensagens, setMensagens] = useState<ConversaMensagemItem[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
@@ -137,18 +161,20 @@ export function ChamadosConversasPanel({
     const map = new Map<string, ConversaAssuntoListItem>();
     for (const a of assuntos) map.set(a.id, a);
     if (inbox) {
+      for (const p of inbox.prospects ?? []) map.set(p.id, assuntoToListItem(p));
       for (const c of inbox.clientes) {
-        if (c.assuntoId) {
-          map.set(c.assuntoId, {
-            id: c.assuntoId,
-            slug: c.assuntoSlug ?? "",
+        for (const ch of c.canais) {
+          if (!ch.assuntoId) continue;
+          map.set(ch.assuntoId, {
+            id: ch.assuntoId,
+            slug: ch.assuntoSlug ?? "",
             titulo: c.nome,
-            display: c.nome,
-            unreadCount: c.unreadGeneral + c.unreadMention,
-            unreadGeneralCount: c.unreadGeneral,
-            unreadMentionCount: c.unreadMention,
-            mentionUnread: c.unreadMention > 0,
-            lastMessagePreview: c.lastMessagePreview,
+            display: ch.label,
+            unreadCount: ch.unreadGeneral + ch.unreadMention,
+            unreadGeneralCount: ch.unreadGeneral,
+            unreadMentionCount: ch.unreadMention,
+            mentionUnread: ch.unreadMention > 0,
+            lastMessagePreview: ch.lastMessagePreview,
           });
         }
       }
@@ -260,27 +286,80 @@ export function ChamadosConversasPanel({
     }
   }
 
-  async function openCliente(c: InboxClienteRow) {
-    if (c.assuntoId) {
-      const a = allAssuntos.get(c.assuntoId);
-      if (a) onSelect(a);
-      return;
-    }
+  async function openClienteCanal(clienteKey: string, papel: "sup" | "mus") {
     setMsg(null);
     try {
       const res = await fetch("/api/chamados/conversas/cliente", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ clienteKey: c.clienteKey }),
+        body: JSON.stringify({ clienteKey, papel }),
       });
       const data = res.ok ? await res.json() : null;
+      if (!res.ok) {
+        setMsg("Não foi possível abrir o canal do cliente.");
+        return;
+      }
       const created = (data as { assunto?: ConversaAssuntoListItem })?.assunto;
       await loadInbox();
       if (created) onSelect(created);
     } catch {
       setMsg("Erro ao abrir cliente.");
     }
+  }
+
+  async function createProspect() {
+    if (!newProspectNome.trim()) return;
+    setCreatingProspect(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/chamados/conversas/prospect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ nome: newProspectNome.trim() }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (!res.ok) {
+        setMsg("Não foi possível criar prospect.");
+        return;
+      }
+      setNewProspectNome("");
+      setSectionsOpen((s) => ({ ...s, prospects: true }));
+      await loadInbox();
+      const created = (data as { assunto?: ConversaAssuntoListItem })?.assunto;
+      if (created) onSelect(created);
+    } catch {
+      setMsg("Erro de rede.");
+    } finally {
+      setCreatingProspect(false);
+    }
+  }
+
+  async function migrarProspect(prospectId: string) {
+    const clienteKey = window.prompt("Chave do cliente no catálogo Produção (clienteKey):");
+    if (!clienteKey?.trim()) return;
+    const mus = window.confirm("OK = canal Musical (#Mus). Cancelar = Suporte (#Sup).");
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/chamados/conversas/prospect/${encodeURIComponent(prospectId)}/migrar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ clienteKey: clienteKey.trim(), papel: mus ? "mus" : "sup" }),
+      });
+      if (!res.ok) {
+        setMsg("Não foi possível mover a conversa para o cliente.");
+        return;
+      }
+      await loadInbox();
+    } catch {
+      setMsg("Erro ao migrar prospect.");
+    }
+  }
+
+  function toggleSection(key: keyof typeof sectionsOpen) {
+    setSectionsOpen((s) => ({ ...s, [key]: !s[key] }));
   }
 
   function jumpToMessage(assuntoId: string, mensagemId: string) {
@@ -354,10 +433,13 @@ export function ChamadosConversasPanel({
             <p className="p-3 text-xs text-slate-400">Carregando…</p>
           : <>
               {inbox && inbox.urgentes.length > 0 ?
-                <>
-                  <p className="sticky top-0 z-10 bg-rose-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
-                    Urgente ★
-                  </p>
+                <ConversaInboxSection
+                  title="Urgente ★"
+                  open={sectionsOpen.urgentes}
+                  onToggle={() => toggleSection("urgentes")}
+                  count={inbox.urgentes.length}
+                  headerClass="bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200"
+                >
                   {inbox.urgentes.map((u) =>
                     renderListRow(
                       "u-" + u.mensagemId,
@@ -369,13 +451,93 @@ export function ChamadosConversasPanel({
                       () => jumpToMessage(u.assuntoId, u.mensagemId),
                     ),
                   )}
-                </>
+                </ConversaInboxSection>
               : null}
+
+              <ConversaInboxSection
+                title="Canais #"
+                open={sectionsOpen.canais}
+                onToggle={() => toggleSection("canais")}
+                count={assuntos.length}
+              >
+                {assuntos.length === 0 ?
+                  <p className="px-3 py-2 text-[10px] text-slate-400">Nenhum canal ainda.</p>
+                : assuntos.map((a) =>
+                    renderListRow(
+                      a.id,
+                      a.display,
+                      a.lastMessagePreview,
+                      a.unreadGeneralCount ?? a.unreadCount,
+                      a.unreadMentionCount ?? (a.mentionUnread ? 1 : 0),
+                      selectedId === a.id,
+                      () => onSelect(a),
+                    ),
+                  )
+                }
+              </ConversaInboxSection>
+
+              <ConversaInboxSection
+                title="Prospects"
+                open={sectionsOpen.prospects}
+                onToggle={() => toggleSection("prospects")}
+                count={inbox?.prospects?.length ?? 0}
+                headerClass="bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+              >
+                <div className="flex gap-1 px-3 pb-1">
+                  <input
+                    type="text"
+                    placeholder="Novo prospect…"
+                    value={newProspectNome}
+                    onChange={(e) => setNewProspectNome(e.target.value)}
+                    className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void createProspect();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={creatingProspect}
+                    onClick={() => void createProspect()}
+                    className="rounded bg-amber-600 px-2 py-1 text-[10px] font-bold text-white disabled:opacity-60"
+                  >
+                    +
+                  </button>
+                </div>
+                {(inbox?.prospects ?? []).length === 0 ?
+                  <p className="px-3 py-2 text-[10px] text-slate-400">Nenhum prospect.</p>
+                : (inbox?.prospects ?? []).map((p) => (
+                    <div key={p.id} className="border-b border-slate-100 dark:border-slate-800">
+                      {renderListRow(
+                        p.id,
+                        p.display,
+                        p.lastMessagePreview,
+                        p.unreadGeneralCount ?? p.unreadCount,
+                        p.unreadMentionCount ?? 0,
+                        selectedId === p.id,
+                        () => onSelect(p),
+                      )}
+                      <div className="px-3 pb-2">
+                        <button
+                          type="button"
+                          className="text-[10px] font-semibold text-violet-600 hover:underline dark:text-violet-400"
+                          onClick={() => void migrarProspect(p.id)}
+                        >
+                          Mover conversa para cliente…
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                }
+              </ConversaInboxSection>
+
               {inbox && inbox.minhasEnviadas.length > 0 ?
-                <>
-                  <p className="sticky top-0 z-10 bg-sky-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
-                    Minhas enviadas
-                  </p>
+                <ConversaInboxSection
+                  title="Minhas enviadas"
+                  open={sectionsOpen.minhas}
+                  onToggle={() => toggleSection("minhas")}
+                  count={inbox.minhasEnviadas.length}
+                  headerClass="bg-sky-50 text-sky-900 dark:bg-sky-950/40 dark:text-sky-100"
+                >
                   {inbox.minhasEnviadas.slice(0, 20).map((m) =>
                     renderListRow(
                       "me-" + m.mensagemId,
@@ -387,46 +549,65 @@ export function ChamadosConversasPanel({
                       () => jumpToMessage(m.assuntoId, m.mensagemId),
                     ),
                   )}
-                </>
+                </ConversaInboxSection>
               : null}
-              <p className="sticky top-0 z-10 bg-slate-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:bg-slate-900 dark:text-slate-400">
-                Canais #
-              </p>
-              {assuntos.length === 0 ?
-                <p className="px-3 py-2 text-[10px] text-slate-400">Nenhum canal ainda.</p>
-              : assuntos.map((a) =>
-                  renderListRow(
-                    a.id,
-                    a.display,
-                    a.lastMessagePreview,
-                    a.unreadGeneralCount ?? a.unreadCount,
-                    a.unreadMentionCount ?? (a.mentionUnread ? 1 : 0),
-                    selectedId === a.id,
-                    () => onSelect(a),
-                  ),
-                )
-              }
-              <p className="sticky top-0 z-10 mt-1 bg-emerald-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
-                Clientes (Produção)
-              </p>
-              <input
-                type="search"
-                placeholder="Filtrar cliente…"
-                value={clienteFilter}
-                onChange={(e) => setClienteFilter(e.target.value)}
-                className="mx-3 mb-1 w-[calc(100%-1.5rem)] rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
-              />
-              {clientesFiltrados.map((c) =>
-                renderListRow(
-                  "c-" + c.clienteKey,
-                  c.nome,
-                  c.lastMessagePreview,
-                  c.unreadGeneral,
-                  c.unreadMention,
-                  c.assuntoId != null && selectedId === c.assuntoId,
-                  () => void openCliente(c),
-                ),
-              )}
+
+              <ConversaInboxSection
+                title="Clientes (Produção)"
+                open={sectionsOpen.clientes}
+                onToggle={() => toggleSection("clientes")}
+                count={clientesFiltrados.length}
+                headerClass="bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
+              >
+                <input
+                  type="search"
+                  placeholder="Filtrar cliente…"
+                  value={clienteFilter}
+                  onChange={(e) => setClienteFilter(e.target.value)}
+                  className="mx-3 mb-1 w-[calc(100%-1.5rem)] rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
+                />
+                {clientesFiltrados.map((c) => {
+                  const expanded = expandedClienteKey === c.clienteKey;
+                  const activeCanal = c.canais.some((ch) => ch.assuntoId === selectedId);
+                  return (
+                    <div key={c.clienteKey} className="border-b border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedClienteKey(expanded ? null : c.clienteKey)
+                        }
+                        className={
+                          "flex w-full items-start gap-2 px-3 py-2 text-left transition hover:bg-white dark:hover:bg-slate-900 " +
+                          (activeCanal ? "bg-white dark:bg-slate-900" : "")
+                        }
+                      >
+                        <span className="mt-0.5 text-[10px] text-slate-400">{expanded ? "▾" : "▸"}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-100">
+                            {c.nome}
+                          </span>
+                        </span>
+                        <ConversaUnreadBadges general={c.unreadGeneral} mention={c.unreadMention} />
+                      </button>
+                      {expanded ?
+                        <div className="pb-1 pl-6 pr-2">
+                          {c.canais.map((ch) =>
+                            renderListRow(
+                              `${c.clienteKey}-${ch.papel}`,
+                              ch.label,
+                              ch.lastMessagePreview,
+                              ch.unreadGeneral,
+                              ch.unreadMention,
+                              selectedId === ch.assuntoId,
+                              () => void openClienteCanal(c.clienteKey, ch.papel),
+                            ),
+                          )}
+                        </div>
+                      : null}
+                    </div>
+                  );
+                })}
+              </ConversaInboxSection>
             </>
           }
         </div>

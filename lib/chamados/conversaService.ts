@@ -25,8 +25,9 @@ export type ConversaAssuntoView = {
   slug: string;
   titulo: string;
   display: string;
-  tipo: "canal" | "cliente";
+  tipo: "canal" | "cliente" | "prospect";
   clienteKey: string | null;
+  clientePapel: string | null;
   criadoPorEmail: string;
   criadoPorNome: string;
   createdAt: string;
@@ -63,9 +64,11 @@ export type ConversaMensagemView = {
 function assuntoDisplay(row: {
   slug: string;
   titulo: string;
-  tipo: "canal" | "cliente";
+  tipo: "canal" | "cliente" | "prospect";
 }): string {
-  return row.tipo === "cliente" ? row.titulo : conversaDisplayTitulo(row.slug, row.titulo);
+  if (row.tipo === "prospect") return row.titulo;
+  if (row.tipo === "cliente") return row.titulo;
+  return conversaDisplayTitulo(row.slug, row.titulo);
 }
 
 export function assuntoFromRow(
@@ -73,8 +76,9 @@ export function assuntoFromRow(
     id: string;
     slug: string;
     titulo: string;
-    tipo: "canal" | "cliente";
+    tipo: "canal" | "cliente" | "prospect";
     clienteKey: string | null;
+    clientePapel?: string | null;
     criadoPorEmail: string;
     criadoPorNome: string;
     createdAt: Date;
@@ -90,6 +94,7 @@ export function assuntoFromRow(
     display: assuntoDisplay(row),
     tipo: row.tipo,
     clienteKey: row.clienteKey,
+    clientePapel: row.clientePapel ?? null,
     criadoPorEmail: row.criadoPorEmail,
     criadoPorNome: row.criadoPorNome,
     createdAt: row.createdAt.toISOString(),

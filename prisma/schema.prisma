@@ -796,6 +796,7 @@ model ChamadoAnexo {
 enum ChamadoConversaAssuntoTipo {
   canal
   cliente
+  prospect
 }
 
 /// Assunto de conversa interna (estilo canal #nome ou chat por cliente Produção).
@@ -806,6 +807,8 @@ model ChamadoConversaAssunto {
   tipo           ChamadoConversaAssuntoTipo  @default(canal)
   /// Chave do catálogo Produção (quando tipo = cliente).
   clienteKey     String?                     @map("cliente_key") @db.VarChar(120)
+  /// sup = suporte · mus = criação/produção (tipo cliente).
+  clientePapel     String?                     @map("cliente_papel") @db.VarChar(8)
   rioLinhaId     String?                     @map("rio_linha_id") @db.VarChar(64)
   criadoPorEmail String                      @map("criado_por_email") @db.VarChar(200)
   criadoPorNome  String                      @map("criado_por_nome") @db.VarChar(120)

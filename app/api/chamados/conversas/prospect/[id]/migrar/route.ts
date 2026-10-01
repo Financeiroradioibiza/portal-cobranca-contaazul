@@ -1,0 +1,29 @@
+import { NextResponse } from "next/server";
+import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
+import { getChamadoUserContext } from "@/lib/chamados/chamadoService";
+import { migrarProspectParaClienteCanal } from "@/lib/chamados/conversaInboxService";
+import type { ClienteConversaPapel } from "@/lib/chamados/conversaClienteCanais";
+
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function POST(req: Request, ctx: Ctx) {
+  try {
+    const session = requirePortalSession(await getPortalSession());
+    const userCtx = await getChamadoUserContext(session.email);
+    if (!userCtx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+    const { id } = await ctx.params;
+    const body = (await req.json()) as { clienteKey?: string; papel?: ClienteConversaPapel };
+    const papel = body.papel === "mus" ? "mus" : "sup";
+    const result = await migrarProspectParaClienteCanal(id, body.clienteKey ?? "", papel, userCtx);
+    return NextResponse.json({ ok: true, ...result });
+  } catch (e) {
+    if (e instanceof Response) return e;
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "prospect_nao_encontrado" || msg === "cliente_nao_encontrado") {
+      return NextResponse.json({ error: msg }, { status: 404 });
+    }
+    console.error("[chamados/conversas/prospect/migrar POST]", e);
+    return NextResponse.json({ error: "server_error" }, { status: 500 });
+  }
+}
