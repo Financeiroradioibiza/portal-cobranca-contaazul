@@ -3,6 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { getChamadoUserContext } from "@/lib/chamados/chamadoService";
 import {
   createConversaAssunto,
+  getConversaAssuntoBySlug,
   listConversaAssuntos,
   searchConversas,
 } from "@/lib/chamados/conversaService";
@@ -14,6 +15,13 @@ export async function GET(req: Request) {
     if (!ctx) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const url = new URL(req.url);
+    const slugParam = url.searchParams.get("slug")?.trim() ?? "";
+    if (slugParam) {
+      const assunto = await getConversaAssuntoBySlug(slugParam);
+      if (!assunto) return NextResponse.json({ error: "not_found" }, { status: 404 });
+      return NextResponse.json({ ok: true, assunto });
+    }
+
     const q = url.searchParams.get("q")?.trim() ?? "";
     if (q) {
       const assuntos = await searchConversas(q);

@@ -7,7 +7,12 @@ import { ConversaChatMessage } from "@/components/chamados/ConversaChatMessage";
 import { ConversaGrupoMembros } from "@/components/chamados/ConversaGrupoMembros";
 import { ConversaInboxSection } from "@/components/chamados/ConversaInboxSection";
 import { ConversaUnreadBadges } from "@/components/chamados/ConversaUnreadBadges";
+import { normalizeConversaSlug } from "@/lib/chamados/chamadoMentions";
 import type { ConversaReacaoView } from "@/lib/chamados/conversaMessageService";
+
+function normalizeSlugForMatch(raw: string): string {
+  return normalizeConversaSlug(raw.replace(/^#+/, ""));
+}
 
 export type ConversaAssuntoListItem = {
   id: string;
@@ -353,14 +358,26 @@ export function ChamadosConversasPanel({
   }, [mensagens]);
 
   useEffect(() => {
-    if (initialSlugHandled.current || !initialSlug || allAssuntos.size === 0) return;
-    const slug = initialSlug.toLowerCase();
-    const hit = [...allAssuntos.values()].find((a) => a.slug === slug);
+    initialSlugHandled.current = false;
+  }, [initialSlug]);
+
+  useEffect(() => {
+    if (initialSlugHandled.current || !initialSlug) return;
+    const slug = normalizeSlugForMatch(initialSlug);
+    if (selectedId) {
+      const cur = allAssuntos.get(selectedId);
+      if (cur && normalizeSlugForMatch(cur.slug) === slug) {
+        initialSlugHandled.current = true;
+        return;
+      }
+    }
+    if (allAssuntos.size === 0) return;
+    const hit = [...allAssuntos.values()].find((a) => normalizeSlugForMatch(a.slug) === slug);
     if (hit) {
       initialSlugHandled.current = true;
       pickAssunto(hit);
     }
-  }, [initialSlug, allAssuntos]);
+  }, [initialSlug, allAssuntos, selectedId]);
 
   async function createAssunto() {
     if (!newTitulo.trim()) return;
@@ -699,7 +716,7 @@ export function ChamadosConversasPanel({
                         p.unreadGeneralCount ?? p.unreadCount,
                         p.unreadMentionCount ?? 0,
                         selectedId === p.id,
-                        () => pickAssunto(p),
+                        () => pickAssunto(assuntoToListItemFromApi(p)),
                       )}
                       <div className="px-3 pb-2">
                         <button
@@ -848,7 +865,7 @@ export function ChamadosConversasPanel({
   const chatPane = (
       <div
         className={
-          "flex min-h-[280px] min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-white dark:bg-slate-900 " +
+          "flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-white dark:bg-slate-900 max-lg:min-h-[280px] " +
           (chatOpen ? "flex" : "hidden lg:flex")
         }
       >
@@ -966,8 +983,8 @@ export function ChamadosConversasPanel({
   return (
     <div
       className={
-        "flex h-full max-h-full min-h-0 w-full min-w-0 max-w-full flex-1 overflow-hidden lg:flex-row lg:gap-0 " +
-        (showChatMobile ? "min-h-[280px] flex-col" : "flex-col lg:flex-row")
+        "flex h-full max-h-full min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden lg:flex-row lg:gap-0 " +
+        (showChatMobile ? "max-lg:min-h-[280px]" : "")
       }
     >
       {sidebar}

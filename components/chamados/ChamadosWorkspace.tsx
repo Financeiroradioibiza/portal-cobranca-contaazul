@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChamadosBoard } from "@/components/chamados/ChamadosBoard";
 import {
@@ -17,15 +17,22 @@ type ChamadosWorkspaceProps = {
   mobile?: boolean;
   /** Incrementado pelo botão Atualizar no cabeçalho da página. */
   refreshToken?: number;
+  selectedAssunto: ConversaAssuntoListItem | null;
+  onSelectAssunto: (a: ConversaAssuntoListItem | null) => void;
 };
 
-export function ChamadosWorkspace({ view, mobile = false, refreshToken = 0 }: ChamadosWorkspaceProps) {
+export function ChamadosWorkspace({
+  view,
+  mobile = false,
+  refreshToken = 0,
+  selectedAssunto,
+  onSelectAssunto,
+}: ChamadosWorkspaceProps) {
   const searchParams = useSearchParams();
   const conversaSlug = searchParams.get("conversa");
   const chamadoId = searchParams.get("chamado");
 
   const mainView = view;
-  const [selectedAssunto, setSelectedAssunto] = useState<ConversaAssuntoListItem | null>(null);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
   const [viewerEmail, setViewerEmail] = useState("");
 
@@ -50,16 +57,6 @@ export function ChamadosWorkspace({ view, mobile = false, refreshToken = 0 }: Ch
         setParticipants([]);
         setViewerEmail("");
       });
-  }, []);
-
-  const onSelectAssunto = useCallback((a: ConversaAssuntoListItem | null) => {
-    setSelectedAssunto(a);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      if (a) url.searchParams.set("conversa", a.slug);
-      else url.searchParams.delete("conversa");
-      window.history.replaceState({}, "", url.pathname + url.search);
-    }
   }, []);
 
   return (

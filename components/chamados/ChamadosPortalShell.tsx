@@ -1,16 +1,83 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
-import { ChamadosWorkspace, type ChamadosWorkspaceView } from "@/components/chamados/ChamadosWorkspace";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  ChamadosWorkspace,
+  type ChamadosWorkspaceView,
+} from "@/components/chamados/ChamadosWorkspace";
+import type { ConversaAssuntoListItem } from "@/components/chamados/ChamadosConversasPanel";
 
 type Props = {
   view: ChamadosWorkspaceView;
   mobile?: boolean;
 };
 
+function assuntoFromApi(raw: {
+  id: string;
+  slug: string;
+  titulo?: string;
+  display: string;
+  unreadCount?: number;
+  unreadGeneralCount?: number;
+  unreadMentionCount?: number;
+  mentionUnread?: boolean;
+  lastMessagePreview?: string | null;
+}): ConversaAssuntoListItem {
+  return {
+    id: raw.id,
+    slug: raw.slug,
+    titulo: raw.titulo ?? raw.display,
+    display: raw.display,
+    unreadCount: raw.unreadCount ?? 0,
+    unreadGeneralCount: raw.unreadGeneralCount ?? 0,
+    unreadMentionCount: raw.unreadMentionCount ?? 0,
+    mentionUnread: raw.mentionUnread ?? false,
+    lastMessagePreview: raw.lastMessagePreview ?? null,
+  };
+}
+
 export function ChamadosPortalShell({ view, mobile = false }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [refreshToken, setRefreshToken] = useState(0);
+  const [selectedAssunto, setSelectedAssunto] = useState<ConversaAssuntoListItem | null>(null);
   const bumpRefresh = useCallback(() => setRefreshToken((n) => n + 1), []);
+
+  const onSelectAssunto = useCallback(
+    (a: ConversaAssuntoListItem | null) => {
+      setSelectedAssunto(a);
+      const params = new URLSearchParams(
+        typeof window !== "undefined" ? window.location.search : "",
+      );
+      if (a) params.set("conversa", a.slug);
+      else params.delete("conversa");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router],
+  );
+
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get("conversa")?.trim();
+    if (!slug || selectedAssunto?.slug === slug) return;
+    /** Só restaura da URL quando ainda não há seleção (evita corrida com clique). */
+    if (selectedAssunto) return;
+    let cancelled = false;
+    void fetch(`/api/chamados/conversas?slug=${encodeURIComponent(slug)}`, {
+      credentials: "same-origin",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const raw = (data as { assunto?: Parameters<typeof assuntoFromApi>[0] })?.assunto;
+        if (raw?.id) setSelectedAssunto(assuntoFromApi(raw));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, selectedAssunto?.slug]);
 
   return (
     <div className={mobile ? "flex min-h-0 flex-col gap-3" : "portal-page min-w-0"}>
@@ -37,7 +104,13 @@ export function ChamadosPortalShell({ view, mobile = false }: Props) {
             <p className="text-sm text-slate-500">{mobile ? "Carregando IbiZap…" : "Carregando…"}</p>
           }
         >
-          <ChamadosWorkspace view={view} mobile={mobile} refreshToken={refreshToken} />
+          <ChamadosWorkspace
+            view={view}
+            mobile={mobile}
+            refreshToken={refreshToken}
+            selectedAssunto={selectedAssunto}
+            onSelectAssunto={onSelectAssunto}
+          />
         </Suspense>
       </div>
     </div>
