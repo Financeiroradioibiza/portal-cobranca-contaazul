@@ -8,8 +8,13 @@ type AgendaItem = ChamadoView & { prazoLabel?: string };
 
 type ViewMode = "semana" | "dia" | "mes";
 
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const HOUR_ROW = "h-9";
+const DAY_PARTS = [
+  { id: "manha", label: "Manhã" },
+  { id: "tarde", label: "Tarde" },
+  { id: "noite", label: "Noite" },
+] as const;
+
+const PART_ROW = "min-h-[4.5rem]";
 
 const WEEKDAY_SHORT = ["dom.", "seg.", "ter.", "qua.", "qui.", "sex.", "sáb."] as const;
 
@@ -195,22 +200,21 @@ function TimeGrid({
         </div>
 
         <div className="grid" style={{ gridTemplateColumns: gridCols }}>
-          {HOURS.map((h) => (
-            <div key={h} className="contents">
+          {DAY_PARTS.map((part) => (
+            <div key={part.id} className="contents">
               <div
                 className={
-                  `${HOUR_ROW} border-b border-r border-slate-200 pr-1 pt-0.5 text-right text-[9px] text-slate-400 dark:border-slate-700 ` +
-                  (h === 0 ? "" : "")
+                  `${PART_ROW} flex items-start justify-end border-b border-r border-slate-200 px-1 pt-2 text-right text-[10px] font-semibold text-slate-500 dark:border-slate-700 dark:text-slate-400`
                 }
               >
-                {String(h).padStart(2, "0")}:00
+                {part.label}
               </div>
               {days.map((day) => {
-                const key = `${toIsoLocal(day)}-${h}`;
+                const key = `${toIsoLocal(day)}-${part.id}`;
                 return (
                   <div
                     key={key}
-                    className={`${HOUR_ROW} border-b border-r border-slate-200 last:border-r-0 dark:border-slate-700`}
+                    className={`${PART_ROW} border-b border-r border-slate-200 last:border-r-0 dark:border-slate-700`}
                   />
                 );
               })}
@@ -383,7 +387,7 @@ export function ChamadosAgendaPanel() {
         </div>
       </div>
 
-      <div className="relative mt-3 max-h-[min(70vh,520px)] overflow-y-auto">
+      <div className="relative mt-3 max-h-[min(70vh,420px)] overflow-y-auto">
         {mode === "mes" ?
           <MonthGrid anchor={anchor} itemsByDay={itemsByDay} todayKey={todayKey} loading={loading} />
         : <TimeGrid days={weekDays} itemsByDay={itemsByDay} todayKey={todayKey} loading={loading} />}
