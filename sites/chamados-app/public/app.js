@@ -42,8 +42,12 @@
   var STATUS = {
     aberto: { label: "Aberto", cls: "badge-status-aberto" },
     em_andamento: { label: "Em andamento", cls: "badge-status-em_andamento" },
+    aguardando: { label: "Aguardando", cls: "badge-status-aguardando" },
     fechado: { label: "Resolvido", cls: "badge-status-fechado" },
   };
+
+  var seqDefaults = window.ChamadosSequenciaDefaults;
+  var agendaApi = null;
 
   var PRI = {
     urgente: { label: "Urgente", cls: "badge-pri-urgente" },
@@ -62,6 +66,53 @@
     } catch (e) {
       return "";
     }
+  }
+
+  function fmtPrazoEntrega(iso) {
+    if (!iso) return "";
+    try {
+      return new Intl.DateTimeFormat("pt-BR", {
+        dateStyle: "short",
+        timeZone: "America/Sao_Paulo",
+      }).format(new Date(iso));
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function refreshSequenciaStepsForDraft(d) {
+    if (!seqDefaults || !d) return;
+    if (d.template === "cliente_novo") {
+      d.sequenciaSteps = seqDefaults.buildDefaultClienteNovoSteps(new Date());
+    } else if (d.template === "vinhetas") {
+      d.sequenciaSteps = seqDefaults.buildDefaultVinhetasSteps(
+        new Date(),
+        seqDefaults.defaultVinhetasRafaelEmail(state.participants),
+      );
+    } else {
+      d.sequenciaSteps = [];
+    }
+  }
+
+  function openChamadoById(id) {
+    function tryOpen() {
+      var c = state.chamados.find(function (x) {
+        return x.id === id;
+      });
+      if (c) {
+        state.tab = "tickets";
+        navEl.querySelectorAll(".nav-btn").forEach(function (btn) {
+          btn.classList.toggle("active", btn.getAttribute("data-tab") === "tickets");
+        });
+        openTicket(c);
+        return true;
+      }
+      return false;
+    }
+    if (tryOpen()) return;
+    loadChamados().then(function () {
+      if (!tryOpen()) alert("Chamado não encontrado ou sem acesso.");
+    });
   }
 
   function setScreenHeader(sectionTitle) {
@@ -251,6 +302,8 @@
       opcoesLoading: false,
       opcoesErr: "",
       opcoesTimer: null,
+      template: "padrao",
+      sequenciaSteps: [],
     };
   }
 
@@ -383,9 +436,41 @@
         "</div>"
       : "";
 
+    var templateBlock =
+      '<div class="sheet-block">' +
+      '<p class="sheet-block-title">Modelo</p>' +
+      '<div class="modo-row">' +
+      [
+        ["padrao", "Padrão"],
+        ["cliente_novo", "Cliente novo"],
+        ["vinhetas", "Vinhetas"],
+      ]
+        .map(function (pair) {
+          return (
+            '<button type="button" class="modo-chip' +
+            (d.template === pair[0] ? " on" : "") +
+            '" data-create-template="' +
+            pair[0] +
+            '">' +
+            pair[1] +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</div>" +
+      (d.template === "cliente_novo" ?
+        '<p class="sheet-hint">4 etapas em série (Financeiro → Criação → Produção → Instalação).</p>'
+      : d.template === "vinhetas" ?
+        '<p class="sheet-hint">2 etapas: criação de vinheta e subida em cliente (Produção).</p>'
+      : "") +
+      "</div>";
+
+    var showPadraoSetores = d.template === "padrao";
+
     var inner =
       "<h2>Novo chamado</h2>" +
       '<form id="form-ticket-create">' +
+      templateBlock +
       '<div class="sheet-block">' +
       '<p class="sheet-block-title">Vínculo (opcional)</p>' +
       '<p class="sheet-hint">Assunto livre ou cliente/PDV da Produção.</p>' +
@@ -429,14 +514,16 @@
       '<option value="urgente"' +
       (d.prioridade === "urgente" ? " selected" : "") +
       ">Urgente</option></select></label>" +
-      '<div class="sheet-block"><p class="sheet-block-title">Setores</p><div class="setor-row">' +
-      setoresHtml +
-      "</div></div>" +
-      (peopleHtml ?
-        '<div class="sheet-block sheet-people"><p class="sheet-block-title">Pessoas</p>' +
-        peopleHtml +
-        "</div>"
-      : '<p class="sheet-hint">Carregando lista de pessoas…</p>') +
+      (showPadraoSetores ?
+        '<div class="sheet-block"><p class="sheet-block-title">Setores</p><div class="setor-row">' +
+        setoresHtml +
+        "</div></div>" +
+        (peopleHtml ?
+          '<div class="sheet-block sheet-people"><p class="sheet-block-title">Pessoas</p>' +
+          peopleHtml +
+          "</div>"
+        : '<p class="sheet-hint">Carregando lista de pessoas…</p>')
+      : '<p class="sheet-hint">Setores e responsáveis vêm das etapas do modelo escolhido.</p>') +
       '<div class="sheet-actions">' +
       '<button type="button" class="btn-secondary" id="cancel-sheet">Cancelar</button>' +
       '<button type="submit" class="btn-primary">Criar chamado</button></div></form>';
@@ -555,6 +642,14 @@
     if (!d) return;
     document.getElementById("cancel-sheet").onclick = closeOverlay;
 
+    overlayEl.querySelectorAll("[data-create-template]").forEach(function (btn) {
+      btn.onclick = function () {
+        d.template = btn.getAttribute("data-create-template");
+        refreshSequenciaStepsForDraft(d);
+        renderNewTicketSheet();
+      };
+    });
+
     overlayEl.querySelectorAll("[data-create-modo]").forEach(function (btn) {
       btn.onclick = function () {
         var modo = btn.getAttribute("data-create-modo");
@@ -652,7 +747,21 @@
         rioLinhaId: d.modo !== "livre" ? d.rioLinhaId : null,
         rioPdvKey: d.modo === "pdv" ? d.rioPdvKey : null,
         clienteNome: d.modo !== "livre" ? d.clienteNome : "",
+        template: d.template || "padrao",
       };
+      if (d.template === "cliente_novo" || d.template === "vinhetas") {
+        refreshSequenciaStepsForDraft(d);
+        var enabled = (d.sequenciaSteps || []).filter(function (s) {
+          return s.enabled !== false;
+        });
+        if (!enabled.length) {
+          alert("Modelo sem etapas válidas.");
+          return;
+        }
+        body.sequenciaSteps = d.sequenciaSteps;
+        body.setores = [];
+        body.responsaveis = [];
+      }
 
       auth
         .apiFetch("/api/chamados", {
@@ -684,7 +793,7 @@
   }
 
   function loadChamados() {
-    return auth.apiFetch("/api/chamados").then(function (r) {
+    return auth.apiFetch("/api/chamados?scope=mine-all").then(function (r) {
       if (!r.ok) throw new Error("chamados");
       return r.json();
     }).then(function (d) {
@@ -859,8 +968,13 @@
         var st = STATUS[c.status] || STATUS.aberto;
         var pr = PRI[c.prioridade] || PRI.media;
         var unread = Number(c.unreadCount) || 0;
+        var isSeq = Boolean(c.sequenciaGrupoId);
+        var seqLabel =
+          isSeq && c.sequenciaPasso && c.sequenciaTotal ? c.sequenciaPasso + "/" + c.sequenciaTotal : "";
+        var prazoLabel = fmtPrazoEntrega(c.prazoEntrega);
         html +=
           '<button type="button" class="ticket-card' +
+          (isSeq ? " ticket-card-seq" : "") +
           (unread > 0 ? " has-unread" : "") +
           '" data-ticket="' +
           escapeHtml(c.id) +
@@ -868,6 +982,7 @@
           '<div class="ticket-title-row">' +
           '<h3 class="ticket-title">' +
           escapeHtml(c.titulo) +
+          (isSeq ? ' <span class="ticket-seq-tag">(SEQUÊNCIA)</span>' : "") +
           "</h3>" +
           (unread > 0 ?
             '<span class="ticket-title-badge" aria-label="' +
@@ -891,7 +1006,17 @@
           '<span class="muted">' +
           fmtWhen(c.updatedAt) +
           "</span>" +
-          "</div></button>";
+          "</div>" +
+          (isSeq && c.sequenciaRotulo ?
+            '<p class="ticket-seq-rotulo">' + escapeHtml(c.sequenciaRotulo) + "</p>"
+          : "") +
+          (isSeq && (seqLabel || prazoLabel) ?
+            '<div class="ticket-seq-foot">' +
+            (seqLabel ? '<span class="ticket-seq-step">' + seqLabel + "</span>" : "") +
+            (prazoLabel ? '<span class="ticket-seq-prazo">Limite: ' + escapeHtml(prazoLabel) + "</span>" : "") +
+            "</div>"
+          : "") +
+          "</button>";
       });
       html += "</div>";
     }
@@ -1090,7 +1215,12 @@
       "</span></div>" +
       '<h2 class="ticket-head-title">' +
       escapeHtml(c.titulo) +
+      (c.sequenciaGrupoId ? ' <span class="ticket-seq-tag">(SEQUÊNCIA)</span>' : "") +
       "</h2>" +
+      (c.sequenciaRotulo ? '<p class="ticket-seq-rotulo">' + escapeHtml(c.sequenciaRotulo) + "</p>" : "") +
+      (c.prazoEntrega ?
+        '<p class="muted" style="margin:0 0 0.5rem">Prazo: ' + escapeHtml(fmtPrazoEntrega(c.prazoEntrega)) + "</p>"
+      : "") +
       '<div class="detail-block detail-block-tight">' +
       '<div class="thread-list">' +
       initialHtml +
@@ -1127,9 +1257,22 @@
       (c.status !== "em_andamento" ?
         '<button type="button" class="btn-secondary" data-quick-status="em_andamento">Em andamento</button>'
       : "") +
-      (c.status !== "fechado" ?
-        '<button type="button" class="btn-primary" data-quick-status="fechado">Resolver</button>'
-      : "") +
+      (function () {
+        var isSeq = Boolean(c.sequenciaGrupoId);
+        var sequenciaAtiva =
+          isSeq &&
+          c.status !== "fechado" &&
+          c.status !== "aguardando" &&
+          (c.sequenciaPasso || 0) < (c.sequenciaTotal || 0);
+        var sequenciaUltima = isSeq && c.sequenciaPasso === c.sequenciaTotal && c.status !== "fechado";
+        if (sequenciaAtiva || sequenciaUltima) {
+          return '<button type="button" class="btn-primary" id="btn-seq-proximo">Encerrar / próximo processo</button>';
+        }
+        if (c.status !== "fechado") {
+          return '<button type="button" class="btn-primary" data-quick-status="fechado">Resolver</button>';
+        }
+        return "";
+      })() +
       (c.status === "fechado" ?
         '<button type="button" class="btn-secondary" data-quick-status="aberto">Reabrir</button>'
       : "") +
@@ -1237,6 +1380,61 @@
           });
       };
     });
+
+    var btnSeq = document.getElementById("btn-seq-proximo");
+    if (btnSeq) {
+      btnSeq.onclick = function () {
+        btnSeq.disabled = true;
+        auth
+          .apiFetch("/api/chamados/" + encodeURIComponent(c.id) + "/sequencia/proximo", { method: "POST" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("seq");
+            return r.json();
+          })
+          .then(function (data) {
+            var fechado = data.fechado;
+            var proximo = data.proximo;
+            var fim = Boolean(data.fim);
+            if (fechado) {
+              state.chamados = state.chamados.map(function (x) {
+                return x.id === fechado.id ? fechado : x;
+              });
+            }
+            if (proximo) {
+              var has = state.chamados.some(function (x) {
+                return x.id === proximo.id;
+              });
+              state.chamados = has ?
+                state.chamados.map(function (x) {
+                  return x.id === proximo.id ? proximo : x;
+                })
+              : [proximo].concat(state.chamados);
+              state.selectedTicket = proximo;
+              state.detailDraft = {
+                titulo: proximo.titulo,
+                descricao: proximo.descricao || "",
+                prioridade: proximo.prioridade,
+                setores: (proximo.setores || []).slice(),
+                responsaveis: (proximo.responsaveis || []).slice(),
+              };
+            } else if (fim && fechado) {
+              state.selectedTicket = fechado;
+            }
+            return loadChamados().then(function () {
+              return loadTicketThread(state.selectedTicket.id);
+            });
+          })
+          .then(function () {
+            renderTicketDetail();
+          })
+          .catch(function () {
+            alert("Não foi possível avançar a sequência.");
+          })
+          .finally(function () {
+            btnSeq.disabled = false;
+          });
+      };
+    }
 
     document.getElementById("btn-save-ticket").onclick = function () {
       var btn = document.getElementById("btn-save-ticket");
@@ -1389,15 +1587,17 @@
     thread.scrollTop = thread.scrollHeight;
   }
 
-  function ensureFab(kind) {
+  function ensureFab(kind, customClick) {
     removeFab();
+    if (kind === "none") return;
     fabEl = document.createElement("button");
     fabEl.type = "button";
     fabEl.className = "fab";
     fabEl.setAttribute("aria-label", "Novo");
     fabEl.textContent = "+";
     fabEl.onclick = function () {
-      if (kind === "ticket") openNewTicketSheet();
+      if (typeof customClick === "function") customClick();
+      else if (kind === "ticket") openNewTicketSheet();
       else openNewChannelSheet();
     };
     document.body.appendChild(fabEl);
@@ -1409,14 +1609,15 @@
   }
 
   function openNewTicketSheet() {
-    if (!state.participants.length) {
-      loadParticipants().then(function () {
-        state.createDraft = emptyCreateDraft();
-        renderNewTicketSheet();
-      });
-    } else {
+    function start() {
       state.createDraft = emptyCreateDraft();
+      refreshSequenciaStepsForDraft(state.createDraft);
       renderNewTicketSheet();
+    }
+    if (!state.participants.length) {
+      loadParticipants().then(start);
+    } else {
+      start();
     }
   }
 
@@ -1458,6 +1659,8 @@
     if (state.tab === "tickets") {
       if (state.selectedTicket) renderTicketDetail();
       else renderTickets();
+    } else if (state.tab === "agenda") {
+      if (agendaApi) agendaApi.render();
     } else if (state.selectedAssunto) {
       renderChatThread();
     } else {
@@ -1505,6 +1708,11 @@
           return loadMessages(state.selectedAssunto.id).then(function () {
             renderChatThread();
             renderMessages();
+          });
+        }
+        if (state.tab === "agenda" && agendaApi) {
+          return agendaApi.refresh().then(function () {
+            agendaApi.renderOnly();
           });
         }
         render();
@@ -1636,6 +1844,27 @@
   };
 
   closeOverlay();
+
+  if (window.ChamadosAgendaModule) {
+    agendaApi = window.ChamadosAgendaModule({
+      auth: auth,
+      mainEl: mainEl,
+      navEl: navEl,
+      escapeHtml: escapeHtml,
+      setScreenHeader: setScreenHeader,
+      showOverlay: showOverlay,
+      closeOverlay: closeOverlay,
+      getUser: function () {
+        return state.user;
+      },
+      getParticipants: function () {
+        return state.participants;
+      },
+      avatarHtml: avatarHtml,
+      openChamadoById: openChamadoById,
+      ensureFab: ensureFab,
+    });
+  }
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(function () {});
