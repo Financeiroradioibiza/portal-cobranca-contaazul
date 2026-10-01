@@ -91,8 +91,34 @@ function fmtWhen(iso: string): string {
   }
 }
 
+function assuntoToListItemFromApi(raw: {
+  id: string;
+  slug: string;
+  titulo?: string;
+  display: string;
+  unreadCount?: number;
+  unreadGeneralCount?: number;
+  unreadMentionCount?: number;
+  mentionUnread?: boolean;
+  lastMessagePreview?: string | null;
+}): ConversaAssuntoListItem {
+  return {
+    id: raw.id,
+    slug: raw.slug,
+    titulo: raw.titulo ?? raw.display,
+    display: raw.display,
+    unreadCount: raw.unreadCount ?? 0,
+    unreadGeneralCount: raw.unreadGeneralCount ?? 0,
+    unreadMentionCount: raw.unreadMentionCount ?? 0,
+    mentionUnread: raw.mentionUnread ?? false,
+    lastMessagePreview: raw.lastMessagePreview ?? null,
+  };
+}
+
 type Props = {
   selectedId: string | null;
+  /** Mantém o chat estável enquanto o inbox recarrega. */
+  selectedItem?: ConversaAssuntoListItem | null;
   onSelect: (assunto: ConversaAssuntoListItem | null) => void;
   participants: ChamadoParticipant[];
   viewerEmail?: string;
@@ -104,6 +130,7 @@ type Props = {
 
 export function ChamadosConversasPanel({
   selectedId,
+  selectedItem = null,
   onSelect,
   participants,
   viewerEmail = "",
@@ -137,8 +164,8 @@ export function ChamadosConversasPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
   const initialSlugHandled = useRef(false);
 
-  const loadInbox = useCallback(async () => {
-    setLoading(true);
+  const loadInbox = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await fetch("/api/chamados/conversas/inbox", { credentials: "same-origin" });
       const data = res.ok ? await res.json() : null;
@@ -146,15 +173,17 @@ export function ChamadosConversasPanel({
       if (box) {
         setInbox(box);
         setAssuntos(box.canais);
-      } else {
+      } else if (!opts?.silent) {
         setInbox(null);
         setAssuntos([]);
       }
     } catch {
-      setInbox(null);
-      setAssuntos([]);
+      if (!opts?.silent) {
+        setInbox(null);
+        setAssuntos([]);
+      }
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
 
@@ -234,10 +263,15 @@ export function ChamadosConversasPanel({
     });
   }
 
-  const selected = useMemo(
-    () => (selectedId ? (allAssuntos.get(selectedId) ?? null) : null),
-    [allAssuntos, selectedId],
-  );
+  const selected = useMemo(() => {
+    if (!selectedId) return null;
+    const hit = allAssuntos.get(selectedId);
+    if (hit) return hit;
+    if (selectedItem?.id === selectedId) return selectedItem;
+    return null;
+  }, [allAssuntos, selectedId, selectedItem]);
+
+  const chatOpen = Boolean(selectedId && !hideChat);
 
   const clientesFiltrados = useMemo(() => {
     if (!inbox) return [];
@@ -307,8 +341,8 @@ export function ChamadosConversasPanel({
       }
       const created = (data as { assunto?: ConversaAssuntoListItem }).assunto;
       setNewTitulo("");
-      await loadInbox();
-      if (created) onSelect(created);
+      if (created) onSelect(assuntoToListItemFromApi(created));
+      await loadInbox({ silent: true });
     } catch {
       setMsg("Erro de rede.");
     } finally {
@@ -338,7 +372,7 @@ export function ChamadosConversasPanel({
       setReplyTo(null);
       setPendingFiles([]);
       await loadMensagens(selectedId);
-      await loadInbox();
+      await loadInbox({ silent: true });
     } catch {
       setMsg("Erro de rede ao enviar.");
     } finally {
@@ -361,8 +395,8 @@ export function ChamadosConversasPanel({
         return;
       }
       const created = (data as { assunto?: ConversaAssuntoListItem })?.assunto;
-      await loadInbox();
-      if (created) onSelect(created);
+      if (created) onSelect(assuntoToListItemFromApi(created));
+      await loadInbox({ silent: true });
     } catch {
       setMsg("Erro ao abrir cliente.");
     }
@@ -386,9 +420,9 @@ export function ChamadosConversasPanel({
       }
       setNewProspectNome("");
       setSectionsOpen((s) => ({ ...s, prospects: true }));
-      await loadInbox();
       const created = (data as { assunto?: ConversaAssuntoListItem })?.assunto;
-      if (created) onSelect(created);
+      if (created) onSelect(assuntoToListItemFromApi(created));
+      await loadInbox({ silent: true });
     } catch {
       setMsg("Erro de rede.");
     } finally {
@@ -412,7 +446,7 @@ export function ChamadosConversasPanel({
         setMsg("Não foi possível mover a conversa para o cliente.");
         return;
       }
-      await loadInbox();
+      await loadInbox({ silent: true });
     } catch {
       setMsg("Erro ao migrar prospect.");
     }
@@ -465,7 +499,7 @@ export function ChamadosConversasPanel({
     );
   }
 
-  const showChatMobile = Boolean(selectedId && !hideChat);
+  const showChatMobile = chatOpen;
 
   const sidebar = (
       <aside
@@ -724,13 +758,17 @@ export function ChamadosConversasPanel({
       <div
         className={
           "flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-slate-900 " +
-          (selected ? "max-lg:flex" : "max-lg:hidden lg:flex")
+          (chatOpen ? "flex" : "hidden lg:flex")
         }
       >
-        {!selected ?
+        {!chatOpen ?
           <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-slate-500">
             <p>Selecione um assunto à esquerda para abrir a conversa.</p>
             <p className="mt-1 text-xs">Ou volte ao quadro kanban.</p>
+          </div>
+        : !selected ?
+          <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-slate-500">
+            <p>Carregando conversa…</p>
           </div>
         : <>
             <div className="border-b border-slate-200 px-3 py-2.5 dark:border-slate-700 sm:px-4 sm:py-3">
@@ -766,7 +804,7 @@ export function ChamadosConversasPanel({
                   onReply={(x) => setReplyTo(x)}
                   onRefresh={() => {
                     void loadMensagens(selectedId!);
-                    void loadInbox();
+                    void loadInbox({ silent: true });
                   }}
                 />
               ))}

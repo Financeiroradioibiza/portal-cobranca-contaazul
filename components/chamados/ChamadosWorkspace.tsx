@@ -79,6 +79,7 @@ export function ChamadosWorkspace({ view, mobile = false }: ChamadosWorkspacePro
         >
           <ChamadosConversasPanel
             selectedId={selectedAssunto?.id ?? null}
+            selectedItem={selectedAssunto}
             onSelect={onSelectAssunto}
             participants={participants}
             viewerEmail={viewerEmail}
