@@ -76,6 +76,7 @@ type ChamadosBoardProps = {
   embeddedLayout?: boolean;
   /** Abrir detalhe ao carregar (link do e-mail). */
   initialChamadoId?: string | null;
+  refreshToken?: number;
 };
 
 export function ChamadosBoard({
@@ -83,6 +84,7 @@ export function ChamadosBoard({
   embedded = false,
   embeddedLayout = false,
   initialChamadoId = null,
+  refreshToken = 0,
 }: ChamadosBoardProps) {
   const [chamados, setChamados] = useState<ChamadoView[]>([]);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
@@ -129,6 +131,11 @@ export function ChamadosBoard({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (refreshToken <= 0) return;
+    void load();
+  }, [refreshToken, load]);
 
   useEffect(() => {
     void fetch("/api/auth/me", { credentials: "same-origin" })
@@ -352,6 +359,15 @@ export function ChamadosBoard({
             <StatPill label="Abertos" value={stats.abertos} tone="sky" />
             <button
               type="button"
+              disabled={loading}
+              onClick={() => void load()}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              title="Recarregar quadro"
+            >
+              {loading ? "…" : "↻ Atualizar"}
+            </button>
+            <button
+              type="button"
               onClick={openCreate}
               className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-violet-500"
             >
@@ -371,6 +387,14 @@ export function ChamadosBoard({
             <StatPill label="Resolvidos" value={stats.fechados} tone="emerald" />
             <button
               type="button"
+              disabled={loading}
+              onClick={() => void load()}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+            >
+              {loading ? "…" : "↻ Atualizar"}
+            </button>
+            <button
+              type="button"
               onClick={openCreate}
               className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500"
             >
@@ -387,6 +411,14 @@ export function ChamadosBoard({
             <StatPill label="Total" value={stats.total} tone="slate" />
             <StatPill label="Abertos" value={stats.abertos} tone="sky" />
             <StatPill label="Resolvidos" value={stats.fechados} tone="emerald" />
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void load()}
+              className="rounded-lg border border-violet-300 bg-white/90 px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-white disabled:opacity-50 dark:border-violet-700 dark:bg-slate-900 dark:text-violet-100"
+            >
+              {loading ? "…" : "↻ Atualizar"}
+            </button>
             <button
               type="button"
               onClick={openCreate}

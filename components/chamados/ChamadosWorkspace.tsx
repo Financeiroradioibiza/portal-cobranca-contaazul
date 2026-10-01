@@ -15,9 +15,11 @@ type ChamadosWorkspaceProps = {
   view: ChamadosWorkspaceView;
   /** Layout mais alto no shell /m (PWA). */
   mobile?: boolean;
+  /** Incrementado pelo botão Atualizar no cabeçalho da página. */
+  refreshToken?: number;
 };
 
-export function ChamadosWorkspace({ view, mobile = false }: ChamadosWorkspaceProps) {
+export function ChamadosWorkspace({ view, mobile = false, refreshToken = 0 }: ChamadosWorkspaceProps) {
   const searchParams = useSearchParams();
   const conversaSlug = searchParams.get("conversa");
   const chamadoId = searchParams.get("chamado");
@@ -74,7 +76,7 @@ export function ChamadosWorkspace({ view, mobile = false }: ChamadosWorkspacePro
           className={
             mainView === "kanban" ?
               "h-full max-h-full w-full shrink-0 overflow-hidden border-b border-slate-200 dark:border-slate-700 lg:w-56 lg:max-w-[14rem] lg:border-b-0 lg:border-r xl:w-60"
-            : "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            : "flex h-full max-h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           }
         >
           <ChamadosConversasPanel
@@ -85,12 +87,13 @@ export function ChamadosWorkspace({ view, mobile = false }: ChamadosWorkspacePro
             viewerEmail={viewerEmail}
             initialSlug={conversaSlug}
             hideChat={mainView === "kanban"}
+            refreshToken={refreshToken}
           />
         </div>
 
         {mainView === "kanban" ?
           <div className="min-h-0 min-w-0 flex-1 overflow-auto p-4">
-            <ChamadosBoard embeddedLayout initialChamadoId={chamadoId} />
+            <ChamadosBoard embeddedLayout initialChamadoId={chamadoId} refreshToken={refreshToken} />
           </div>
         : null}
       </div>

@@ -126,6 +126,7 @@ type Props = {
   initialSlug?: string | null;
   /** Oculta o painel de chat (só coluna # visível). */
   hideChat?: boolean;
+  refreshToken?: number;
 };
 
 export function ChamadosConversasPanel({
@@ -136,7 +137,10 @@ export function ChamadosConversasPanel({
   viewerEmail = "",
   initialSlug,
   hideChat = false,
+  refreshToken = 0,
 }: Props) {
+  /** Mantém título/id mesmo se o inbox recarregar antes do mapa interno. */
+  const [stickySelected, setStickySelected] = useState<ConversaAssuntoListItem | null>(null);
   const [inbox, setInbox] = useState<InboxData | null>(null);
   const [assuntos, setAssuntos] = useState<ConversaAssuntoListItem[]>([]);
   const [clienteFilter, setClienteFilter] = useState("");
@@ -161,6 +165,7 @@ export function ChamadosConversasPanel({
   const [replyTo, setReplyTo] = useState<ConversaMensagemItem | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [grupoEmails, setGrupoEmails] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const initialSlugHandled = useRef(false);
 
@@ -263,15 +268,49 @@ export function ChamadosConversasPanel({
     });
   }
 
-  const selected = useMemo(() => {
+  useEffect(() => {
+    if (selectedItem?.id) setStickySelected(selectedItem);
+  }, [selectedItem]);
+
+  useEffect(() => {
+    if (!selectedId) setStickySelected(null);
+  }, [selectedId]);
+
+  const activeAssunto = useMemo(() => {
     if (!selectedId) return null;
     const hit = allAssuntos.get(selectedId);
     if (hit) return hit;
     if (selectedItem?.id === selectedId) return selectedItem;
-    return null;
-  }, [allAssuntos, selectedId, selectedItem]);
+    if (stickySelected?.id === selectedId) return stickySelected;
+    const slugHint = initialSlug ?? stickySelected?.slug ?? selectedItem?.slug ?? "";
+    const displayHint =
+      stickySelected?.display ??
+      selectedItem?.display ??
+      (slugHint ?
+        slugHint.startsWith("#") ?
+          slugHint
+        : `#${slugHint}`
+      : "Conversa");
+    return {
+      id: selectedId,
+      slug: slugHint || selectedId,
+      titulo: displayHint,
+      display: displayHint,
+      unreadCount: 0,
+      unreadGeneralCount: 0,
+      unreadMentionCount: 0,
+      mentionUnread: false,
+      lastMessagePreview: null,
+    };
+  }, [allAssuntos, selectedId, selectedItem, stickySelected, initialSlug]);
 
   const chatOpen = Boolean(selectedId && !hideChat);
+
+  function pickAssunto(a: ConversaAssuntoListItem | null) {
+    if (a) setStickySelected(a);
+    else setStickySelected(null);
+    onSelect(a);
+  }
 
   const clientesFiltrados = useMemo(() => {
     if (!inbox) return [];
@@ -319,9 +358,9 @@ export function ChamadosConversasPanel({
     const hit = [...allAssuntos.values()].find((a) => a.slug === slug);
     if (hit) {
       initialSlugHandled.current = true;
-      onSelect(hit);
+      pickAssunto(hit);
     }
-  }, [initialSlug, allAssuntos, onSelect]);
+  }, [initialSlug, allAssuntos]);
 
   async function createAssunto() {
     if (!newTitulo.trim()) return;
@@ -341,7 +380,7 @@ export function ChamadosConversasPanel({
       }
       const created = (data as { assunto?: ConversaAssuntoListItem }).assunto;
       setNewTitulo("");
-      if (created) onSelect(assuntoToListItemFromApi(created));
+      if (created) pickAssunto(assuntoToListItemFromApi(created));
       await loadInbox({ silent: true });
     } catch {
       setMsg("Erro de rede.");
@@ -395,7 +434,7 @@ export function ChamadosConversasPanel({
         return;
       }
       const created = (data as { assunto?: ConversaAssuntoListItem })?.assunto;
-      if (created) onSelect(assuntoToListItemFromApi(created));
+      if (created) pickAssunto(assuntoToListItemFromApi(created));
       await loadInbox({ silent: true });
     } catch {
       setMsg("Erro ao abrir cliente.");
@@ -421,7 +460,7 @@ export function ChamadosConversasPanel({
       setNewProspectNome("");
       setSectionsOpen((s) => ({ ...s, prospects: true }));
       const created = (data as { assunto?: ConversaAssuntoListItem })?.assunto;
-      if (created) onSelect(assuntoToListItemFromApi(created));
+      if (created) pickAssunto(assuntoToListItemFromApi(created));
       await loadInbox({ silent: true });
     } catch {
       setMsg("Erro de rede.");
@@ -458,7 +497,7 @@ export function ChamadosConversasPanel({
 
   function jumpToMessage(assuntoId: string, mensagemId: string) {
     const a = allAssuntos.get(assuntoId);
-    if (a) onSelect(a);
+    if (a) pickAssunto(a);
     setTimeout(() => {
       document.getElementById("msg-" + mensagemId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 400);
@@ -466,8 +505,33 @@ export function ChamadosConversasPanel({
 
   function voltarParaListaConversas() {
     setReplyTo(null);
-    onSelect(null);
+    pickAssunto(null);
   }
+
+  async function refreshConversas() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await loadInbox({ silent: true });
+      if (selectedId && !hideChat) {
+        await loadMensagens(selectedId);
+        const res = await fetch(`/api/chamados/conversas/${encodeURIComponent(selectedId)}`, {
+          credentials: "same-origin",
+        });
+        const data = res.ok ? await res.json() : null;
+        const emails = (data as { assunto?: { grupoEmails?: string[] } })?.assunto?.grupoEmails;
+        if (Array.isArray(emails)) setGrupoEmails(emails);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (refreshToken <= 0) return;
+    void refreshConversas();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só refreshToken (cabeçalho da página)
+  }, [refreshToken]);
 
   function renderListRow(
     key: string,
@@ -504,16 +568,27 @@ export function ChamadosConversasPanel({
   const sidebar = (
       <aside
         className={
-          "flex h-full w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 lg:w-64 lg:max-w-[16rem] lg:border-b-0 lg:border-r xl:w-72 " +
+          "flex h-full max-h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 md:w-64 md:max-w-[16rem] lg:border-b-0 lg:border-r xl:w-72 " +
           (hideChat ?
-            "max-h-[38vh] sm:max-h-none"
+            "max-h-[38vh] sm:max-h-full"
           : showChatMobile ?
-            "hidden lg:flex"
-          : "min-h-0 flex-1 max-h-none lg:max-h-none")
+            "hidden md:flex"
+          : "")
         }
       >
         <div className="border-b border-slate-200 p-3 dark:border-slate-700">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Conversas</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Conversas</p>
+            <button
+              type="button"
+              disabled={refreshing || loading}
+              onClick={() => void refreshConversas()}
+              className="shrink-0 rounded-lg border border-slate-300 px-2 py-0.5 text-[10px] font-bold text-slate-600 hover:bg-white disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-900"
+              title="Recarregar lista e conversa aberta"
+            >
+              {refreshing || loading ? "…" : "↻ Atualizar"}
+            </button>
+          </div>
           <div className="mt-2 flex gap-1">
             <input
               type="text"
@@ -538,7 +613,7 @@ export function ChamadosConversasPanel({
             <p className="mt-1 text-[10px] text-rose-600">{msg}</p>
           : null}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
           {loading ?
             <p className="p-3 text-xs text-slate-400">Carregando…</p>
           : <>
@@ -580,7 +655,7 @@ export function ChamadosConversasPanel({
                       a.unreadGeneralCount ?? a.unreadCount,
                       a.unreadMentionCount ?? (a.mentionUnread ? 1 : 0),
                       selectedId === a.id,
-                      () => onSelect(a),
+                      () => pickAssunto(a),
                     ),
                   )
                 }
@@ -624,7 +699,7 @@ export function ChamadosConversasPanel({
                         p.unreadGeneralCount ?? p.unreadCount,
                         p.unreadMentionCount ?? 0,
                         selectedId === p.id,
-                        () => onSelect(p),
+                        () => pickAssunto(p),
                       )}
                       <div className="px-3 pb-2">
                         <button
@@ -739,7 +814,23 @@ export function ChamadosConversasPanel({
                               ch.unreadGeneral,
                               ch.unreadMention,
                               selectedId === ch.assuntoId,
-                              () => void openClienteCanal(c.clienteKey, ch.papel),
+                              () => {
+                                if (ch.assuntoId && ch.assuntoSlug) {
+                                  pickAssunto({
+                                    id: ch.assuntoId,
+                                    slug: ch.assuntoSlug,
+                                    titulo: ch.label,
+                                    display: ch.label,
+                                    unreadCount: ch.unreadGeneral + ch.unreadMention,
+                                    unreadGeneralCount: ch.unreadGeneral,
+                                    unreadMentionCount: ch.unreadMention,
+                                    mentionUnread: ch.unreadMention > 0,
+                                    lastMessagePreview: ch.lastMessagePreview,
+                                  });
+                                  return;
+                                }
+                                void openClienteCanal(c.clienteKey, ch.papel);
+                              },
                             ),
                           )}
                         </div>
@@ -757,7 +848,7 @@ export function ChamadosConversasPanel({
   const chatPane = (
       <div
         className={
-          "flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-slate-900 " +
+          "flex min-h-[280px] min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-white dark:bg-slate-900 " +
           (chatOpen ? "flex" : "hidden lg:flex")
         }
       >
@@ -765,10 +856,6 @@ export function ChamadosConversasPanel({
           <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-slate-500">
             <p>Selecione um assunto à esquerda para abrir a conversa.</p>
             <p className="mt-1 text-xs">Ou volte ao quadro kanban.</p>
-          </div>
-        : !selected ?
-          <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-slate-500">
-            <p>Carregando conversa…</p>
           </div>
         : <>
             <div className="border-b border-slate-200 px-3 py-2.5 dark:border-slate-700 sm:px-4 sm:py-3">
@@ -781,9 +868,20 @@ export function ChamadosConversasPanel({
                   ← Voltar
                 </button>
                 <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">{selected.display}</h3>
+                  <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">
+                    {activeAssunto?.display ?? "Conversa"}
+                  </h3>
                   <p className="text-[10px] text-slate-400">Digite @ para escolher quem mencionar na lista.</p>
                 </div>
+                <button
+                  type="button"
+                  disabled={refreshing}
+                  onClick={() => void refreshConversas()}
+                  className="shrink-0 rounded-lg border border-slate-300 px-2 py-1 text-[10px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  title="Recarregar mensagens"
+                >
+                  {refreshing ? "…" : "↻"}
+                </button>
               </div>
             </div>
             <ConversaGrupoMembros
@@ -868,8 +966,8 @@ export function ChamadosConversasPanel({
   return (
     <div
       className={
-        "flex h-full min-h-0 w-full min-w-0 max-w-full overflow-hidden lg:flex-row lg:gap-0 " +
-        (showChatMobile ? "flex-col" : "flex-col lg:flex-row")
+        "flex h-full max-h-full min-h-0 w-full min-w-0 max-w-full flex-1 overflow-hidden lg:flex-row lg:gap-0 " +
+        (showChatMobile ? "min-h-[280px] flex-col" : "flex-col lg:flex-row")
       }
     >
       {sidebar}
