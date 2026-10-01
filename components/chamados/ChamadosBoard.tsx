@@ -42,6 +42,18 @@ function fmtWhen(iso: string): string {
   }
 }
 
+function fmtPrazoEntrega(iso: string | null): string | null {
+  if (!iso) return null;
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(iso));
+  } catch {
+    return null;
+  }
+}
+
 function initials(name: string): string {
   const p = name.trim().split(/\s+/).filter(Boolean);
   if (p.length >= 2) return (p[0]![0]! + p[1]![0]!).toUpperCase();
@@ -718,6 +730,12 @@ function ChamadoCard({
 }) {
   const pri = prioridadeMeta(chamado.prioridade);
   const unread = chamado.unreadCount ?? 0;
+  const isSequencia = Boolean(chamado.sequenciaGrupoId);
+  const sequenciaPassoLabel =
+    isSequencia && chamado.sequenciaPasso && chamado.sequenciaTotal ?
+      `${chamado.sequenciaPasso}/${chamado.sequenciaTotal}`
+    : null;
+  const prazoEntregaLabel = fmtPrazoEntrega(chamado.prazoEntrega);
   const byEmail = useMemo(() => {
     const m = new Map<string, ChamadoParticipant>();
     for (const p of participants) m.set(p.email.toLowerCase(), p);
@@ -729,9 +747,16 @@ function ChamadoCard({
       type="button"
       onClick={onOpen}
       className={
-        "group relative w-full rounded-lg border border-slate-200/90 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900 " +
-        "ring-1 ring-transparent hover:ring-violet-300 dark:hover:ring-violet-700" +
-        (unread > 0 ? " border-violet-400 ring-violet-200 dark:border-violet-600" : "")
+        "group relative w-full rounded-lg border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md " +
+        "ring-1 ring-transparent " +
+        (isSequencia ?
+          "border-emerald-300/90 bg-emerald-50 hover:ring-emerald-400 dark:border-emerald-800 dark:bg-emerald-950/50 dark:hover:ring-emerald-600"
+        : "border-slate-200/90 bg-white hover:ring-violet-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:ring-violet-700") +
+        (unread > 0 ?
+          isSequencia ?
+            " border-emerald-500 ring-emerald-200 dark:border-emerald-500"
+          : " border-violet-400 ring-violet-200 dark:border-violet-600"
+        : "")
       }
     >
       {unread > 0 ?
@@ -743,8 +768,17 @@ function ChamadoCard({
         <span className={"mt-1 h-2.5 w-2.5 shrink-0 rounded-full " + pri.dot} title={pri.label} />
         <p className="line-clamp-2 flex-1 pr-8 text-sm font-semibold text-slate-900 dark:text-white">
           {chamado.titulo}
+          {isSequencia ?
+            <span className="whitespace-nowrap text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
+              {" "}
+              (SEQUÊNCIA)
+            </span>
+          : null}
         </p>
       </div>
+      {isSequencia && chamado.sequenciaRotulo ?
+        <p className="mb-1 text-[10px] font-bold text-emerald-900 dark:text-emerald-200">{chamado.sequenciaRotulo}</p>
+      : null}
       {chamado.descricao ?
         <p className="mb-2 line-clamp-2 text-xs text-slate-500">{chamado.descricao}</p>
       : null}
@@ -768,6 +802,18 @@ function ChamadoCard({
         <span className="truncate">por {chamado.criadoPorNome}</span>
         <span className="shrink-0">{fmtWhen(chamado.updatedAt)}</span>
       </div>
+      {isSequencia && sequenciaPassoLabel ?
+        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[10px]">
+          <span className="font-bold tabular-nums text-emerald-800 dark:text-emerald-300">
+            {sequenciaPassoLabel}
+          </span>
+          {prazoEntregaLabel ?
+            <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+              Limite: {prazoEntregaLabel}
+            </span>
+          : null}
+        </div>
+      : null}
       {chamado.responsaveis.length > 0 ?
         <div className="mt-2 flex -space-x-1">
           {chamado.responsaveis.slice(0, 4).map((email) => {

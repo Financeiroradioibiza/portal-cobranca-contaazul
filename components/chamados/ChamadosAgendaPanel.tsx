@@ -8,6 +8,11 @@ type AgendaItem = ChamadoView & { prazoLabel?: string };
 
 type ViewMode = "semana" | "dia" | "mes";
 
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const HOUR_ROW = "h-9";
+
+const WEEKDAY_SHORT = ["dom.", "seg.", "ter.", "qua.", "qui.", "sex.", "sáb."] as const;
+
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
@@ -23,6 +28,15 @@ function toIsoLocal(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function prazoDayKey(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
 }
 
 function rangeForMode(mode: ViewMode, anchor: Date): { from: string; to: string; title: string } {
@@ -54,6 +68,232 @@ function rangeForMode(mode: ViewMode, anchor: Date): { from: string; to: string;
   };
 }
 
+function weekDaysFromAnchor(anchor: Date): Date[] {
+  const a = startOfDay(anchor);
+  const dow = a.getDay();
+  const mon = addDays(a, dow === 0 ? -6 : 1 - dow);
+  return Array.from({ length: 7 }, (_, i) => addDays(mon, i));
+}
+
+function monthGridCells(anchor: Date): { date: Date; inMonth: boolean; key: string }[] {
+  const y = anchor.getFullYear();
+  const m = anchor.getMonth();
+  const first = new Date(y, m, 1);
+  const start = addDays(first, -first.getDay());
+  const cells: { date: Date; inMonth: boolean; key: string }[] = [];
+  for (let i = 0; i < 42; i++) {
+    const date = addDays(start, i);
+    cells.push({
+      date,
+      inMonth: date.getMonth() === m,
+      key: toIsoLocal(date),
+    });
+  }
+  return cells;
+}
+
+function groupItemsByDay(items: AgendaItem[]): Map<string, AgendaItem[]> {
+  const map = new Map<string, AgendaItem[]>();
+  for (const it of items) {
+    if (!it.prazoEntrega) continue;
+    const key = prazoDayKey(it.prazoEntrega);
+    const list = map.get(key) ?? [];
+    list.push(it);
+    map.set(key, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => (a.prazoEntrega ?? "").localeCompare(b.prazoEntrega ?? ""));
+  }
+  return map;
+}
+
+function AgendaEventChip({ it }: { it: AgendaItem }) {
+  return (
+    <Link
+      href={`/chamados/kanban?chamado=${encodeURIComponent(it.id)}`}
+      className="block rounded-md border border-violet-200 bg-violet-50 px-1.5 py-1 text-[10px] leading-tight text-violet-950 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/80 dark:text-violet-100 dark:hover:bg-violet-900"
+      title={it.titulo}
+    >
+      {it.sequenciaRotulo ?
+        <span className="mb-0.5 block truncate font-bold text-amber-800 dark:text-amber-200">
+          {it.sequenciaRotulo}
+        </span>
+      : null}
+      <span className="line-clamp-2 font-semibold">{it.titulo}</span>
+    </Link>
+  );
+}
+
+function TimeGrid({
+  days,
+  itemsByDay,
+  todayKey,
+  loading,
+}: {
+  days: Date[];
+  itemsByDay: Map<string, AgendaItem[]>;
+  todayKey: string;
+  loading: boolean;
+}) {
+  const colCount = days.length;
+  const gridCols = `3rem repeat(${colCount}, minmax(0, 1fr))`;
+
+  return (
+    <div
+      className={
+        "overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 " +
+        (loading ? "opacity-60" : "")
+      }
+    >
+      <div className="min-w-[520px]">
+        <div className="grid border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50" style={{ gridTemplateColumns: gridCols }}>
+          <div className="border-r border-slate-200 dark:border-slate-700" />
+          {days.map((day) => {
+            const key = toIsoLocal(day);
+            const isToday = key === todayKey;
+            return (
+              <div
+                key={key}
+                className="border-r border-slate-200 px-1 py-2 text-center last:border-r-0 dark:border-slate-700"
+              >
+                <div className="text-[10px] font-medium uppercase text-slate-500 dark:text-slate-400">
+                  {WEEKDAY_SHORT[day.getDay()]}
+                </div>
+                <div
+                  className={
+                    "mx-auto mt-0.5 flex h-7 w-7 items-center justify-center text-sm font-bold " +
+                    (isToday ?
+                      "rounded-full bg-red-600 text-white"
+                    : "text-slate-800 dark:text-slate-100")
+                  }
+                >
+                  {day.getDate()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid border-b border-slate-200 dark:border-slate-700" style={{ gridTemplateColumns: gridCols }}>
+          <div className="flex items-start justify-end border-r border-slate-200 px-1 py-2 text-[9px] font-semibold text-slate-400 dark:border-slate-700">
+            Prazo
+          </div>
+          {days.map((day) => {
+            const key = toIsoLocal(day);
+            const dayItems = itemsByDay.get(key) ?? [];
+            return (
+              <div
+                key={`prazo-${key}`}
+                className="min-h-[3rem] space-y-1 border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700"
+              >
+                {dayItems.map((it) => (
+                  <AgendaEventChip key={it.id} it={it} />
+                ))}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid" style={{ gridTemplateColumns: gridCols }}>
+          {HOURS.map((h) => (
+            <div key={h} className="contents">
+              <div
+                className={
+                  `${HOUR_ROW} border-b border-r border-slate-200 pr-1 pt-0.5 text-right text-[9px] text-slate-400 dark:border-slate-700 ` +
+                  (h === 0 ? "" : "")
+                }
+              >
+                {String(h).padStart(2, "0")}:00
+              </div>
+              {days.map((day) => {
+                const key = `${toIsoLocal(day)}-${h}`;
+                return (
+                  <div
+                    key={key}
+                    className={`${HOUR_ROW} border-b border-r border-slate-200 last:border-r-0 dark:border-slate-700`}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MonthGrid({
+  anchor,
+  itemsByDay,
+  todayKey,
+  loading,
+}: {
+  anchor: Date;
+  itemsByDay: Map<string, AgendaItem[]>;
+  todayKey: string;
+  loading: boolean;
+}) {
+  const cells = useMemo(() => monthGridCells(anchor), [anchor]);
+
+  return (
+    <div
+      className={
+        "overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 " +
+        (loading ? "opacity-60" : "")
+      }
+    >
+      <div className="min-w-[480px]">
+        <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
+          {WEEKDAY_SHORT.map((wd) => (
+            <div
+              key={wd}
+              className="border-r border-slate-200 py-2 text-center text-[10px] font-semibold uppercase text-slate-500 last:border-r-0 dark:border-slate-700"
+            >
+              {wd}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7">
+          {cells.map((cell) => {
+            const dayItems = itemsByDay.get(cell.key) ?? [];
+            const isToday = cell.key === todayKey;
+            return (
+              <div
+                key={cell.key}
+                className={
+                  "min-h-[5.5rem] border-b border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700 " +
+                  (cell.inMonth ? "bg-white dark:bg-slate-900" : "bg-slate-50/80 dark:bg-slate-950/50")
+                }
+              >
+                <div
+                  className={
+                    "mb-1 flex h-6 w-6 items-center justify-center text-[11px] font-bold " +
+                    (isToday ?
+                      "rounded-full bg-red-600 text-white"
+                    : cell.inMonth ?
+                      "text-slate-800 dark:text-slate-200"
+                    : "text-slate-400")
+                  }
+                >
+                  {cell.date.getDate()}
+                </div>
+                <div className="space-y-0.5">
+                  {dayItems.slice(0, 3).map((it) => (
+                    <AgendaEventChip key={it.id} it={it} />
+                  ))}
+                  {dayItems.length > 3 ?
+                    <p className="text-[9px] text-slate-500">+{dayItems.length - 3} prazo(s)</p>
+                  : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChamadosAgendaPanel() {
   const [mode, setMode] = useState<ViewMode>("semana");
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
@@ -61,6 +301,14 @@ export function ChamadosAgendaPanel() {
   const [loading, setLoading] = useState(true);
 
   const range = useMemo(() => rangeForMode(mode, anchor), [mode, anchor]);
+  const todayKey = useMemo(() => toIsoLocal(startOfDay(new Date())), []);
+  const itemsByDay = useMemo(() => groupItemsByDay(items), [items]);
+
+  const weekDays = useMemo(() => {
+    if (mode === "dia") return [startOfDay(anchor)];
+    if (mode === "semana") return weekDaysFromAnchor(anchor);
+    return [];
+  }, [mode, anchor]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,6 +327,8 @@ export function ChamadosAgendaPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const emptyHint = !loading && items.length === 0;
 
   return (
     <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -133,39 +383,22 @@ export function ChamadosAgendaPanel() {
         </div>
       </div>
 
-      <div className="mt-3 min-h-[4rem]">
+      <div className="relative mt-3 max-h-[min(70vh,520px)] overflow-y-auto">
+        {mode === "mes" ?
+          <MonthGrid anchor={anchor} itemsByDay={itemsByDay} todayKey={todayKey} loading={loading} />
+        : <TimeGrid days={weekDays} itemsByDay={itemsByDay} todayKey={todayKey} loading={loading} />}
         {loading ?
-          <p className="text-xs text-slate-500">Carregando…</p>
-        : items.length === 0 ?
-          <p className="text-xs text-slate-500">Nenhum prazo neste período para você.</p>
-        : <ul className="space-y-2">
-            {items.map((it) => (
-              <li
-                key={it.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs dark:border-slate-800"
-              >
-                <span className="font-bold text-violet-700 dark:text-violet-300">
-                  {(it as AgendaItem).prazoLabel ?? "—"}
-                </span>
-                {it.sequenciaRotulo ?
-                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                    {it.sequenciaRotulo}
-                  </span>
-                : null}
-                <span className="min-w-0 flex-1 truncate font-semibold text-slate-800 dark:text-slate-100">
-                  {it.titulo}
-                </span>
-                <Link
-                  href={`/chamados/kanban?chamado=${encodeURIComponent(it.id)}`}
-                  className="shrink-0 font-semibold text-violet-600 hover:underline dark:text-violet-400"
-                >
-                  Abrir
-                </Link>
-              </li>
-            ))}
-          </ul>
-        }
+          <p className="pointer-events-none absolute left-2 top-2 text-[10px] font-medium text-slate-500">
+            Carregando…
+          </p>
+        : null}
       </div>
+
+      {emptyHint ?
+        <p className="mt-2 text-[11px] text-slate-500">
+          Nenhum prazo seu neste período — a grade continua disponível para navegar.
+        </p>
+      : null}
     </section>
   );
 }
