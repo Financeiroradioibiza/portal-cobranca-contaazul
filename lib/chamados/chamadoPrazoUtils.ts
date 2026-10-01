@@ -53,10 +53,18 @@ export function countBusinessDaysInclusive(from: Date, to: Date): number {
 
 /** N prazos: 1 dia útil por etapa (cada prazo = próximo dia útil após o anterior). */
 export function prazosUmDiaUtilPorEtapa(from: Date, etapas: number): Date[] {
+  return prazosDiasUteisPorEtapa(from, etapas, 1);
+}
+
+/** Cada etapa avança `diasUteisPorEtapa` dias úteis (acumulado). */
+export function prazosDiasUteisPorEtapa(from: Date, etapas: number, diasUteisPorEtapa: number): Date[] {
   const out: Date[] = [];
   let cur = parseYmd(ymdInTz(from));
+  const n = Math.max(1, Math.floor(diasUteisPorEtapa));
   for (let i = 0; i < etapas; i++) {
-    cur = nextBusinessDay(cur, { includeSame: false });
+    for (let d = 0; d < n; d++) {
+      cur = nextBusinessDay(cur, { includeSame: false });
+    }
     out.push(new Date(cur));
   }
   return out;

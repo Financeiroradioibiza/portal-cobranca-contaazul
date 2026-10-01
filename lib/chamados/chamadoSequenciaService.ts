@@ -7,8 +7,9 @@ import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
 import { notifyChamadoEmail } from "@/lib/chamados/chamadoNotifyEmail";
 import {
   enabledSteps,
-  type ClienteNovoStepDraft,
-} from "@/lib/chamados/chamadoTemplateClienteNovo";
+  type ChamadoTemplateKind,
+  type SequenciaStepDraft,
+} from "@/lib/chamados/chamadoTemplateSequencia";
 import { prazoEndOfDayUtc } from "@/lib/chamados/chamadoPrazoUtils";
 import { serializeStringArray } from "@/lib/chamados/chamadoUtils";
 import { normalizePortalEmail } from "@/lib/auth/users";
@@ -25,9 +26,10 @@ function creatorAsResponsavel(ctx: ChamadoUserContext, extras: string[]): string
   return [...new Set([ctx.email, ...normalizeEmails(extras)])];
 }
 
-export async function createClienteNovoSequencia(
+export async function createChamadoSequencia(
   tituloRaw: string,
-  stepsRaw: ClienteNovoStepDraft[],
+  stepsRaw: SequenciaStepDraft[],
+  templateKind: ChamadoTemplateKind,
   ctx: ChamadoUserContext,
   meta: {
     prioridade: import("@prisma/client").ChamadoPrioridade;
@@ -67,7 +69,7 @@ export async function createClienteNovoSequencia(
         rioLinhaId: meta.rioLinhaId ?? null,
         rioPdvKey: meta.rioPdvKey ?? null,
         clienteNome: meta.clienteNome?.slice(0, 200) ?? "",
-        templateKind: "cliente_novo",
+        templateKind,
         sequenciaGrupoId: grupoId,
         sequenciaPasso: i + 1,
         sequenciaTotal: total,
@@ -94,6 +96,24 @@ export async function createClienteNovoSequencia(
   }
 
   return { grupoId, chamados: createdViews };
+}
+
+export async function createClienteNovoSequencia(
+  tituloRaw: string,
+  stepsRaw: SequenciaStepDraft[],
+  ctx: ChamadoUserContext,
+  meta: Parameters<typeof createChamadoSequencia>[4],
+): Promise<{ grupoId: string; chamados: ChamadoView[] }> {
+  return createChamadoSequencia(tituloRaw, stepsRaw, "cliente_novo", ctx, meta);
+}
+
+export async function createVinhetasSequencia(
+  tituloRaw: string,
+  stepsRaw: SequenciaStepDraft[],
+  ctx: ChamadoUserContext,
+  meta: Parameters<typeof createChamadoSequencia>[4],
+): Promise<{ grupoId: string; chamados: ChamadoView[] }> {
+  return createChamadoSequencia(tituloRaw, stepsRaw, "vinhetas", ctx, meta);
 }
 
 export async function avancarSequenciaChamado(

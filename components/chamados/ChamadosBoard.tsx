@@ -21,11 +21,12 @@ import { ChamadoComentariosBlock } from "@/components/chamados/ChamadoComentario
 import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 import {
   buildDefaultClienteNovoSteps,
+  buildDefaultVinhetasSteps,
   type ChamadoTemplateKind,
-  type ClienteNovoStepDraft,
   type PrazoModo,
+  type SequenciaStepDraft,
   enabledSteps,
-} from "@/lib/chamados/chamadoTemplateClienteNovo";
+} from "@/lib/chamados/chamadoTemplateSequencia";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -123,9 +124,19 @@ export function ChamadosBoard({
   const [formTemplate, setFormTemplate] = useState<ChamadoTemplateKind>("padrao");
   const [formPrazoModo, setFormPrazoModo] = useState<PrazoModo>("um_dia_util");
   const [formDataInstalacao, setFormDataInstalacao] = useState("");
-  const [formClienteNovoSteps, setFormClienteNovoSteps] = useState<ClienteNovoStepDraft[]>(() =>
+  const [formSequenciaSteps, setFormSequenciaSteps] = useState<SequenciaStepDraft[]>(() =>
     buildDefaultClienteNovoSteps(new Date(), "um_dia_util"),
   );
+
+  function rafaelEmailFromParticipants(): string {
+    const hit = participants.find(
+      (p) =>
+        p.displayName.toLowerCase().includes("rafael") ||
+        p.email.toLowerCase().includes("rafael") ||
+        p.email.toLowerCase().includes("rafagasparian"),
+    );
+    return hit?.email ?? "";
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -303,18 +314,21 @@ export function ChamadosBoard({
     }
     setBusy(true);
     setMsg(null);
-    if (formTemplate === "cliente_novo" && enabledSteps(formClienteNovoSteps).length === 0) {
-      setMsg("Marque pelo menos uma etapa do template Cliente novo.");
+    if (
+      (formTemplate === "cliente_novo" || formTemplate === "vinhetas") &&
+      enabledSteps(formSequenciaSteps).length === 0
+    ) {
+      setMsg("Marque pelo menos uma etapa do template.");
       return;
     }
     try {
       const body =
-        formTemplate === "cliente_novo" ?
+        formTemplate === "cliente_novo" || formTemplate === "vinhetas" ?
           {
-            template: "cliente_novo",
+            template: formTemplate,
             titulo: formTitulo,
             prioridade: formPri,
-            clienteNovoSteps: formClienteNovoSteps,
+            sequenciaSteps: formSequenciaSteps,
             rioLinhaId: formVinculo.rioLinhaId,
             rioPdvKey: formVinculo.rioPdvKey,
             clienteNome: formVinculo.clienteNome,
@@ -392,7 +406,7 @@ export function ChamadosBoard({
     setFormTemplate("padrao");
     setFormPrazoModo("um_dia_util");
     setFormDataInstalacao("");
-    setFormClienteNovoSteps(buildDefaultClienteNovoSteps(new Date(), "um_dia_util"));
+    setFormSequenciaSteps(buildDefaultClienteNovoSteps(new Date(), "um_dia_util"));
   }
 
   function toggleSetor(id: string) {
@@ -603,11 +617,16 @@ export function ChamadosBoard({
           onTemplate={(t) => {
             setFormTemplate(t);
             if (t === "cliente_novo") {
-              setFormClienteNovoSteps(buildDefaultClienteNovoSteps(new Date(), formPrazoModo, formDataInstalacao || undefined));
+              setFormSequenciaSteps(
+                buildDefaultClienteNovoSteps(new Date(), formPrazoModo, formDataInstalacao || undefined),
+              );
+            } else if (t === "vinhetas") {
+              setFormPrazoModo("dois_dias_uteis");
+              setFormSequenciaSteps(buildDefaultVinhetasSteps(new Date(), rafaelEmailFromParticipants(), 2));
             }
           }}
-          clienteNovoSteps={formClienteNovoSteps}
-          onClienteNovoSteps={setFormClienteNovoSteps}
+          sequenciaSteps={formSequenciaSteps}
+          onSequenciaSteps={setFormSequenciaSteps}
           prazoModo={formPrazoModo}
           onPrazoModo={setFormPrazoModo}
           dataInstalacao={formDataInstalacao}
@@ -794,8 +813,8 @@ function FormModal({
   onPendingFiles,
   template,
   onTemplate,
-  clienteNovoSteps,
-  onClienteNovoSteps,
+  sequenciaSteps,
+  onSequenciaSteps,
   prazoModo,
   onPrazoModo,
   dataInstalacao,
@@ -825,8 +844,8 @@ function FormModal({
   onPendingFiles: (files: File[]) => void;
   template: ChamadoTemplateKind;
   onTemplate: (t: ChamadoTemplateKind) => void;
-  clienteNovoSteps: ClienteNovoStepDraft[];
-  onClienteNovoSteps: (s: ClienteNovoStepDraft[]) => void;
+  sequenciaSteps: SequenciaStepDraft[];
+  onSequenciaSteps: (s: SequenciaStepDraft[]) => void;
   prazoModo: PrazoModo;
   onPrazoModo: (m: PrazoModo) => void;
   dataInstalacao: string;
@@ -843,6 +862,7 @@ function FormModal({
           [
             { id: "padrao" as const, label: "Padrão — chamado único (como hoje)" },
             { id: "cliente_novo" as const, label: "Cliente novo — 4 etapas em série" },
+            { id: "vinhetas" as const, label: "Vinhetas — 2 etapas (Rafael + Produção)" },
           ] as const
         ).map((opt) => (
           <label key={opt.id} className="flex cursor-pointer items-center gap-2 text-xs">
@@ -855,7 +875,6 @@ function FormModal({
             {opt.label}
           </label>
         ))}
-        <p className="text-[10px] text-slate-400">Mais templates em breve.</p>
       </div>
 
       <ChamadoProducaoVinculoFields
@@ -866,10 +885,11 @@ function FormModal({
         onTituloChange={onTitulo}
         onTituloManualChange={onTituloManual}
       />
-      {template === "cliente_novo" ?
+      {template === "cliente_novo" || template === "vinhetas" ?
         <ChamadoClienteNovoStepsEditor
-          steps={clienteNovoSteps}
-          onChange={onClienteNovoSteps}
+          variant={template === "vinhetas" ? "vinhetas" : "cliente_novo"}
+          steps={sequenciaSteps}
+          onChange={onSequenciaSteps}
           prazoModo={prazoModo}
           onPrazoModo={onPrazoModo}
           dataInstalacao={dataInstalacao}

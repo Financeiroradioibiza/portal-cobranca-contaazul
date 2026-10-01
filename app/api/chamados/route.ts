@@ -15,8 +15,11 @@ import {
   parsePrioridade,
   parseStringArray,
 } from "@/lib/chamados/chamadoService";
-import { parseClienteNovoSteps } from "@/lib/chamados/chamadoTemplateClienteNovo";
-import { createClienteNovoSequencia } from "@/lib/chamados/chamadoSequenciaService";
+import { parseSequenciaSteps } from "@/lib/chamados/chamadoTemplateSequencia";
+import {
+  createClienteNovoSequencia,
+  createVinhetasSequencia,
+} from "@/lib/chamados/chamadoSequenciaService";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -72,17 +75,25 @@ export async function POST(request: Request) {
 
     const template = typeof body.template === "string" ? body.template.trim() : "padrao";
 
-    if (template === "cliente_novo") {
-      const steps = parseClienteNovoSteps(body.clienteNovoSteps);
+    if (template === "cliente_novo" || template === "vinhetas") {
+      const steps = parseSequenciaSteps(body.sequenciaSteps ?? body.clienteNovoSteps);
       if (!steps) {
-        return NextResponse.json({ error: "cliente_novo_steps_invalido" }, { status: 400 });
+        return NextResponse.json({ error: "sequencia_steps_invalido" }, { status: 400 });
       }
-      const seq = await createClienteNovoSequencia(titulo, steps, ctx, {
-        prioridade,
-        rioLinhaId,
-        rioPdvKey,
-        clienteNome,
-      });
+      const seq =
+        template === "vinhetas" ?
+          await createVinhetasSequencia(titulo, steps, ctx, {
+            prioridade,
+            rioLinhaId,
+            rioPdvKey,
+            clienteNome,
+          })
+        : await createClienteNovoSequencia(titulo, steps, ctx, {
+            prioridade,
+            rioLinhaId,
+            rioPdvKey,
+            clienteNome,
+          });
       return NextResponse.json({
         ok: true,
         sequencia: seq,
