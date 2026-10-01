@@ -16,6 +16,9 @@ import type {
   CreateChamadoInput,
   UpdateChamadoInput,
 } from "@/lib/chamados/chamadoTypes";
+import { userContextMatchesChamadoSetor } from "@/lib/chamados/chamadoSetorMatch";
+import { parseRolesJson } from "@/lib/portal/menuPermissions";
+import { findPortalUserByEmail } from "@/lib/auth/users";
 
 const VALID_SETORES = new Set(CHAMADO_SETORES.map((s) => s.id));
 const VALID_PRIORIDADES = new Set<ChamadoPrioridade>(["baixa", "media", "alta", "urgente"]);
@@ -25,6 +28,8 @@ export type ChamadoUserContext = {
   email: string;
   displayName: string;
   profileSlug: string;
+  /** Papéis do perfil (ex.: producao no perfil Operador). */
+  profileRoles: string[];
 };
 
 const PRIORIDADE_WEIGHT: Record<ChamadoPrioridade, number> = {
@@ -105,7 +110,7 @@ export function userParticipatesInChamado(
   if (isCreator) return true;
   if (inResponsaveis) return true;
   const setores = parseStringArrayJson(row.setoresJson);
-  if (setores.includes(ctx.profileSlug)) return true;
+  if (setores.some((s) => userContextMatchesChamadoSetor(ctx, s))) return true;
   return false;
 }
 
@@ -114,22 +119,25 @@ export async function getChamadoUserContext(emailRaw: string): Promise<ChamadoUs
   try {
     const row = await prisma.portalUser.findUnique({
       where: { email, active: true },
-      include: { profile: { select: { slug: true, name: true } } },
+      include: { profile: { select: { slug: true, name: true, rolesJson: true } } },
     });
     if (row) {
       return {
         email: row.email,
         displayName: row.displayName.trim() || row.email,
         profileSlug: row.profile.slug,
+        profileRoles: parseRolesJson(row.profile.rolesJson),
       };
     }
   } catch {
     /* DB indisponível */
   }
+  const envUser = findPortalUserByEmail(email);
   return {
     email,
-    displayName: email,
+    displayName: envUser?.displayName?.trim() || email,
     profileSlug: "geral",
+    profileRoles: envUser?.roles?.map((r) => String(r)) ?? [],
   };
 }
 

@@ -18,6 +18,7 @@ import {
   ibizapChamadosEmailAttachments,
   wrapIbizapChamadosEmailHtml,
 } from "@/lib/chamados/chamadosEmailLayout";
+import { portalProfileMatchesChamadoSetor } from "@/lib/chamados/chamadoSetorMatch";
 import { isChamadosSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
 import { chamadosMobilePushUrl } from "@/lib/push/chamadosPushUrls";
 import { sendPushToEmails } from "@/lib/push/sendPush";
@@ -66,14 +67,14 @@ export async function resolveChamadoNotifyRecipients(opts: {
   const setores = [...new Set(opts.setores.map((s) => s.trim()).filter(Boolean))];
   if (setores.length > 0) {
     const users = await prisma.portalUser.findMany({
-      where: {
-        active: true,
-        profile: { slug: { in: setores } },
-      },
-      select: { email: true },
+      where: { active: true },
+      select: { email: true, profile: { select: { slug: true, rolesJson: true } } },
     });
     for (const u of users) {
-      if (u.email.includes("@")) out.add(u.email);
+      if (!u.email.includes("@")) continue;
+      if (setores.some((s) => portalProfileMatchesChamadoSetor(u.profile, s))) {
+        out.add(u.email);
+      }
     }
     for (const s of setores) {
       const envKey = `CHAMADO_${s.toUpperCase()}_EMAILS`;
