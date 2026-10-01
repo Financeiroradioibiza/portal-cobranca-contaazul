@@ -102,8 +102,17 @@ export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
         >
           Conversas {selectedAssunto ? `· ${selectedAssunto.display}` : ""}
           {resumo && (resumo.conversasNaoLidas > 0 || resumo.conversasMencoes > 0) ?
-            <span className="ml-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-              {resumo.conversasMencoes > 0 ? "@" : resumo.conversasNaoLidas > 99 ? "99+" : resumo.conversasNaoLidas}
+            <span className="ml-1.5 inline-flex gap-0.5">
+              {resumo.conversasNaoLidas > 0 ?
+                <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {resumo.conversasNaoLidas > 99 ? "99+" : resumo.conversasNaoLidas}
+                </span>
+              : null}
+              {resumo.conversasMencoes > 0 ?
+                <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {resumo.conversasMencoes > 99 ? "99+" : resumo.conversasMencoes}
+                </span>
+              : null}
             </span>
           : null}
         </button>

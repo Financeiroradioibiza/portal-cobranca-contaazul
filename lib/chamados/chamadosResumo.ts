@@ -11,7 +11,11 @@ export async function getChamadosResumoForUser(userEmail: string): Promise<Chama
     totalChamadoInboxUnread(userEmail),
     listConversaAssuntos(userEmail),
   ]);
-  const conversasNaoLidas = assuntos.reduce((n, a) => n + a.unreadCount, 0);
-  const conversasMencoes = assuntos.filter((a) => a.mentionUnread).length;
+  let conversasNaoLidas = 0;
+  let conversasMencoes = 0;
+  for (const a of assuntos) {
+    conversasNaoLidas += a.unreadGeneralCount;
+    conversasMencoes += a.unreadMentionCount;
+  }
   return { chamadosNaoLidos, conversasNaoLidas, conversasMencoes };
 }

@@ -793,37 +793,78 @@ model ChamadoAnexo {
   @@map("chamado_anexo")
 }
 
-/// Assunto de conversa interna (estilo canal #nome).
+enum ChamadoConversaAssuntoTipo {
+  canal
+  cliente
+}
+
+/// Assunto de conversa interna (estilo canal #nome ou chat por cliente Produção).
 model ChamadoConversaAssunto {
-  id             String   @id @default(cuid())
-  slug           String   @unique @db.VarChar(80)
-  titulo         String   @db.VarChar(120)
-  criadoPorEmail String   @map("criado_por_email") @db.VarChar(200)
-  criadoPorNome  String   @map("criado_por_nome") @db.VarChar(120)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id             String                      @id @default(cuid())
+  slug           String                      @unique @db.VarChar(80)
+  titulo         String                      @db.VarChar(120)
+  tipo           ChamadoConversaAssuntoTipo  @default(canal)
+  /// Chave do catálogo Produção (quando tipo = cliente).
+  clienteKey     String?                     @map("cliente_key") @db.VarChar(120)
+  rioLinhaId     String?                     @map("rio_linha_id") @db.VarChar(64)
+  criadoPorEmail String                      @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome  String                      @map("criado_por_nome") @db.VarChar(120)
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  updatedAt      DateTime                    @updatedAt @map("updated_at")
 
   mensagens ChamadoConversaMensagem[]
   leituras  ChamadoConversaLeitura[]
 
+  @@index([clienteKey])
   @@map("chamado_conversa_assunto")
 }
 
 model ChamadoConversaMensagem {
-  id          String   @id @default(cuid())
-  assuntoId   String   @map("assunto_id") @db.VarChar(64)
-  corpo       String   @db.Text
+  id                String   @id @default(cuid())
+  assuntoId         String   @map("assunto_id") @db.VarChar(64)
+  corpo             String   @db.Text
   /// JSON: e-mails mencionados (@).
-  mencoesJson String   @default("[]") @map("mencoes_json") @db.Text
-  autorEmail  String   @map("autor_email") @db.VarChar(200)
-  autorNome   String   @map("autor_nome") @db.VarChar(120)
-  createdAt   DateTime @default(now()) @map("created_at")
+  mencoesJson       String   @default("[]") @map("mencoes_json") @db.Text
+  replyToMensagemId String?  @map("reply_to_mensagem_id") @db.VarChar(64)
+  autorEmail        String   @map("autor_email") @db.VarChar(200)
+  autorNome         String   @map("autor_nome") @db.VarChar(120)
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  assunto ChamadoConversaAssunto @relation(fields: [assuntoId], references: [id], onDelete: Cascade)
-  anexos  ChamadoConversaAnexo[]
+  assunto  ChamadoConversaAssunto           @relation(fields: [assuntoId], references: [id], onDelete: Cascade)
+  replyTo  ChamadoConversaMensagem?         @relation("ConversaReply", fields: [replyToMensagemId], references: [id], onDelete: SetNull)
+  replies  ChamadoConversaMensagem[]        @relation("ConversaReply")
+  anexos   ChamadoConversaAnexo[]
+  reacoes  ChamadoConversaReacao[]
+  estados  ChamadoConversaMsgEstado[]
 
   @@index([assuntoId, createdAt])
   @@map("chamado_conversa_mensagem")
+}
+
+model ChamadoConversaReacao {
+  id         String   @id @default(cuid())
+  mensagemId String   @map("mensagem_id") @db.VarChar(64)
+  userEmail  String   @map("user_email") @db.VarChar(200)
+  tipo       String   @db.VarChar(32)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  mensagem ChamadoConversaMensagem @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
+
+  @@unique([mensagemId, userEmail, tipo])
+  @@index([mensagemId])
+  @@map("chamado_conversa_reacao")
+}
+
+model ChamadoConversaMsgEstado {
+  mensagemId      String  @map("mensagem_id") @db.VarChar(64)
+  userEmail       String  @map("user_email") @db.VarChar(200)
+  favorito        Boolean @default(false)
+  forcarNaoLida   Boolean @default(false) @map("forcar_nao_lida")
+
+  mensagem ChamadoConversaMensagem @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
+
+  @@id([mensagemId, userEmail])
+  @@map("chamado_conversa_msg_estado")
 }
 
 model ChamadoConversaLeitura {

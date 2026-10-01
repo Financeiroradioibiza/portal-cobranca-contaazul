@@ -8,9 +8,9 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, ctx: Ctx) {
   try {
-    requirePortalSession(await getPortalSession());
+    const session = requirePortalSession(await getPortalSession());
     const { id } = await ctx.params;
-    const mensagens = await listConversaMensagens(id);
+    const mensagens = await listConversaMensagens(id, session.email);
     return NextResponse.json({ ok: true, mensagens });
   } catch (e) {
     if (e instanceof Response) return e;
@@ -31,6 +31,7 @@ export async function POST(req: Request, ctx: Ctx) {
     if (contentType.includes("multipart/form-data")) {
       const form = await req.formData();
       const corpo = String(form.get("corpo") ?? "");
+      const replyTo = String(form.get("replyToMensagemId") ?? "") || null;
       const files: { name: string; mimeType: string; bytes: Buffer }[] = [];
       const candidates = [...form.getAll("files"), ...form.getAll("file")];
       for (const val of candidates) {
@@ -45,12 +46,18 @@ export async function POST(req: Request, ctx: Ctx) {
           bytes: buf,
         });
       }
-      const mensagem = await postConversaMensagem(id, corpo, userCtx, files);
+      const mensagem = await postConversaMensagem(id, corpo, userCtx, files, replyTo);
       return NextResponse.json({ ok: true, mensagem });
     }
 
-    const body = (await req.json()) as { corpo?: string };
-    const mensagem = await postConversaMensagem(id, body.corpo ?? "", userCtx, []);
+    const body = (await req.json()) as { corpo?: string; replyToMensagemId?: string };
+    const mensagem = await postConversaMensagem(
+      id,
+      body.corpo ?? "",
+      userCtx,
+      [],
+      body.replyToMensagemId ?? null,
+    );
     return NextResponse.json({ ok: true, mensagem });
   } catch (e) {
     if (e instanceof Response) return e;

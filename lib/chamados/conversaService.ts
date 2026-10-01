@@ -13,20 +13,36 @@ import {
 } from "@/lib/chamados/chamadoAnexoService";
 import { listChamadoParticipants, type ChamadoUserContext } from "@/lib/chamados/chamadoService";
 import { scheduleConversaMentionEmails } from "@/lib/chamados/conversaNotifyEmail";
+import { computeConversaUnreadMap } from "@/lib/chamados/conversaUnread";
+import {
+  loadEstadosForMensagens,
+  loadReacoesForMensagens,
+  type ConversaReacaoView,
+} from "@/lib/chamados/conversaMessageService";
 
 export type ConversaAssuntoView = {
   id: string;
   slug: string;
   titulo: string;
   display: string;
+  tipo: "canal" | "cliente";
+  clienteKey: string | null;
   criadoPorEmail: string;
   criadoPorNome: string;
   createdAt: string;
   updatedAt: string;
   unreadCount: number;
+  unreadGeneralCount: number;
+  unreadMentionCount: number;
   mentionUnread: boolean;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
+};
+
+export type ConversaMensagemReplyPreview = {
+  id: string;
+  autorNome: string;
+  corpo: string;
 };
 
 export type ConversaMensagemView = {
@@ -38,68 +54,53 @@ export type ConversaMensagemView = {
   autorNome: string;
   createdAt: string;
   anexos: ConversaAnexoView[];
+  replyTo: ConversaMensagemReplyPreview | null;
+  reacoes: ConversaReacaoView[];
+  favorito: boolean;
+  naoLida: boolean;
 };
 
-function assuntoBase(row: {
-  id: string;
+function assuntoDisplay(row: {
   slug: string;
   titulo: string;
-  criadoPorEmail: string;
-  criadoPorNome: string;
-  createdAt: Date;
-  updatedAt: Date;
-}): Omit<ConversaAssuntoView, "unreadCount" | "mentionUnread" | "lastMessageAt" | "lastMessagePreview"> {
+  tipo: "canal" | "cliente";
+}): string {
+  return row.tipo === "cliente" ? row.titulo : conversaDisplayTitulo(row.slug, row.titulo);
+}
+
+export function assuntoFromRow(
+  row: {
+    id: string;
+    slug: string;
+    titulo: string;
+    tipo: "canal" | "cliente";
+    clienteKey: string | null;
+    criadoPorEmail: string;
+    criadoPorNome: string;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  unread: { unreadGeneral: number; unreadMention: number },
+  last: { corpo: string; createdAt: Date } | undefined,
+): ConversaAssuntoView {
   return {
     id: row.id,
     slug: row.slug,
     titulo: row.titulo,
-    display: conversaDisplayTitulo(row.slug, row.titulo),
+    display: assuntoDisplay(row),
+    tipo: row.tipo,
+    clienteKey: row.clienteKey,
     criadoPorEmail: row.criadoPorEmail,
     criadoPorNome: row.criadoPorNome,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    unreadCount: unread.unreadGeneral + unread.unreadMention,
+    unreadGeneralCount: unread.unreadGeneral,
+    unreadMentionCount: unread.unreadMention,
+    mentionUnread: unread.unreadMention > 0,
+    lastMessageAt: last?.createdAt.toISOString() ?? null,
+    lastMessagePreview: last?.corpo.trim().slice(0, 120) ?? null,
   };
-}
-
-async function unreadForAssuntos(
-  assuntoIds: string[],
-  userEmail: string,
-): Promise<Map<string, { unread: number; mentionUnread: boolean }>> {
-  const email = normalizePortalEmail(userEmail);
-  const out = new Map<string, { unread: number; mentionUnread: boolean }>();
-  if (assuntoIds.length === 0) return out;
-
-  const leituras = await prisma.chamadoConversaLeitura.findMany({
-    where: { assuntoId: { in: assuntoIds }, userEmail: email },
-  });
-  const lastRead = new Map(leituras.map((l) => [l.assuntoId, l.lastReadAt]));
-
-  const mensagens = await prisma.chamadoConversaMensagem.findMany({
-    where: { assuntoId: { in: assuntoIds } },
-    orderBy: { createdAt: "asc" },
-    select: {
-      assuntoId: true,
-      autorEmail: true,
-      createdAt: true,
-      mencoesJson: true,
-    },
-  });
-
-  for (const id of assuntoIds) {
-    out.set(id, { unread: 0, mentionUnread: false });
-  }
-
-  for (const m of mensagens) {
-    if (m.autorEmail.toLowerCase() === email.toLowerCase()) continue;
-    const lr = lastRead.get(m.assuntoId) ?? new Date(0);
-    if (m.createdAt <= lr) continue;
-    const cur = out.get(m.assuntoId)!;
-    cur.unread += 1;
-    const mencoes = parseStringArrayJson(m.mencoesJson).map((x) => x.toLowerCase());
-    if (mencoes.includes(email.toLowerCase())) cur.mentionUnread = true;
-  }
-
-  return out;
 }
 
 export async function listConversaAssuntos(userEmail: string): Promise<ConversaAssuntoView[]> {
@@ -107,7 +108,7 @@ export async function listConversaAssuntos(userEmail: string): Promise<ConversaA
     orderBy: [{ updatedAt: "desc" }],
   });
   const ids = rows.map((r) => r.id);
-  const unreadMap = await unreadForAssuntos(ids, userEmail);
+  const unreadMap = await computeConversaUnreadMap(ids, userEmail);
 
   const recentMsgs = await prisma.chamadoConversaMensagem.findMany({
     where: { assuntoId: { in: ids } },
@@ -121,15 +122,8 @@ export async function listConversaAssuntos(userEmail: string): Promise<ConversaA
   }
 
   return rows.map((r) => {
-    const u = unreadMap.get(r.id) ?? { unread: 0, mentionUnread: false };
-    const last = lastByAssunto.get(r.id);
-    return {
-      ...assuntoBase(r),
-      unreadCount: u.unread,
-      mentionUnread: u.mentionUnread,
-      lastMessageAt: last?.createdAt.toISOString() ?? null,
-      lastMessagePreview: last?.corpo.trim().slice(0, 120) ?? null,
-    };
+    const u = unreadMap.get(r.id) ?? { unreadGeneral: 0, unreadMention: 0 };
+    return assuntoFromRow(r, u, lastByAssunto.get(r.id));
   });
 }
 
@@ -148,44 +142,66 @@ export async function createConversaAssunto(
       criadoPorNome: ctx.displayName,
     },
   });
-  return {
-    ...assuntoBase(row),
-    unreadCount: 0,
-    mentionUnread: false,
-    lastMessageAt: null,
-    lastMessagePreview: null,
-  };
+  return assuntoFromRow(row, { unreadGeneral: 0, unreadMention: 0 }, undefined);
 }
 
 export async function getConversaAssuntoBySlug(slugRaw: string): Promise<ConversaAssuntoView | null> {
   const slug = normalizeConversaSlug(slugRaw);
   const row = await prisma.chamadoConversaAssunto.findUnique({ where: { slug } });
   if (!row) return null;
-  return {
-    ...assuntoBase(row),
-    unreadCount: 0,
-    mentionUnread: false,
-    lastMessageAt: null,
-    lastMessagePreview: null,
-  };
+  return assuntoFromRow(row, { unreadGeneral: 0, unreadMention: 0 }, undefined);
 }
 
-export async function listConversaMensagens(assuntoId: string): Promise<ConversaMensagemView[]> {
+export async function listConversaMensagens(
+  assuntoId: string,
+  viewerEmail: string,
+): Promise<ConversaMensagemView[]> {
+  const email = normalizePortalEmail(viewerEmail);
   const rows = await prisma.chamadoConversaMensagem.findMany({
     where: { assuntoId },
     orderBy: { createdAt: "asc" },
-    include: { anexos: { orderBy: { createdAt: "asc" } } },
+    include: {
+      anexos: { orderBy: { createdAt: "asc" } },
+      replyTo: { select: { id: true, autorNome: true, corpo: true } },
+    },
   });
-  return rows.map((r) => ({
-    id: r.id,
-    assuntoId: r.assuntoId,
-    corpo: r.corpo,
-    mencoes: parseStringArrayJson(r.mencoesJson),
-    autorEmail: r.autorEmail,
-    autorNome: r.autorNome,
-    createdAt: r.createdAt.toISOString(),
-    anexos: r.anexos.map(conversaAnexoToView),
-  }));
+  const ids = rows.map((r) => r.id);
+  const [reacoesMap, estadosMap, leitura] = await Promise.all([
+    loadReacoesForMensagens(ids, email),
+    loadEstadosForMensagens(ids, email),
+    prisma.chamadoConversaLeitura.findUnique({
+      where: { assuntoId_userEmail: { assuntoId, userEmail: email } },
+    }),
+  ]);
+  const lastRead = leitura?.lastReadAt ?? new Date(0);
+
+  return rows.map((r) => {
+    const st = estadosMap.get(r.id);
+    const forcar = st?.forcarNaoLida ?? false;
+    const naoLida =
+      r.autorEmail.toLowerCase() !== email.toLowerCase() && (forcar || r.createdAt > lastRead);
+    return {
+      id: r.id,
+      assuntoId: r.assuntoId,
+      corpo: r.corpo,
+      mencoes: parseStringArrayJson(r.mencoesJson),
+      autorEmail: r.autorEmail,
+      autorNome: r.autorNome,
+      createdAt: r.createdAt.toISOString(),
+      anexos: r.anexos.map(conversaAnexoToView),
+      replyTo:
+        r.replyTo ?
+          {
+            id: r.replyTo.id,
+            autorNome: r.replyTo.autorNome,
+            corpo: r.replyTo.corpo.trim().slice(0, 200),
+          }
+        : null,
+      reacoes: reacoesMap.get(r.id) ?? [],
+      favorito: st?.favorito ?? false,
+      naoLida,
+    };
+  });
 }
 
 export async function postConversaMensagem(
@@ -193,6 +209,7 @@ export async function postConversaMensagem(
   corpoRaw: string,
   ctx: ChamadoUserContext,
   files: { name: string; mimeType: string; bytes: Buffer }[],
+  replyToMensagemId?: string | null,
 ): Promise<ConversaMensagemView> {
   const assunto = await prisma.chamadoConversaAssunto.findUnique({ where: { id: assuntoId } });
   if (!assunto) throw new Error("not_found");
@@ -202,11 +219,20 @@ export async function postConversaMensagem(
   const participants = await listChamadoParticipants();
   const { mencoes } = resolveMentionEmails(corpo, participants);
 
+  let replyId: string | null = null;
+  if (replyToMensagemId?.trim()) {
+    const parent = await prisma.chamadoConversaMensagem.findFirst({
+      where: { id: replyToMensagemId.trim(), assuntoId },
+    });
+    if (parent) replyId = parent.id;
+  }
+
   const row = await prisma.chamadoConversaMensagem.create({
     data: {
       assuntoId,
       corpo: corpo || "(anexo)",
       mencoesJson: serializeStringArray(mencoes),
+      replyToMensagemId: replyId,
       autorEmail: ctx.email,
       autorNome: ctx.displayName,
     },
@@ -228,6 +254,9 @@ export async function postConversaMensagem(
     excludeEmail: ctx.email,
   });
 
+  const list = await listConversaMensagens(assuntoId, ctx.email);
+  const hit = list.find((m) => m.id === row.id);
+  if (hit) return hit;
   return {
     id: row.id,
     assuntoId: row.assuntoId,
@@ -237,6 +266,10 @@ export async function postConversaMensagem(
     autorNome: row.autorNome,
     createdAt: row.createdAt.toISOString(),
     anexos,
+    replyTo: null,
+    reacoes: [],
+    favorito: false,
+    naoLida: false,
   };
 }
 
@@ -287,13 +320,7 @@ export async function searchConversas(qRaw: string): Promise<ConversaAssuntoView
   return assuntos
     .filter((a) => matchedIds.has(a.id))
     .slice(0, 40)
-    .map((r) => ({
-      ...assuntoBase(r),
-      unreadCount: 0,
-      mentionUnread: false,
-      lastMessageAt: null,
-      lastMessagePreview: null,
-    }));
+    .map((r) => assuntoFromRow(r, { unreadGeneral: 0, unreadMention: 0 }, undefined));
 }
 
 export async function totalConversaUnread(userEmail: string): Promise<number> {

@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
-import { ConversaAnexoPreview } from "@/components/chamados/ChamadoAnexosBlock";
-import { ChamadoMentionCorpo } from "@/components/chamados/ChamadoMentionCorpo";
 import { ChamadoMentionTextarea } from "@/components/chamados/ChamadoMentionTextarea";
-import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
+import { ConversaChatMessage } from "@/components/chamados/ConversaChatMessage";
+import { ConversaUnreadBadges } from "@/components/chamados/ConversaUnreadBadges";
+import type { ConversaReacaoView } from "@/lib/chamados/conversaMessageService";
 
 export type ConversaAssuntoListItem = {
   id: string;
@@ -13,6 +13,8 @@ export type ConversaAssuntoListItem = {
   titulo: string;
   display: string;
   unreadCount: number;
+  unreadGeneralCount?: number;
+  unreadMentionCount?: number;
   mentionUnread: boolean;
   lastMessagePreview: string | null;
 };
@@ -24,6 +26,42 @@ export type ConversaMensagemItem = {
   autorEmail: string;
   createdAt: string;
   anexos: { id: string; fileName: string; mimeType: string; sizeBytes: number }[];
+  replyTo: { id: string; autorNome: string; corpo: string } | null;
+  reacoes: ConversaReacaoView[];
+  favorito: boolean;
+  naoLida: boolean;
+};
+
+type InboxClienteRow = {
+  clienteKey: string;
+  nome: string;
+  assuntoId: string | null;
+  assuntoSlug: string | null;
+  unreadGeneral: number;
+  unreadMention: number;
+  lastMessagePreview: string | null;
+};
+
+type InboxData = {
+  urgentes: {
+    mensagemId: string;
+    assuntoId: string;
+    assuntoDisplay: string;
+    assuntoSlug: string;
+    corpoPreview: string;
+    autorNome: string;
+    createdAt: string;
+  }[];
+  minhasEnviadas: {
+    mensagemId: string;
+    assuntoId: string;
+    assuntoDisplay: string;
+    assuntoSlug: string;
+    corpoPreview: string;
+    createdAt: string;
+  }[];
+  canais: ConversaAssuntoListItem[];
+  clientes: InboxClienteRow[];
 };
 
 function fmtWhen(iso: string): string {
@@ -55,8 +93,9 @@ export function ChamadosConversasPanel({
   initialSlug,
   hideChat = false,
 }: Props) {
+  const [inbox, setInbox] = useState<InboxData | null>(null);
   const [assuntos, setAssuntos] = useState<ConversaAssuntoListItem[]>([]);
-  const [search, setSearch] = useState("");
+  const [clienteFilter, setClienteFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newTitulo, setNewTitulo] = useState("");
@@ -64,19 +103,26 @@ export function ChamadosConversasPanel({
   const [mensagens, setMensagens] = useState<ConversaMensagemItem[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState<ConversaMensagemItem | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const initialSlugHandled = useRef(false);
 
-  const loadAssuntos = useCallback(async (q?: string) => {
+  const loadInbox = useCallback(async () => {
     setLoading(true);
     try {
-      const url = q?.trim() ? `/api/chamados/conversas?q=${encodeURIComponent(q.trim())}` : "/api/chamados/conversas";
-      const res = await fetch(url, { credentials: "same-origin" });
+      const res = await fetch("/api/chamados/conversas/inbox", { credentials: "same-origin" });
       const data = res.ok ? await res.json() : null;
-      const rows = (data as { assuntos?: ConversaAssuntoListItem[] })?.assuntos;
-      setAssuntos(Array.isArray(rows) ? rows : []);
+      const box = (data as { inbox?: InboxData })?.inbox;
+      if (box) {
+        setInbox(box);
+        setAssuntos(box.canais);
+      } else {
+        setInbox(null);
+        setAssuntos([]);
+      }
     } catch {
+      setInbox(null);
       setAssuntos([]);
     } finally {
       setLoading(false);
@@ -84,27 +130,43 @@ export function ChamadosConversasPanel({
   }, []);
 
   useEffect(() => {
-    void loadAssuntos();
-  }, [loadAssuntos]);
+    void loadInbox();
+  }, [loadInbox]);
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (search.trim()) void loadAssuntos(search);
-      else void loadAssuntos();
-    }, 300);
-    return () => clearTimeout(t);
-  }, [search, loadAssuntos]);
+  const allAssuntos = useMemo(() => {
+    const map = new Map<string, ConversaAssuntoListItem>();
+    for (const a of assuntos) map.set(a.id, a);
+    if (inbox) {
+      for (const c of inbox.clientes) {
+        if (c.assuntoId) {
+          map.set(c.assuntoId, {
+            id: c.assuntoId,
+            slug: c.assuntoSlug ?? "",
+            titulo: c.nome,
+            display: c.nome,
+            unreadCount: c.unreadGeneral + c.unreadMention,
+            unreadGeneralCount: c.unreadGeneral,
+            unreadMentionCount: c.unreadMention,
+            mentionUnread: c.unreadMention > 0,
+            lastMessagePreview: c.lastMessagePreview,
+          });
+        }
+      }
+    }
+    return map;
+  }, [assuntos, inbox]);
 
   const selected = useMemo(
-    () => assuntos.find((a) => a.id === selectedId) ?? null,
-    [assuntos, selectedId],
+    () => (selectedId ? (allAssuntos.get(selectedId) ?? null) : null),
+    [allAssuntos, selectedId],
   );
 
-  const participantByEmail = useMemo(() => {
-    const map = new Map<string, (typeof participants)[number]>();
-    for (const p of participants) map.set(p.email.toLowerCase(), p);
-    return map;
-  }, [participants]);
+  const clientesFiltrados = useMemo(() => {
+    if (!inbox) return [];
+    const q = clienteFilter.trim().toLowerCase();
+    if (!q) return inbox.clientes;
+    return inbox.clientes.filter((c) => c.nome.toLowerCase().includes(q));
+  }, [inbox, clienteFilter]);
 
   const loadMensagens = useCallback(async (assuntoId: string) => {
     try {
@@ -117,40 +179,29 @@ export function ChamadosConversasPanel({
     }
   }, []);
 
-  const markRead = useCallback(async (assuntoId: string) => {
-    await fetch(`/api/chamados/conversas/${assuntoId}/read`, {
-      method: "POST",
-      credentials: "same-origin",
-    });
-    setAssuntos((prev) =>
-      prev.map((a) => (a.id === assuntoId ? { ...a, unreadCount: 0, mentionUnread: false } : a)),
-    );
-  }, []);
-
   useEffect(() => {
     if (hideChat || !selectedId) {
       if (hideChat) setMensagens([]);
       return;
     }
     void loadMensagens(selectedId);
-    void markRead(selectedId);
     const iv = setInterval(() => void loadMensagens(selectedId), 15000);
     return () => clearInterval(iv);
-  }, [selectedId, loadMensagens, markRead, hideChat]);
+  }, [selectedId, loadMensagens, hideChat]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensagens]);
 
   useEffect(() => {
-    if (initialSlugHandled.current || !initialSlug || assuntos.length === 0) return;
+    if (initialSlugHandled.current || !initialSlug || allAssuntos.size === 0) return;
     const slug = initialSlug.toLowerCase();
-    const hit = assuntos.find((a) => a.slug === slug);
+    const hit = [...allAssuntos.values()].find((a) => a.slug === slug);
     if (hit) {
       initialSlugHandled.current = true;
       onSelect(hit);
     }
-  }, [initialSlug, assuntos, onSelect]);
+  }, [initialSlug, allAssuntos, onSelect]);
 
   async function createAssunto() {
     if (!newTitulo.trim()) return;
@@ -170,7 +221,7 @@ export function ChamadosConversasPanel({
       }
       const created = (data as { assunto?: ConversaAssuntoListItem }).assunto;
       setNewTitulo("");
-      await loadAssuntos();
+      await loadInbox();
       if (created) onSelect(created);
     } catch {
       setMsg("Erro de rede.");
@@ -186,6 +237,7 @@ export function ChamadosConversasPanel({
     try {
       const fd = new FormData();
       fd.append("corpo", draft);
+      if (replyTo) fd.append("replyToMensagemId", replyTo.id);
       for (const f of pendingFiles) fd.append("files", f);
       const res = await fetch(`/api/chamados/conversas/${selectedId}/mensagens`, {
         method: "POST",
@@ -197,9 +249,10 @@ export function ChamadosConversasPanel({
         return;
       }
       setDraft("");
+      setReplyTo(null);
       setPendingFiles([]);
       await loadMensagens(selectedId);
-      await loadAssuntos();
+      await loadInbox();
     } catch {
       setMsg("Erro de rede ao enviar.");
     } finally {
@@ -207,21 +260,75 @@ export function ChamadosConversasPanel({
     }
   }
 
+  async function openCliente(c: InboxClienteRow) {
+    if (c.assuntoId) {
+      const a = allAssuntos.get(c.assuntoId);
+      if (a) onSelect(a);
+      return;
+    }
+    setMsg(null);
+    try {
+      const res = await fetch("/api/chamados/conversas/cliente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ clienteKey: c.clienteKey }),
+      });
+      const data = res.ok ? await res.json() : null;
+      const created = (data as { assunto?: ConversaAssuntoListItem })?.assunto;
+      await loadInbox();
+      if (created) onSelect(created);
+    } catch {
+      setMsg("Erro ao abrir cliente.");
+    }
+  }
+
+  function jumpToMessage(assuntoId: string, mensagemId: string) {
+    const a = allAssuntos.get(assuntoId);
+    if (a) onSelect(a);
+    setTimeout(() => {
+      document.getElementById("msg-" + mensagemId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 400);
+  }
+
+  function renderListRow(
+    key: string,
+    label: string,
+    sub: string | null,
+    general: number,
+    mention: number,
+    active: boolean,
+    onClick: () => void,
+  ) {
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={onClick}
+        className={
+          "flex w-full items-start gap-2 border-b border-slate-100 px-3 py-2 text-left transition hover:bg-white dark:border-slate-800 dark:hover:bg-slate-900 " +
+          (active ? "bg-white ring-1 ring-inset ring-violet-300 dark:bg-slate-900 dark:ring-violet-700" : "")
+        }
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-100">{label}</span>
+          {sub ?
+            <span className="mt-0.5 block truncate text-[10px] text-slate-400">{sub}</span>
+          : null}
+        </span>
+        <ConversaUnreadBadges general={general} mention={mention} />
+      </button>
+    );
+  }
+
   const sidebar = (
-      <aside className="flex h-full max-h-[38vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 sm:max-h-none lg:w-56 lg:max-w-[14rem] lg:border-b-0 lg:border-r xl:w-60">
+      <aside className="flex h-full max-h-[38vh] w-full shrink-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950/40 sm:max-h-none lg:w-64 lg:max-w-[16rem] lg:border-b-0 lg:border-r xl:w-72">
         <div className="border-b border-slate-200 p-3 dark:border-slate-700">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Assuntos</p>
-          <input
-            type="search"
-            placeholder="Buscar # ou texto…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="mt-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-900"
-          />
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Conversas</p>
           <div className="mt-2 flex gap-1">
             <input
               type="text"
-              placeholder="Novo # assunto"
+              placeholder="Novo canal #"
               value={newTitulo}
               onChange={(e) => setNewTitulo(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900"
@@ -234,7 +341,6 @@ export function ChamadosConversasPanel({
               disabled={creating}
               onClick={() => void createAssunto()}
               className="shrink-0 rounded-lg bg-violet-600 px-2 py-1 text-xs font-bold text-white hover:bg-violet-500 disabled:opacity-60"
-              title="Criar assunto"
             >
               +
             </button>
@@ -246,41 +352,82 @@ export function ChamadosConversasPanel({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading ?
             <p className="p-3 text-xs text-slate-400">Carregando…</p>
-          : assuntos.length === 0 ?
-            <p className="p-3 text-xs text-slate-400">Nenhum assunto. Crie um acima.</p>
-          : assuntos.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() => {
-                  onSelect(a);
-                }}
-                className={
-                  "flex w-full items-start gap-2 border-b border-slate-100 px-3 py-2.5 text-left transition hover:bg-white dark:border-slate-800 dark:hover:bg-slate-900 " +
-                  (selectedId === a.id ? "bg-white ring-1 ring-inset ring-violet-300 dark:bg-slate-900 dark:ring-violet-700" : "")
-                }
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-100">
-                    {a.display}
-                  </span>
-                  {a.lastMessagePreview ?
-                    <span className="mt-0.5 block truncate text-[10px] text-slate-400">{a.lastMessagePreview}</span>
-                  : null}
-                </span>
-                {a.unreadCount > 0 ?
-                  <span
-                    className={
-                      "portal-sidebar-item-badge shrink-0 " +
-                      (a.mentionUnread ? "bg-violet-600 text-white" : "")
-                    }
-                    title={a.mentionUnread ? "Menção não lida" : "Mensagens não lidas"}
-                  >
-                    {a.unreadCount > 99 ? "99+" : a.unreadCount}
-                  </span>
-                : null}
-              </button>
-            ))
+          : <>
+              {inbox && inbox.urgentes.length > 0 ?
+                <>
+                  <p className="sticky top-0 z-10 bg-rose-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
+                    Urgente ★
+                  </p>
+                  {inbox.urgentes.map((u) =>
+                    renderListRow(
+                      "u-" + u.mensagemId,
+                      u.assuntoDisplay,
+                      u.corpoPreview,
+                      0,
+                      0,
+                      false,
+                      () => jumpToMessage(u.assuntoId, u.mensagemId),
+                    ),
+                  )}
+                </>
+              : null}
+              {inbox && inbox.minhasEnviadas.length > 0 ?
+                <>
+                  <p className="sticky top-0 z-10 bg-sky-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+                    Minhas enviadas
+                  </p>
+                  {inbox.minhasEnviadas.slice(0, 20).map((m) =>
+                    renderListRow(
+                      "me-" + m.mensagemId,
+                      m.assuntoDisplay,
+                      m.corpoPreview,
+                      0,
+                      0,
+                      false,
+                      () => jumpToMessage(m.assuntoId, m.mensagemId),
+                    ),
+                  )}
+                </>
+              : null}
+              <p className="sticky top-0 z-10 bg-slate-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:bg-slate-900 dark:text-slate-400">
+                Canais #
+              </p>
+              {assuntos.length === 0 ?
+                <p className="px-3 py-2 text-[10px] text-slate-400">Nenhum canal ainda.</p>
+              : assuntos.map((a) =>
+                  renderListRow(
+                    a.id,
+                    a.display,
+                    a.lastMessagePreview,
+                    a.unreadGeneralCount ?? a.unreadCount,
+                    a.unreadMentionCount ?? (a.mentionUnread ? 1 : 0),
+                    selectedId === a.id,
+                    () => onSelect(a),
+                  ),
+                )
+              }
+              <p className="sticky top-0 z-10 mt-1 bg-emerald-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
+                Clientes (Produção)
+              </p>
+              <input
+                type="search"
+                placeholder="Filtrar cliente…"
+                value={clienteFilter}
+                onChange={(e) => setClienteFilter(e.target.value)}
+                className="mx-3 mb-1 w-[calc(100%-1.5rem)] rounded border border-slate-300 px-2 py-1 text-[11px] dark:border-slate-600 dark:bg-slate-900"
+              />
+              {clientesFiltrados.map((c) =>
+                renderListRow(
+                  "c-" + c.clienteKey,
+                  c.nome,
+                  c.lastMessagePreview,
+                  c.unreadGeneral,
+                  c.unreadMention,
+                  c.assuntoId != null && selectedId === c.assuntoId,
+                  () => void openCliente(c),
+                ),
+              )}
+            </>
           }
         </div>
       </aside>
@@ -299,37 +446,32 @@ export function ChamadosConversasPanel({
               <p className="text-[10px] text-slate-400">Digite @ para escolher quem mencionar na lista.</p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3">
-              {mensagens.map((m) => {
-                const author = participantByEmail.get(m.autorEmail.toLowerCase());
-                return (
-                  <div key={m.id} className="mb-4 flex max-w-full gap-2 border-b border-slate-100 pb-3 last:border-0 dark:border-slate-800">
-                    <PortalUserAvatar
-                      userId={author?.userId}
-                      displayName={m.autorNome}
-                      email={m.autorEmail}
-                      hasAvatar={author?.hasAvatar}
-                      avatarVersion={author?.avatarVersion}
-                      size="sm"
-                      className="mt-0.5"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{m.autorNome}</span>
-                        <span className="text-[10px] text-slate-400">{fmtWhen(m.createdAt)}</span>
-                      </div>
-                      <p className="mt-1 break-words whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
-                        <ChamadoMentionCorpo corpo={m.corpo} participants={participants} />
-                      </p>
-                      {m.anexos.map((an) => (
-                        <ConversaAnexoPreview key={an.id} anexo={an} />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+              {mensagens.map((m) => (
+                <ConversaChatMessage
+                  key={m.id}
+                  m={m}
+                  participants={participants}
+                  fmtWhen={fmtWhen}
+                  onReply={(x) => setReplyTo(x)}
+                  onRefresh={() => {
+                    void loadMensagens(selectedId!);
+                    void loadInbox();
+                  }}
+                />
+              ))}
               <div ref={bottomRef} />
             </div>
             <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+              {replyTo ?
+                <div className="mb-2 flex items-start justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] dark:border-violet-800 dark:bg-violet-950/40">
+                  <span>
+                    Respondendo <strong>{replyTo.autorNome}</strong>: {replyTo.corpo.slice(0, 80)}
+                  </span>
+                  <button type="button" className="shrink-0 font-bold text-slate-500" onClick={() => setReplyTo(null)}>
+                    ×
+                  </button>
+                </div>
+              : null}
               {pendingFiles.length > 0 ?
                 <p className="mb-1 text-[10px] text-slate-500">
                   {pendingFiles.length} arquivo(s): {pendingFiles.map((f) => f.name).join(", ")}
