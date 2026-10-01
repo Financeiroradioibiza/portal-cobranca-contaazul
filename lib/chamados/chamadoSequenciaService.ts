@@ -10,6 +10,7 @@ import {
   type ChamadoTemplateKind,
   type SequenciaStepDraft,
 } from "@/lib/chamados/chamadoTemplateSequencia";
+import { applySetorPessoasOnSteps } from "@/lib/chamados/chamadoSetorPessoas";
 import { prazoEndOfDayUtc } from "@/lib/chamados/chamadoPrazoUtils";
 import { serializeStringArray } from "@/lib/chamados/chamadoUtils";
 import { normalizePortalEmail } from "@/lib/auth/users";
@@ -41,7 +42,7 @@ export async function createChamadoSequencia(
   const titulo = tituloRaw.trim().slice(0, 200);
   if (!titulo) throw new Error("titulo_obrigatorio");
 
-  const steps = enabledSteps(stepsRaw);
+  const steps = enabledSteps(applySetorPessoasOnSteps(stepsRaw));
   if (steps.length === 0) throw new Error("sequencia_vazia");
 
   const grupoId = randomUUID();

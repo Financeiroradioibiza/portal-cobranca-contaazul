@@ -4,6 +4,7 @@ import {
   prazosDivididosAteInstalacao,
   prazosUmDiaUtilPorEtapa,
 } from "@/lib/chamados/chamadoPrazoUtils";
+import { applySetorPessoasOnSteps } from "@/lib/chamados/chamadoSetorPessoas";
 
 export type ChamadoTemplateKind = "padrao" | "cliente_novo" | "vinhetas";
 
@@ -107,7 +108,7 @@ export function buildDefaultClienteNovoSteps(
     modo === "data_instalacao" && dataInstalacao ?
       prazosDivididosAteInstalacao(from, new Date(dataInstalacao + "T12:00:00"), n)
     : prazosUmDiaUtilPorEtapa(from, n);
-  return attachPrazos(CLIENTE_NOVO_STEPS, prazos);
+  return applySetorPessoasOnSteps(attachPrazos(CLIENTE_NOVO_STEPS, prazos));
 }
 
 export function buildDefaultVinhetasSteps(
@@ -117,7 +118,7 @@ export function buildDefaultVinhetasSteps(
 ): SequenciaStepDraft[] {
   const defs = vinhetasSteps(rafaelEmail);
   const prazos = prazosDiasUteisPorEtapa(from, defs.length, diasUteisPorEtapa);
-  return attachPrazos(defs, prazos);
+  return applySetorPessoasOnSteps(attachPrazos(defs, prazos));
 }
 
 export function enabledSteps(steps: SequenciaStepDraft[]): SequenciaStepDraft[] {

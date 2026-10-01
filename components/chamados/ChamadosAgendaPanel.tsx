@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
 import Link from "next/link";
 
-type AgendaItem = ChamadoView & { prazoLabel?: string };
+type AgendaItem = ChamadoView & { prazoLabel?: string; agendaFinalizado?: boolean };
 
 type AgendaSequenciaTimeline = {
   grupoId: string;
@@ -129,17 +129,25 @@ function groupItemsByDay(items: AgendaItem[]): Map<string, AgendaItem[]> {
 
 function AgendaEventChip({ it }: { it: AgendaItem }) {
   const seq = Boolean(it.sequenciaGrupoId);
+  const finalizado = Boolean(it.agendaFinalizado || (seq && it.status === "fechado"));
   return (
     <Link
       href={`/chamados/kanban?chamado=${encodeURIComponent(it.id)}`}
       className={
         "block rounded-md border px-1.5 py-1 text-[10px] leading-tight " +
-        (seq ?
+        (finalizado ?
+          "border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400 dark:hover:bg-slate-800"
+        : seq ?
           "border-emerald-300 bg-emerald-50 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-100 dark:hover:bg-emerald-900"
         : "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/80 dark:text-violet-100 dark:hover:bg-violet-900")
       }
       title={it.titulo}
     >
+      {finalizado ?
+        <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wide text-slate-400">
+          Finalizado
+        </span>
+      : null}
       {it.sequenciaRotulo ?
         <span className="mb-0.5 block truncate font-bold text-amber-800 dark:text-amber-200">
           {it.sequenciaRotulo}

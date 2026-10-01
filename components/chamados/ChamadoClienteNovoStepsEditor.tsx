@@ -8,6 +8,12 @@ import {
   type SequenciaStepDraft,
 } from "@/lib/chamados/chamadoTemplateSequencia";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
+import {
+  emailsForChamadoSetor,
+  setorMarcadoNoStep,
+  setorUsaPessoasNomeadas,
+  toggleSetorNoStep,
+} from "@/lib/chamados/chamadoSetorPessoas";
 
 function resolveRafaelEmail(participants: ChamadoParticipant[]): string {
   const hit = participants.find(
@@ -191,25 +197,29 @@ export function ChamadoClienteNovoStepsEditor({
               />
               {setorIds.length > 0 && (variant !== "vinhetas" || step.key === "subida_producao") ?
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {CHAMADO_SETORES.filter((s) => setorIds.includes(s.id)).map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => {
-                        const has = step.setores.includes(s.id);
-                        updateStep(step.key, {
-                          setores:
-                            has ? step.setores.filter((x) => x !== s.id) : [...step.setores, s.id],
-                        });
-                      }}
-                      className={
-                        "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
-                        (step.setores.includes(s.id) ? s.bg : "bg-slate-100 opacity-50")
-                      }
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                  {CHAMADO_SETORES.filter((s) => setorIds.includes(s.id)).map((s) => {
+                    const marcado = setorMarcadoNoStep(step, s.id);
+                    const pessoas = setorUsaPessoasNomeadas(s.id) ? emailsForChamadoSetor(s.id) : [];
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        title={
+                          pessoas.length > 0 ?
+                            `Notifica: ${pessoas.join(", ")}`
+                          : undefined
+                        }
+                        onClick={() => updateStep(step.key, toggleSetorNoStep(step, s.id))}
+                        className={
+                          "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                          (marcado ? s.bg : "bg-slate-100 opacity-50")
+                        }
+                      >
+                        {s.label}
+                        {pessoas.length === 1 ? " · pessoa" : pessoas.length > 1 ? " · equipe" : ""}
+                      </button>
+                    );
+                  })}
                 </div>
               : null}
               {participants.length > 0 ?

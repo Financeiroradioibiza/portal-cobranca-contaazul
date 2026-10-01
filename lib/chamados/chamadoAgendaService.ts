@@ -6,7 +6,13 @@ import { userParticipatesInChamado, getChamadoUserContext } from "@/lib/chamados
 
 export type ChamadoAgendaItem = ChamadoView & {
   prazoLabel: string;
+  /** Etapa de sequência já fechada — exibir na grade em cinza. */
+  agendaFinalizado?: boolean;
 };
+
+function sequenciaTotalmenteEncerrada(rows: { status: string }[]): boolean {
+  return rows.length > 0 && rows.every((r) => r.status === "fechado");
+}
 
 export type AgendaSequenciaPasso = {
   chamadoId: string;
@@ -51,7 +57,10 @@ export async function listChamadosAgendaForUser(
   const rows = await prisma.chamado.findMany({
     where: {
       prazoEntrega: { gte: from, lte: to },
-      status: { in: ["aberto", "em_andamento", "aguardando"] },
+      OR: [
+        { status: { in: ["aberto", "em_andamento", "aguardando"] } },
+        { status: "fechado", sequenciaGrupoId: { not: null } },
+      ],
     },
     orderBy: { prazoEntrega: "asc" },
   });
@@ -61,7 +70,12 @@ export async function listChamadosAgendaForUser(
     if (!userParticipatesInChamado(row, ctx)) continue;
     const view = chamadoToView(row);
     if (!view.prazoEntrega) continue;
-    out.push({ ...view, prazoLabel: fmtPrazo(view.prazoEntrega) });
+    const finalizado = row.status === "fechado" && Boolean(row.sequenciaGrupoId);
+    out.push({
+      ...view,
+      prazoLabel: fmtPrazo(view.prazoEntrega),
+      agendaFinalizado: finalizado,
+    });
   }
   return out;
 }
@@ -97,6 +111,8 @@ export async function listAgendaSequenciaTimelinesForUser(
 
   const timelines: AgendaSequenciaTimeline[] = [];
   for (const [grupoId, groupRows] of byGroup) {
+    if (sequenciaTotalmenteEncerrada(groupRows)) continue;
+
     const anyPrazoInRange = groupRows.some((r) => {
       if (!r.prazoEntrega) return false;
       const t = r.prazoEntrega.getTime();
