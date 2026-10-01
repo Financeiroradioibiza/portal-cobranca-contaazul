@@ -28,7 +28,7 @@ export function PortalSidebarChamados() {
   }, [allItems]);
 
   return (
-    <Link href="/chamados" className="portal-sidebar-chamados portal-sidebar-chamados-compact">
+    <Link href="/chamados/kanban" className="portal-sidebar-chamados portal-sidebar-chamados-compact">
       <span className="portal-sidebar-chamados-icon" aria-hidden>
         🎫
       </span>

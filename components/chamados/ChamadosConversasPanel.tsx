@@ -94,6 +94,7 @@ type Props = {
   selectedId: string | null;
   onSelect: (assunto: ConversaAssuntoListItem | null) => void;
   participants: ChamadoParticipant[];
+  viewerEmail?: string;
   /** slug da URL ?conversa= */
   initialSlug?: string | null;
   /** Oculta o painel de chat (só coluna # visível). */
@@ -104,6 +105,7 @@ export function ChamadosConversasPanel({
   selectedId,
   onSelect,
   participants,
+  viewerEmail = "",
   initialSlug,
   hideChat = false,
 }: Props) {
@@ -632,6 +634,7 @@ export function ChamadosConversasPanel({
                   key={m.id}
                   m={m}
                   participants={participants}
+                  viewerEmail={viewerEmail}
                   fmtWhen={fmtWhen}
                   onReply={(x) => setReplyTo(x)}
                   onRefresh={() => {

@@ -7,52 +7,51 @@ import {
   ChamadosConversasPanel,
   type ConversaAssuntoListItem,
 } from "@/components/chamados/ChamadosConversasPanel";
-import type { ChamadoParticipant, ChamadosResumoView } from "@/lib/chamados/chamadoTypes";
+import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
 
-type MainView = "kanban" | "conversa";
-
-function parseParticipants(data: unknown): ChamadoParticipant[] {
-  if (!data || typeof data !== "object" || !("participants" in data)) return [];
-  const rows = (data as { participants?: unknown }).participants;
-  return Array.isArray(rows) ? (rows as ChamadoParticipant[]) : [];
-}
+export type ChamadosWorkspaceView = "kanban" | "conversa";
 
 type ChamadosWorkspaceProps = {
+  view: ChamadosWorkspaceView;
   /** Layout mais alto no shell /m (PWA). */
   mobile?: boolean;
 };
 
-export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
+export function ChamadosWorkspace({ view, mobile = false }: ChamadosWorkspaceProps) {
   const searchParams = useSearchParams();
   const conversaSlug = searchParams.get("conversa");
   const chamadoId = searchParams.get("chamado");
 
-  const [mainView, setMainView] = useState<MainView>(conversaSlug ? "conversa" : "kanban");
+  const mainView = view;
   const [selectedAssunto, setSelectedAssunto] = useState<ConversaAssuntoListItem | null>(null);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
-  const [resumo, setResumo] = useState<ChamadosResumoView | null>(null);
+  const [viewerEmail, setViewerEmail] = useState("");
 
   useEffect(() => {
     void Promise.all([
       fetch("/api/chamados/participants", { credentials: "same-origin" }).then((r) =>
         r.ok ? r.json() : null,
       ),
-      fetch("/api/chamados", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/auth/me", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)),
     ])
-      .then(([pData, cData]) => {
-        setParticipants(parseParticipants(pData));
-        const r = (cData as { resumo?: ChamadosResumoView })?.resumo;
-        setResumo(r && typeof r === "object" ? r : null);
+      .then(([pData, me]) => {
+        if (pData && typeof pData === "object" && "participants" in pData) {
+          const rows = (pData as { participants?: unknown }).participants;
+          setParticipants(Array.isArray(rows) ? (rows as ChamadoParticipant[]) : []);
+        } else {
+          setParticipants([]);
+        }
+        const email = (me as { email?: string } | null)?.email;
+        setViewerEmail(typeof email === "string" ? email : "");
       })
       .catch(() => {
         setParticipants([]);
-        setResumo(null);
+        setViewerEmail("");
       });
   }, []);
 
   const onSelectAssunto = useCallback((a: ConversaAssuntoListItem | null) => {
     setSelectedAssunto(a);
-    if (a) setMainView("conversa");
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       if (a) url.searchParams.set("conversa", a.slug);
@@ -70,54 +69,6 @@ export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
         : "min-h-[420px] max-h-[calc(100vh-9rem)]")
       }
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
-        <button
-          type="button"
-          onClick={() => {
-            setMainView("kanban");
-          }}
-          className={
-            "rounded-full px-3 py-1 text-xs font-semibold " +
-            (mainView === "kanban" ?
-              "bg-violet-600 text-white"
-            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")
-          }
-        >
-          Quadro kanban
-          {resumo && resumo.chamadosNaoLidos > 0 ?
-            <span className="ml-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-              {resumo.chamadosNaoLidos > 99 ? "99+" : resumo.chamadosNaoLidos}
-            </span>
-          : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => setMainView("conversa")}
-          className={
-            "rounded-full px-3 py-1 text-xs font-semibold " +
-            (mainView === "conversa" ?
-              "bg-violet-600 text-white"
-            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")
-          }
-        >
-          Conversas {selectedAssunto ? `· ${selectedAssunto.display}` : ""}
-          {resumo && (resumo.conversasNaoLidas > 0 || resumo.conversasMencoes > 0) ?
-            <span className="ml-1.5 inline-flex gap-0.5">
-              {resumo.conversasNaoLidas > 0 ?
-                <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                  {resumo.conversasNaoLidas > 99 ? "99+" : resumo.conversasNaoLidas}
-                </span>
-              : null}
-              {resumo.conversasMencoes > 0 ?
-                <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                  {resumo.conversasMencoes > 99 ? "99+" : resumo.conversasMencoes}
-                </span>
-              : null}
-            </span>
-          : null}
-        </button>
-      </div>
-
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row">
         <div
           className={
@@ -130,6 +81,7 @@ export function ChamadosWorkspace({ mobile = false }: ChamadosWorkspaceProps) {
             selectedId={selectedAssunto?.id ?? null}
             onSelect={onSelectAssunto}
             participants={participants}
+            viewerEmail={viewerEmail}
             initialSlug={conversaSlug}
             hideChat={mainView === "kanban"}
           />

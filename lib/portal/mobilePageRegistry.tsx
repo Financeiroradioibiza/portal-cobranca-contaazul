@@ -317,9 +317,19 @@ const PAGES: Record<string, PageDef> = {
     render: () => <InstalacaoPanel />,
   },
   "/chamados": {
-    section: "Chamados",
-    title: "Chamados",
-    description: "Kanban, conversas e notificações",
+    section: "IbiZap",
+    title: "IbiZap",
+    description: "Conversas e kanban",
+    render: () => <ChamadosMobilePage />,
+  },
+  "/chamados/conversas": {
+    section: "IbiZap",
+    title: "Conversas",
+    render: () => <ChamadosMobilePage />,
+  },
+  "/chamados/kanban": {
+    section: "IbiZap",
+    title: "Kanban",
     render: () => <ChamadosMobilePage />,
   },
   "/config/parametros": {

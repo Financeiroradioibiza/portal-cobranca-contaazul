@@ -1,20 +1,19 @@
-import { Suspense } from "react";
-import { ChamadosWorkspace } from "@/components/chamados/ChamadosWorkspace";
+import { redirect } from "next/navigation";
 
-export default function ChamadosPage() {
-  return (
-    <div className="portal-page min-w-0">
-      <header className="portal-page-header">
-        <div>
-          <div className="portal-page-crumb">Chamados</div>
-          <h1 className="portal-page-title">Comunicação interna</h1>
-        </div>
-      </header>
-      <div className="portal-page-body">
-        <Suspense fallback={<p className="text-sm text-slate-500">Carregando chamados…</p>}>
-          <ChamadosWorkspace />
-        </Suspense>
-      </div>
-    </div>
-  );
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function ChamadosIndexPage({ searchParams }: Props) {
+  const sp = await searchParams;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (v == null) continue;
+    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
+    else qs.set(k, v);
+  }
+  const suffix = qs.toString();
+  const hasChamado = Boolean(sp.chamado);
+  const base = hasChamado ? "/chamados/kanban" : "/chamados/conversas";
+  redirect(suffix ? `${base}?${suffix}` : base);
 }

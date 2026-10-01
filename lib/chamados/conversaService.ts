@@ -278,6 +278,82 @@ export async function postConversaMensagem(
   };
 }
 
+function assertConversaMensagemAuthor(row: { autorEmail: string }, ctx: ChamadoUserContext): void {
+  if (row.autorEmail.toLowerCase() !== ctx.email.toLowerCase()) throw new Error("forbidden");
+}
+
+export async function updateConversaMensagemCorpo(
+  mensagemId: string,
+  corpoRaw: string,
+  ctx: ChamadoUserContext,
+): Promise<ConversaMensagemView> {
+  const row = await prisma.chamadoConversaMensagem.findUnique({
+    where: { id: mensagemId },
+    include: { anexos: true },
+  });
+  if (!row) throw new Error("not_found");
+  assertConversaMensagemAuthor(row, ctx);
+
+  const corpo = corpoRaw.trim().slice(0, 12000);
+  if (!corpo && row.anexos.length === 0) throw new Error("corpo_vazio");
+
+  const participants = await listChamadoParticipants();
+  const { mencoes } = resolveMentionEmails(corpo, participants);
+  const prevMencoes = new Set(parseStringArrayJson(row.mencoesJson).map((e) => e.toLowerCase()));
+  const newMencoes = mencoes.filter((e) => !prevMencoes.has(e.toLowerCase()));
+
+  const assunto = await prisma.chamadoConversaAssunto.findUnique({ where: { id: row.assuntoId } });
+  if (!assunto) throw new Error("not_found");
+
+  await prisma.chamadoConversaMensagem.update({
+    where: { id: mensagemId },
+    data: {
+      corpo: corpo || row.corpo,
+      mencoesJson: serializeStringArray(mencoes),
+    },
+  });
+
+  await prisma.chamadoConversaAssunto.update({
+    where: { id: row.assuntoId },
+    data: { updatedAt: new Date() },
+  });
+
+  if (newMencoes.length > 0) {
+    scheduleConversaMentionEmails({
+      assuntoSlug: assunto.slug,
+      assuntoTitulo: assunto.titulo,
+      autorNome: ctx.displayName,
+      corpo,
+      mencoes: newMencoes,
+      excludeEmail: ctx.email,
+    });
+  }
+
+  const list = await listConversaMensagens(row.assuntoId, ctx.email);
+  const hit = list.find((m) => m.id === mensagemId);
+  if (!hit) throw new Error("not_found");
+  return hit;
+}
+
+export async function deleteConversaMensagem(mensagemId: string, ctx: ChamadoUserContext): Promise<void> {
+  const row = await prisma.chamadoConversaMensagem.findUnique({ where: { id: mensagemId } });
+  if (!row) throw new Error("not_found");
+  assertConversaMensagemAuthor(row, ctx);
+
+  const assuntoId = row.assuntoId;
+  await prisma.chamadoConversaMensagem.delete({ where: { id: mensagemId } });
+
+  const last = await prisma.chamadoConversaMensagem.findFirst({
+    where: { assuntoId },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  await prisma.chamadoConversaAssunto.update({
+    where: { id: assuntoId },
+    data: { updatedAt: last?.createdAt ?? new Date() },
+  });
+}
+
 export async function markConversaRead(assuntoId: string, userEmail: string): Promise<void> {
   const email = normalizePortalEmail(userEmail);
   const now = new Date();

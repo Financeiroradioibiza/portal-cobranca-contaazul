@@ -1,18 +1,23 @@
 "use client";
 
-import { Suspense } from "react";
+import { usePathname } from "next/navigation";
 import { ChamadosPwaSetup } from "@/components/chamados/ChamadosPwaSetup";
-import { ChamadosWorkspace } from "@/components/chamados/ChamadosWorkspace";
+import { ChamadosPortalShell } from "@/components/chamados/ChamadosPortalShell";
+import type { ChamadosWorkspaceView } from "@/components/chamados/ChamadosWorkspace";
+
+function viewFromPath(pathname: string): ChamadosWorkspaceView {
+  if (pathname.includes("/kanban")) return "kanban";
+  return "conversa";
+}
 
 export function ChamadosMobilePage() {
+  const pathname = usePathname();
+  const view = viewFromPath(pathname);
+
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <>
       <ChamadosPwaSetup />
-      <Suspense
-        fallback={<p className="px-1 py-8 text-center text-sm text-slate-500">Carregando chamados…</p>}
-      >
-        <ChamadosWorkspace mobile />
-      </Suspense>
-    </div>
+      <ChamadosPortalShell view={view} mobile />
+    </>
   );
 }

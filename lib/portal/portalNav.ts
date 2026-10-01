@@ -57,7 +57,7 @@ export const PORTAL_TOP_NAV: PortalTopNavItem[] = [
   { id: "criacao", label: "Criação", icon: "🎵", href: CRIACAO_HOME_HREF },
   { id: "atendimento", label: "Atendimento", icon: "💬", href: "/atendimento/rela" },
   { id: "suporte", label: "Suporte", icon: "🎧", href: "/suporte" },
-  { id: "chamados", label: "Chamados", icon: "🎫", href: "/chamados" },
+  { id: "chamados", label: "IbiZap", icon: "💬", href: "/chamados/conversas" },
   {
     id: "config",
     label: "Configuração",
@@ -126,8 +126,11 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
     ],
   },
   chamados: {
-    section: "Chamados",
-    items: [{ href: "/chamados", icon: "🎫", label: "Kanban e conversas" }],
+    section: "IbiZap",
+    items: [
+      { href: "/chamados/conversas", icon: "💬", label: "Conversas" },
+      { href: "/chamados/kanban", icon: "📋", label: "Kanban", exact: true },
+    ],
   },
   config: {
     section: "Configuração",
