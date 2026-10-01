@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
-import { listChamadosAgendaForUser } from "@/lib/chamados/chamadoAgendaService";
+import {
+  listAgendaSequenciaTimelinesForUser,
+  listChamadosAgendaForUser,
+} from "@/lib/chamados/chamadoAgendaService";
 
 export async function GET(req: Request) {
   try {
@@ -11,8 +14,11 @@ export async function GET(req: Request) {
     if (!from || !to) {
       return NextResponse.json({ error: "from_to_obrigatorio" }, { status: 400 });
     }
-    const items = await listChamadosAgendaForUser(session.email, from, to);
-    return NextResponse.json({ ok: true, items });
+    const [items, sequencias] = await Promise.all([
+      listChamadosAgendaForUser(session.email, from, to),
+      listAgendaSequenciaTimelinesForUser(session.email, from, to),
+    ]);
+    return NextResponse.json({ ok: true, items, sequencias });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[chamados/agenda GET]", e);

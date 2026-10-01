@@ -6,6 +6,21 @@ import Link from "next/link";
 
 type AgendaItem = ChamadoView & { prazoLabel?: string };
 
+type AgendaSequenciaTimeline = {
+  grupoId: string;
+  titulo: string;
+  templateKind: string | null;
+  passos: {
+    chamadoId: string;
+    passo: number;
+    total: number;
+    rotulo: string | null;
+    prazoLabel: string;
+    prazoEntrega: string;
+    status: string;
+  }[];
+};
+
 type ViewMode = "semana" | "dia" | "mes";
 
 const DAY_PARTS = [
@@ -113,10 +128,16 @@ function groupItemsByDay(items: AgendaItem[]): Map<string, AgendaItem[]> {
 }
 
 function AgendaEventChip({ it }: { it: AgendaItem }) {
+  const seq = Boolean(it.sequenciaGrupoId);
   return (
     <Link
       href={`/chamados/kanban?chamado=${encodeURIComponent(it.id)}`}
-      className="block rounded-md border border-violet-200 bg-violet-50 px-1.5 py-1 text-[10px] leading-tight text-violet-950 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/80 dark:text-violet-100 dark:hover:bg-violet-900"
+      className={
+        "block rounded-md border px-1.5 py-1 text-[10px] leading-tight " +
+        (seq ?
+          "border-emerald-300 bg-emerald-50 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-100 dark:hover:bg-emerald-900"
+        : "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/80 dark:text-violet-100 dark:hover:bg-violet-900")
+      }
       title={it.titulo}
     >
       {it.sequenciaRotulo ?
@@ -124,8 +145,69 @@ function AgendaEventChip({ it }: { it: AgendaItem }) {
           {it.sequenciaRotulo}
         </span>
       : null}
+      {seq && it.sequenciaPasso && it.sequenciaTotal ?
+        <span className="font-bold tabular-nums">
+          {it.sequenciaPasso}/{it.sequenciaTotal}
+        </span>
+      : null}
       <span className="line-clamp-2 font-semibold">{it.titulo}</span>
     </Link>
+  );
+}
+
+function AgendaSequenciaTimelines({ timelines }: { timelines: AgendaSequenciaTimeline[] }) {
+  if (timelines.length === 0) return null;
+  return (
+    <div className="mb-3 space-y-2">
+      {timelines.map((seq) => (
+        <div
+          key={seq.grupoId}
+          className="rounded-xl border border-emerald-300/80 bg-emerald-50/90 p-3 dark:border-emerald-800 dark:bg-emerald-950/40"
+        >
+          <p className="text-xs font-bold text-emerald-950 dark:text-emerald-100">
+            {seq.titulo}
+            <span className="ml-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+              (SEQUÊNCIA)
+            </span>
+          </p>
+          <div className="mt-2 flex flex-wrap items-stretch gap-1">
+            {seq.passos.map((p, idx) => {
+              const active = p.status === "aberto" || p.status === "em_andamento";
+              const done = p.status === "fechado";
+              return (
+                <div key={p.chamadoId} className="flex min-w-0 flex-1 items-center gap-1">
+                  {idx > 0 ?
+                    <span className="hidden shrink-0 text-emerald-400 sm:inline" aria-hidden>
+                      →
+                    </span>
+                  : null}
+                  <Link
+                    href={`/chamados/kanban?chamado=${encodeURIComponent(p.chamadoId)}`}
+                    className={
+                      "min-w-[4.5rem] flex-1 rounded-lg border px-2 py-1.5 text-center text-[10px] leading-tight transition " +
+                      (active ?
+                        "border-emerald-600 bg-emerald-600 font-bold text-white shadow-sm"
+                      : done ?
+                        "border-emerald-200 bg-white/60 text-emerald-800 opacity-80 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+                      : "border-emerald-200 bg-white text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100")
+                    }
+                    title={p.rotulo ?? undefined}
+                  >
+                    <div className="font-bold tabular-nums">
+                      {p.passo}/{p.total}
+                    </div>
+                    <div className="mt-0.5 font-semibold">{p.prazoLabel}</div>
+                    {p.rotulo ?
+                      <div className="mt-0.5 line-clamp-2 text-[9px] font-medium opacity-90">{p.rotulo}</div>
+                    : null}
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -302,6 +384,7 @@ export function ChamadosAgendaPanel() {
   const [mode, setMode] = useState<ViewMode>("semana");
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [items, setItems] = useState<AgendaItem[]>([]);
+  const [sequencias, setSequencias] = useState<AgendaSequenciaTimeline[]>([]);
   const [loading, setLoading] = useState(true);
 
   const range = useMemo(() => rangeForMode(mode, anchor), [mode, anchor]);
@@ -321,8 +404,10 @@ export function ChamadosAgendaPanel() {
       const res = await fetch(`/api/chamados/agenda?${q}`, { credentials: "same-origin" });
       const data = res.ok ? await res.json() : null;
       setItems(Array.isArray(data?.items) ? data.items : []);
+      setSequencias(Array.isArray(data?.sequencias) ? data.sequencias : []);
     } catch {
       setItems([]);
+      setSequencias([]);
     } finally {
       setLoading(false);
     }
@@ -332,7 +417,7 @@ export function ChamadosAgendaPanel() {
     void load();
   }, [load]);
 
-  const emptyHint = !loading && items.length === 0;
+  const emptyHint = !loading && items.length === 0 && sequencias.length === 0;
 
   return (
     <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
@@ -386,6 +471,8 @@ export function ChamadosAgendaPanel() {
           </button>
         </div>
       </div>
+
+      <AgendaSequenciaTimelines timelines={sequencias} />
 
       <div className="relative mt-3 max-h-[min(70vh,420px)] overflow-y-auto">
         {mode === "mes" ?

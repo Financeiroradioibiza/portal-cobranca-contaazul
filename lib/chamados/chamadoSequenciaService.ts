@@ -4,7 +4,7 @@ import type { ChamadoUserContext } from "@/lib/chamados/chamadoService";
 import { chamadoToView } from "@/lib/chamados/chamadoUtils";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
 import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
-import { notifyChamadoEmail } from "@/lib/chamados/chamadoNotifyEmail";
+import { scheduleChamadoNotifyEmail } from "@/lib/chamados/chamadoNotifyEmail";
 import {
   enabledSteps,
   type ChamadoTemplateKind,
@@ -82,11 +82,7 @@ export async function createChamadoSequencia(
     createdViews.push(view);
 
     if (i === 0) {
-      try {
-        await notifyChamadoEmail(view, "created");
-      } catch (e) {
-        console.error("[sequencia] e-mail etapa 1", e);
-      }
+      scheduleChamadoNotifyEmail(view, "created");
       try {
         await bumpChamadoInbox(view, { kind: "created", actorEmail: ctx.email });
       } catch (e) {
@@ -135,11 +131,7 @@ export async function avancarSequenciaChamado(
   });
   const closedView = chamadoToView(closed);
 
-  try {
-    await notifyChamadoEmail(closedView, "closed");
-  } catch (e) {
-    console.error("[sequencia] e-mail fechamento", e);
-  }
+  scheduleChamadoNotifyEmail(closedView, "closed");
 
   const nextRow = await prisma.chamado.findFirst({
     where: {
@@ -159,11 +151,7 @@ export async function avancarSequenciaChamado(
   });
   const openedView = chamadoToView(opened);
 
-  try {
-    await notifyChamadoEmail(openedView, "created");
-  } catch (e) {
-    console.error("[sequencia] e-mail próxima etapa", e);
-  }
+  scheduleChamadoNotifyEmail(openedView, "created");
   try {
     await bumpChamadoInbox(openedView, { kind: "created", actorEmail: ctx.email });
   } catch (e) {

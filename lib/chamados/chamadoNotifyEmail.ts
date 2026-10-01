@@ -75,6 +75,15 @@ export async function resolveChamadoNotifyRecipients(opts: {
     for (const u of users) {
       if (u.email.includes("@")) out.add(u.email);
     }
+    for (const s of setores) {
+      const envKey = `CHAMADO_${s.toUpperCase()}_EMAILS`;
+      const raw = process.env[envKey]?.trim();
+      if (!raw) continue;
+      for (const part of raw.split(/[,;\s]+/)) {
+        const email = normalizePortalEmail(part);
+        if (email.includes("@")) out.add(email);
+      }
+    }
   }
 
   return [...out];
@@ -119,7 +128,11 @@ function buildChamadoEmail(
     kind === "closed" ? "[Chamado concluído]"
     : kind === "updated" ? "[Chamado atualizado]"
     : "[Chamado]";
-  const subject = `${subjectPrefix} ${chamado.titulo}`.slice(0, 180);
+  const sequenciaTag =
+    chamado.sequenciaPasso && chamado.sequenciaTotal ?
+      ` (${chamado.sequenciaPasso}/${chamado.sequenciaTotal}${chamado.sequenciaRotulo ? ` · ${chamado.sequenciaRotulo}` : ""})`
+    : "";
+  const subject = `${subjectPrefix} ${chamado.titulo}${sequenciaTag}`.slice(0, 180);
   const fechadoLines =
     kind === "closed" && chamado.fechadoPorNome ?
       [
@@ -144,6 +157,10 @@ function buildChamadoEmail(
     headline,
     "",
     `Título: ${chamado.titulo}`,
+    sequenciaTag ? `Sequência:${sequenciaTag.trim()}` : "",
+    chamado.prazoEntrega ?
+      `Prazo desta etapa: ${new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(new Date(chamado.prazoEntrega))}`
+    : "",
     `Situação: ${situacao}`,
     `Prioridade: ${prioridadeLabel(chamado.prioridade)}`,
     `Setores: ${setores}`,
