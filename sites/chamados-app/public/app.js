@@ -2154,7 +2154,7 @@
   var deepConversa = parseParams();
 
   auth
-    .requireSession()
+    .requireSessionForApp()
     .then(function (user) {
       state.user = user;
       if (pushApi) {
@@ -2182,8 +2182,6 @@
     })
     .catch(function () {
       auth.setToken(null);
-      auth.clearServerSession().finally(function () {
-        window.location.replace("/login.html");
-      });
+      window.location.replace("/login.html");
     });
 })();

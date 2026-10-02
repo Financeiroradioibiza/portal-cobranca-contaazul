@@ -1,6 +1,9 @@
 (function (global) {
   var TOKEN_KEY = "chamados_app_portal_session";
+  var PENDING_TOKEN_KEY = "chamados_pending_token";
+  var FRESH_LOGIN_KEY = "chamados_fresh_login";
   var COOKIE_NAME = "portal_session";
+  var logoutAbort = null;
 
   function readCookieToken() {
     try {
@@ -41,7 +44,19 @@
     }
   }
 
+  function abortPendingLogout() {
+    if (logoutAbort) {
+      try {
+        logoutAbort.abort();
+      } catch (e) {
+        //
+      }
+      logoutAbort = null;
+    }
+  }
+
   function setToken(token) {
+    abortPendingLogout();
     try {
       if (token) {
         localStorage.setItem(TOKEN_KEY, token);
@@ -60,6 +75,29 @@
     return getToken() === token;
   }
 
+  /** Token gravado no login imediatamente antes do redirect (Safari iOS). */
+  function stashPendingLoginToken(token) {
+    try {
+      sessionStorage.setItem(PENDING_TOKEN_KEY, token);
+      sessionStorage.setItem(FRESH_LOGIN_KEY, "1");
+    } catch (e) {
+      //
+    }
+    setToken(token);
+  }
+
+  function bootstrapFromPendingLogin() {
+    try {
+      var pending = sessionStorage.getItem(PENDING_TOKEN_KEY);
+      if (pending) {
+        setToken(pending);
+        sessionStorage.removeItem(PENDING_TOKEN_KEY);
+      }
+    } catch (e) {
+      //
+    }
+  }
+
   function authHeaders(extra) {
     var h = extra ? Object.assign({}, extra) : {};
     var t = getToken();
@@ -73,56 +111,87 @@
   function apiFetch(url, opts) {
     opts = opts || {};
     opts.credentials = "same-origin";
+    opts.cache = opts.cache || "no-store";
     opts.headers = authHeaders(opts.headers || {});
     return fetch(url, opts);
   }
 
   function logout() {
     setToken(null);
-    return fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: authHeaders({}),
-    }).finally(function () {
+    return clearServerSession().finally(function () {
       window.location.replace("/login.html");
     });
   }
 
-  function requireSession() {
-    return apiFetch("/api/chamados-app/session")
-      .then(function (r) {
-        if (!r.ok) throw new Error("unauthorized");
-        return r.json();
-      });
+  function requireSession(retryLeft) {
+    if (retryLeft == null) retryLeft = 0;
+    return apiFetch("/api/chamados-app/session").then(function (r) {
+      if (!r.ok) {
+        if (retryLeft > 0) {
+          return new Promise(function (resolve) {
+            setTimeout(resolve, 200);
+          }).then(function () {
+            return requireSession(retryLeft - 1);
+          });
+        }
+        throw new Error("unauthorized");
+      }
+      return r.json();
+    });
+  }
+
+  function requireSessionForApp() {
+    var retries = 0;
+    try {
+      if (sessionStorage.getItem(FRESH_LOGIN_KEY) === "1") retries = 5;
+    } catch (e) {
+      //
+    }
+    return requireSession(retries).then(function (s) {
+      try {
+        sessionStorage.removeItem(FRESH_LOGIN_KEY);
+      } catch (e) {
+        //
+      }
+      return s;
+    });
   }
 
   function redirectIfLoggedIn() {
     if (!getToken()) return Promise.resolve();
-    return requireSession()
+    return requireSession(1)
       .then(function (s) {
         if (s && s.ok) window.location.replace("/app.html");
       })
       .catch(function () {
         setToken(null);
-        return clearServerSession();
       });
   }
 
   function clearServerSession() {
+    abortPendingLogout();
+    logoutAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var signal = logoutAbort ? logoutAbort.signal : undefined;
     return fetch("/api/auth/logout", {
       method: "POST",
       credentials: "same-origin",
+      cache: "no-store",
+      signal: signal,
     }).catch(function () {});
   }
+
+  bootstrapFromPendingLogin();
 
   global.ChamadosAppAuth = {
     getToken: getToken,
     setToken: setToken,
+    stashPendingLoginToken: stashPendingLoginToken,
     tokenPersisted: tokenPersisted,
     authHeaders: authHeaders,
     apiFetch: apiFetch,
     logout: logout,
     requireSession: requireSession,
+    requireSessionForApp: requireSessionForApp,
     redirectIfLoggedIn: redirectIfLoggedIn,
     clearServerSession: clearServerSession,
     clearLegacyPortalCookie: clearLegacyPortalCookie,
