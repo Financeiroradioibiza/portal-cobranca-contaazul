@@ -316,7 +316,7 @@ export function BibliotecaSidebar({
                 <PortalUserAvatar
                   userId={t.criativoPortalUserId}
                   displayName={t.criativoNome || t.nome}
-                  email={t.criativoUserId ?? t.criativoNome || t.nome}
+                  email={t.criativoUserId ?? (t.criativoNome || t.nome)}
                   hasAvatar={t.criativoHasAvatar}
                   avatarVersion={t.criativoAvatarVersion}
                   size="xs"
