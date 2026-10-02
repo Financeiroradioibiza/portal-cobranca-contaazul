@@ -80,18 +80,113 @@
     }
   }
 
-  function refreshSequenciaStepsForDraft(d) {
-    if (!seqDefaults || !d) return;
-    if (d.template === "cliente_novo") {
-      d.sequenciaSteps = seqDefaults.buildDefaultClienteNovoSteps(new Date());
-    } else if (d.template === "vinhetas") {
-      d.sequenciaSteps = seqDefaults.buildDefaultVinhetasSteps(
-        new Date(),
-        seqDefaults.defaultVinhetasRafaelEmail(state.participants),
-      );
-    } else {
+  function loadTemplateStepsForDraft(d, opts) {
+    opts = opts || {};
+    var editor = window.ChamadosSequenciaEditor;
+    if (!d || !editor) return Promise.resolve();
+    if (d.template !== "cliente_novo" && d.template !== "vinhetas") {
       d.sequenciaSteps = [];
+      return Promise.resolve();
     }
+    var template = opts.template || d.template;
+    var prazoModo = opts.prazoModo || d.prazoModo || "um_dia_util";
+    var dataInstalacao = opts.dataInstalacao !== undefined ? opts.dataInstalacao : d.dataInstalacao || "";
+    var prev = (d.sequenciaSteps || []).slice();
+    return editor
+      .fetchTemplateSteps(auth, template, prazoModo, dataInstalacao)
+      .then(function (data) {
+        d.setorEmails = data.setorEmails || {};
+        d.setoresMeta = data.setores || [];
+        d.prazoModo = prazoModo;
+        if (prev.length && template === d.template && opts.merge !== false) {
+          d.sequenciaSteps = editor.mergePrazosFromServer(prev, data.steps || []);
+        } else {
+          d.sequenciaSteps = data.steps || [];
+        }
+      })
+      .catch(function () {
+        if (seqDefaults && d.template === "cliente_novo") {
+          d.sequenciaSteps = seqDefaults.buildDefaultClienteNovoSteps(new Date());
+        } else if (seqDefaults && d.template === "vinhetas") {
+          d.sequenciaSteps = seqDefaults.buildDefaultVinhetasSteps(
+            new Date(),
+            seqDefaults.defaultVinhetasRafaelEmail(state.participants),
+          );
+        }
+      });
+  }
+
+  function refreshSequenciaStepsForDraft(d) {
+    return loadTemplateStepsForDraft(d, { merge: false });
+  }
+
+  function chatUnreadTotals() {
+    var mention = 0;
+    var general = 0;
+    (state.assuntos || []).forEach(function (a) {
+      mention += Number(a.unreadMentionCount) || 0;
+      general += Number(a.unreadGeneralCount) || 0;
+    });
+    if (state.resumo && !(state.assuntos && state.assuntos.length)) {
+      mention = state.resumo.conversasMencoes || mention;
+      general = state.resumo.conversasNaoLidas || general;
+    }
+    return { mention: mention, general: general };
+  }
+
+  function userInAssunto(a) {
+    var me = (state.user && state.user.email) || "";
+    if (!me) return true;
+    var key = me.toLowerCase();
+    var grupo = a.grupoEmails || [];
+    if (!grupo.length) return true;
+    if (
+      grupo.some(function (e) {
+        return String(e).toLowerCase() === key;
+      })
+    ) {
+      return true;
+    }
+    if (a.criadoPorEmail && String(a.criadoPorEmail).toLowerCase() === key) return true;
+    return (Number(a.unreadMentionCount) || 0) > 0 || (Number(a.unreadGeneralCount) || 0) > 0;
+  }
+
+  function sortedAssuntosForChat() {
+    var list = (state.assuntos || []).filter(userInAssunto);
+    list.sort(function (a, b) {
+      var ma = Number(a.unreadMentionCount) || 0;
+      var mb = Number(b.unreadMentionCount) || 0;
+      if (mb !== ma) return mb - ma;
+      var ga = Number(a.unreadGeneralCount) || 0;
+      var gb = Number(b.unreadGeneralCount) || 0;
+      if (gb !== ga) return gb - ga;
+      var la = a.lastMessageAt || a.updatedAt || "";
+      var lb = b.lastMessageAt || b.updatedAt || "";
+      if (lb !== la) return lb.localeCompare(la);
+      return String(a.display || a.slug || "").localeCompare(String(b.display || b.slug || ""), "pt-BR");
+    });
+    return list;
+  }
+
+  function chatBadgesHtml(a) {
+    var mention = Number(a.unreadMentionCount) || 0;
+    var general = Number(a.unreadGeneralCount) || 0;
+    if (mention <= 0 && general <= 0) return "";
+    var html = '<span class="channel-badges">';
+    if (mention > 0) {
+      html +=
+        '<span class="chat-badge chat-badge-mention" title="Menções @">' +
+        (mention > 99 ? "99+" : mention === 1 ? "@" : String(mention)) +
+        "</span>";
+    }
+    if (general > 0) {
+      html +=
+        '<span class="chat-badge chat-badge-general" title="Não lidas no assunto">' +
+        (general > 99 ? "99+" : String(general)) +
+        "</span>";
+    }
+    html += "</span>";
+    return html;
   }
 
   function openChamadoById(id) {
@@ -304,6 +399,10 @@
       opcoesTimer: null,
       template: "padrao",
       sequenciaSteps: [],
+      prazoModo: "um_dia_util",
+      dataInstalacao: "",
+      setorEmails: {},
+      setoresMeta: [],
     };
   }
 
@@ -458,12 +557,18 @@
         })
         .join("") +
       "</div>" +
-      (d.template === "cliente_novo" ?
-        '<p class="sheet-hint">4 etapas em série (Financeiro → Criação → Produção → Instalação).</p>'
-      : d.template === "vinhetas" ?
-        '<p class="sheet-hint">2 etapas: criação de vinheta e subida em cliente (Produção).</p>'
-      : "") +
       "</div>";
+
+    var seqEditorHtml = "";
+    if (d.template === "cliente_novo" || d.template === "vinhetas") {
+      var seqEd = window.ChamadosSequenciaEditor;
+      if (seqEd) {
+        seqEditorHtml =
+          '<div class="sheet-block" id="seq-editor-wrap">' +
+          seqEd.renderEditorHtml(d, state.participants, escapeHtml) +
+          "</div>";
+      }
+    }
 
     var showPadraoSetores = d.template === "padrao";
 
@@ -471,6 +576,7 @@
       "<h2>Novo chamado</h2>" +
       '<form id="form-ticket-create">' +
       templateBlock +
+      seqEditorHtml +
       '<div class="sheet-block">' +
       '<p class="sheet-block-title">Vínculo (opcional)</p>' +
       '<p class="sheet-hint">Assunto livre ou cliente/PDV da Produção.</p>' +
@@ -523,7 +629,7 @@
           peopleHtml +
           "</div>"
         : '<p class="sheet-hint">Carregando lista de pessoas…</p>')
-      : '<p class="sheet-hint">Setores e responsáveis vêm das etapas do modelo escolhido.</p>') +
+      : "") +
       '<div class="sheet-actions">' +
       '<button type="button" class="btn-secondary" id="cancel-sheet">Cancelar</button>' +
       '<button type="submit" class="btn-primary">Criar chamado</button></div></form>';
@@ -645,10 +751,33 @@
     overlayEl.querySelectorAll("[data-create-template]").forEach(function (btn) {
       btn.onclick = function () {
         d.template = btn.getAttribute("data-create-template");
-        refreshSequenciaStepsForDraft(d);
-        renderNewTicketSheet();
+        if (d.template === "vinhetas") d.prazoModo = "dois_dias_uteis";
+        else if (d.template === "cliente_novo") d.prazoModo = "um_dia_util";
+        refreshSequenciaStepsForDraft(d)
+          .then(function () {
+            renderNewTicketSheet();
+          })
+          .catch(function () {
+            renderNewTicketSheet();
+          });
       };
     });
+
+    var seqWrap = document.getElementById("seq-editor-wrap");
+    if (seqWrap && window.ChamadosSequenciaEditor) {
+      window.ChamadosSequenciaEditor.bindEditor(seqWrap, d, {
+        auth: auth,
+        rerenderSheet: renderNewTicketSheet,
+        loadTemplateSteps: function (template, prazoModo, dataInstalacao) {
+          return loadTemplateStepsForDraft(d, {
+            template: template,
+            prazoModo: prazoModo,
+            dataInstalacao: dataInstalacao,
+            merge: true,
+          });
+        },
+      });
+    }
 
     overlayEl.querySelectorAll("[data-create-modo]").forEach(function (btn) {
       btn.onclick = function () {
@@ -750,7 +879,6 @@
         template: d.template || "padrao",
       };
       if (d.template === "cliente_novo" || d.template === "vinhetas") {
-        refreshSequenciaStepsForDraft(d);
         var enabled = (d.sequenciaSteps || []).filter(function (s) {
           return s.enabled !== false;
         });
@@ -875,13 +1003,27 @@
       var n = 0;
       if (tab === "tickets") n = ticketUnreadTotal();
       if (tab === "chat") {
-        if (r.conversasMencoes > 0) n = r.conversasMencoes;
-        else n = r.conversasNaoLidas || 0;
+        var cu = chatUnreadTotals();
+        if (cu.mention > 0) {
+          var bm = document.createElement("span");
+          bm.className = "nav-badge nav-badge-mention";
+          bm.textContent = cu.mention > 99 ? "99+" : cu.mention === 1 ? "@" : String(cu.mention);
+          bm.title = "Menções @";
+          btn.appendChild(bm);
+        }
+        if (cu.general > 0) {
+          var bg = document.createElement("span");
+          bg.className = "nav-badge nav-badge-general";
+          bg.textContent = cu.general > 99 ? "99+" : String(cu.general);
+          bg.title = "Mensagens não lidas";
+          btn.appendChild(bg);
+        }
+        return;
       }
       if (n > 0) {
         var badge = document.createElement("span");
         badge.className = "nav-badge nav-badge-unread";
-        badge.textContent = tab === "chat" && r.conversasMencoes > 0 ? "@" : n > 99 ? "99+" : String(n);
+        badge.textContent = n > 99 ? "99+" : String(n);
         btn.appendChild(badge);
       }
     });
@@ -1467,19 +1609,17 @@
     setUrl();
 
     var html = noticeBarHtml();
-    if (state.assuntos.length === 0) {
+    var chatList = sortedAssuntosForChat();
+    if (chatList.length === 0) {
       html += '<p class="empty">Nenhum canal # ainda. Crie um com +.</p>';
     } else {
       html += '<div class="card-list">';
-      state.assuntos.forEach(function (a) {
-        var unread = a.unreadCount || 0;
+      chatList.forEach(function (a) {
         html +=
           '<button type="button" class="channel-card" data-assunto="' +
           escapeHtml(a.id) +
           '">' +
-          (unread > 0 || a.mentionUnread ?
-            '<span class="ticket-unread">' + (a.mentionUnread ? "@" : unread > 99 ? "99+" : unread) + "</span>"
-          : "") +
+          chatBadgesHtml(a) +
           '<h3 class="ticket-title"><span class="channel-hash">#</span>' +
           escapeHtml(a.display || a.slug) +
           "</h3>" +
@@ -1611,7 +1751,6 @@
   function openNewTicketSheet() {
     function start() {
       state.createDraft = emptyCreateDraft();
-      refreshSequenciaStepsForDraft(state.createDraft);
       renderNewTicketSheet();
     }
     if (!state.participants.length) {

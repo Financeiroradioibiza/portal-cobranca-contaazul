@@ -8,11 +8,13 @@
     <title>IbiZap — Chamados</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/chamados-icon-180.png" />
+    <script src="/theme.js"></script>
     <link rel="stylesheet" href="/app.css" />
   </head>
   <body>
     <div id="app" class="app-shell">
       <header class="topbar">
+        <button type="button" id="btn-theme" class="icon-btn icon-btn-theme" aria-label="Tema">☀️</button>
         <div class="topbar-center">
           <img
             class="topbar-brand-logo"
@@ -49,6 +51,7 @@
     <div id="overlay" class="overlay" hidden></div>
     <script src="/auth.js"></script>
     <script src="/sequencia-defaults.js"></script>
+    <script src="/sequencia-editor.js"></script>
     <script src="/agenda.js"></script>
     <script src="/app.js"></script>
   </body>
