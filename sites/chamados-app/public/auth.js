@@ -23,9 +23,9 @@
 
   function getToken() {
     try {
-      var t = sessionStorage.getItem(TOKEN_KEY);
+      var t = localStorage.getItem(TOKEN_KEY);
       if (t) return t;
-      t = localStorage.getItem(TOKEN_KEY);
+      t = sessionStorage.getItem(TOKEN_KEY);
       if (t) return t;
     } catch (e) {
       //
@@ -44,17 +44,20 @@
   function setToken(token) {
     try {
       if (token) {
-        sessionStorage.setItem(TOKEN_KEY, token);
         localStorage.setItem(TOKEN_KEY, token);
+        sessionStorage.setItem(TOKEN_KEY, token);
       } else {
-        sessionStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(TOKEN_KEY);
       }
-      /* Não gravar JWT em document.cookie — no iOS cookie velho invalidava Bearer nas APIs. */
       clearLegacyPortalCookie();
     } catch (e) {
       //
     }
+  }
+
+  function tokenPersisted(token) {
+    return getToken() === token;
   }
 
   function authHeaders(extra) {
@@ -94,13 +97,6 @@
   }
 
   function redirectIfLoggedIn() {
-    var bounceKey = "chamados_auth_bounce_ts";
-    try {
-      var last = Number(sessionStorage.getItem(bounceKey) || "0");
-      if (last && Date.now() - last < 8000) return Promise.resolve();
-    } catch (e) {
-      //
-    }
     return requireSession()
       .then(function (s) {
         if (s && s.ok) window.location.replace("/app.html");
@@ -110,23 +106,15 @@
       });
   }
 
-  function markAuthBounce() {
-    try {
-      sessionStorage.setItem("chamados_auth_bounce_ts", String(Date.now()));
-    } catch (e) {
-      //
-    }
-  }
-
   global.ChamadosAppAuth = {
     getToken: getToken,
     setToken: setToken,
+    tokenPersisted: tokenPersisted,
     authHeaders: authHeaders,
     apiFetch: apiFetch,
     logout: logout,
     requireSession: requireSession,
     redirectIfLoggedIn: redirectIfLoggedIn,
-    markAuthBounce: markAuthBounce,
     clearLegacyPortalCookie: clearLegacyPortalCookie,
   };
 })(window);

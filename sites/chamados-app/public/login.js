@@ -44,7 +44,21 @@
           return;
         }
         auth.setToken(x.data.sessionToken);
-        window.location.replace("/app.html");
+        if (!auth.tokenPersisted(x.data.sessionToken)) {
+          err.textContent =
+            "Não foi possível guardar a sessão neste iPhone (armazenamento bloqueado). Desative modo privado ou libere cookies/dados do site.";
+          err.hidden = false;
+          return;
+        }
+        return auth.requireSession().then(function (sess) {
+          if (!sess || !sess.ok) {
+            err.textContent = "Sessão não validou após login. Atualize a página e tente de novo.";
+            err.hidden = false;
+            auth.setToken(null);
+            return;
+          }
+          window.location.replace("/app.html");
+        });
       })
       .catch(function () {
         err.textContent = "Erro de conexão. Verifique a internet.";

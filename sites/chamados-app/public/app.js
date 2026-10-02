@@ -2153,8 +2153,6 @@
 
   var deepConversa = parseParams();
 
-  auth.clearLegacyPortalCookie();
-
   auth
     .requireSession()
     .then(function (user) {
@@ -2183,7 +2181,7 @@
       initPullToRefresh();
     })
     .catch(function () {
-      auth.markAuthBounce();
+      auth.setToken(null);
       window.location.replace("/login.html");
     });
 })();

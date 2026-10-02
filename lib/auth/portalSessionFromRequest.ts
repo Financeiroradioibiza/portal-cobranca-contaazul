@@ -7,9 +7,6 @@ import { headers } from "next/headers";
 export async function resolvePortalSessionForApi(
   request?: Request,
 ): Promise<PortalSessionPayload | null> {
-  const fromHelper = await getPortalSession();
-  if (fromHelper) return fromHelper;
-
   if (request) {
     const raw =
       portalSessionTokenFromHeaders(request.headers, request.headers.get("cookie")) ?? undefined;
@@ -18,6 +15,9 @@ export async function resolvePortalSessionForApi(
       if (verified) return verified;
     }
   }
+
+  const fromHelper = await getPortalSession();
+  if (fromHelper) return fromHelper;
 
   const h = await headers();
   return sessionFromMiddlewareHeaders(h);
