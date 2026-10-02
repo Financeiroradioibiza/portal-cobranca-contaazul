@@ -97,13 +97,22 @@
   }
 
   function redirectIfLoggedIn() {
+    if (!getToken()) return Promise.resolve();
     return requireSession()
       .then(function (s) {
         if (s && s.ok) window.location.replace("/app.html");
       })
       .catch(function () {
         setToken(null);
+        return clearServerSession();
       });
+  }
+
+  function clearServerSession() {
+    return fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    }).catch(function () {});
   }
 
   global.ChamadosAppAuth = {
@@ -115,6 +124,7 @@
     logout: logout,
     requireSession: requireSession,
     redirectIfLoggedIn: redirectIfLoggedIn,
+    clearServerSession: clearServerSession,
     clearLegacyPortalCookie: clearLegacyPortalCookie,
   };
 })(window);

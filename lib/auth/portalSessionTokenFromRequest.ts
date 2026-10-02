@@ -20,7 +20,25 @@ export function portalSessionTokenFromNextRequest(request: NextRequest): string 
   return undefined;
 }
 
-export function portalSessionTokenFromHeaders(headers: Headers, cookieHeader?: string | null): string | undefined {
+function pushTokenCandidate(list: string[], token: string | undefined | null): void {
+  const s = token?.trim();
+  if (!s || list.includes(s)) return;
+  list.push(s);
+}
+
+/** Bearer / X-Portal-Session antes de cookie (Safari iOS manda cookie JWT velho + header novo). */
+export function collectPortalSessionTokenCandidates(
+  headers: Headers,
+  cookieHeader?: string | null,
+): string[] {
+  const candidates: string[] = [];
+
+  const auth = headers.get("authorization")?.trim();
+  if (auth?.toLowerCase().startsWith("bearer ")) {
+    pushTokenCandidate(candidates, auth.slice(7));
+  }
+  pushTokenCandidate(candidates, headers.get(PORTAL_SESSION_BEARER_HEADER));
+
   if (cookieHeader) {
     for (const part of cookieHeader.split(";")) {
       const eq = part.indexOf("=");
@@ -28,22 +46,16 @@ export function portalSessionTokenFromHeaders(headers: Headers, cookieHeader?: s
       if (part.slice(0, eq).trim() !== PORTAL_SESSION_COOKIE) continue;
       const value = part.slice(eq + 1).trim();
       try {
-        const decoded = decodeURIComponent(value);
-        if (decoded) return decoded;
+        pushTokenCandidate(candidates, decodeURIComponent(value));
       } catch {
-        if (value) return value;
+        pushTokenCandidate(candidates, value);
       }
     }
   }
 
-  const auth = headers.get("authorization")?.trim();
-  if (auth?.toLowerCase().startsWith("bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token) return token;
-  }
+  return candidates;
+}
 
-  const fromHeader = headers.get(PORTAL_SESSION_BEARER_HEADER)?.trim();
-  if (fromHeader) return fromHeader;
-
-  return undefined;
+export function portalSessionTokenFromHeaders(headers: Headers, cookieHeader?: string | null): string | undefined {
+  return collectPortalSessionTokenCandidates(headers, cookieHeader)[0];
 }

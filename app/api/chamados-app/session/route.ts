@@ -7,12 +7,18 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const session = await resolvePortalSessionForApi(request);
   if (!session) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "unauthorized" },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
   }
-  return NextResponse.json({
-    ok: true,
-    email: session.email,
-    displayName: session.displayName ?? session.email,
-    roles: session.roles,
-  });
+  return NextResponse.json(
+    {
+      ok: true,
+      email: session.email,
+      displayName: session.displayName ?? session.email,
+      roles: session.roles,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

@@ -2182,6 +2182,8 @@
     })
     .catch(function () {
       auth.setToken(null);
-      window.location.replace("/login.html");
+      auth.clearServerSession().finally(function () {
+        window.location.replace("/login.html");
+      });
     });
 })();

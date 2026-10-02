@@ -13,7 +13,7 @@ import {
   isRouteAccessAllowed,
   resolveRouteAccessRule,
 } from "@/lib/auth/routeAccess";
-import { portalSessionTokenFromHeaders } from "@/lib/auth/portalSessionTokenFromRequest";
+import { collectPortalSessionTokenCandidates } from "@/lib/auth/portalSessionTokenFromRequest";
 import {
   verifyPortalSessionToken,
   type PortalSessionPayload,
@@ -71,28 +71,21 @@ export function nextWithPortalSession(
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
-function pushSessionTokenCandidate(list: string[], token: string | undefined | null): void {
-  const s = token?.trim();
-  if (!s || list.includes(s)) return;
-  list.push(s);
-}
-
-/** Tenta cookie + Bearer + X-Portal-Session (app Chamados via proxy Netlify). */
+/** Tenta Bearer + X-Portal-Session + cookies (app Chamados via proxy Netlify). */
 export async function getPortalSession(): Promise<PortalSessionPayload | null> {
   const jar = await cookies();
   const h = await headers();
   const cookieHeader = h.get("cookie");
-  const candidates: string[] = [];
+  const candidates = collectPortalSessionTokenCandidates(h, cookieHeader);
 
-  pushSessionTokenCandidate(candidates, jar.get(PORTAL_SESSION_COOKIE)?.value);
-  pushSessionTokenCandidate(candidates, portalSessionTokenFromHeaders(h, cookieHeader));
-  pushSessionTokenCandidate(candidates, readCookieValue(cookieHeader, PORTAL_SESSION_COOKIE));
-
-  const auth = h.get("authorization")?.trim();
-  if (auth?.toLowerCase().startsWith("bearer ")) {
-    pushSessionTokenCandidate(candidates, auth.slice(7));
+  const fromJar = jar.get(PORTAL_SESSION_COOKIE)?.value?.trim();
+  if (fromJar && !candidates.includes(fromJar)) {
+    candidates.push(fromJar);
   }
-  pushSessionTokenCandidate(candidates, h.get("x-portal-session"));
+  const fromCookieHeader = readCookieValue(cookieHeader, PORTAL_SESSION_COOKIE);
+  if (fromCookieHeader && !candidates.includes(fromCookieHeader)) {
+    candidates.push(fromCookieHeader);
+  }
 
   for (const raw of candidates) {
     const verified = await verifyPortalSessionToken(raw);

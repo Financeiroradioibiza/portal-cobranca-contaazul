@@ -13,6 +13,12 @@
     err.hidden = true;
     btn.disabled = true;
 
+    auth.clearServerSession().finally(function () {
+      doLogin();
+    });
+  });
+
+  function doLogin() {
     fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -67,5 +73,5 @@
       .finally(function () {
         btn.disabled = false;
       });
-  });
+  }
 })();
