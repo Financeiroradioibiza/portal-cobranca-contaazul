@@ -41,6 +41,17 @@ export function prazoLimiteInputFromIso(iso: string | null | undefined): string 
   }
 }
 
+/** Converte YYYY-MM-DD ou ISO para Date (meio-dia em São Paulo evita mudar o dia na grade). */
+export function parsePrazoEntregaInput(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T12:00:00-03:00`);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export function chamadoToView(row: Chamado): ChamadoView {
   return {
     id: row.id,
