@@ -7,6 +7,7 @@ import { ConversaChatMessage } from "@/components/chamados/ConversaChatMessage";
 import { ConversaGrupoMembros } from "@/components/chamados/ConversaGrupoMembros";
 import { ConversaInboxSection } from "@/components/chamados/ConversaInboxSection";
 import { ConversaUnreadBadges } from "@/components/chamados/ConversaUnreadBadges";
+import { bumpChamadosResumoNav } from "@/components/chamados/useChamadosResumo";
 import { normalizeConversaSlug } from "@/lib/chamados/chamadoMentions";
 import type { ConversaReacaoView } from "@/lib/chamados/conversaMessageService";
 
@@ -194,6 +195,7 @@ export function ChamadosConversasPanel({
       }
     } finally {
       if (!opts?.silent) setLoading(false);
+      bumpChamadosResumoNav();
     }
   }, []);
 
@@ -342,6 +344,17 @@ export function ChamadosConversasPanel({
       return;
     }
     void loadMensagens(selectedId);
+    void fetch(`/api/chamados/conversas/${encodeURIComponent(selectedId)}/read`, {
+      method: "POST",
+      credentials: "same-origin",
+    })
+      .then((r) => {
+        if (r.ok) {
+          bumpChamadosResumoNav();
+          void loadInbox({ silent: true });
+        }
+      })
+      .catch(() => {});
     void fetch(`/api/chamados/conversas/${encodeURIComponent(selectedId)}`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {

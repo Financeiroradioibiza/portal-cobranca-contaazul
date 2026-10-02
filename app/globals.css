@@ -371,6 +371,11 @@ body {
   box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.35);
 }
 
+.portal-sidebar-chamados-badge-blue {
+  background: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.35);
+}
+
 .portal-sidebar-master-badge-sky {
   background: #0284c7;
   box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.35);

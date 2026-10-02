@@ -11,6 +11,7 @@ import {
 } from "@/lib/portal/portalNav";
 import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 import { PortalSidebarChamados } from "@/components/portal/PortalSidebarChamados";
+import { useChamadosResumo } from "@/components/chamados/useChamadosResumo";
 import { PortalSidebarLiveDiag } from "@/components/portal/PortalSidebarLiveDiag";
 import { PortalSidebarMasterLog } from "@/components/portal/PortalSidebarMasterLog";
 import { usePortalPreviewProfile } from "@/components/portal/PortalPreviewProfileContext";
@@ -101,6 +102,9 @@ export function PortalSidebar() {
   const perm = preview?.effectiveMenuPermissions ?? session?.menuPermissions ?? {};
   const isRealMaster = preview?.effectiveIsMasterForNav ?? session?.isMaster ?? false;
   const menuItems = filterSidebarItems(menu.items, perm);
+  const { resumo: chamadosResumo, loading: chamadosResumoLoading } = useChamadosResumo(
+    moduleId === "chamados",
+  );
   const accountHref = (() => {
     if (perm === "all") return "/config/usuarios";
     const cfg = perm.config;
@@ -161,6 +165,46 @@ export function PortalSidebar() {
                 <span className="portal-sidebar-item-badge" aria-label={`${atlCadastrosPendentes} pendente(s)`}>
                   {atlCadastrosPendentes > 99 ? "99+" : atlCadastrosPendentes}
                 </span>
+              : null}
+              {moduleId === "chamados" && !chamadosResumoLoading && href === "/chamados/conversas" ?
+                <span className="portal-sidebar-chamados-badges">
+                  {chamadosResumo.conversasMencoes > 0 ?
+                    <span
+                      className="portal-sidebar-chamados-badge portal-sidebar-chamados-badge-red"
+                      aria-label={`${chamadosResumo.conversasMencoes} menção(ões)`}
+                      title="Menções @"
+                    >
+                      {chamadosResumo.conversasMencoes > 99 ?
+                        "99+"
+                      : chamadosResumo.conversasMencoes === 1 ?
+                        "@"
+                      : chamadosResumo.conversasMencoes}
+                    </span>
+                  : null}
+                  {chamadosResumo.conversasNaoLidas > 0 ?
+                    <span
+                      className="portal-sidebar-chamados-badge portal-sidebar-chamados-badge-blue"
+                      aria-label={`${chamadosResumo.conversasNaoLidas} mensagem(ns) não lida(s)`}
+                      title="Mensagens não lidas"
+                    >
+                      {chamadosResumo.conversasNaoLidas > 99 ?
+                        "99+"
+                      : chamadosResumo.conversasNaoLidas}
+                    </span>
+                  : null}
+                </span>
+              : null}
+              {moduleId === "chamados" && !chamadosResumoLoading && href === "/chamados/kanban" ?
+                chamadosResumo.chamadosNaoLidos > 0 ?
+                  <span className="portal-sidebar-chamados-badges">
+                    <span
+                      className="portal-sidebar-chamados-badge portal-sidebar-chamados-badge-red"
+                      aria-label={`${chamadosResumo.chamadosNaoLidos} chamado(s) não lido(s)`}
+                    >
+                      {chamadosResumo.chamadosNaoLidos > 99 ? "99+" : chamadosResumo.chamadosNaoLidos}
+                    </span>
+                  </span>
+                : null
               : null}
             </Link>
           );

@@ -28,6 +28,7 @@ import {
   enabledSteps,
 } from "@/lib/chamados/chamadoTemplateSequencia";
 import { defaultPrazoLimiteInput, prazoLimiteInputFromIso } from "@/lib/chamados/chamadoUtils";
+import { bumpChamadosResumoNav } from "@/components/chamados/useChamadosResumo";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -172,6 +173,7 @@ export function ChamadosBoard({
       setMsg("Não foi possível carregar os chamados.");
     } finally {
       setLoading(false);
+      bumpChamadosResumoNav();
     }
   }, [scope]);
 
@@ -211,6 +213,7 @@ export function ChamadosBoard({
             }
           : prev,
         );
+        bumpChamadosResumoNav();
       });
     }
   }, []);
