@@ -2074,6 +2074,79 @@
     });
   }
 
+  var pushApi = window.ChamadosAppPush;
+  var pushBannerEl = document.getElementById("push-banner");
+  var pushBusy = false;
+
+  function updatePushBanner() {
+    if (!pushBannerEl || !pushApi) return;
+    var perm = pushApi.permissionState();
+    if (perm === "granted") {
+      pushBannerEl.hidden = true;
+      pushBannerEl.innerHTML = "";
+      return;
+    }
+    if (perm === "unsupported") {
+      pushBannerEl.hidden = true;
+      return;
+    }
+    var ios = pushApi.isIos();
+    var standalone = pushApi.isStandalone();
+    var html = "";
+    if (ios && !standalone) {
+      html +=
+        '<p class="push-banner-title">Instale o IbiZap no iPhone</p>' +
+        "<ol>" +
+        "<li>Abra este site no <strong>Safari</strong>.</li>" +
+        "<li>Toque <strong>Compartilhar</strong> → <strong>Adicionar à Tela de Início</strong>.</li>" +
+        "<li>Abra pelo ícone <strong>IbiZap</strong> (sem barra do Safari).</li>" +
+        "</ol>" +
+        '<p class="push-banner-msg">Só assim o iPhone lista o IbiZap em Ajustes → Notificações.</p>';
+    } else {
+      html += '<p class="push-banner-title">Notificações no celular</p>';
+      if (perm === "denied") {
+        html +=
+          '<p class="push-banner-msg">Permissão negada. Em <strong>Ajustes → Notificações → IbiZap</strong>, ative alertas e sons.</p>';
+      } else {
+        html +=
+          '<p class="push-banner-msg">Receba menções no chat e novidades nos chamados (mesmo com o app fechado).</p>' +
+          '<div class="push-banner-actions">' +
+          '<button type="button" class="btn-push" id="btn-push-enable">Ativar notificações</button>' +
+          "</div>" +
+          '<p class="push-banner-msg" id="push-banner-feedback" hidden></p>';
+      }
+    }
+    pushBannerEl.innerHTML = html;
+    pushBannerEl.hidden = false;
+    var btn = document.getElementById("btn-push-enable");
+    if (btn) {
+      btn.disabled = pushBusy;
+      btn.onclick = function () {
+        if (pushBusy) return;
+        pushBusy = true;
+        btn.disabled = true;
+        var fb = document.getElementById("push-banner-feedback");
+        if (fb) {
+          fb.hidden = false;
+          fb.textContent = "Ativando…";
+        }
+        pushApi.registerWebPush(auth).then(function (res) {
+          pushBusy = false;
+          if (res.ok) {
+            updatePushBanner();
+            return;
+          }
+          if (fb) {
+            fb.hidden = false;
+            fb.textContent = res.message || "Não foi possível ativar.";
+          }
+          btn.disabled = false;
+          if (res.reason === "install_required") updatePushBanner();
+        });
+      };
+    }
+  }
+
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(function () {});
   }
@@ -2084,6 +2157,11 @@
     .requireSession()
     .then(function (user) {
       state.user = user;
+      if (pushApi) {
+        void pushApi.syncIfGranted(auth).then(function () {
+          updatePushBanner();
+        });
+      }
       return Promise.all([loadParticipants(), loadChamados(), loadAssuntos()]);
     })
     .then(function () {
@@ -2095,6 +2173,7 @@
         state.tab = "chat";
       }
       state.loading = false;
+      updatePushBanner();
       render();
       initPullToRefresh();
     })
