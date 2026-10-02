@@ -62,6 +62,7 @@ export const PORTAL_MENU_MODULES = [
     icon: "🎶",
     label: "Criação",
     subs: [
+      { id: "criador", label: "Criador" },
       { id: "biblioteca", label: "Biblioteca musical" },
       { id: "programacoes", label: "Programações" },
       { id: "upload", label: "Upload" },
@@ -293,6 +294,11 @@ export function isSubAllowed(
 
   /** Planilha Prod acompanha PRODUÇÃO — perfis antigos não precisam marcar de novo. */
   if (moduleId === "criacao" && subId === "planilha-prod" && Array.isArray(p) && p.includes("atualizacoes")) {
+    return true;
+  }
+
+  /** Criador (home do módulo) — quem já tinha Programações mantém acesso. */
+  if (moduleId === "criacao" && subId === "criador" && Array.isArray(p) && p.includes("programacoes")) {
     return true;
   }
 
