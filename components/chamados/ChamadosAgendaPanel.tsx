@@ -1,10 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
+import type { ChamadoParticipant, ChamadoView } from "@/lib/chamados/chamadoTypes";
 import Link from "next/link";
+import { AgendaCompromissoModal } from "@/components/chamados/AgendaCompromissoModal";
 
-type AgendaItem = ChamadoView & { prazoLabel?: string; agendaFinalizado?: boolean };
+type AgendaItem = ChamadoView & {
+  prazoLabel?: string;
+  agendaFinalizado?: boolean;
+  agendaSemPrazo?: boolean;
+};
+
+type AgendaCompromissoItem = {
+  id: string;
+  titulo: string;
+  descricao: string;
+  inicioEm: string;
+  horaLabel: string;
+  criadoPorEmail: string;
+  criadoPorNome: string;
+  participantes: string[];
+  papel: "criador" | "convidado";
+};
+
+type AgendaDayEntry =
+  | { kind: "chamado"; sortAt: string; data: AgendaItem }
+  | { kind: "compromisso"; sortAt: string; data: AgendaCompromissoItem };
 
 type AgendaSequenciaTimeline = {
   grupoId: string;
@@ -112,19 +133,90 @@ function monthGridCells(anchor: Date): { date: Date; inMonth: boolean; key: stri
   return cells;
 }
 
-function groupItemsByDay(items: AgendaItem[]): Map<string, AgendaItem[]> {
-  const map = new Map<string, AgendaItem[]>();
-  for (const it of items) {
+function groupEntriesByDay(
+  chamados: AgendaItem[],
+  compromissos: AgendaCompromissoItem[],
+): Map<string, AgendaDayEntry[]> {
+  const map = new Map<string, AgendaDayEntry[]>();
+  for (const it of chamados) {
     if (!it.prazoEntrega) continue;
     const key = prazoDayKey(it.prazoEntrega);
     const list = map.get(key) ?? [];
-    list.push(it);
+    list.push({ kind: "chamado", sortAt: it.prazoEntrega, data: it });
+    map.set(key, list);
+  }
+  for (const c of compromissos) {
+    const key = prazoDayKey(c.inicioEm);
+    const list = map.get(key) ?? [];
+    list.push({ kind: "compromisso", sortAt: c.inicioEm, data: c });
     map.set(key, list);
   }
   for (const list of map.values()) {
-    list.sort((a, b) => (a.prazoEntrega ?? "").localeCompare(b.prazoEntrega ?? ""));
+    list.sort((a, b) => a.sortAt.localeCompare(b.sortAt));
   }
   return map;
+}
+
+function AgendaCompromissoChip({
+  c,
+  onDelete,
+}: {
+  c: AgendaCompromissoItem;
+  onDelete?: () => void;
+}) {
+  const mine = c.papel === "criador";
+  return (
+    <div
+      className={
+        "relative rounded-md border px-1.5 py-1 text-[10px] leading-tight " +
+        (mine ?
+          "border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/70 dark:text-sky-100"
+        : "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100")
+      }
+      title={c.descricao || c.titulo}
+    >
+      {onDelete ?
+        <button
+          type="button"
+          className="absolute right-0.5 top-0.5 rounded px-1 text-[10px] leading-none opacity-60 hover:opacity-100"
+          aria-label="Excluir compromisso"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+        >
+          ×
+        </button>
+      : null}
+      <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wide opacity-90">
+        {mine ? "Meu compromisso" : `Convite · ${c.criadoPorNome}`}
+      </span>
+      {c.horaLabel ?
+        <span className="font-semibold tabular-nums">{c.horaLabel}</span>
+      : null}
+      <span className="line-clamp-2 font-semibold">{c.titulo}</span>
+    </div>
+  );
+}
+
+function AgendaDayChip({
+  entry,
+  onDeleteCompromisso,
+}: {
+  entry: AgendaDayEntry;
+  onDeleteCompromisso?: (id: string) => void;
+}) {
+  if (entry.kind === "chamado") return <AgendaEventChip it={entry.data} />;
+  return (
+    <AgendaCompromissoChip
+      c={entry.data}
+      onDelete={
+        entry.data.papel === "criador" && onDeleteCompromisso ?
+          () => onDeleteCompromisso(entry.data.id)
+        : undefined
+      }
+    />
+  );
 }
 
 function AgendaEventChip({ it }: { it: AgendaItem }) {
@@ -221,14 +313,16 @@ function AgendaSequenciaTimelines({ timelines }: { timelines: AgendaSequenciaTim
 
 function TimeGrid({
   days,
-  itemsByDay,
+  entriesByDay,
   todayKey,
   loading,
+  onDeleteCompromisso,
 }: {
   days: Date[];
-  itemsByDay: Map<string, AgendaItem[]>;
+  entriesByDay: Map<string, AgendaDayEntry[]>;
   todayKey: string;
   loading: boolean;
+  onDeleteCompromisso?: (id: string) => void;
 }) {
   const colCount = days.length;
   const gridCols = `3rem repeat(${colCount}, minmax(0, 1fr))`;
@@ -271,18 +365,22 @@ function TimeGrid({
 
         <div className="grid border-b border-slate-200 dark:border-slate-700" style={{ gridTemplateColumns: gridCols }}>
           <div className="flex items-start justify-end border-r border-slate-200 px-1 py-2 text-[9px] font-semibold text-slate-400 dark:border-slate-700">
-            Prazo
+            Eventos
           </div>
           {days.map((day) => {
             const key = toIsoLocal(day);
-            const dayItems = itemsByDay.get(key) ?? [];
+            const dayEntries = entriesByDay.get(key) ?? [];
             return (
               <div
                 key={`prazo-${key}`}
                 className="min-h-[3rem] space-y-1 border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700"
               >
-                {dayItems.map((it) => (
-                  <AgendaEventChip key={it.id} it={it} />
+                {dayEntries.map((entry) => (
+                  <AgendaDayChip
+                    key={entry.kind === "chamado" ? entry.data.id : `c-${entry.data.id}`}
+                    entry={entry}
+                    onDeleteCompromisso={onDeleteCompromisso}
+                  />
                 ))}
               </div>
             );
@@ -318,14 +416,16 @@ function TimeGrid({
 
 function MonthGrid({
   anchor,
-  itemsByDay,
+  entriesByDay,
   todayKey,
   loading,
+  onDeleteCompromisso,
 }: {
   anchor: Date;
-  itemsByDay: Map<string, AgendaItem[]>;
+  entriesByDay: Map<string, AgendaDayEntry[]>;
   todayKey: string;
   loading: boolean;
+  onDeleteCompromisso?: (id: string) => void;
 }) {
   const cells = useMemo(() => monthGridCells(anchor), [anchor]);
 
@@ -349,7 +449,7 @@ function MonthGrid({
         </div>
         <div className="grid grid-cols-7">
           {cells.map((cell) => {
-            const dayItems = itemsByDay.get(cell.key) ?? [];
+            const dayEntries = entriesByDay.get(cell.key) ?? [];
             const isToday = cell.key === todayKey;
             return (
               <div
@@ -372,11 +472,15 @@ function MonthGrid({
                   {cell.date.getDate()}
                 </div>
                 <div className="space-y-0.5">
-                  {dayItems.slice(0, 3).map((it) => (
-                    <AgendaEventChip key={it.id} it={it} />
+                  {dayEntries.slice(0, 3).map((entry) => (
+                    <AgendaDayChip
+                      key={entry.kind === "chamado" ? entry.data.id : `c-${entry.data.id}`}
+                      entry={entry}
+                      onDeleteCompromisso={onDeleteCompromisso}
+                    />
                   ))}
-                  {dayItems.length > 3 ?
-                    <p className="text-[9px] text-slate-500">+{dayItems.length - 3} prazo(s)</p>
+                  {dayEntries.length > 3 ?
+                    <p className="text-[9px] text-slate-500">+{dayEntries.length - 3} evento(s)</p>
                   : null}
                 </div>
               </div>
@@ -392,12 +496,22 @@ export function ChamadosAgendaPanel() {
   const [mode, setMode] = useState<ViewMode>("semana");
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [items, setItems] = useState<AgendaItem[]>([]);
+  const [semPrazo, setSemPrazo] = useState<AgendaItem[]>([]);
+  const [compromissos, setCompromissos] = useState<AgendaCompromissoItem[]>([]);
   const [sequencias, setSequencias] = useState<AgendaSequenciaTimeline[]>([]);
+  const [showFinalizados, setShowFinalizados] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [compromissoOpen, setCompromissoOpen] = useState(false);
+  const [compromissoBusy, setCompromissoBusy] = useState(false);
+  const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
+  const [viewerEmail, setViewerEmail] = useState("");
 
   const range = useMemo(() => rangeForMode(mode, anchor), [mode, anchor]);
   const todayKey = useMemo(() => toIsoLocal(startOfDay(new Date())), []);
-  const itemsByDay = useMemo(() => groupItemsByDay(items), [items]);
+  const entriesByDay = useMemo(
+    () => groupEntriesByDay(items, compromissos),
+    [items, compromissos],
+  );
 
   const weekDays = useMemo(() => {
     if (mode === "dia") return [startOfDay(anchor)];
@@ -408,33 +522,104 @@ export function ChamadosAgendaPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({ from: range.from, to: range.to });
+      const q = new URLSearchParams({
+        from: range.from,
+        to: range.to,
+        includeFinalizados: showFinalizados ? "1" : "0",
+      });
       const res = await fetch(`/api/chamados/agenda?${q}`, { credentials: "same-origin" });
       const data = res.ok ? await res.json() : null;
       setItems(Array.isArray(data?.items) ? data.items : []);
+      setSemPrazo(Array.isArray(data?.semPrazo) ? data.semPrazo : []);
       setSequencias(Array.isArray(data?.sequencias) ? data.sequencias : []);
+      setCompromissos(Array.isArray(data?.compromissos) ? data.compromissos : []);
     } catch {
       setItems([]);
+      setSemPrazo([]);
       setSequencias([]);
+      setCompromissos([]);
     } finally {
       setLoading(false);
     }
-  }, [range.from, range.to]);
+  }, [range.from, range.to, showFinalizados]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const emptyHint = !loading && items.length === 0 && sequencias.length === 0;
+  useEffect(() => {
+    void fetch("/api/chamados/participants", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const list = Array.isArray(d?.participants) ? d.participants : [];
+        setParticipants(list);
+      })
+      .catch(() => {});
+    void fetch("/api/auth/me", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.email === "string") setViewerEmail(d.email);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function criarCompromisso(payload: {
+    titulo: string;
+    descricao: string;
+    inicioEm: string;
+    participantes: string[];
+  }) {
+    setCompromissoBusy(true);
+    try {
+      const res = await fetch("/api/chamados/agenda/compromissos", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("fail");
+      setCompromissoOpen(false);
+      await load();
+    } finally {
+      setCompromissoBusy(false);
+    }
+  }
+
+  async function excluirCompromisso(id: string) {
+    if (!confirm("Excluir este compromisso?")) return;
+    await fetch(`/api/chamados/agenda/compromissos/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+    });
+    await load();
+  }
+
+  const emptyHint =
+    !loading &&
+    items.length === 0 &&
+    semPrazo.length === 0 &&
+    sequencias.length === 0 &&
+    compromissos.length === 0;
 
   return (
     <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white">Agenda — prazos de chamados</h2>
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white">Agenda — chamados e compromissos</h2>
           <p className="text-[11px] text-slate-500 capitalize">{range.title}</p>
+          <p className="text-[10px] text-slate-400">
+            <span className="text-sky-600 dark:text-sky-400">■</span> seu compromisso ·{" "}
+            <span className="text-amber-600 dark:text-amber-400">■</span> convite de outra pessoa
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            className="rounded-lg bg-sky-600 px-2.5 py-0.5 text-[11px] font-bold text-white"
+            onClick={() => setCompromissoOpen(true)}
+          >
+            + Compromisso
+          </button>
           {(
             [
               ["dia", "Dia"],
@@ -480,12 +665,47 @@ export function ChamadosAgendaPanel() {
         </div>
       </div>
 
+      <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+        <input
+          type="checkbox"
+          checked={showFinalizados}
+          onChange={(e) => setShowFinalizados(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-slate-300"
+        />
+        Mostrar chamados finalizados na grade
+      </label>
+
+      {semPrazo.length > 0 ?
+        <div className="mt-3 rounded-lg border border-dashed border-slate-300 p-2 dark:border-slate-600">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+            Chamados antigos sem data — defina a data limite no chamado
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {semPrazo.map((it) => (
+              <AgendaEventChip key={it.id} it={it} />
+            ))}
+          </div>
+        </div>
+      : null}
+
       <AgendaSequenciaTimelines timelines={sequencias} />
 
       <div className="relative mt-3 max-h-[min(70vh,420px)] overflow-y-auto">
         {mode === "mes" ?
-          <MonthGrid anchor={anchor} itemsByDay={itemsByDay} todayKey={todayKey} loading={loading} />
-        : <TimeGrid days={weekDays} itemsByDay={itemsByDay} todayKey={todayKey} loading={loading} />}
+          <MonthGrid
+            anchor={anchor}
+            entriesByDay={entriesByDay}
+            todayKey={todayKey}
+            loading={loading}
+            onDeleteCompromisso={excluirCompromisso}
+          />
+        : <TimeGrid
+            days={weekDays}
+            entriesByDay={entriesByDay}
+            todayKey={todayKey}
+            loading={loading}
+            onDeleteCompromisso={excluirCompromisso}
+          />}
         {loading ?
           <p className="pointer-events-none absolute left-2 top-2 text-[10px] font-medium text-slate-500">
             Carregando…
@@ -498,6 +718,16 @@ export function ChamadosAgendaPanel() {
           Nenhum prazo seu neste período — a grade continua disponível para navegar.
         </p>
       : null}
+
+      <AgendaCompromissoModal
+        open={compromissoOpen}
+        busy={compromissoBusy}
+        defaultDate={toIsoLocal(anchor)}
+        participants={participants}
+        viewerEmail={viewerEmail}
+        onClose={() => setCompromissoOpen(false)}
+        onSubmit={(p) => void criarCompromisso(p)}
+      />
     </section>
   );
 }

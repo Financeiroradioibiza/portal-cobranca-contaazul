@@ -52,6 +52,8 @@ export type CreateChamadoInput = {
   prioridade: ChamadoPrioridade;
   setores: string[];
   responsaveis: string[];
+  /** Obrigatório — dia na agenda (YYYY-MM-DD ou ISO). */
+  prazoEntrega: string;
   rioLinhaId?: string | null;
   rioPdvKey?: string | null;
   clienteNome?: string;
@@ -90,6 +92,8 @@ export type UpdateChamadoInput = {
   status?: ChamadoStatus;
   setores?: string[];
   responsaveis?: string[];
+  /** Data na agenda (YYYY-MM-DD ou ISO); null limpa. */
+  prazoEntrega?: string | null;
   /** Salvar no portal — sempre notificar setores/responsáveis (como reenviar). */
   notificar?: boolean;
 };

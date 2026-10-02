@@ -40,6 +40,10 @@ export async function PATCH(request: Request, ctx: Ctx) {
         setores: body.setores !== undefined ? parseStringArray(body.setores) : undefined,
         responsaveis:
           body.responsaveis !== undefined ? parseStringArray(body.responsaveis) : undefined,
+        prazoEntrega:
+          body.prazoEntrega === null ? null
+          : typeof body.prazoEntrega === "string" ? body.prazoEntrega.trim() || null
+          : undefined,
         notificar: body.notificar === true,
       },
       userCtx,

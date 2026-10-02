@@ -883,6 +883,24 @@ body {
   font-weight: 800;
 }
 
+.detail-agenda-date {
+  display: block;
+  margin: 0 0 0.35rem;
+}
+
+.detail-agenda-date span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.detail-agenda-date input {
+  width: 100%;
+  max-width: 12rem;
+}
+
 .detail-block-tight {
   margin-top: 0.35rem;
 }
@@ -1109,6 +1127,38 @@ body {
 
 .ticket-seq-prazo {
   font-weight: 600;
+}
+
+.agenda-toggle-done {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agenda-toggle-done input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.agenda-sem-prazo-block {
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+}
+
+.agenda-sem-prazo-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
 }
 
 .agenda-toolbar {

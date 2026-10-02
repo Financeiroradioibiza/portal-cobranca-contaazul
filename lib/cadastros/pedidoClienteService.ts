@@ -303,6 +303,7 @@ export async function enviarPedidoCliente(
       prioridade: "alta",
       setores: ["financeiro"],
       responsaveis: [],
+      prazoEntrega: "",
     },
     chamadoCtx,
   );

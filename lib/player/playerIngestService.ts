@@ -8,7 +8,8 @@ import {
 } from "@/lib/cadastros/contatosLojaExtras";
 import { loadMergedProducaoPlayerContext, resolvePortalPdvIdForPdv, type ProducaoPlayerBucket } from "@/lib/player/producaoPlayerBuckets";
 import { prisma } from "@/lib/prisma";
-import { serializeStringArray } from "@/lib/chamados/chamadoUtils";
+import { defaultPrazoLimiteInput, serializeStringArray } from "@/lib/chamados/chamadoUtils";
+import { parsePrazoEntregaInput } from "@/lib/chamados/chamadoService";
 
 export type PlayerIngestView = {
   id: string;
@@ -212,6 +213,7 @@ async function createChamadoForFeedback(input: {
     `Cliente: ${input.clienteNome || "—"}${input.clienteId != null ? ` (id ${input.clienteId})` : ""}`,
     `PDV: ${input.pdvNome || "—"}${input.pdvId != null ? ` (id ${input.pdvId})` : ""}`,
   ];
+  const prazoEntrega = parsePrazoEntregaInput(defaultPrazoLimiteInput());
   const row = await prisma.chamado.create({
     data: {
       titulo,
@@ -221,6 +223,7 @@ async function createChamadoForFeedback(input: {
       responsaveisJson: serializeStringArray([]),
       criadoPorEmail: "player5@radioibiza.com.br",
       criadoPorNome: "Player 5",
+      prazoEntrega: prazoEntrega ?? undefined,
     },
   });
   return row.id;

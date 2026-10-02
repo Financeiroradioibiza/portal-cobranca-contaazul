@@ -3,7 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
-import { chamadoToView, parseStringArrayJson, serializeStringArray } from "@/lib/chamados/chamadoUtils";
+import {
+  chamadoToView,
+  defaultPrazoLimiteInput,
+  parseStringArrayJson,
+  serializeStringArray,
+} from "@/lib/chamados/chamadoUtils";
 import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
 import {
   notifyChamadoEmail,
@@ -53,6 +58,17 @@ function normalizeSetores(raw: string[]): string[] {
 
 function normalizeEmails(raw: string[]): string[] {
   return [...new Set(raw.map((e) => normalizePortalEmail(e)).filter((e) => e.includes("@")))];
+}
+
+/** Converte YYYY-MM-DD ou ISO para Date (meio-dia em São Paulo evita mudar o dia na grade). */
+export function parsePrazoEntregaInput(value: string | null | undefined): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T12:00:00-03:00`);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function assigneeListsEqual(a: string[], b: string[]): boolean {
@@ -268,6 +284,10 @@ export async function createChamado(
   const rioPdvKey = input.rioPdvKey?.trim().slice(0, 120) || null;
   const clienteNome = input.clienteNome?.trim().slice(0, 200) ?? "";
 
+  const prazoRaw = input.prazoEntrega?.trim() || defaultPrazoLimiteInput();
+  const prazoEntrega = parsePrazoEntregaInput(prazoRaw);
+  if (!prazoEntrega) throw new Error("prazo_obrigatorio");
+
   const row = await prisma.chamado.create({
     data: {
       titulo,
@@ -280,6 +300,7 @@ export async function createChamado(
       rioLinhaId,
       rioPdvKey,
       clienteNome,
+      prazoEntrega,
     },
   });
   const view = chamadoToView(row);
@@ -307,6 +328,7 @@ export async function updateChamado(
     status?: ChamadoStatus;
     setoresJson?: string;
     responsaveisJson?: string;
+    prazoEntrega?: Date | null;
     fechadoPorEmail?: string | null;
     fechadoPorNome?: string | null;
     fechadoEm?: Date | null;
@@ -321,6 +343,9 @@ export async function updateChamado(
   }
   if (input.responsaveis !== undefined) {
     data.responsaveisJson = serializeStringArray(normalizeEmails(input.responsaveis));
+  }
+  if (input.prazoEntrega !== undefined) {
+    data.prazoEntrega = parsePrazoEntregaInput(input.prazoEntrega);
   }
   if (input.status !== undefined && VALID_STATUS.has(input.status)) {
     data.status = input.status;

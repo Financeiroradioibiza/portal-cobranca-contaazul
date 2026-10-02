@@ -15,6 +15,32 @@ export function serializeStringArray(arr: string[]): string {
   return JSON.stringify([...new Set(arr.map((s) => s.trim()).filter(Boolean))]);
 }
 
+const PRAZO_TZ = "America/Sao_Paulo";
+
+/** YYYY-MM-DD (São Paulo) — padrão ao abrir formulário de chamado. */
+export function defaultPrazoLimiteInput(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: PRAZO_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+export function prazoLimiteInputFromIso(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: PRAZO_TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return "";
+  }
+}
+
 export function chamadoToView(row: Chamado): ChamadoView {
   return {
     id: row.id,

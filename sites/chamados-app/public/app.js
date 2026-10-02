@@ -80,6 +80,24 @@
     }
   }
 
+  function prazoToInputDate(iso) {
+    if (!iso) return "";
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Sao_Paulo",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(iso));
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function defaultPrazoInputDate() {
+    return prazoToInputDate(new Date().toISOString()) || "";
+  }
+
   function loadTemplateStepsForDraft(d, opts) {
     opts = opts || {};
     var editor = window.ChamadosSequenciaEditor;
@@ -403,6 +421,7 @@
       dataInstalacao: "",
       setorEmails: {},
       setoresMeta: [],
+      prazoLimite: defaultPrazoInputDate(),
     };
   }
 
@@ -620,6 +639,12 @@
       '<option value="urgente"' +
       (d.prioridade === "urgente" ? " selected" : "") +
       ">Urgente</option></select></label>" +
+      (showPadraoSetores ?
+        '<label><span>Data limite (agenda)</span><input type="date" id="create-prazo-limite" required value="' +
+        escapeHtml(d.prazoLimite || defaultPrazoInputDate()) +
+        '" /></label>' +
+        '<p class="sheet-hint">Quem participa (setores e responsáveis) vê este chamado na agenda neste dia.</p>'
+      : "") +
       (showPadraoSetores ?
         '<div class="sheet-block"><p class="sheet-block-title">Setores</p><div class="setor-row">' +
         setoresHtml +
@@ -846,6 +871,13 @@
       };
     }
 
+    var prazoLimiteEl = document.getElementById("create-prazo-limite");
+    if (prazoLimiteEl) {
+      prazoLimiteEl.onchange = function () {
+        d.prazoLimite = prazoLimiteEl.value || "";
+      };
+    }
+
     bindCreateOpcoesPickers();
 
     document.getElementById("form-ticket-create").onsubmit = function (e) {
@@ -866,6 +898,14 @@
         alert("Informe o assunto do chamado.");
         return;
       }
+      if ((d.template || "padrao") === "padrao") {
+        var pl = prazoLimiteEl ? prazoLimiteEl.value : d.prazoLimite;
+        if (!pl) {
+          alert("Informe a data limite (agenda).");
+          return;
+        }
+        d.prazoLimite = pl;
+      }
 
       var body = {
         titulo: d.titulo,
@@ -878,6 +918,9 @@
         clienteNome: d.modo !== "livre" ? d.clienteNome : "",
         template: d.template || "padrao",
       };
+      if ((d.template || "padrao") === "padrao") {
+        body.prazoEntrega = d.prazoLimite;
+      }
       if (d.template === "cliente_novo" || d.template === "vinhetas") {
         var enabled = (d.sequenciaSteps || []).filter(function (s) {
           return s.enabled !== false;
@@ -1073,6 +1116,7 @@
       prioridade: c.prioridade,
       setores: (c.setores || []).slice(),
       responsaveis: (c.responsaveis || []).slice(),
+      prazoAgenda: prazoToInputDate(c.prazoEntrega),
     };
     var unread = c.unreadCount || 0;
     markTicketRead(c.id, unread).then(function () {
@@ -1157,6 +1201,8 @@
             (seqLabel ? '<span class="ticket-seq-step">' + seqLabel + "</span>" : "") +
             (prazoLabel ? '<span class="ticket-seq-prazo">Limite: ' + escapeHtml(prazoLabel) + "</span>" : "") +
             "</div>"
+          : prazoLabel ?
+            '<p class="ticket-seq-prazo" style="margin:0.35rem 0 0">Limite: ' + escapeHtml(prazoLabel) + "</p>"
           : "") +
           "</button>";
       });
@@ -1213,6 +1259,7 @@
             prioridade: merged.prioridade,
             setores: (merged.setores || []).slice(),
             responsaveis: (merged.responsaveis || []).slice(),
+            prazoAgenda: prazoToInputDate(merged.prazoEntrega),
           };
         }
         return loadChamados();
@@ -1360,8 +1407,15 @@
       (c.sequenciaGrupoId ? ' <span class="ticket-seq-tag">(SEQUÊNCIA)</span>' : "") +
       "</h2>" +
       (c.sequenciaRotulo ? '<p class="ticket-seq-rotulo">' + escapeHtml(c.sequenciaRotulo) + "</p>" : "") +
-      (c.prazoEntrega ?
-        '<p class="muted" style="margin:0 0 0.5rem">Prazo: ' + escapeHtml(fmtPrazoEntrega(c.prazoEntrega)) + "</p>"
+      (c.sequenciaGrupoId && c.prazoEntrega ?
+        '<p class="muted" style="margin:0 0 0.5rem">Prazo da etapa: ' + escapeHtml(fmtPrazoEntrega(c.prazoEntrega)) + "</p>"
+      : "") +
+      (!c.sequenciaGrupoId ?
+        '<label class="detail-agenda-date"><span>Data limite (agenda)</span>' +
+        '<input type="date" id="d-prazo-agenda" required value="' +
+        escapeHtml(d.prazoAgenda || defaultPrazoInputDate()) +
+        '" /></label>' +
+        '<p class="sheet-hint" style="margin:0 0 0.5rem">Todos os envolvidos veem na Agenda neste dia.</p>'
       : "") +
       '<div class="detail-block detail-block-tight">' +
       '<div class="thread-list">' +
@@ -1456,6 +1510,13 @@
         if (!inp.checked && idx >= 0) d.responsaveis.splice(idx, 1);
       };
     });
+
+    var prazoInp = document.getElementById("d-prazo-agenda");
+    if (prazoInp) {
+      prazoInp.onchange = function () {
+        d.prazoAgenda = prazoInp.value || "";
+      };
+    }
 
     document.getElementById("form-reply").onsubmit = function (e) {
       e.preventDefault();
@@ -1558,6 +1619,7 @@
                 prioridade: proximo.prioridade,
                 setores: (proximo.setores || []).slice(),
                 responsaveis: (proximo.responsaveis || []).slice(),
+                prazoAgenda: prazoToInputDate(proximo.prazoEntrega),
               };
             } else if (fim && fechado) {
               state.selectedTicket = fechado;
@@ -1581,9 +1643,15 @@
     document.getElementById("btn-save-ticket").onclick = function () {
       var btn = document.getElementById("btn-save-ticket");
       btn.disabled = true;
+      if (!c.sequenciaGrupoId && !(d.prazoAgenda || "").trim()) {
+        alert("Informe a data limite (agenda).");
+        btn.disabled = false;
+        return;
+      }
       patchTicket({
         setores: d.setores,
         responsaveis: d.responsaveis,
+        prazoEntrega: d.prazoAgenda ? d.prazoAgenda : null,
         notificar: true,
       })
         .then(function () {
@@ -1832,6 +1900,7 @@
               prioridade: fresh.prioridade,
               setores: (fresh.setores || []).slice(),
               responsaveis: (fresh.responsaveis || []).slice(),
+              prazoAgenda: prazoToInputDate(fresh.prazoEntrega),
             };
           }
           return loadTicketThread(id).then(function () {

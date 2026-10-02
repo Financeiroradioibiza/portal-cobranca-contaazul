@@ -100,13 +100,31 @@
     return map;
   }
 
+  var AGENDA_SHOW_DONE_KEY = "chamados_agenda_show_finalizados";
+
+  function readShowFinalizados() {
+    try {
+      var v = localStorage.getItem(AGENDA_SHOW_DONE_KEY);
+      if (v === "0") return false;
+    } catch (e) {}
+    return true;
+  }
+
+  function writeShowFinalizados(on) {
+    try {
+      localStorage.setItem(AGENDA_SHOW_DONE_KEY, on ? "1" : "0");
+    } catch (e) {}
+  }
+
   function createModule(deps) {
     var state = {
       mode: "semana",
       anchor: startOfDay(new Date()),
       items: [],
+      semPrazo: [],
       compromissos: [],
       sequencias: [],
+      showFinalizados: readShowFinalizados(),
       loading: false,
       monthPickDay: null,
     };
@@ -114,7 +132,13 @@
     function loadAgenda() {
       var range = rangeForMode(state.mode, state.anchor);
       state.loading = true;
-      var q = "from=" + encodeURIComponent(range.from) + "&to=" + encodeURIComponent(range.to);
+      var q =
+        "from=" +
+        encodeURIComponent(range.from) +
+        "&to=" +
+        encodeURIComponent(range.to) +
+        "&includeFinalizados=" +
+        (state.showFinalizados ? "1" : "0");
       return deps.auth
         .apiFetch("/api/chamados/agenda?" + q)
         .then(function (r) {
@@ -123,11 +147,13 @@
         })
         .then(function (data) {
           state.items = Array.isArray(data.items) ? data.items : [];
+          state.semPrazo = Array.isArray(data.semPrazo) ? data.semPrazo : [];
           state.sequencias = Array.isArray(data.sequencias) ? data.sequencias : [];
           state.compromissos = Array.isArray(data.compromissos) ? data.compromissos : [];
         })
         .catch(function () {
           state.items = [];
+          state.semPrazo = [];
           state.sequencias = [];
           state.compromissos = [];
         })
@@ -209,6 +235,17 @@
         html += "</div></div>";
       });
       html += "</div>";
+      return html;
+    }
+
+    function semPrazoHtml() {
+      if (!state.semPrazo.length) return "";
+      var html =
+        '<div class="agenda-sem-prazo-block"><p class="agenda-sem-prazo-title">Chamados antigos sem data — abra e defina a data limite</p><div class="agenda-day-list">';
+      state.semPrazo.forEach(function (it) {
+        html += chipChamadoHtml(it);
+      });
+      html += "</div></div>";
       return html;
     }
 
@@ -380,9 +417,14 @@
         "</p>" +
         '<button type="button" class="btn-secondary agenda-nav-btn" data-agenda-shift="1">›</button>' +
         '<button type="button" class="btn-secondary agenda-nav-btn" data-agenda-today>Hoje</button>' +
-        "</div></div>";
+        "</div>" +
+        '<label class="agenda-toggle-done">' +
+        '<input type="checkbox" id="agenda-show-done"' +
+        (state.showFinalizados ? " checked" : "") +
+        " /> Mostrar chamados finalizados na grade</label></div>";
 
       if (state.loading) html += '<p class="loading">Carregando agenda…</p>';
+      html += semPrazoHtml();
       html += sequenciasHtml();
 
       if (state.mode === "mes") {
@@ -424,6 +466,7 @@
       var empty =
         !state.loading &&
         state.items.length === 0 &&
+        state.semPrazo.length === 0 &&
         state.compromissos.length === 0 &&
         state.sequencias.length === 0;
       if (empty) html += '<p class="empty">Nada na agenda neste período.</p>';
@@ -455,6 +498,14 @@
         todayBtn.onclick = function () {
           state.anchor = startOfDay(new Date());
           state.monthPickDay = toIsoLocal(state.anchor);
+          loadAgenda().then(render);
+        };
+      }
+      var showDone = deps.mainEl.querySelector("#agenda-show-done");
+      if (showDone) {
+        showDone.onchange = function () {
+          state.showFinalizados = showDone.checked;
+          writeShowFinalizados(state.showFinalizados);
           loadAgenda().then(render);
         };
       }

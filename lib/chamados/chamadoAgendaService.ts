@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
-import { chamadoToView } from "@/lib/chamados/chamadoUtils";
+import { chamadoToView, parseStringArrayJson } from "@/lib/chamados/chamadoUtils";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
 import { userParticipatesInChamado, getChamadoUserContext } from "@/lib/chamados/chamadoService";
 
@@ -8,6 +8,8 @@ export type ChamadoAgendaItem = ChamadoView & {
   prazoLabel: string;
   /** Etapa de sequência já fechada — exibir na grade em cinza. */
   agendaFinalizado?: boolean;
+  /** Aberto sem data — lista separada; usuário é criador ou responsável. */
+  agendaSemPrazo?: boolean;
 };
 
 function sequenciaTotalmenteEncerrada(rows: { status: string }[]): boolean {
@@ -42,25 +44,35 @@ function fmtPrazo(iso: string): string {
   }
 }
 
+function inclusiveRangeEnd(toIso: string): Date {
+  const to = new Date(toIso);
+  if (Number.isNaN(to.getTime())) return to;
+  return new Date(to.getTime() - 1);
+}
+
 export async function listChamadosAgendaForUser(
   userEmail: string,
   fromIso: string,
   toIso: string,
+  opts?: { includeFinalizados?: boolean },
 ): Promise<ChamadoAgendaItem[]> {
   const ctx = await getChamadoUserContext(userEmail);
   if (!ctx) return [];
 
   const from = new Date(fromIso);
-  const to = new Date(toIso);
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];
+  const toEnd = inclusiveRangeEnd(toIso);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(toEnd.getTime())) return [];
+
+  const includeFinalizados = opts?.includeFinalizados !== false;
+
+  const statusFilter = includeFinalizados ?
+    undefined
+  : { status: { in: ["aberto", "em_andamento", "aguardando"] as ("aberto" | "em_andamento" | "aguardando")[] } };
 
   const rows = await prisma.chamado.findMany({
     where: {
-      prazoEntrega: { gte: from, lte: to },
-      OR: [
-        { status: { in: ["aberto", "em_andamento", "aguardando"] } },
-        { status: "fechado", sequenciaGrupoId: { not: null } },
-      ],
+      prazoEntrega: { not: null, gte: from, lte: toEnd },
+      ...(statusFilter ?? {}),
     },
     orderBy: { prazoEntrega: "asc" },
   });
@@ -70,11 +82,39 @@ export async function listChamadosAgendaForUser(
     if (!userParticipatesInChamado(row, ctx)) continue;
     const view = chamadoToView(row);
     if (!view.prazoEntrega) continue;
-    const finalizado = row.status === "fechado" && Boolean(row.sequenciaGrupoId);
+    const finalizado = row.status === "fechado";
+    if (!includeFinalizados && finalizado) continue;
     out.push({
       ...view,
       prazoLabel: fmtPrazo(view.prazoEntrega),
       agendaFinalizado: finalizado,
+    });
+  }
+  return out;
+}
+
+/** Chamados em aberto atribuídos a você (ou que você abriu) sem data de prazo — aparecem fora da grade. */
+export async function listChamadosAgendaSemPrazoForUser(userEmail: string): Promise<ChamadoAgendaItem[]> {
+  const ctx = await getChamadoUserContext(userEmail);
+  if (!ctx) return [];
+
+  const rows = await prisma.chamado.findMany({
+    where: {
+      prazoEntrega: null,
+      status: { in: ["aberto", "em_andamento", "aguardando"] },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+  });
+
+  const out: ChamadoAgendaItem[] = [];
+  for (const row of rows) {
+    if (!userParticipatesInChamado(row, ctx)) continue;
+    const view = chamadoToView(row);
+    out.push({
+      ...view,
+      prazoLabel: "Sem prazo",
+      agendaSemPrazo: true,
     });
   }
   return out;

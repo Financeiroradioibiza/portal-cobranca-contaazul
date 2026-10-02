@@ -27,6 +27,7 @@ import {
   type SequenciaStepDraft,
   enabledSteps,
 } from "@/lib/chamados/chamadoTemplateSequencia";
+import { defaultPrazoLimiteInput, prazoLimiteInputFromIso } from "@/lib/chamados/chamadoUtils";
 
 type FilterTab = "todos" | "abertos" | "fechados";
 
@@ -136,6 +137,7 @@ export function ChamadosBoard({
   const [formTemplate, setFormTemplate] = useState<ChamadoTemplateKind>("padrao");
   const [formPrazoModo, setFormPrazoModo] = useState<PrazoModo>("um_dia_util");
   const [formDataInstalacao, setFormDataInstalacao] = useState("");
+  const [formPrazoLimite, setFormPrazoLimite] = useState(() => defaultPrazoLimiteInput());
   const [formSequenciaSteps, setFormSequenciaSteps] = useState<SequenciaStepDraft[]>(() =>
     buildDefaultClienteNovoSteps(new Date(), "um_dia_util"),
   );
@@ -324,6 +326,10 @@ export function ChamadosBoard({
       setMsg("Informe o assunto do chamado.");
       return;
     }
+    if (formTemplate === "padrao" && !formPrazoLimite.trim()) {
+      setMsg("Informe a data limite do chamado (aparece na agenda).");
+      return;
+    }
     setBusy(true);
     setMsg(null);
     if (
@@ -352,6 +358,7 @@ export function ChamadosBoard({
             prioridade: formPri,
             setores: formSetores,
             responsaveis: formResp,
+            prazoEntrega: formPrazoLimite,
             rioLinhaId: formVinculo.rioLinhaId,
             rioPdvKey: formVinculo.rioPdvKey,
             clienteNome: formVinculo.clienteNome,
@@ -418,6 +425,7 @@ export function ChamadosBoard({
     setFormTemplate("padrao");
     setFormPrazoModo("um_dia_util");
     setFormDataInstalacao("");
+    setFormPrazoLimite(defaultPrazoLimiteInput());
     setFormSequenciaSteps(buildDefaultClienteNovoSteps(new Date(), "um_dia_util"));
   }
 
@@ -643,6 +651,8 @@ export function ChamadosBoard({
           onPrazoModo={setFormPrazoModo}
           dataInstalacao={formDataInstalacao}
           onDataInstalacao={setFormDataInstalacao}
+          prazoLimite={formPrazoLimite}
+          onPrazoLimite={setFormPrazoLimite}
           onClose={() => setCreating(false)}
           onSubmit={createChamado}
           submitLabel="Abrir chamado"
@@ -813,6 +823,10 @@ function ChamadoCard({
             </span>
           : null}
         </div>
+      : prazoEntregaLabel ?
+        <p className="mt-1.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+          Limite: {prazoEntregaLabel}
+        </p>
       : null}
       {chamado.responsaveis.length > 0 ?
         <div className="mt-2 flex -space-x-1">
@@ -865,6 +879,8 @@ function FormModal({
   onPrazoModo,
   dataInstalacao,
   onDataInstalacao,
+  prazoLimite,
+  onPrazoLimite,
   onClose,
   onSubmit,
   submitLabel,
@@ -896,6 +912,8 @@ function FormModal({
   onPrazoModo: (m: PrazoModo) => void;
   dataInstalacao: string;
   onDataInstalacao: (v: string) => void;
+  prazoLimite: string;
+  onPrazoLimite: (v: string) => void;
   onClose: () => void;
   onSubmit: () => void;
   submitLabel: string;
@@ -943,6 +961,19 @@ function FormModal({
           participants={participants}
         />
       : <>
+          <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
+            Data limite (agenda)
+            <input
+              type="date"
+              required
+              className="mt-1 w-full max-w-[12rem] rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+              value={prazoLimite}
+              onChange={(e) => onPrazoLimite(e.target.value)}
+            />
+          </label>
+          <p className="mt-1 text-[10px] text-slate-500">
+            Todos os envolvidos (setores e responsáveis) veem o chamado neste dia na agenda.
+          </p>
           <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
             Descrição
             <textarea
@@ -1084,12 +1115,14 @@ function DetailModal({
   const [prioridade, setPrioridade] = useState(chamado.prioridade);
   const [setores, setSetores] = useState(chamado.setores);
   const [responsaveis, setResponsaveis] = useState(chamado.responsaveis);
+  const [prazoLimite, setPrazoLimite] = useState(() => prazoLimiteInputFromIso(chamado.prazoEntrega));
   const [editMeta, setEditMeta] = useState(false);
 
   useEffect(() => {
     setPrioridade(chamado.prioridade);
     setSetores(chamado.setores);
     setResponsaveis(chamado.responsaveis);
+    setPrazoLimite(prazoLimiteInputFromIso(chamado.prazoEntrega));
     setEditMeta(false);
   }, [chamado]);
 
@@ -1098,7 +1131,9 @@ function DetailModal({
   const metaDirty =
     prioridade !== chamado.prioridade ||
     !arraysEqual(setores, chamado.setores) ||
-    !arraysEqual(responsaveis, chamado.responsaveis);
+    !arraysEqual(responsaveis, chamado.responsaveis) ||
+    (!chamado.sequenciaGrupoId &&
+      prazoLimite !== prazoLimiteInputFromIso(chamado.prazoEntrega));
 
   const sequenciaAtiva =
     Boolean(chamado.sequenciaGrupoId) &&
@@ -1132,9 +1167,9 @@ function DetailModal({
           {chamado.sequenciaRotulo ?
             <p className="truncate text-[10px] text-amber-700 dark:text-amber-300">{chamado.sequenciaRotulo}</p>
           : null}
-          {chamado.prazoEntrega ?
+          {chamado.prazoEntrega && !editMeta ?
             <p className="text-[10px] text-slate-500">
-              Prazo:{" "}
+              Data limite:{" "}
               {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Sao_Paulo" }).format(
                 new Date(chamado.prazoEntrega),
               )}
@@ -1169,6 +1204,18 @@ function DetailModal({
 
       {editMeta ?
         <div className="mb-3 space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3 dark:border-violet-800 dark:bg-violet-950/20">
+          {!chamado.sequenciaGrupoId ?
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+              Data limite (agenda)
+              <input
+                type="date"
+                required
+                className="mt-1 w-full max-w-[12rem] rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-950"
+                value={prazoLimite}
+                onChange={(e) => setPrazoLimite(e.target.value)}
+              />
+            </label>
+          : null}
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-500">Prioridade</p>
             <div className="mt-1 flex flex-wrap gap-2">
@@ -1329,14 +1376,18 @@ function DetailModal({
           type="button"
           disabled={busy || !metaDirty}
           title={metaDirty ? "Salva prioridade, setores e pessoas (sem e-mail)" : "Nenhuma alteração pendente"}
-          onClick={() =>
+          onClick={() => {
+            if (!chamado.sequenciaGrupoId && !prazoLimite.trim()) return;
             void onPatch(chamado.id, {
               prioridade,
               setores,
               responsaveis,
+              ...(!chamado.sequenciaGrupoId ?
+                { prazoEntrega: prazoLimite.trim() || null }
+              : {}),
               notificar: false,
-            }).then(() => setEditMeta(false))
-          }
+            }).then(() => setEditMeta(false));
+          }}
           className="ml-auto rounded-lg bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-40"
         >
           Salvar alterações

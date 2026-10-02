@@ -758,6 +758,24 @@ model Chamado {
   @@map("chamado")
 }
 
+/// Compromisso pessoal na agenda do dashboard (criador + convidados).
+model PortalAgendaCompromisso {
+  id                 String   @id @default(cuid())
+  titulo             String   @db.VarChar(200)
+  descricao          String   @default("") @db.Text
+  inicioEm           DateTime @map("inicio_em")
+  criadoPorEmail     String   @map("criado_por_email") @db.VarChar(200)
+  criadoPorNome      String   @map("criado_por_nome") @db.VarChar(120)
+  /// JSON: e-mails convidados (além do criador).
+  participantesJson  String   @default("[]") @map("participantes_json") @db.Text
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([inicioEm])
+  @@index([criadoPorEmail])
+  @@map("portal_agenda_compromisso")
+}
+
 /// Respostas / thread no chamado (separado da descrição inicial).
 model ChamadoComentario {
   id         String   @id @default(cuid())

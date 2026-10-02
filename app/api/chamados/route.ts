@@ -101,15 +101,33 @@ export async function POST(request: Request) {
       });
     }
 
+    const prazoEntrega =
+      typeof body.prazoEntrega === "string" ? body.prazoEntrega.trim()
+      : typeof body.prazoLimite === "string" ? body.prazoLimite.trim()
+      : "";
+    if (!prazoEntrega) {
+      return NextResponse.json({ error: "prazo_obrigatorio" }, { status: 400 });
+    }
+
     const chamado = await createChamado(
-      { titulo, descricao, prioridade, setores, responsaveis, rioLinhaId, rioPdvKey, clienteNome },
+      {
+        titulo,
+        descricao,
+        prioridade,
+        setores,
+        responsaveis,
+        prazoEntrega,
+        rioLinhaId,
+        rioPdvKey,
+        clienteNome,
+      },
       ctx,
     );
     return NextResponse.json({ ok: true, chamado });
   } catch (e) {
     if (e instanceof Response) return e;
     const msg = e instanceof Error ? e.message : "server_error";
-    if (msg === "titulo_obrigatorio") {
+    if (msg === "titulo_obrigatorio" || msg === "prazo_obrigatorio") {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
     console.error("[chamados POST]", e);

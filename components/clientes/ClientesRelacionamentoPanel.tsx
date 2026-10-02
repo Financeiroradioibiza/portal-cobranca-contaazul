@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { ChamadoPrioridade } from "@prisma/client";
 import { CHAMADO_COLUNAS, CHAMADO_PRIORIDADES, prioridadeMeta } from "@/lib/chamados/chamadoConstants";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
+import { defaultPrazoLimiteInput } from "@/lib/chamados/chamadoUtils";
 import type {
   ClienteAtualizacaoItem,
   ClienteDetailPayload,
@@ -555,6 +556,7 @@ function NovoChamadoModal({
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
   const [prioridade, setPrioridade] = useState<ChamadoPrioridade>("media");
+  const [prazoLimite, setPrazoLimite] = useState(() => defaultPrazoLimiteInput());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -568,6 +570,10 @@ function NovoChamadoModal({
       setErr("Informe um título.");
       return;
     }
+    if (!prazoLimite.trim()) {
+      setErr("Informe a data limite (agenda).");
+      return;
+    }
     setBusy(true);
     setErr("");
     try {
@@ -579,6 +585,7 @@ function NovoChamadoModal({
           titulo,
           descricao,
           prioridade,
+          prazoEntrega: prazoLimite,
           setores: ["relacionamento"],
           responsaveis: [],
           rioLinhaId: target.rioLinhaId,
@@ -612,6 +619,16 @@ function NovoChamadoModal({
             onChange={(e) => setTitulo(e.target.value)}
             maxLength={200}
             autoFocus
+          />
+        </label>
+        <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
+          Data limite (agenda)
+          <input
+            type="date"
+            required
+            className="mt-1 w-full max-w-[12rem] rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+            value={prazoLimite}
+            onChange={(e) => setPrazoLimite(e.target.value)}
           />
         </label>
         <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
