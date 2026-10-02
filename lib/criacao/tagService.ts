@@ -1,11 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { pickDefaultTagCor } from "@/lib/config/portalUserService";
+import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
+import { normalizePortalEmail } from "@/lib/auth/users";
 
 export type TagCriativoRow = {
   id: string;
   nome: string;
   cor: string;
   criativoNome: string;
+  criativoUserId: string | null;
+  criativoPortalUserId: string | null;
+  criativoHasAvatar: boolean;
+  criativoAvatarVersion: string | null;
   usoCount: number;
 };
 
@@ -22,13 +28,44 @@ export async function listTags(): Promise<TagCriativoRow[]> {
     orderBy: [{ criativoNome: "asc" }, { nome: "asc" }],
     include: { _count: { select: { musicas: true } } },
   });
-  return tags.map((t) => ({
-    id: t.id,
-    nome: t.nome,
-    cor: t.cor,
-    criativoNome: t.criativoNome,
-    usoCount: t._count.musicas,
-  }));
+  const emails = [
+    ...new Set(
+      tags
+        .map((t) => normalizePortalEmail(t.criativoUserId ?? ""))
+        .filter((e) => e.includes("@")),
+    ),
+  ];
+  const users =
+    emails.length === 0 ?
+      []
+    : await prisma.portalUser.findMany({
+        where: { email: { in: emails } },
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          avatarMime: true,
+          avatarBase64: true,
+          updatedAt: true,
+        },
+      });
+  const userByEmail = new Map(users.map((u) => [normalizePortalEmail(u.email), u]));
+
+  return tags.map((t) => {
+    const email = normalizePortalEmail(t.criativoUserId ?? "");
+    const user = email ? userByEmail.get(email) : undefined;
+    return {
+      id: t.id,
+      nome: t.nome,
+      cor: t.cor,
+      criativoNome: t.criativoNome,
+      criativoUserId: t.criativoUserId,
+      criativoPortalUserId: user?.id ?? null,
+      criativoHasAvatar: user ? portalUserHasAvatar(user) : false,
+      criativoAvatarVersion: user ? user.updatedAt.toISOString() : null,
+      usoCount: t._count.musicas,
+    };
+  });
 }
 
 export async function createTag(input: {

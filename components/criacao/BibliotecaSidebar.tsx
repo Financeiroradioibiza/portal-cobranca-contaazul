@@ -9,6 +9,7 @@ import {
 import type { BibliotecaFolderKey } from "@/lib/criacao/bibliotecaFolderTypes";
 import { folderDropTargetId } from "@/lib/criacao/bibliotecaFolderTypes";
 import type { BibliotecaSidebarTree } from "@/lib/criacao/bibliotecaSidebarService";
+import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 
 function readableText(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
@@ -26,6 +27,7 @@ function SidebarItem({
   subtitle,
   emoji,
   cor,
+  leading,
   badge,
   droppableId,
   readOnly,
@@ -36,6 +38,7 @@ function SidebarItem({
   subtitle?: string;
   emoji?: string;
   cor?: string;
+  leading?: React.ReactNode;
   badge?: number;
   droppableId?: string | null;
   readOnly?: boolean;
@@ -58,7 +61,9 @@ function SidebarItem({
         : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
       }`}
     >
-      {cor ?
+      {leading ?
+        leading
+      : cor ?
         <span
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-bold"
           style={{ backgroundColor: cor, color: readableText(cor) }}
@@ -302,7 +307,23 @@ export function BibliotecaSidebar({
             active={isActive({ kind: "tag", id: t.id, label: t.nome, cor: t.cor })}
             label={t.nome}
             subtitle={t.criativoNome ? `[${t.criativoNome}]` : undefined}
-            cor={t.cor}
+            leading={
+              <span
+                className="shrink-0 rounded-full p-[2px]"
+                style={{ backgroundColor: t.cor || "#64748b" }}
+                title={t.criativoNome || undefined}
+              >
+                <PortalUserAvatar
+                  userId={t.criativoPortalUserId}
+                  displayName={t.criativoNome || t.nome}
+                  email={t.criativoUserId ?? t.criativoNome || t.nome}
+                  hasAvatar={t.criativoHasAvatar}
+                  avatarVersion={t.criativoAvatarVersion}
+                  size="xs"
+                  className="h-6 w-6"
+                />
+              </span>
+            }
             badge={t.usoCount}
             onClick={() =>
               onSelect({
