@@ -1,43 +1,30 @@
-:root {
-  --ri-blue-deep: #0c4a6e;
-  --ri-blue: #1565c0;
-  --ri-blue-mid: #2563eb;
-  --ri-cyan: #38bdf8;
-  --ri-pink: #c4146a;
-  --brand-gradient: linear-gradient(135deg, #0c4a6e 0%, #1565c0 38%, #2563eb 78%, #c4146a 100%);
-  --brand-gradient-btn: linear-gradient(135deg, #0f5694 0%, #2563eb 55%, #3b82f6 85%);
-  --bg: #eef4fb;
-  --text: #1a1a1a;
-  --muted: #5c5c5c;
-  --card: #ffffff;
-  --radius: 18px;
-  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
-}
+/* Escopo só na tela de login — não sobrescrever temas do app (day/night/ibiza). */
+.login-screen {
+  --login-bg: #eef4fb;
+  --login-text: #1a1a1a;
+  --login-muted: #5c5c5c;
+  --login-card: #ffffff;
+  --login-radius: 18px;
+  --login-blue-deep: #0c4a6e;
+  --login-blue-mid: #2563eb;
+  --login-brand-gradient-btn: linear-gradient(135deg, #0f5694 0%, #2563eb 55%, #3b82f6 85%);
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
   min-height: 100dvh;
-  background: linear-gradient(165deg, #dbeafe 0%, var(--bg) 40%, #e0f2fe 70%, #f8fafc 100%);
-  color: var(--text);
-  font-size: 18px;
-}
-
-.wrap {
   max-width: 420px;
   margin: 0 auto;
   padding: 2.5rem 1.25rem 2rem;
+  background: linear-gradient(165deg, #dbeafe 0%, var(--login-bg) 40%, #e0f2fe 70%, #f8fafc 100%);
+  color: var(--login-text);
+  font-size: 18px;
+  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
 }
 
-.brand {
+.login-screen .brand {
   text-align: center;
   margin-bottom: 1.75rem;
 }
 
-.brand-logo {
+.login-screen .brand-logo {
   display: block;
   width: 5.5rem;
   height: 5.5rem;
@@ -45,37 +32,23 @@ body {
   object-fit: contain;
 }
 
-.logo {
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 1rem;
-  border-radius: 22px;
-  background: var(--brand-gradient);
-  color: #fff;
-  font-size: 2.25rem;
-  font-weight: 800;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 12px 32px rgba(21, 101, 192, 0.4);
-}
-
-.brand h1 {
+.login-screen .brand h1 {
   margin: 0;
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: -0.02em;
-  color: var(--ri-blue-deep);
+  color: var(--login-blue-deep);
 }
 
-.sub {
+.login-screen .sub {
   margin: 0.5rem 0 0;
-  color: var(--muted);
+  color: var(--login-muted);
   font-size: 1.05rem;
 }
 
-.card {
-  background: var(--card);
-  border-radius: var(--radius);
+.login-screen .card {
+  background: var(--login-card);
+  border-radius: var(--login-radius);
   padding: 1.35rem;
   box-shadow: 0 8px 40px rgba(15, 76, 129, 0.1);
   display: flex;
@@ -83,15 +56,15 @@ body {
   gap: 1rem;
 }
 
-label span {
+.login-screen label span {
   display: block;
   font-size: 0.95rem;
   font-weight: 600;
   margin-bottom: 0.35rem;
-  color: var(--muted);
+  color: var(--login-muted);
 }
 
-input {
+.login-screen input {
   width: 100%;
   font: inherit;
   font-size: 1.1rem;
@@ -99,14 +72,15 @@ input {
   border: 2px solid #dce8f5;
   border-radius: 14px;
   background: #fff;
+  color: #1a1a1a;
 }
 
-input:focus {
+.login-screen input:focus {
   outline: none;
-  border-color: var(--ri-blue-mid);
+  border-color: var(--login-blue-mid);
 }
 
-button {
+.login-screen button[type="submit"] {
   margin-top: 0.25rem;
   font: inherit;
   font-size: 1.15rem;
@@ -115,15 +89,15 @@ button {
   border: 0;
   border-radius: 14px;
   color: #fff;
-  background: var(--brand-gradient-btn);
+  background: var(--login-brand-gradient-btn);
   cursor: pointer;
 }
 
-button:disabled {
+.login-screen button[type="submit"]:disabled {
   opacity: 0.6;
 }
 
-.err {
+.login-screen .err {
   margin: 0;
   padding: 0.75rem;
   border-radius: 12px;
