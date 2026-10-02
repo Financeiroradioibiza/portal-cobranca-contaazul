@@ -33,6 +33,14 @@
     return readCookieToken();
   }
 
+  function clearLegacyPortalCookie() {
+    try {
+      document.cookie = COOKIE_NAME + "=; path=/; max-age=0; secure; samesite=lax";
+    } catch (e) {
+      //
+    }
+  }
+
   function setToken(token) {
     try {
       if (token) {
@@ -42,13 +50,8 @@
         sessionStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(TOKEN_KEY);
       }
-      var cookie = COOKIE_NAME + "=";
-      if (token) {
-        cookie += encodeURIComponent(token) + "; path=/; max-age=28800; secure; samesite=lax";
-      } else {
-        cookie += "; path=/; max-age=0; secure; samesite=lax";
-      }
-      document.cookie = cookie;
+      /* Não gravar JWT em document.cookie — no iOS cookie velho invalidava Bearer nas APIs. */
+      clearLegacyPortalCookie();
     } catch (e) {
       //
     }
@@ -91,6 +94,13 @@
   }
 
   function redirectIfLoggedIn() {
+    var bounceKey = "chamados_auth_bounce_ts";
+    try {
+      var last = Number(sessionStorage.getItem(bounceKey) || "0");
+      if (last && Date.now() - last < 8000) return Promise.resolve();
+    } catch (e) {
+      //
+    }
     return requireSession()
       .then(function (s) {
         if (s && s.ok) window.location.replace("/app.html");
@@ -98,6 +108,14 @@
       .catch(function () {
         setToken(null);
       });
+  }
+
+  function markAuthBounce() {
+    try {
+      sessionStorage.setItem("chamados_auth_bounce_ts", String(Date.now()));
+    } catch (e) {
+      //
+    }
   }
 
   global.ChamadosAppAuth = {
@@ -108,5 +126,7 @@
     logout: logout,
     requireSession: requireSession,
     redirectIfLoggedIn: redirectIfLoggedIn,
+    markAuthBounce: markAuthBounce,
+    clearLegacyPortalCookie: clearLegacyPortalCookie,
   };
 })(window);

@@ -71,17 +71,34 @@ export function nextWithPortalSession(
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
+function pushSessionTokenCandidate(list: string[], token: string | undefined | null): void {
+  const s = token?.trim();
+  if (!s || list.includes(s)) return;
+  list.push(s);
+}
+
+/** Tenta cookie + Bearer + X-Portal-Session (app Chamados via proxy Netlify). */
 export async function getPortalSession(): Promise<PortalSessionPayload | null> {
   const jar = await cookies();
-  let raw = jar.get(PORTAL_SESSION_COOKIE)?.value;
   const h = await headers();
-  if (!raw?.trim()) {
-    raw =
-      portalSessionTokenFromHeaders(h, h.get("cookie")) ??
-      readCookieValue(h.get("cookie"), PORTAL_SESSION_COOKIE);
+  const cookieHeader = h.get("cookie");
+  const candidates: string[] = [];
+
+  pushSessionTokenCandidate(candidates, jar.get(PORTAL_SESSION_COOKIE)?.value);
+  pushSessionTokenCandidate(candidates, portalSessionTokenFromHeaders(h, cookieHeader));
+  pushSessionTokenCandidate(candidates, readCookieValue(cookieHeader, PORTAL_SESSION_COOKIE));
+
+  const auth = h.get("authorization")?.trim();
+  if (auth?.toLowerCase().startsWith("bearer ")) {
+    pushSessionTokenCandidate(candidates, auth.slice(7));
   }
-  const fromCookie = await verifyPortalSessionToken(raw);
-  if (fromCookie) return fromCookie;
+  pushSessionTokenCandidate(candidates, h.get("x-portal-session"));
+
+  for (const raw of candidates) {
+    const verified = await verifyPortalSessionToken(raw);
+    if (verified) return verified;
+  }
+
   return sessionFromMiddlewareHeaders(h);
 }
 

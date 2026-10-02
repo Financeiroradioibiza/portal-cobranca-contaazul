@@ -2153,6 +2153,8 @@
 
   var deepConversa = parseParams();
 
+  auth.clearLegacyPortalCookie();
+
   auth
     .requireSession()
     .then(function (user) {
@@ -2162,7 +2164,10 @@
           updatePushBanner();
         });
       }
-      return Promise.all([loadParticipants(), loadChamados(), loadAssuntos()]);
+      return Promise.all([loadParticipants(), loadChamados(), loadAssuntos()]).catch(function () {
+        state.chamados = state.chamados || [];
+        state.assuntos = state.assuntos || [];
+      });
     })
     .then(function () {
       if (deepConversa) {
@@ -2178,6 +2183,7 @@
       initPullToRefresh();
     })
     .catch(function () {
+      auth.markAuthBounce();
       window.location.replace("/login.html");
     });
 })();

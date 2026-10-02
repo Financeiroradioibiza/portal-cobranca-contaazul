@@ -5,6 +5,7 @@
   var auth = window.ChamadosAppAuth;
   if (!form || !err || !btn || !auth) return;
 
+  auth.clearLegacyPortalCookie();
   auth.redirectIfLoggedIn();
 
   form.addEventListener("submit", function (e) {
