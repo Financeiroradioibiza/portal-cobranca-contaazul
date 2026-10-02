@@ -127,14 +127,16 @@
     if (retryLeft == null) retryLeft = 0;
     return apiFetch("/api/chamados-app/session").then(function (r) {
       if (!r.ok) {
-        if (retryLeft > 0) {
+        if (retryLeft > 0 && (r.status === 401 || r.status === 403)) {
           return new Promise(function (resolve) {
             setTimeout(resolve, 200);
           }).then(function () {
             return requireSession(retryLeft - 1);
           });
         }
-        throw new Error("unauthorized");
+        var err = new Error("unauthorized");
+        err.status = r.status;
+        throw err;
       }
       return r.json();
     });

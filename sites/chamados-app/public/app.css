@@ -167,6 +167,10 @@ body {
   transition: transform 0.18s ease;
 }
 
+.login-screen {
+  min-height: 100dvh;
+}
+
 .topbar {
   position: relative;
   display: flex;

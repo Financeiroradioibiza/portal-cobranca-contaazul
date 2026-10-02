@@ -2047,8 +2047,33 @@
     };
   });
 
+  var loginScreenEl = document.getElementById("login-screen");
+  var appShellEl = document.getElementById("app");
+  var appBooted = false;
+
+  function showLoginScreen() {
+    if (appShellEl) appShellEl.hidden = true;
+    if (loginScreenEl) loginScreenEl.hidden = false;
+    if (window.ChamadosLoginPanel) {
+      window.ChamadosLoginPanel.mount({
+        auth: auth,
+        onSuccess: function (user) {
+          void bootApp(user);
+        },
+      });
+    }
+  }
+
+  function showAppShell() {
+    if (loginScreenEl) loginScreenEl.hidden = true;
+    if (appShellEl) appShellEl.hidden = false;
+  }
+
   document.getElementById("btn-logout").onclick = function () {
-    auth.logout();
+    auth.setToken(null);
+    appBooted = false;
+    state.user = null;
+    showLoginScreen();
   };
 
   closeOverlay();
@@ -2147,41 +2172,56 @@
     }
   }
 
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js").catch(function () {});
-  }
-
   var deepConversa = parseParams();
 
-  auth
-    .requireSessionForApp()
-    .then(function (user) {
-      state.user = user;
+  function registerSwOnce() {
+    if (registerSwOnce.done) return;
+    registerSwOnce.done = true;
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    }
+  }
+
+  function bootApp(user) {
+    showAppShell();
+    state.user = user;
+    if (!appBooted) {
+      appBooted = true;
       if (pushApi) {
         void pushApi.syncIfGranted(auth).then(function () {
           updatePushBanner();
         });
       }
-      return Promise.all([loadParticipants(), loadChamados(), loadAssuntos()]).catch(function () {
+      registerSwOnce();
+    }
+    return Promise.all([loadParticipants(), loadChamados(), loadAssuntos()])
+      .catch(function () {
         state.chamados = state.chamados || [];
         state.assuntos = state.assuntos || [];
+      })
+      .then(function () {
+        if (deepConversa) {
+          state.selectedAssunto =
+            state.assuntos.find(function (a) {
+              return a.slug === deepConversa;
+            }) || null;
+          state.tab = "chat";
+        }
+        state.loading = false;
+        updatePushBanner();
+        render();
+        initPullToRefresh();
       });
-    })
-    .then(function () {
-      if (deepConversa) {
-        state.selectedAssunto =
-          state.assuntos.find(function (a) {
-            return a.slug === deepConversa;
-          }) || null;
-        state.tab = "chat";
-      }
-      state.loading = false;
-      updatePushBanner();
-      render();
-      initPullToRefresh();
+  }
+
+  auth
+    .requireSessionForApp()
+    .then(function (user) {
+      return bootApp(user);
     })
     .catch(function () {
       auth.setToken(null);
-      window.location.replace("/login.html");
+      state.loading = false;
+      showLoginScreen();
     });
 })();

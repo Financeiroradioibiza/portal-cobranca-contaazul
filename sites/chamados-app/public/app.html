@@ -12,9 +12,40 @@
     <link rel="apple-touch-icon" href="/chamados-icon-180.png" />
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="/app.css" />
+    <link rel="stylesheet" href="/login.css" />
   </head>
   <body>
-    <div id="app" class="app-shell">
+    <div id="login-screen" class="wrap login-screen">
+      <div class="brand">
+        <img
+          class="brand-logo"
+          src="/ibizap-logo-login.png"
+          alt="IbiZap"
+          width="96"
+          height="96"
+          decoding="async"
+        />
+        <h1>Chamados</h1>
+        <p class="sub">Kanban e chat da equipe</p>
+      </div>
+      <form id="login-form" class="card">
+        <label>
+          <span>E-mail</span>
+          <input id="login-email" type="email" autocomplete="username" required />
+        </label>
+        <label>
+          <span>Senha</span>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+        </label>
+        <label>
+          <span>Código Authenticator</span>
+          <input id="login-totp" inputmode="numeric" autocomplete="one-time-code" required maxlength="8" />
+        </label>
+        <p id="login-err" class="err" hidden></p>
+        <button id="login-btn" type="submit">Entrar</button>
+      </form>
+    </div>
+    <div id="app" class="app-shell" hidden>
       <header class="topbar">
         <button type="button" id="btn-theme" class="icon-btn icon-btn-theme" aria-label="Tema">☀️</button>
         <div class="topbar-center">
@@ -52,11 +83,12 @@
       </nav>
     </div>
     <div id="overlay" class="overlay" hidden></div>
-    <script src="/auth.js?v=20260402b"></script>
-    <script src="/push.js?v=20260402b"></script>
-    <script src="/sequencia-defaults.js?v=20260402b"></script>
-    <script src="/sequencia-editor.js?v=20260402b"></script>
-    <script src="/agenda.js?v=20260402b"></script>
-    <script src="/app.js?v=20260402b"></script>
+    <script src="/auth.js?v=20260402c"></script>
+    <script src="/login-panel.js?v=20260402c"></script>
+    <script src="/push.js?v=20260402c"></script>
+    <script src="/sequencia-defaults.js?v=20260402c"></script>
+    <script src="/sequencia-editor.js?v=20260402c"></script>
+    <script src="/agenda.js?v=20260402c"></script>
+    <script src="/app.js?v=20260402c"></script>
   </body>
 </html>

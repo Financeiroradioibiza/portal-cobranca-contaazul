@@ -3,46 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#1565c0" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="IbiZap" />
     <title>Entrar — Chamados</title>
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/chamados-icon-180.png" />
-    <link rel="stylesheet" href="/login.css" />
+    <script>
+      location.replace("/app.html");
+    </script>
   </head>
   <body>
-    <main class="wrap">
-      <div class="brand">
-        <img
-          class="brand-logo"
-          src="/ibizap-logo-login.png"
-          alt="IbiZap"
-          width="96"
-          height="96"
-          decoding="async"
-        />
-        <h1>Chamados</h1>
-        <p class="sub">Kanban e chat da equipe</p>
-      </div>
-      <form id="form" class="card">
-        <label>
-          <span>E-mail</span>
-          <input id="email" type="email" autocomplete="username" required />
-        </label>
-        <label>
-          <span>Senha</span>
-          <input id="password" type="password" autocomplete="current-password" required />
-        </label>
-        <label>
-          <span>Código Authenticator</span>
-          <input id="totp" inputmode="numeric" autocomplete="one-time-code" required maxlength="8" />
-        </label>
-        <p id="err" class="err" hidden></p>
-        <button id="btn" type="submit">Entrar</button>
-      </form>
-    </main>
-    <script src="/auth.js?v=20260402b"></script>
-    <script src="/login.js?v=20260402b"></script>
+    <p><a href="/app.html">Abrir IbiZap Chamados</a></p>
   </body>
 </html>
