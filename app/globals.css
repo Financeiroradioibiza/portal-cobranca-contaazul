@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark (&:where(.dark, .dark *, .ibiza, .ibiza *));
+@custom-variant ibiza (&:where(.ibiza, .ibiza *));
 
 :root {
   --background: #ffffff;
@@ -17,6 +18,11 @@
 .dark {
   --background: #0a0a0a;
   --foreground: #ededed;
+}
+
+.ibiza {
+  --background: #140820;
+  --foreground: #fce7f3;
 }
 
 body {
@@ -73,6 +79,27 @@ body {
   --ri-text-on-light-2: #d0d0d0;
   --ri-text-on-light-3: #a8a8a8;
   --ri-text-on-light-4: #888;
+}
+
+.ibiza .portal-shell {
+  --ri-pink: #db2777;
+  --ri-pink-hover: #f472b6;
+  --ri-orange: #fb923c;
+  --ri-chrome-bg: #140820;
+  --ri-chrome-bar: #2a1038;
+  --ri-chrome-bar-hover: #3d1a52;
+  --ri-chrome-bar-active: #4c1d6e;
+  --ri-chrome-border: #6b21a8;
+  --ri-text-on-dark: #fce7f3;
+  --ri-text-on-dark-2: #e9d5ff;
+  --ri-text-on-dark-3: #c4b5fd;
+  --ri-bg-page: #1a0824;
+  --ri-bg-surface: #2a1038;
+  --ri-border: #581c87;
+  --ri-text-on-light: #fce7f3;
+  --ri-text-on-light-2: #f5d0fe;
+  --ri-text-on-light-3: #d8b4fe;
+  --ri-text-on-light-4: #a78bfa;
 }
 
 .portal-topbar {
@@ -739,17 +766,32 @@ body {
   background: rgba(71, 85, 105, 0.85);
 }
 
-.dark .suporte-hscroll-fixed {
+.dark .suporte-hscroll-fixed,
+.ibiza .suporte-hscroll-fixed {
   background: linear-gradient(to top, var(--ri-bg-page) 72%, transparent);
   scrollbar-color: rgba(100, 116, 139, 0.8) rgba(30, 41, 59, 0.95);
 }
 
-.dark .suporte-hscroll-fixed::-webkit-scrollbar-track {
+.dark .suporte-hscroll-fixed::-webkit-scrollbar-track,
+.ibiza .suporte-hscroll-fixed::-webkit-scrollbar-track {
   background: rgba(30, 41, 59, 0.95);
 }
 
-.dark .suporte-hscroll-fixed::-webkit-scrollbar-thumb {
+.dark .suporte-hscroll-fixed::-webkit-scrollbar-thumb,
+.ibiza .suporte-hscroll-fixed::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.55);
+}
+
+.ibiza .suporte-hscroll-fixed {
+  scrollbar-color: rgba(192, 132, 252, 0.75) rgba(42, 16, 56, 0.95);
+}
+
+.ibiza .suporte-hscroll-fixed::-webkit-scrollbar-track {
+  background: rgba(42, 16, 56, 0.95);
+}
+
+.ibiza .suporte-hscroll-fixed::-webkit-scrollbar-thumb {
+  background: rgba(217, 70, 239, 0.45);
 }
 
 .suporte-table-scroll::-webkit-scrollbar {
@@ -887,6 +929,10 @@ body {
   background: rgba(34, 34, 34, 0.96);
 }
 
+.ibiza .portal-processing-card {
+  background: rgba(42, 16, 56, 0.96);
+}
+
 .portal-processing-mark {
   width: 72px;
   height: 72px;
@@ -918,6 +964,10 @@ body {
   color: #d8d8d8;
 }
 
+.ibiza .portal-processing-text {
+  color: #f5d0fe;
+}
+
 @keyframes portal-processing-spin {
   to {
     transform: rotate(360deg);
@@ -941,6 +991,25 @@ body {
   animation:
     portal-processing-spin 1.15s linear infinite,
     portal-processing-color-dark 2.2s ease-in-out infinite;
+}
+
+.ibiza .portal-processing-r {
+  animation:
+    portal-processing-spin 1.15s linear infinite,
+    portal-processing-color-ibiza 2.2s ease-in-out infinite;
+}
+
+@keyframes portal-processing-color-ibiza {
+  0%,
+  100% {
+    color: #e879f9;
+  }
+  33% {
+    color: #f472b6;
+  }
+  66% {
+    color: #fb923c;
+  }
 }
 
 @keyframes portal-processing-color-dark {
