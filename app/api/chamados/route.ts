@@ -5,6 +5,7 @@ import {
   inboxUnreadByChamadoId,
   sortChamadosByInboxThenPriority,
 } from "@/lib/chamados/chamadoInboxService";
+import { backfillChamadoAgendaVisivelDesde } from "@/lib/chamados/chamadoAgendaVisibility";
 import { getChamadosResumoForUser } from "@/lib/chamados/chamadosResumo";
 import {
   createChamado,
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "user_not_found" }, { status: 404 });
     }
 
+    await backfillChamadoAgendaVisivelDesde();
     await flushDeferredChamadoVisibilityNotifications();
 
     const scope = new URL(request.url).searchParams.get("scope");

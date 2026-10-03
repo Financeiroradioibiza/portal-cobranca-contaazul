@@ -353,7 +353,8 @@ export async function updateChamado(
     data.prazoEntrega = parsePrazoEntregaInput(input.prazoEntrega);
   }
   if (input.agendaVisivelDesde !== undefined) {
-    data.agendaVisivelDesde = parsePrazoEntregaInput(input.agendaVisivelDesde);
+    const parsed = parsePrazoEntregaInput(input.agendaVisivelDesde);
+    data.agendaVisivelDesde = parsed ?? existing.agendaVisivelDesde ?? existing.createdAt;
   }
   if (input.status !== undefined && VALID_STATUS.has(input.status)) {
     data.status = input.status;

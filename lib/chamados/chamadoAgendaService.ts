@@ -7,7 +7,10 @@ import {
   getChamadoUserContext,
   type ChamadoUserContext,
 } from "@/lib/chamados/chamadoService";
-import { chamadoAgendaVisivelNow, startOfDaySaoPaulo } from "@/lib/chamados/chamadoAgendaVisibility";
+import {
+  backfillChamadoAgendaVisivelDesde,
+  chamadoAgendaVisivelNow,
+} from "@/lib/chamados/chamadoAgendaVisibility";
 
 export type ChamadoAgendaItem = ChamadoView & {
   prazoLabel: string;
@@ -70,16 +73,15 @@ export async function listChamadosAgendaForUser(
 
   const includeFinalizados = opts?.includeFinalizados !== false;
 
+  await backfillChamadoAgendaVisivelDesde();
+
   const statusFilter = includeFinalizados ?
     undefined
   : { status: { in: ["aberto", "em_andamento", "aguardando"] as ("aberto" | "em_andamento" | "aguardando")[] } };
 
-  const visivelAte = startOfDaySaoPaulo(toEnd);
-
   const rows = await prisma.chamado.findMany({
     where: {
       prazoEntrega: { not: null, gte: from, lte: toEnd },
-      OR: [{ agendaVisivelDesde: null }, { agendaVisivelDesde: { lte: visivelAte } }],
       ...(statusFilter ?? {}),
     },
     orderBy: { prazoEntrega: "asc" },

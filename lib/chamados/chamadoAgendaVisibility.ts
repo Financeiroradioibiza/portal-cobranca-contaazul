@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/prisma";
+
 const PRAZO_TZ = "America/Sao_Paulo";
 
 /** Início do dia civil em São Paulo (UTC Date). */
@@ -31,4 +33,18 @@ export function chamadoAgendaVisivelNow(row: {
   const vis = startOfDaySaoPaulo(chamadoVisivelDesdeDate(row));
   const today = startOfDaySaoPaulo(now);
   return vis.getTime() <= today.getTime();
+}
+
+/** Garante início preenchido no banco (legado sem migrate ou PATCH que zerou o campo). */
+export async function backfillChamadoAgendaVisivelDesde(): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE chamado SET agenda_visivel_desde = created_at WHERE agenda_visivel_desde IS NULL
+  `;
+  /* Legado: início no futuro em chamado já aberto antes do recurso — tratar como abertura. */
+  await prisma.$executeRaw`
+    UPDATE chamado
+    SET agenda_visivel_desde = created_at
+    WHERE agenda_visivel_desde > created_at
+      AND created_at < '2026-10-03 12:00:00'
+  `;
 }
