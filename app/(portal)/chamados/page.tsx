@@ -14,6 +14,6 @@ export default async function ChamadosIndexPage({ searchParams }: Props) {
   }
   const suffix = qs.toString();
   const hasChamado = Boolean(sp.chamado);
-  const base = hasChamado ? "/chamados/kanban" : "/chamados/conversas";
+  const base = hasChamado ? "/chamados/kanban" : "/chamados/agenda";
   redirect(suffix ? `${base}?${suffix}` : base);
 }

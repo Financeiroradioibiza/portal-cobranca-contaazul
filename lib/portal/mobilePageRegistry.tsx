@@ -330,7 +330,7 @@ const PAGES: Record<string, PageDef> = {
   },
   "/chamados/kanban": {
     section: "IbiZap",
-    title: "Kanban",
+    title: "Chamados",
     render: () => <ChamadosMobilePage />,
   },
   "/chamados/agenda": {
