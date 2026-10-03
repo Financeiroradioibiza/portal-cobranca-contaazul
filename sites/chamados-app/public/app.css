@@ -1422,13 +1422,7 @@ body {
 .agenda-seq-card-hit {
   display: block;
   width: 100%;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-  padding: 0.45rem 0.6rem 0.4rem;
+  padding: 0.4rem 0.55rem 0.38rem;
 }
 
 .agenda-seq-card-top {
@@ -1474,14 +1468,86 @@ body {
 
 .agenda-seq-card-steps {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.3rem;
-  margin-top: 0.35rem;
+  gap: 0.28rem;
+  margin-top: 0.32rem;
+}
+
+.agenda-seq-card-steps--timeline {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 0.15rem;
+}
+
+.agenda-seq-card-steps--timeline::-webkit-scrollbar {
+  display: none;
 }
 
 .agenda-seq-mini {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
   padding: 0;
+}
+
+.agenda-seq-card-steps--timeline .agenda-seq-mini {
+  flex: 0 0 3.35rem;
+  min-width: 3.35rem;
+}
+
+.agenda-seq-mini-date {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: var(--agenda-kicker);
+  line-height: 1.1;
+  width: 100%;
+  text-align: center;
+}
+
+.agenda-seq-mini.is-active .agenda-seq-mini-date,
+.agenda-seq-mini.is-on-day .agenda-seq-mini-date {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.agenda-seq-mini-rotulo {
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--agenda-kicker);
+  width: 100%;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.agenda-seq-mini.is-active .agenda-seq-mini-rotulo,
+.agenda-seq-mini.is-on-day .agenda-seq-mini-rotulo {
+  color: var(--text);
+}
+
+.agenda-seq-mini.is-on-day .agenda-seq-mini-bar {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 35%, transparent);
+}
+
+.agenda-seq-card--day.agenda-seq-card--teal {
+  border: 1px solid color-mix(in srgb, var(--agenda-teal) 40%, transparent);
+}
+
+.agenda-seq-card--day.agenda-seq-card--yellow {
+  border: 1px solid color-mix(in srgb, var(--agenda-yellow) 45%, transparent);
 }
 
 .agenda-seq-mini-bar {

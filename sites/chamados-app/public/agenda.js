@@ -255,33 +255,64 @@
       );
     }
 
-    function sequenciasStackHtml() {
-      if (!state.sequencias.length) return "";
+    function sequenciasStackHtml(dayKey) {
+      var list = state.sequencias;
+      if (dayKey) {
+        list = list.filter(function (seq) {
+          return (seq.passos || []).some(function (p) {
+            return p.prazoEntrega && prazoDayKey(p.prazoEntrega) === dayKey;
+          });
+        });
+      }
+      if (!list.length) return "";
+
+      var dayMode = Boolean(dayKey);
+      var kicker = dayMode ? "Sequências do dia" : "Minhas sequências";
+
       var html =
-        '<section class="agenda-seq-stack">' +
+        '<section class="agenda-seq-stack' +
+        (dayMode ? " agenda-seq-stack--day" : "") +
+        '">' +
         '<div class="agenda-seq-stack-head">' +
-        '<span class="agenda-kicker">Minhas sequências</span>' +
+        '<span class="agenda-kicker">' +
+        kicker +
+        "</span>" +
         '<span class="agenda-seq-count">' +
-        state.sequencias.length +
+        list.length +
         " ativa" +
-        (state.sequencias.length === 1 ? "" : "s") +
+        (list.length === 1 ? "" : "s") +
         "</span></div>" +
         '<div class="agenda-seq-stack-list">';
-      state.sequencias.forEach(function (seq, idx) {
+      list.forEach(function (seq, idx) {
         var accent = seqAccent(idx);
-        var active = (seq.passos || []).find(function (p) {
+        var passos = seq.passos || [];
+        var active = passos.find(function (p) {
           return p.status === "aberto" || p.status === "em_andamento";
         });
-        var openId = active ? active.chamadoId : (seq.passos && seq.passos[0] && seq.passos[0].chamadoId) || "";
-        var stepLabel = active ? active.passo + "/" + active.total : (seq.passos || []).length ? "—" : "";
+        var onDay =
+          dayKey ?
+            passos.find(function (p) {
+              return p.prazoEntrega && prazoDayKey(p.prazoEntrega) === dayKey;
+            })
+          : null;
+        var focus = onDay || active || passos[0];
+        var stepLabel = active ? active.passo + "/" + active.total : passos.length ? "—" : "";
+        var metaTail =
+          dayMode && focus && focus.rotulo ?
+            focus.rotulo
+          : dayMode && focus ?
+            seqKindLabel(seq)
+          : seqKindLabel(seq);
+        var stepsClass =
+          "agenda-seq-card-steps" + (dayMode ? " agenda-seq-card-steps--timeline" : "");
+        var cols = Math.max(passos.length, 1);
         html +=
           '<article class="agenda-seq-card agenda-seq-card--compact agenda-seq-card--' +
           accent +
+          (dayMode ? " agenda-seq-card--day" : "") +
           '">';
+        html += '<div class="agenda-seq-card-hit">';
         html +=
-          '<button type="button" class="agenda-seq-card-hit" data-chamado-id="' +
-          deps.escapeHtml(openId) +
-          '">' +
           '<div class="agenda-seq-card-top">' +
           '<div class="agenda-seq-card-name"><span class="agenda-dot agenda-dot--' +
           accent +
@@ -291,24 +322,54 @@
           '<div class="agenda-seq-card-meta">' +
           deps.escapeHtml(stepLabel) +
           " · " +
-          deps.escapeHtml(seqKindLabel(seq)) +
-          "</div></div>" +
-          '<div class="agenda-seq-card-steps">';
-        (seq.passos || []).forEach(function (p) {
+          deps.escapeHtml(metaTail) +
+          "</div></div>";
+        html +=
+          '<div class="' +
+          stepsClass +
+          '" style="' +
+          (dayMode ? "" : "grid-template-columns:repeat(" + cols + ",minmax(0,1fr))") +
+          '">';
+        passos.forEach(function (p) {
           var done = p.status === "fechado";
           var isActive = p.status === "aberto" || p.status === "em_andamento";
+          var isOnDay = dayKey && p.prazoEntrega && prazoDayKey(p.prazoEntrega) === dayKey;
           html +=
-            '<span class="agenda-seq-mini' +
-            (isActive ? " is-active" : done ? " is-done" : "") +
-            '" title="' +
-            deps.escapeHtml(p.prazoLabel || "") +
+            '<button type="button" class="agenda-seq-mini' +
+            (isActive ? " is-active" : "") +
+            (done ? " is-done" : "") +
+            (isOnDay ? " is-on-day" : "") +
+            '" data-chamado-id="' +
+            deps.escapeHtml(p.chamadoId) +
             '">' +
-            '<span class="agenda-seq-mini-bar"></span></span>';
+            '<span class="agenda-seq-mini-bar"></span>' +
+            '<span class="agenda-seq-mini-date">' +
+            deps.escapeHtml(p.prazoLabel || "—") +
+            "</span>";
+          if (p.rotulo) {
+            html +=
+              '<span class="agenda-seq-mini-rotulo">' + deps.escapeHtml(p.rotulo) + "</span>";
+          }
+          html += "</button>";
         });
-        html += "</div></button></article>";
+        html += "</div></div></article>";
       });
       html += "</div></section>";
       return html;
+    }
+
+    function scrollSequenciaTimelineIntoView(root) {
+      root.querySelectorAll(".agenda-seq-card-steps--timeline").forEach(function (track) {
+        var target =
+          track.querySelector(".agenda-seq-mini.is-on-day") ||
+          track.querySelector(".agenda-seq-mini.is-active");
+        if (!target) return;
+        try {
+          target.scrollIntoView({ inline: "center", block: "nearest", behavior: "instant" });
+        } catch (e) {
+          target.scrollIntoView(true);
+        }
+      });
     }
 
     function semPrazoHtml() {
@@ -717,7 +778,8 @@
       if (state.loading) html += '<p class="loading agenda-v2-loading">Carregando agenda…</p>';
       html += '<div class="agenda-v2-scroll">';
 
-      html += sequenciasStackHtml();
+      var seqDayKey = state.mode === "dia" ? toIsoLocal(startOfDay(state.anchor)) : null;
+      html += sequenciasStackHtml(seqDayKey);
       html += semPrazoHtml();
 
       if (state.mode === "mes") {
@@ -791,6 +853,7 @@
 
       bindChamadoClicks(deps.mainEl);
       bindDeleteComp(deps.mainEl);
+      if (state.mode === "dia") scrollSequenciaTimelineIntoView(deps.mainEl);
       deps.ensureFab("compromisso", openCompromissoSheet);
     }
 
