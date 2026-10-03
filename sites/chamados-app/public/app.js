@@ -1549,9 +1549,7 @@
     setScreenHeader("Chamados", true);
     navEl.hidden = false;
     mainEl.className = "main ibiz-main";
-    var list = filteredTickets().filter(function (c) {
-      return !c.sequenciaGrupoId;
-    });
+    var list = filteredTickets();
     var html =
       '<div class="ibiz-screen">' +
       ibizScreenHead("Chamados") +

@@ -43,6 +43,7 @@ export async function GET(request: Request) {
       : scope === "mine-all" ? await listChamadosForUser(ctx)
       : await listAllChamados();
 
+    /* Lista completa do usuário — nunca filtrar por agenda_visivel_desde (só agenda/notificações). */
     const inbox = await inboxUnreadByChamadoId(ctx.email);
     chamados = attachInboxToChamados(chamados, inbox).sort(sortChamadosByInboxThenPriority);
     const resumo = await getChamadosResumoForUser(ctx.email);

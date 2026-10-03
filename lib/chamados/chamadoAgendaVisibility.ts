@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 
 const PRAZO_TZ = "America/Sao_Paulo";
 
+/** Chamados abertos antes do recurso «data inicial» — sempre visíveis desde a abertura (ignora valor errado no banco). */
+export const CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF = new Date("2026-10-03T15:00:00-03:00");
+
 /** Início do dia civil em São Paulo (UTC Date). */
 export function startOfDaySaoPaulo(d: Date): Date {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -20,6 +23,9 @@ export function chamadoVisivelDesdeDate(row: {
   agendaVisivelDesde: Date | null;
   createdAt: Date;
 }): Date {
+  if (row.createdAt.getTime() < CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF.getTime()) {
+    return row.createdAt;
+  }
   return row.agendaVisivelDesde ?? row.createdAt;
 }
 
@@ -41,18 +47,24 @@ export async function backfillChamadoAgendaVisivelDesde(): Promise<void> {
     await prisma.$executeRaw`
       UPDATE chamado SET agenda_visivel_desde = created_at WHERE agenda_visivel_desde IS NULL
     `;
-    /* Abertos antigos com “início” no futuro por engano — voltam a valer desde a abertura. */
+    /* Pré «data inicial»: início = abertura (corrige futuro/prazo gravado por engano). */
+    await prisma.$executeRaw`
+      UPDATE chamado
+      SET agenda_visivel_desde = created_at
+      WHERE created_at < ${CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF}
+        AND (
+          agenda_visivel_desde IS NULL
+          OR agenda_visivel_desde > created_at
+        )
+    `;
+    /* Abertos recentes com “início” no futuro por engano — voltam a valer desde a abertura. */
     await prisma.$executeRaw`
       UPDATE chamado
       SET agenda_visivel_desde = created_at
       WHERE status IN ('aberto', 'em_andamento', 'aguardando')
-        AND (
-          agenda_visivel_desde IS NULL
-          OR (
-            agenda_visivel_desde > NOW()
-            AND created_at < DATE_SUB(NOW(), INTERVAL 2 DAY)
-          )
-        )
+        AND created_at >= ${CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF}
+        AND agenda_visivel_desde > NOW()
+        AND created_at < DATE_SUB(NOW(), INTERVAL 2 DAY)
     `;
   } catch (e) {
     console.error("[chamadoAgendaVisibility] backfill agenda_visivel_desde", e);

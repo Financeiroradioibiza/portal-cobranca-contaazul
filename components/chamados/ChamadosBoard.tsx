@@ -227,7 +227,7 @@ export function ChamadosBoard({
   }, [initialChamadoId, chamados, loading, openChamado]);
 
   const filtered = useMemo(() => {
-    let list = chamados.filter((c) => c.status !== "aguardando");
+    let list = chamados.slice();
     if (filter === "abertos") {
       list = list.filter((c) => c.status === "aberto" || c.status === "em_andamento");
     } else if (filter === "fechados") {
