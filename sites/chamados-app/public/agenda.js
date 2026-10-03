@@ -1,5 +1,13 @@
 (function (global) {
+  var WEEKDAY_LETTER = ["D", "S", "T", "Q", "Q", "S", "S"];
   var WEEKDAY_SHORT = ["dom.", "seg.", "ter.", "qua.", "qui.", "sex.", "sáb."];
+
+  var SVG_REFRESH =
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg>';
+  var SVG_CHEV_L =
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>';
+  var SVG_CHEV_R =
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>';
 
   function startOfDay(d) {
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -18,6 +26,11 @@
     return y + "-" + m + "-" + day;
   }
 
+  function parseYmdLocal(ymd) {
+    var p = ymd.split("-").map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+  }
+
   function prazoDayKey(iso) {
     return new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/Sao_Paulo",
@@ -33,7 +46,7 @@
       return {
         from: a.toISOString(),
         to: addDays(a, 1).toISOString(),
-        title: a.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }),
+        title: a.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "short" }),
       };
     }
     if (mode === "semana") {
@@ -43,7 +56,7 @@
       return {
         from: mon.toISOString(),
         to: sun.toISOString(),
-        title: "Semana " + toIsoLocal(mon) + " – " + toIsoLocal(addDays(sun, -1)),
+        title: formatWeekNavTitle(mon, addDays(sun, -1)),
       };
     }
     var first = new Date(a.getFullYear(), a.getMonth(), 1);
@@ -53,6 +66,13 @@
       to: next.toISOString(),
       title: first.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
     };
+  }
+
+  function formatWeekNavTitle(from, to) {
+    function part(d) {
+      return d.toLocaleDateString("pt-BR", { day: "numeric", month: "short" }).replace(/\./g, "");
+    }
+    return part(from) + " – " + part(to);
   }
 
   function weekDaysFromAnchor(anchor) {
@@ -116,6 +136,19 @@
     } catch (e) {}
   }
 
+  function seqAccent(index) {
+    return index % 2 === 0 ? "teal" : "yellow";
+  }
+
+  function seqKindLabel(seq) {
+    if (seq.templateKind) {
+      return String(seq.templateKind).replace(/_/g, " ").replace(/\b\w/g, function (c) {
+        return c.toUpperCase();
+      });
+    }
+    return "Sequência";
+  }
+
   function createModule(deps) {
     var state = {
       mode: "semana",
@@ -126,7 +159,7 @@
       sequencias: [],
       showFinalizados: readShowFinalizados(),
       loading: false,
-      monthPickDay: null,
+      pickDayKey: null,
     };
 
     function loadAgenda() {
@@ -162,124 +195,436 @@
         });
     }
 
-    function chipChamadoHtml(it) {
-      var seq = Boolean(it.sequenciaGrupoId);
-      var finalizado = Boolean(it.agendaFinalizado || (seq && it.status === "fechado"));
-      var cls = finalizado ? "agenda-chip agenda-chip-done" : seq ? "agenda-chip agenda-chip-seq" : "agenda-chip agenda-chip-ticket";
-      var inner = "";
-      if (finalizado) inner += '<span class="agenda-chip-tag">Finalizado</span>';
-      if (it.sequenciaRotulo) inner += '<span class="agenda-chip-sub">' + deps.escapeHtml(it.sequenciaRotulo) + "</span>";
-      if (seq && it.sequenciaPasso && it.sequenciaTotal) {
-        inner += '<span class="agenda-chip-step">' + it.sequenciaPasso + "/" + it.sequenciaTotal + "</span> ";
+    function entryTone(entry) {
+      if (entry.kind === "compromisso") {
+        return entry.data.papel === "criador" ? "sky" : "yellow";
       }
-      inner += '<span class="agenda-chip-title">' + deps.escapeHtml(it.titulo) + "</span>";
+      var it = entry.data;
+      var finalizado = Boolean(it.agendaFinalizado || (it.sequenciaGrupoId && it.status === "fechado"));
+      if (finalizado) return "dim";
+      if (it.sequenciaGrupoId) return "teal";
+      return "lilac";
+    }
+
+    function entryTitle(entry) {
+      if (entry.kind === "chamado") return entry.data.titulo || "Chamado";
+      return entry.data.titulo || "Compromisso";
+    }
+
+    function entrySub(entry) {
+      if (entry.kind === "chamado") {
+        var it = entry.data;
+        if (it.sequenciaRotulo) return it.sequenciaRotulo;
+        if (it.sequenciaGrupoId) return "Sequência";
+        return "Chamado";
+      }
+      var c = entry.data;
+      return c.papel === "criador" ? "Meu compromisso" : "Convite · " + (c.criadoPorNome || "");
+    }
+
+    function truncate(s, n) {
+      s = String(s || "");
+      if (s.length <= n) return s;
+      return s.slice(0, n - 1) + "…";
+    }
+
+    function barHtml(entry, variant) {
+      var tone = entryTone(entry);
+      if (tone === "dim") tone = "lilac";
+      var title = deps.escapeHtml(truncate(entryTitle(entry), variant === "week" ? 14 : 18));
+      var sub = deps.escapeHtml(truncate(entrySub(entry), 16));
+      if (variant === "month") {
+        return (
+          '<div class="agenda-bar agenda-bar--' +
+          tone +
+          ' agenda-bar--month">' +
+          title +
+          "</div>"
+        );
+      }
       return (
-        '<button type="button" class="' +
-        cls +
-        '" data-chamado-id="' +
-        deps.escapeHtml(it.id) +
-        '">' +
-        inner +
-        "</button>"
+        '<div class="agenda-bar agenda-bar--' +
+        tone +
+        ' agenda-bar--week">' +
+        '<div class="agenda-bar-t">' +
+        title +
+        "</div>" +
+        '<div class="agenda-bar-s">' +
+        sub +
+        "</div></div>"
       );
     }
 
-    function chipCompromissoHtml(c, canDelete) {
-      var mine = c.papel === "criador";
-      var cls = mine ? "agenda-chip agenda-chip-mine" : "agenda-chip agenda-chip-invite";
-      var tag = mine ? "Meu compromisso" : "Convite · " + (c.criadoPorNome || "");
-      var html =
-        '<div class="' +
-        cls +
-        '">' +
-        (canDelete ?
-          '<button type="button" class="agenda-chip-del" data-del-comp="' +
-          deps.escapeHtml(c.id) +
-          '" aria-label="Excluir">×</button>'
-        : "") +
-        '<span class="agenda-chip-tag">' +
-        deps.escapeHtml(tag) +
-        "</span>";
-      if (c.horaLabel) html += '<span class="agenda-chip-step">' + deps.escapeHtml(c.horaLabel) + "</span> ";
-      html += '<span class="agenda-chip-title">' + deps.escapeHtml(c.titulo) + "</span></div>";
-      return html;
-    }
-
-    function sequenciasHtml() {
+    function sequenciasCarouselHtml() {
       if (!state.sequencias.length) return "";
-      var html = '<div class="agenda-seq-block">';
-      state.sequencias.forEach(function (seq) {
-        html += '<div class="agenda-seq-card"><p class="agenda-seq-title">' + deps.escapeHtml(seq.titulo);
-        html += ' <span class="agenda-seq-badge">SEQUÊNCIA</span></p><div class="agenda-seq-steps">';
+      var html =
+        '<section class="agenda-seq-scroll">' +
+        '<div class="agenda-seq-scroll-head">' +
+        '<span class="agenda-kicker">Minhas sequências</span>' +
+        '<span class="agenda-seq-count">' +
+        state.sequencias.length +
+        " ativa" +
+        (state.sequencias.length === 1 ? "" : "s") +
+        "</span></div>" +
+        '<div class="agenda-seq-scroll-track">';
+      state.sequencias.forEach(function (seq, idx) {
+        var accent = seqAccent(idx);
+        html += '<article class="agenda-seq-card agenda-seq-card--' + accent + '">';
+        html +=
+          '<div class="agenda-seq-card-top">' +
+          '<div class="agenda-seq-card-name"><span class="agenda-dot agenda-dot--' +
+          accent +
+          '"></span>' +
+          deps.escapeHtml(seq.titulo) +
+          "</div>";
+        var active = (seq.passos || []).find(function (p) {
+          return p.status === "aberto" || p.status === "em_andamento";
+        });
+        var stepLabel = active ? active.passo + "/" + active.total : (seq.passos || []).length ? "—" : "";
+        html +=
+          '<div class="agenda-seq-card-meta">' +
+          deps.escapeHtml(stepLabel) +
+          " · " +
+          deps.escapeHtml(seqKindLabel(seq)) +
+          "</div></div>";
+        html += '<div class="agenda-seq-card-steps">';
         (seq.passos || []).forEach(function (p) {
-          var active = p.status === "aberto" || p.status === "em_andamento";
           var done = p.status === "fechado";
-          var stepCls = active ? "agenda-seq-step active" : done ? "agenda-seq-step done" : "agenda-seq-step";
+          var isActive = p.status === "aberto" || p.status === "em_andamento";
           html +=
-            '<button type="button" class="' +
-            stepCls +
+            '<button type="button" class="agenda-seq-mini' +
+            (isActive ? " is-active" : done ? " is-done" : "") +
             '" data-chamado-id="' +
             deps.escapeHtml(p.chamadoId) +
             '">' +
-            '<div class="agenda-seq-step-n">' +
-            p.passo +
-            "/" +
-            p.total +
-            "</div>" +
-            '<div class="agenda-seq-step-d">' +
-            deps.escapeHtml(p.prazoLabel || "") +
-            "</div>" +
-            (p.rotulo ? '<div class="agenda-seq-step-l">' + deps.escapeHtml(p.rotulo) + "</div>" : "") +
-            "</button>";
+            '<span class="agenda-seq-mini-bar"></span>' +
+            '<span class="agenda-seq-mini-date">' +
+            deps.escapeHtml(p.prazoLabel || "—") +
+            "</span></button>";
         });
-        html += "</div></div>";
+        html += "</div></article>";
       });
-      html += "</div>";
+      html += "</div></section>";
+      return html;
+    }
+
+    function sequenciasDayHtml() {
+      if (!state.sequencias.length) return "";
+      var html = '<section class="agenda-day-seq"><div class="agenda-kicker">Sequências do dia</div>';
+      state.sequencias.forEach(function (seq, idx) {
+        var accent = seqAccent(idx);
+        var active = (seq.passos || []).find(function (p) {
+          return p.status === "aberto" || p.status === "em_andamento";
+        });
+        html +=
+          '<button type="button" class="agenda-day-seq-row agenda-day-seq-row--' +
+          accent +
+          '" data-chamado-id="' +
+          deps.escapeHtml(active ? active.chamadoId : (seq.passos && seq.passos[0] && seq.passos[0].chamadoId) || "") +
+          '">' +
+          '<div class="agenda-day-seq-text"><div class="agenda-day-seq-title">' +
+          deps.escapeHtml(seq.titulo) +
+          "</div>" +
+          '<div class="agenda-day-seq-sub">' +
+          deps.escapeHtml(seqKindLabel(seq)) +
+          "</div></div>" +
+          '<div class="agenda-day-seq-bars" aria-hidden="true">';
+        (seq.passos || []).forEach(function (p) {
+          var isActive = p.status === "aberto" || p.status === "em_andamento";
+          var done = p.status === "fechado";
+          html +=
+            '<span class="agenda-day-seq-bar' +
+            (isActive ? " is-on" : done ? " is-half" : "") +
+            '"></span>';
+        });
+        html +=
+          '</div><div class="agenda-day-seq-step">' +
+          (active ? active.passo + "/" + active.total : "—") +
+          "</div></button>";
+      });
+      html += "</section>";
       return html;
     }
 
     function semPrazoHtml() {
       if (!state.semPrazo.length) return "";
-      var html =
-        '<div class="agenda-sem-prazo-block"><p class="agenda-sem-prazo-title">Chamados antigos sem data — abra e defina a data limite</p><div class="agenda-day-list">';
-      state.semPrazo.forEach(function (it) {
-        html += chipChamadoHtml(it);
+      var html = '<div class="agenda-sem-prazo-list">';
+      state.semPrazo.forEach(function (it, i) {
+        html +=
+          '<button type="button" class="agenda-sem-prazo-btn" data-chamado-id="' +
+          deps.escapeHtml(it.id) +
+          '">' +
+          '<span class="agenda-sem-prazo-badge">' +
+          (i + 1) +
+          "</span>" +
+          '<span class="agenda-sem-prazo-title">' +
+          deps.escapeHtml(it.titulo) +
+          "</span>" +
+          '<span class="agenda-sem-prazo-cta">Definir data</span></button>';
+      });
+      html += "</div>";
+      return html;
+    }
+
+    function dayNumClass(key, pickKey, todayKey, inMonth) {
+      if (key === pickKey) return " is-pick";
+      if (key === todayKey) return " is-today";
+      if (inMonth === false) return " is-dim";
+      return "";
+    }
+
+    function monthCalendarHtml(entriesByDay, todayKey, pickKey) {
+      var cells = monthGridCells(state.anchor);
+      var weeks = [];
+      for (var w = 0; w < 6; w++) weeks.push(cells.slice(w * 7, w * 7 + 7));
+
+      var html = '<div class="agenda-cal agenda-cal--month"><div class="agenda-cal-weekdays">';
+      WEEKDAY_LETTER.forEach(function (wd) {
+        html += '<div class="agenda-cal-wd">' + wd + "</div>";
+      });
+      html += "</div>";
+
+      weeks.forEach(function (week) {
+        html += '<div class="agenda-cal-week">';
+        week.forEach(function (cell) {
+          var list = entriesByDay[cell.key] || [];
+          var n = cell.date.getDate();
+          var numCls = dayNumClass(cell.key, pickKey, todayKey, cell.inMonth);
+          html +=
+            '<button type="button" class="agenda-month-cell' +
+            (cell.key === pickKey ? " is-pick" : "") +
+            '" data-month-day="' +
+            cell.key +
+            '" aria-label="' +
+            deps.escapeHtml(cell.key) +
+            '">' +
+            '<span class="agenda-month-num' +
+            numCls +
+            '">' +
+            n +
+            "</span>" +
+            '<div class="agenda-month-bars">';
+          var maxBars = 2;
+          list.slice(0, maxBars).forEach(function (entry) {
+            html += barHtml(entry, "month");
+          });
+          if (list.length > maxBars) {
+            html += '<div class="agenda-month-more">+' + (list.length - maxBars) + " mais</div>";
+          }
+          html += "</div></button>";
+        });
+        html += "</div>";
+      });
+      html += "</div>";
+      return html;
+    }
+
+    function weekCalendarHtml(entriesByDay, todayKey, pickKey) {
+      var days = weekDaysFromAnchor(state.anchor);
+      var html = '<div class="agenda-cal agenda-cal--week"><div class="agenda-week-cols">';
+      days.forEach(function (day) {
+        var key = toIsoLocal(day);
+        var list = entriesByDay[key] || [];
+        var numCls = dayNumClass(key, pickKey, todayKey, true);
+        html +=
+          '<button type="button" class="agenda-week-col' +
+          (key === pickKey ? " is-pick" : "") +
+          '" data-month-day="' +
+          key +
+          '">' +
+          '<span class="agenda-week-wd">' +
+          WEEKDAY_LETTER[day.getDay()] +
+          "</span>" +
+          '<span class="agenda-month-num' +
+          numCls +
+          '">' +
+          day.getDate() +
+          "</span>" +
+          '<div class="agenda-week-bars">';
+        list.forEach(function (entry) {
+          html += barHtml(entry, "week");
+        });
+        html += "</div></button>";
       });
       html += "</div></div>";
       return html;
     }
 
-    function daySectionHtml(day, entriesByDay, todayKey) {
+    function detailItemHtml(entry) {
+      var tone = entryTone(entry);
+      if (tone === "dim") tone = "lilac";
+      var time = "";
+      if (entry.kind === "compromisso" && entry.data.horaLabel) {
+        time = entry.data.horaLabel;
+      }
+      var body =
+        '<span class="agenda-dot agenda-dot--' +
+        tone +
+        '"></span>' +
+        '<div class="agenda-detail-body">' +
+        '<div class="agenda-detail-title">' +
+        deps.escapeHtml(entryTitle(entry)) +
+        "</div>" +
+        '<div class="agenda-detail-sub">' +
+        deps.escapeHtml(entrySub(entry)) +
+        "</div></div>" +
+        (time ? '<div class="agenda-detail-time">' + deps.escapeHtml(time) + "</div>" : "");
+      if (entry.kind === "chamado") {
+        return (
+          '<button type="button" class="agenda-detail-row agenda-detail-row--' +
+          tone +
+          '" data-chamado-id="' +
+          deps.escapeHtml(entry.data.id) +
+          '">' +
+          body +
+          "</button>"
+        );
+      }
+      var del =
+        entry.data.papel === "criador" ?
+          '<button type="button" class="agenda-detail-del" data-del-comp="' +
+          deps.escapeHtml(entry.data.id) +
+          '" aria-label="Excluir">×</button>'
+        : "";
+      return (
+        '<div class="agenda-detail-row agenda-detail-row--' +
+        tone +
+        '">' +
+        del +
+        body +
+        "</div>"
+      );
+    }
+
+    function dayDetailSectionHtml(day, entriesByDay) {
       var key = toIsoLocal(day);
       var list = entriesByDay[key] || [];
-      var isToday = key === todayKey;
+      var title = day.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
       var html =
-        '<section class="agenda-day-section' +
-        (isToday ? " agenda-day-today" : "") +
-        '"><header class="agenda-day-head">' +
-        '<span class="agenda-day-wd">' +
-        WEEKDAY_SHORT[day.getDay()] +
-        "</span>" +
-        '<span class="agenda-day-num' +
-        (isToday ? " agenda-day-num-today" : "") +
-        '">' +
-        day.getDate() +
-        "</span>" +
-        '<span class="agenda-day-full">' +
-        day.toLocaleDateString("pt-BR", { day: "numeric", month: "short" }) +
-        "</span></header>";
+        '<section class="agenda-day-detail">' +
+        '<div class="agenda-day-detail-head">' +
+        '<h3 class="agenda-day-detail-title">' +
+        deps.escapeHtml(title) +
+        "</h3>" +
+        '<span class="agenda-day-detail-count">' +
+        list.length +
+        " item" +
+        (list.length === 1 ? "" : "s") +
+        "</span></div>";
       if (list.length === 0) {
-        html += '<p class="agenda-day-empty muted">Nada neste dia.</p>';
+        html += '<p class="agenda-day-detail-empty">Nada neste dia.</p>';
       } else {
-        html += '<div class="agenda-day-list">';
         list.forEach(function (entry) {
-          if (entry.kind === "chamado") html += chipChamadoHtml(entry.data);
-          else html += chipCompromissoHtml(entry.data, entry.data.papel === "criador");
+          html += detailItemHtml(entry);
         });
-        html += "</div>";
       }
       html += "</section>";
       return html;
+    }
+
+    function parseTimeMinutes(iso) {
+      var d = new Date(iso);
+      return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function dayTimelineHtml(day, entriesByDay) {
+      var key = toIsoLocal(day);
+      var list = (entriesByDay[key] || []).filter(function (e) {
+        return e.kind === "compromisso" || e.kind === "chamado";
+      });
+      var chamados = list.filter(function (e) {
+        return e.kind === "chamado";
+      });
+      var comps = list.filter(function (e) {
+        return e.kind === "compromisso";
+      });
+
+      var html = "";
+      if (chamados.length) {
+        html += '<section class="agenda-day-chamados"><div class="agenda-kicker">Chamados do dia</div>';
+        chamados.forEach(function (entry) {
+          html += detailItemHtml(entry);
+        });
+        html += "</section>";
+      }
+
+      html += '<section class="agenda-timeline-wrap"><div class="agenda-kicker">Horários</div>';
+      html += '<div class="agenda-timeline">';
+      for (var h = 7; h <= 20; h++) {
+        html +=
+          '<div class="agenda-timeline-hour"><span>' +
+          String(h).padStart(2, "0") +
+          ":00</span></div>";
+      }
+      var startMin = 7 * 60;
+      comps.forEach(function (entry) {
+        var topMin = parseTimeMinutes(entry.data.inicioEm) - startMin;
+        if (topMin < 0) topMin = 0;
+        var topPx = (topMin / 60) * 56;
+        var tone = entryTone(entry);
+        html +=
+          '<div class="agenda-timeline-event agenda-timeline-event--' +
+          tone +
+          '" style="top:' +
+          topPx +
+          'px">' +
+          (entry.data.papel === "criador" ?
+            '<button type="button" class="agenda-timeline-del" data-del-comp="' +
+            deps.escapeHtml(entry.data.id) +
+            '" aria-label="Excluir">×</button>'
+          : "") +
+          '<div class="agenda-timeline-event-t">' +
+          deps.escapeHtml(entryTitle(entry)) +
+          "</div>" +
+          '<div class="agenda-timeline-event-s">' +
+          deps.escapeHtml((entry.data.horaLabel || "") + " · " + entrySub(entry)) +
+          "</div></div>";
+      });
+      html += "</div></section>";
+      return html;
+    }
+
+    function toolbarHtml(range) {
+      return (
+        '<div class="agenda-v2-toolbar">' +
+        '<div class="agenda-mode-switch" role="tablist">' +
+        ["dia", "Dia", "semana", "Semana", "mes", "Mês"]
+          .reduce(function (acc, _v, i, arr) {
+            if (i % 2 !== 0) return acc;
+            var id = arr[i];
+            var label = arr[i + 1];
+            acc +=
+              '<button type="button" role="tab" class="agenda-mode-btn' +
+              (state.mode === id ? " is-active" : "") +
+              '" data-agenda-mode="' +
+              id +
+              '">' +
+              label +
+              "</button>";
+            return acc;
+          }, "") +
+        "</div>" +
+        '<div class="agenda-nav">' +
+        '<div class="agenda-nav-arrows">' +
+        '<button type="button" class="agenda-icon-btn" data-agenda-shift="-1" aria-label="Anterior">' +
+        SVG_CHEV_L +
+        "</button>" +
+        '<p class="agenda-nav-title">' +
+        deps.escapeHtml(range.title) +
+        "</p>" +
+        '<button type="button" class="agenda-icon-btn" data-agenda-shift="1" aria-label="Próximo">' +
+        SVG_CHEV_R +
+        "</button></div>" +
+        '<div class="agenda-nav-actions">' +
+        '<button type="button" class="agenda-icon-btn agenda-refresh-btn" data-agenda-refresh aria-label="Atualizar">' +
+        SVG_REFRESH +
+        "</button>" +
+        '<button type="button" class="agenda-hoje-btn" data-agenda-today>Hoje</button></div></div>' +
+        '<label class="agenda-toggle-done">' +
+        '<input type="checkbox" id="agenda-show-done"' +
+        (state.showFinalizados ? " checked" : "") +
+        " /> Mostrar finalizados</label></div>"
+      );
     }
 
     function bindChamadoClicks(root) {
@@ -312,9 +657,9 @@
     }
 
     function openCompromissoSheet() {
-      var viewer = (deps.getUser() && deps.getUser().email) || "";
       var defaultDate = toIsoLocal(state.anchor);
       var people = deps.getParticipants() || [];
+      var viewer = (deps.getUser() && deps.getUser().email) || "";
       var peopleHtml = people
         .map(function (p) {
           if (p.email.toLowerCase() === viewer.toLowerCase()) return "";
@@ -384,83 +729,40 @@
       };
     }
 
+    function resolvePickDay(todayKey) {
+      if (state.pickDayKey) return state.pickDayKey;
+      if (state.mode === "dia") return toIsoLocal(startOfDay(state.anchor));
+      return todayKey;
+    }
+
     function render() {
       deps.setScreenHeader("Agenda");
       deps.navEl.hidden = false;
       var range = rangeForMode(state.mode, state.anchor);
       var todayKey = toIsoLocal(startOfDay(new Date()));
+      var pickKey = resolvePickDay(todayKey);
       var entriesByDay = groupEntriesByDay(state.items, state.compromissos);
 
-      var html =
-        '<div class="agenda-toolbar">' +
-        '<div class="pill-row agenda-modes">' +
-        ["dia", "Dia", "semana", "Semana", "mes", "Mês"]
-          .reduce(function (acc, _v, i, arr) {
-            if (i % 2 !== 0) return acc;
-            var id = arr[i];
-            var label = arr[i + 1];
-            acc +=
-              '<button type="button" class="pill' +
-              (state.mode === id ? " active" : "") +
-              '" data-agenda-mode="' +
-              id +
-              '">' +
-              label +
-              "</button>";
-            return acc;
-          }, "") +
-        "</div>" +
-        '<div class="agenda-nav-row">' +
-        '<button type="button" class="btn-secondary agenda-nav-btn" data-agenda-shift="-1">‹</button>' +
-        '<p class="agenda-range-title">' +
-        deps.escapeHtml(range.title) +
-        "</p>" +
-        '<button type="button" class="btn-secondary agenda-nav-btn" data-agenda-shift="1">›</button>' +
-        '<button type="button" class="btn-secondary agenda-nav-btn" data-agenda-today>Hoje</button>' +
-        "</div>" +
-        '<label class="agenda-toggle-done">' +
-        '<input type="checkbox" id="agenda-show-done"' +
-        (state.showFinalizados ? " checked" : "") +
-        " /> Mostrar chamados finalizados na grade</label></div>";
+      var html = '<div class="agenda-v2">';
+      html += toolbarHtml(range);
+      if (state.loading) html += '<p class="loading agenda-v2-loading">Carregando agenda…</p>';
+      html += '<div class="agenda-v2-scroll">';
 
-      if (state.loading) html += '<p class="loading">Carregando agenda…</p>';
+      if (state.mode === "dia") {
+        html += sequenciasDayHtml();
+      } else {
+        html += sequenciasCarouselHtml();
+      }
       html += semPrazoHtml();
-      html += sequenciasHtml();
 
       if (state.mode === "mes") {
-        var cells = monthGridCells(state.anchor);
-        var pick = state.monthPickDay || todayKey;
-        html += '<div class="agenda-month-grid">';
-        WEEKDAY_SHORT.forEach(function (wd) {
-          html += '<div class="agenda-month-wd">' + wd + "</div>";
-        });
-        cells.forEach(function (cell) {
-          var n = (entriesByDay[cell.key] || []).length;
-          var isToday = cell.key === todayKey;
-          var sel = cell.key === pick;
-          html +=
-            '<button type="button" class="agenda-month-cell' +
-            (cell.inMonth ? "" : " out") +
-            (isToday ? " today" : "") +
-            (sel ? " sel" : "") +
-            '" data-month-day="' +
-            cell.key +
-            '">' +
-            '<span class="agenda-month-n">' +
-            cell.date.getDate() +
-            "</span>" +
-            (n > 0 ? '<span class="agenda-month-dot">' + (n > 9 ? "9+" : n) + "</span>" : "") +
-            "</button>";
-        });
-        html += "</div>";
-        var pickDate = parseYmdLocal(pick);
-        html += daySectionHtml(pickDate, entriesByDay, todayKey);
-      } else if (state.mode === "dia") {
-        html += daySectionHtml(startOfDay(state.anchor), entriesByDay, todayKey);
+        html += monthCalendarHtml(entriesByDay, todayKey, pickKey);
+        html += dayDetailSectionHtml(parseYmdLocal(pickKey), entriesByDay);
+      } else if (state.mode === "semana") {
+        html += weekCalendarHtml(entriesByDay, todayKey, pickKey);
+        html += dayDetailSectionHtml(parseYmdLocal(pickKey), entriesByDay);
       } else {
-        weekDaysFromAnchor(state.anchor).forEach(function (day) {
-          html += daySectionHtml(day, entriesByDay, todayKey);
-        });
+        html += dayTimelineHtml(startOfDay(state.anchor), entriesByDay);
       }
 
       var empty =
@@ -469,14 +771,15 @@
         state.semPrazo.length === 0 &&
         state.compromissos.length === 0 &&
         state.sequencias.length === 0;
-      if (empty) html += '<p class="empty">Nada na agenda neste período.</p>';
+      if (empty) html += '<p class="empty agenda-v2-empty">Nada na agenda neste período.</p>';
 
+      html += "</div></div>";
       deps.mainEl.innerHTML = html;
 
       deps.mainEl.querySelectorAll("[data-agenda-mode]").forEach(function (btn) {
         btn.onclick = function () {
           state.mode = btn.getAttribute("data-agenda-mode");
-          state.monthPickDay = null;
+          state.pickDayKey = null;
           loadAgenda().then(render);
         };
       });
@@ -486,10 +789,9 @@
           if (state.mode === "mes") {
             var a = state.anchor;
             state.anchor = new Date(a.getFullYear(), a.getMonth() + n, 1);
-          }
-          else if (state.mode === "semana") state.anchor = addDays(state.anchor, n * 7);
+          } else if (state.mode === "semana") state.anchor = addDays(state.anchor, n * 7);
           else state.anchor = addDays(state.anchor, n);
-          state.monthPickDay = null;
+          state.pickDayKey = null;
           loadAgenda().then(render);
         };
       });
@@ -497,7 +799,13 @@
       if (todayBtn) {
         todayBtn.onclick = function () {
           state.anchor = startOfDay(new Date());
-          state.monthPickDay = toIsoLocal(state.anchor);
+          state.pickDayKey = toIsoLocal(state.anchor);
+          loadAgenda().then(render);
+        };
+      }
+      var refreshBtn = deps.mainEl.querySelector("[data-agenda-refresh]");
+      if (refreshBtn) {
+        refreshBtn.onclick = function () {
           loadAgenda().then(render);
         };
       }
@@ -511,7 +819,7 @@
       }
       deps.mainEl.querySelectorAll("[data-month-day]").forEach(function (btn) {
         btn.onclick = function () {
-          state.monthPickDay = btn.getAttribute("data-month-day");
+          state.pickDayKey = btn.getAttribute("data-month-day");
           render();
         };
       });
@@ -519,11 +827,6 @@
       bindChamadoClicks(deps.mainEl);
       bindDeleteComp(deps.mainEl);
       deps.ensureFab("compromisso", openCompromissoSheet);
-    }
-
-    function parseYmdLocal(ymd) {
-      var p = ymd.split("-").map(Number);
-      return new Date(p[0], p[1] - 1, p[2]);
     }
 
     return {
