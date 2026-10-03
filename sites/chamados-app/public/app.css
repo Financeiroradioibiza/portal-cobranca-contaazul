@@ -250,17 +250,19 @@ body {
 
 .topbar {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
   align-items: center;
-  justify-content: center;
-  padding: 0.65rem 3.25rem 0.45rem;
-  padding-top: max(0.65rem, env(safe-area-inset-top));
+  column-gap: 0.35rem;
+  padding: max(0.65rem, env(safe-area-inset-top)) 1rem 0.45rem;
   background: var(--topbar-bg);
 }
 
 .topbar-center {
+  grid-column: 2;
   width: 100%;
   text-align: center;
+  justify-self: center;
 }
 
 .topbar-brand-logo {
@@ -283,14 +285,18 @@ body {
 }
 
 .topbar .icon-btn {
-  position: absolute;
-  top: max(0.65rem, env(safe-area-inset-top));
-  right: 1rem;
+  position: static;
+  justify-self: center;
 }
 
 .topbar .icon-btn-theme {
-  left: 1rem;
-  right: auto;
+  grid-column: 1;
+  justify-self: start;
+}
+
+.topbar #btn-logout {
+  grid-column: 3;
+  justify-self: end;
 }
 
 .push-banner {
@@ -2289,12 +2295,16 @@ div.agenda-detail-row {
 }
 
 /* —— IbiZap v2: Chamados + Chat (mock Manrope) —— */
-.app-shell.head-v2 .topbar-center {
+.app-shell.head-v2 .topbar-screen {
   display: none;
 }
 
 .app-shell.head-v2 .topbar {
-  padding-bottom: 0.15rem;
+  padding-bottom: 0.35rem;
+}
+
+.app-shell.head-v2 .topbar-brand-logo {
+  height: 2.85rem;
 }
 
 .main.ibiz-main {
