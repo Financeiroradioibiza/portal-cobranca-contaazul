@@ -2412,25 +2412,18 @@ div.agenda-detail-row {
   color: var(--ibiz-kicker);
 }
 
-.ibiz-seq-rail {
+.ibiz-seq-stack {
   display: flex;
+  flex-direction: column;
   gap: 0.55rem;
-  overflow-x: auto;
   padding: 0 1rem 0.15rem;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.ibiz-seq-rail::-webkit-scrollbar {
-  display: none;
 }
 
 .ibiz-seq-card {
-  flex: none;
-  width: min(18.25rem, 82vw);
+  width: 100%;
   box-sizing: border-box;
   border-radius: 18px;
-  padding: 0.85rem;
+  padding: 0.95rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;

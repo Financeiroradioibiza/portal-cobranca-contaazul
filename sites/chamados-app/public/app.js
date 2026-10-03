@@ -354,7 +354,7 @@
       seqs.length +
       " ativa" +
       (seqs.length === 1 ? "" : "s") +
-      '</span></div><div class="ibiz-seq-rail">';
+      '</span></div><div class="ibiz-seq-stack">';
     seqs.forEach(function (seq) {
       var accentIdx = sequenciaAccentIndex(seq.grupoId);
       var accentCls = accentIdx % 2 === 1 ? " ibiz-seq-card--yellow" : "";
@@ -1405,13 +1405,12 @@
       });
     }
     list.sort(function (a, b) {
+      var ta = a.prazoEntrega ? new Date(a.prazoEntrega).getTime() : Number.MAX_SAFE_INTEGER;
+      var tb = b.prazoEntrega ? new Date(b.prazoEntrega).getTime() : Number.MAX_SAFE_INTEGER;
+      if (ta !== tb) return ta - tb;
       var ua = Number(a.unreadCount) || 0;
       var ub = Number(b.unreadCount) || 0;
       if (ub !== ua) return ub - ua;
-      var pw = { urgente: 4, alta: 3, media: 2, baixa: 1 };
-      var pa = pw[a.prioridade] || 0;
-      var pb = pw[b.prioridade] || 0;
-      if (pb !== pa) return pb - pa;
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
     return list;
