@@ -93,11 +93,13 @@ function rangeForMode(mode: ViewMode, anchor: Date): { from: string; to: string;
   if (mode === "semana") {
     const dow = a.getDay();
     const mon = addDays(a, dow === 0 ? -6 : 1 - dow);
-    const sun = addDays(mon, 7);
+    const sun = addDays(mon, 6);
+    const fmt = (d: Date) =>
+      d.toLocaleDateString("pt-BR", { day: "numeric", month: "short" }).replace(/\./g, "");
     return {
       from: mon.toISOString(),
-      to: sun.toISOString(),
-      title: `Semana ${toIsoLocal(mon)} – ${toIsoLocal(addDays(sun, -1))}`,
+      to: addDays(mon, 7).toISOString(),
+      title: `${fmt(mon)} – ${fmt(sun)}`,
     };
   }
   const first = new Date(a.getFullYear(), a.getMonth(), 1);
@@ -317,15 +319,19 @@ function TimeGrid({
   todayKey,
   loading,
   onDeleteCompromisso,
+  expanded,
 }: {
   days: Date[];
   entriesByDay: Map<string, AgendaDayEntry[]>;
   todayKey: string;
   loading: boolean;
   onDeleteCompromisso?: (id: string) => void;
+  expanded?: boolean;
 }) {
   const colCount = days.length;
   const gridCols = `3rem repeat(${colCount}, minmax(0, 1fr))`;
+  const partRow = expanded ? "min-h-[5.5rem]" : PART_ROW;
+  const eventsRow = expanded ? "min-h-[5rem]" : "min-h-[3rem]";
 
   return (
     <div
@@ -373,7 +379,7 @@ function TimeGrid({
             return (
               <div
                 key={`prazo-${key}`}
-                className="min-h-[3rem] space-y-1 border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700"
+                className={`${eventsRow} space-y-1 border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700`}
               >
                 {dayEntries.map((entry) => (
                   <AgendaDayChip
@@ -392,7 +398,7 @@ function TimeGrid({
             <div key={part.id} className="contents">
               <div
                 className={
-                  `${PART_ROW} flex items-start justify-end border-b border-r border-slate-200 px-1 pt-2 text-right text-[10px] font-semibold text-slate-500 dark:border-slate-700 dark:text-slate-400`
+                  `${partRow} flex items-start justify-end border-b border-r border-slate-200 px-1 pt-2 text-right text-[10px] font-semibold text-slate-500 dark:border-slate-700 dark:text-slate-400`
                 }
               >
                 {part.label}
@@ -402,7 +408,7 @@ function TimeGrid({
                 return (
                   <div
                     key={key}
-                    className={`${PART_ROW} border-b border-r border-slate-200 last:border-r-0 dark:border-slate-700`}
+                    className={`${partRow} border-b border-r border-slate-200 last:border-r-0 dark:border-slate-700`}
                   />
                 );
               })}
@@ -492,7 +498,8 @@ function MonthGrid({
   );
 }
 
-export function ChamadosAgendaPanel() {
+export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dashboard" | "page" }) {
+  const isPage = variant === "page";
   const [mode, setMode] = useState<ViewMode>("semana");
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [items, setItems] = useState<AgendaItem[]>([]);
@@ -602,11 +609,23 @@ export function ChamadosAgendaPanel() {
     compromissos.length === 0;
 
   return (
-    <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <section
+      className={
+        "flex min-h-0 flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 " +
+        (isPage ? "min-h-[calc(100vh-11rem)] flex-1" : "mb-6")
+      }
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white">Agenda — chamados e compromissos</h2>
-          <p className="text-[11px] text-slate-500 capitalize">{range.title}</p>
+          {isPage ?
+            <p className="text-base font-bold capitalize text-slate-900 dark:text-white">{range.title}</p>
+          : <>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                Agenda — chamados e compromissos
+              </h2>
+              <p className="text-[11px] text-slate-500 capitalize">{range.title}</p>
+            </>
+          }
           <p className="text-[10px] text-slate-400">
             <span className="text-sky-600 dark:text-sky-400">■</span> seu compromisso ·{" "}
             <span className="text-amber-600 dark:text-amber-400">■</span> convite de outra pessoa
@@ -690,7 +709,12 @@ export function ChamadosAgendaPanel() {
 
       <AgendaSequenciaTimelines timelines={sequencias} />
 
-      <div className="relative mt-3 max-h-[min(70vh,420px)] overflow-y-auto">
+      <div
+        className={
+          "relative mt-3 min-h-0 flex-1 overflow-y-auto " +
+          (isPage ? "max-h-none" : "max-h-[min(70vh,420px)]")
+        }
+      >
         {mode === "mes" ?
           <MonthGrid
             anchor={anchor}
@@ -705,6 +729,7 @@ export function ChamadosAgendaPanel() {
             todayKey={todayKey}
             loading={loading}
             onDeleteCompromisso={excluirCompromisso}
+            expanded={isPage}
           />}
         {loading ?
           <p className="pointer-events-none absolute left-2 top-2 text-[10px] font-medium text-slate-500">

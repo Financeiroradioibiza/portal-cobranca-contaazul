@@ -130,6 +130,7 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
     items: [
       { href: "/chamados/conversas", icon: "💬", label: "Conversas" },
       { href: "/chamados/kanban", icon: "📋", label: "Kanban", exact: true },
+      { href: "/chamados/agenda", icon: "📅", label: "Agenda", exact: true },
     ],
   },
   config: {

@@ -42,6 +42,7 @@ import { SiteClientesAdminPanel } from "@/components/suporte/SiteClientesAdminPa
 import { PlayerAvisosPanel } from "@/components/suporte/PlayerAvisosPanel";
 import { InstalacaoPanel } from "@/components/suporte/InstalacaoPanel";
 import { ChamadosMobilePage } from "@/components/chamados/ChamadosMobilePage";
+import { ChamadosAgendaPanel } from "@/components/chamados/ChamadosAgendaPanel";
 import { ConfigParametrosPanel } from "@/components/config/ConfigParametrosPanel";
 import { ConfigUsuariosPanel } from "@/components/config/ConfigUsuariosPanel";
 import { ConfigServidoresPanel } from "@/components/config/ConfigServidoresPanel";
@@ -331,6 +332,11 @@ const PAGES: Record<string, PageDef> = {
     section: "IbiZap",
     title: "Kanban",
     render: () => <ChamadosMobilePage />,
+  },
+  "/chamados/agenda": {
+    section: "IbiZap",
+    title: "Agenda",
+    render: () => <ChamadosAgendaPanel variant="page" />,
   },
   "/config/parametros": {
     section: "Configuração",
