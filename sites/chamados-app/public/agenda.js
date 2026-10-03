@@ -255,94 +255,59 @@
       );
     }
 
-    function sequenciasCarouselHtml() {
+    function sequenciasStackHtml() {
       if (!state.sequencias.length) return "";
       var html =
-        '<section class="agenda-seq-scroll">' +
-        '<div class="agenda-seq-scroll-head">' +
+        '<section class="agenda-seq-stack">' +
+        '<div class="agenda-seq-stack-head">' +
         '<span class="agenda-kicker">Minhas sequências</span>' +
         '<span class="agenda-seq-count">' +
         state.sequencias.length +
         " ativa" +
         (state.sequencias.length === 1 ? "" : "s") +
         "</span></div>" +
-        '<div class="agenda-seq-scroll-track">';
+        '<div class="agenda-seq-stack-list">';
       state.sequencias.forEach(function (seq, idx) {
         var accent = seqAccent(idx);
-        html += '<article class="agenda-seq-card agenda-seq-card--' + accent + '">';
-        html +=
-          '<div class="agenda-seq-card-top">' +
-          '<div class="agenda-seq-card-name"><span class="agenda-dot agenda-dot--' +
-          accent +
-          '"></span>' +
-          deps.escapeHtml(seq.titulo) +
-          "</div>";
         var active = (seq.passos || []).find(function (p) {
           return p.status === "aberto" || p.status === "em_andamento";
         });
+        var openId = active ? active.chamadoId : (seq.passos && seq.passos[0] && seq.passos[0].chamadoId) || "";
         var stepLabel = active ? active.passo + "/" + active.total : (seq.passos || []).length ? "—" : "";
         html +=
+          '<article class="agenda-seq-card agenda-seq-card--compact agenda-seq-card--' +
+          accent +
+          '">';
+        html +=
+          '<button type="button" class="agenda-seq-card-hit" data-chamado-id="' +
+          deps.escapeHtml(openId) +
+          '">' +
+          '<div class="agenda-seq-card-top">' +
+          '<div class="agenda-seq-card-name"><span class="agenda-dot agenda-dot--' +
+          accent +
+          '"></span><span class="agenda-seq-card-title">' +
+          deps.escapeHtml(seq.titulo) +
+          "</span></div>" +
           '<div class="agenda-seq-card-meta">' +
           deps.escapeHtml(stepLabel) +
           " · " +
           deps.escapeHtml(seqKindLabel(seq)) +
-          "</div></div>";
-        html += '<div class="agenda-seq-card-steps">';
+          "</div></div>" +
+          '<div class="agenda-seq-card-steps">';
         (seq.passos || []).forEach(function (p) {
           var done = p.status === "fechado";
           var isActive = p.status === "aberto" || p.status === "em_andamento";
           html +=
-            '<button type="button" class="agenda-seq-mini' +
+            '<span class="agenda-seq-mini' +
             (isActive ? " is-active" : done ? " is-done" : "") +
-            '" data-chamado-id="' +
-            deps.escapeHtml(p.chamadoId) +
+            '" title="' +
+            deps.escapeHtml(p.prazoLabel || "") +
             '">' +
-            '<span class="agenda-seq-mini-bar"></span>' +
-            '<span class="agenda-seq-mini-date">' +
-            deps.escapeHtml(p.prazoLabel || "—") +
-            "</span></button>";
+            '<span class="agenda-seq-mini-bar"></span></span>';
         });
-        html += "</div></article>";
+        html += "</div></button></article>";
       });
       html += "</div></section>";
-      return html;
-    }
-
-    function sequenciasDayHtml() {
-      if (!state.sequencias.length) return "";
-      var html = '<section class="agenda-day-seq"><div class="agenda-kicker">Sequências do dia</div>';
-      state.sequencias.forEach(function (seq, idx) {
-        var accent = seqAccent(idx);
-        var active = (seq.passos || []).find(function (p) {
-          return p.status === "aberto" || p.status === "em_andamento";
-        });
-        html +=
-          '<button type="button" class="agenda-day-seq-row agenda-day-seq-row--' +
-          accent +
-          '" data-chamado-id="' +
-          deps.escapeHtml(active ? active.chamadoId : (seq.passos && seq.passos[0] && seq.passos[0].chamadoId) || "") +
-          '">' +
-          '<div class="agenda-day-seq-text"><div class="agenda-day-seq-title">' +
-          deps.escapeHtml(seq.titulo) +
-          "</div>" +
-          '<div class="agenda-day-seq-sub">' +
-          deps.escapeHtml(seqKindLabel(seq)) +
-          "</div></div>" +
-          '<div class="agenda-day-seq-bars" aria-hidden="true">';
-        (seq.passos || []).forEach(function (p) {
-          var isActive = p.status === "aberto" || p.status === "em_andamento";
-          var done = p.status === "fechado";
-          html +=
-            '<span class="agenda-day-seq-bar' +
-            (isActive ? " is-on" : done ? " is-half" : "") +
-            '"></span>';
-        });
-        html +=
-          '</div><div class="agenda-day-seq-step">' +
-          (active ? active.passo + "/" + active.total : "—") +
-          "</div></button>";
-      });
-      html += "</section>";
       return html;
     }
 
@@ -441,9 +406,13 @@
           day.getDate() +
           "</span>" +
           '<div class="agenda-week-bars">';
-        list.forEach(function (entry) {
+        var maxWeekBars = 4;
+        list.slice(0, maxWeekBars).forEach(function (entry) {
           html += barHtml(entry, "week");
         });
+        if (list.length > maxWeekBars) {
+          html += '<div class="agenda-month-more">+' + (list.length - maxWeekBars) + "</div>";
+        }
         html += "</div></button>";
       });
       html += "</div></div>";
@@ -748,11 +717,7 @@
       if (state.loading) html += '<p class="loading agenda-v2-loading">Carregando agenda…</p>';
       html += '<div class="agenda-v2-scroll">';
 
-      if (state.mode === "dia") {
-        html += sequenciasDayHtml();
-      } else {
-        html += sequenciasCarouselHtml();
-      }
+      html += sequenciasStackHtml();
       html += semPrazoHtml();
 
       if (state.mode === "mes") {
