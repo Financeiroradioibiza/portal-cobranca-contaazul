@@ -151,7 +151,7 @@
 
   function createModule(deps) {
     var state = {
-      mode: "semana",
+      mode: "mes",
       anchor: startOfDay(new Date()),
       items: [],
       semPrazo: [],
