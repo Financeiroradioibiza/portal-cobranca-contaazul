@@ -45,26 +45,26 @@ export function chamadoAgendaVisivelNow(row: {
 export async function backfillChamadoAgendaVisivelDesde(): Promise<void> {
   try {
     await prisma.$executeRaw`
-      UPDATE chamado SET agenda_visivel_desde = created_at WHERE agenda_visivel_desde IS NULL
+      UPDATE "chamado" SET "agenda_visivel_desde" = "created_at" WHERE "agenda_visivel_desde" IS NULL
     `;
     /* Pré «data inicial»: início = abertura (corrige futuro/prazo gravado por engano). */
     await prisma.$executeRaw`
-      UPDATE chamado
-      SET agenda_visivel_desde = created_at
-      WHERE created_at < ${CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF}
+      UPDATE "chamado"
+      SET "agenda_visivel_desde" = "created_at"
+      WHERE "created_at" < ${CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF}
         AND (
-          agenda_visivel_desde IS NULL
-          OR agenda_visivel_desde > created_at
+          "agenda_visivel_desde" IS NULL
+          OR "agenda_visivel_desde" > "created_at"
         )
     `;
     /* Abertos recentes com “início” no futuro por engano — voltam a valer desde a abertura. */
     await prisma.$executeRaw`
-      UPDATE chamado
-      SET agenda_visivel_desde = created_at
-      WHERE status IN ('aberto', 'em_andamento', 'aguardando')
-        AND created_at >= ${CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF}
-        AND agenda_visivel_desde > NOW()
-        AND created_at < DATE_SUB(NOW(), INTERVAL 2 DAY)
+      UPDATE "chamado"
+      SET "agenda_visivel_desde" = "created_at"
+      WHERE "status" IN ('aberto', 'em_andamento', 'aguardando')
+        AND "created_at" >= ${CHAMADO_AGENDA_VISIVEL_LEGACY_CUTOFF}
+        AND "agenda_visivel_desde" > NOW()
+        AND "created_at" < NOW() - INTERVAL '2 days'
     `;
   } catch (e) {
     console.error("[chamadoAgendaVisibility] backfill agenda_visivel_desde", e);
