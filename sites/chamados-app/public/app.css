@@ -1845,6 +1845,12 @@ body {
   background: color-mix(in srgb, var(--agenda-teal) 55%, transparent);
 }
 
+.agenda-bar-slot--seq.agenda-accent-yellow .agenda-seq-line,
+.agenda-bar-slot--seq.agenda-accent-yellow.is-link-l .agenda-bar-hit::before,
+.agenda-bar-slot--seq.agenda-accent-yellow.is-link-r .agenda-bar-hit::after {
+  background: color-mix(in srgb, var(--agenda-yellow) 58%, transparent);
+}
+
 .agenda-bar-slot--seq.is-link-l .agenda-bar-hit::before,
 .agenda-bar-slot--seq.is-link-r .agenda-bar-hit::after {
   content: "";

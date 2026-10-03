@@ -246,11 +246,73 @@ function sequenciaSpanMask(
   return span;
 }
 
+const SEQ_ACCENT_IDS = ["teal", "amber"] as const;
+type SeqAccentId = (typeof SEQ_ACCENT_IDS)[number];
+
+function sequenciaAccentForGrupo(
+  sequencias: AgendaSequenciaTimeline[],
+  grupoId: string,
+): SeqAccentId {
+  const sorted = sortSequenciasForLanes(sequencias);
+  const idx = sorted.findIndex((s) => s.grupoId === grupoId);
+  return SEQ_ACCENT_IDS[idx >= 0 ? idx % SEQ_ACCENT_IDS.length : 0];
+}
+
+function sequenciaLaneAccent(
+  lane: AgendaLane,
+  sequencias: AgendaSequenciaTimeline[],
+): SeqAccentId | null {
+  return lane.kind === "sequencia" ? sequenciaAccentForGrupo(sequencias, lane.grupoId) : null;
+}
+
+const SEQ_CONNECTOR: Record<SeqAccentId, string> = {
+  teal: "bg-teal-400/70",
+  amber: "bg-amber-400/70",
+};
+
+const SEQ_TIMELINE_SHELL: Record<SeqAccentId, string> = {
+  teal: "border-teal-300/80 bg-teal-50/90 dark:border-teal-800 dark:bg-teal-950/40",
+  amber: "border-amber-300/80 bg-amber-50/90 dark:border-amber-800 dark:bg-amber-950/40",
+};
+
+const SEQ_TIMELINE_TITLE: Record<SeqAccentId, string> = {
+  teal: "text-teal-950 dark:text-teal-100",
+  amber: "text-amber-950 dark:text-amber-100",
+};
+
+const SEQ_TIMELINE_KICKER: Record<SeqAccentId, string> = {
+  teal: "text-teal-700 dark:text-teal-300",
+  amber: "text-amber-700 dark:text-amber-300",
+};
+
+const SEQ_EVENT_CHIP: Record<SeqAccentId, string> = {
+  teal: "border-teal-300 bg-teal-50 text-teal-950 hover:bg-teal-100 dark:border-teal-800 dark:bg-teal-950/80 dark:text-teal-100 dark:hover:bg-teal-900",
+  amber:
+    "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-100 dark:hover:bg-amber-900",
+};
+
+const SEQ_STEP_ACTIVE: Record<SeqAccentId, string> = {
+  teal: "border-teal-600 bg-teal-600 font-bold text-white shadow-sm",
+  amber: "border-amber-600 bg-amber-600 font-bold text-white shadow-sm",
+};
+
+const SEQ_STEP_DONE: Record<SeqAccentId, string> = {
+  teal: "border-teal-200 bg-white/60 text-teal-800 opacity-80 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-200",
+  amber:
+    "border-amber-200 bg-white/60 text-amber-900 opacity-80 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200",
+};
+
+const SEQ_STEP_IDLE: Record<SeqAccentId, string> = {
+  teal: "border-teal-200 bg-white text-teal-900 dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-100",
+  amber: "border-amber-200 bg-white text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-100",
+};
+
 function AgendaLaneSlot({
   entry,
   lane,
   dayIdx,
   spanMask,
+  sequencias,
   onDeleteCompromisso,
   compact,
 }: {
@@ -258,9 +320,12 @@ function AgendaLaneSlot({
   lane: AgendaLane;
   dayIdx: number;
   spanMask: boolean[] | null;
+  sequencias: AgendaSequenciaTimeline[];
   onDeleteCompromisso?: (id: string) => void;
   compact?: boolean;
 }) {
+  const laneAccent = sequenciaLaneAccent(lane, sequencias);
+  const connector = laneAccent ? SEQ_CONNECTOR[laneAccent] : "bg-emerald-400/60";
   const inSpan = lane.kind === "sequencia" && spanMask?.[dayIdx];
   if (!entry) {
     if (inSpan) {
@@ -269,7 +334,7 @@ function AgendaLaneSlot({
           className={compact ? "relative min-h-[14px]" : "relative min-h-[26px]"}
           aria-hidden
         >
-          <span className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded bg-emerald-400/60" />
+          <span className={`absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded ${connector}`} />
         </div>
       );
     }
@@ -287,18 +352,22 @@ function AgendaLaneSlot({
     >
       {bridgeL ?
         <span
-          className="pointer-events-none absolute -left-0.5 top-1/2 z-0 h-0.5 w-1 -translate-y-1/2 bg-emerald-400/60"
+          className={`pointer-events-none absolute -left-0.5 top-1/2 z-0 h-0.5 w-1 -translate-y-1/2 ${connector}`}
           aria-hidden
         />
       : null}
       {bridgeR ?
         <span
-          className="pointer-events-none absolute -right-0.5 top-1/2 z-0 h-0.5 w-1 -translate-y-1/2 bg-emerald-400/60"
+          className={`pointer-events-none absolute -right-0.5 top-1/2 z-0 h-0.5 w-1 -translate-y-1/2 ${connector}`}
           aria-hidden
         />
       : null}
       <div className="relative z-[1]">
-        <AgendaDayChip entry={entry} onDeleteCompromisso={onDeleteCompromisso} />
+        <AgendaDayChip
+          entry={entry}
+          sequencias={sequencias}
+          onDeleteCompromisso={onDeleteCompromisso}
+        />
       </div>
     </div>
   );
@@ -348,12 +417,20 @@ function AgendaCompromissoChip({
 
 function AgendaDayChip({
   entry,
+  sequencias,
   onDeleteCompromisso,
 }: {
   entry: AgendaDayEntry;
+  sequencias: AgendaSequenciaTimeline[];
   onDeleteCompromisso?: (id: string) => void;
 }) {
-  if (entry.kind === "chamado") return <AgendaEventChip it={entry.data} />;
+  if (entry.kind === "chamado") {
+    const seqAccent =
+      entry.data.sequenciaGrupoId ?
+        sequenciaAccentForGrupo(sequencias, entry.data.sequenciaGrupoId)
+      : undefined;
+    return <AgendaEventChip it={entry.data} seqAccent={seqAccent} />;
+  }
   return (
     <AgendaCompromissoChip
       c={entry.data}
@@ -366,7 +443,7 @@ function AgendaDayChip({
   );
 }
 
-function AgendaEventChip({ it }: { it: AgendaItem }) {
+function AgendaEventChip({ it, seqAccent }: { it: AgendaItem; seqAccent?: SeqAccentId }) {
   const seq = Boolean(it.sequenciaGrupoId);
   const finalizado = Boolean(it.agendaFinalizado || (seq && it.status === "fechado"));
   return (
@@ -376,8 +453,10 @@ function AgendaEventChip({ it }: { it: AgendaItem }) {
         "block rounded-md border px-1.5 py-1 text-[10px] leading-tight " +
         (finalizado ?
           "border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400 dark:hover:bg-slate-800"
+        : seq && seqAccent ?
+          SEQ_EVENT_CHIP[seqAccent]
         : seq ?
-          "border-emerald-300 bg-emerald-50 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-100 dark:hover:bg-emerald-900"
+          SEQ_EVENT_CHIP.teal
         : "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/80 dark:text-violet-100 dark:hover:bg-violet-900")
       }
       title={it.titulo}
@@ -404,16 +483,19 @@ function AgendaEventChip({ it }: { it: AgendaItem }) {
 
 function AgendaSequenciaTimelines({ timelines }: { timelines: AgendaSequenciaTimeline[] }) {
   if (timelines.length === 0) return null;
+  const sorted = sortSequenciasForLanes(timelines);
   return (
     <div className="mb-3 space-y-2">
-      {timelines.map((seq) => (
+      {sorted.map((seq) => {
+        const accent = sequenciaAccentForGrupo(timelines, seq.grupoId);
+        return (
         <div
           key={seq.grupoId}
-          className="rounded-xl border border-emerald-300/80 bg-emerald-50/90 p-3 dark:border-emerald-800 dark:bg-emerald-950/40"
+          className={`rounded-xl border p-3 ${SEQ_TIMELINE_SHELL[accent]}`}
         >
-          <p className="text-xs font-bold text-emerald-950 dark:text-emerald-100">
+          <p className={`text-xs font-bold ${SEQ_TIMELINE_TITLE[accent]}`}>
             {seq.titulo}
-            <span className="ml-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+            <span className={`ml-1 text-[10px] font-bold ${SEQ_TIMELINE_KICKER[accent]}`}>
               (SEQUÊNCIA)
             </span>
           </p>
@@ -424,7 +506,13 @@ function AgendaSequenciaTimelines({ timelines }: { timelines: AgendaSequenciaTim
               return (
                 <div key={p.chamadoId} className="flex min-w-0 flex-1 items-center gap-1">
                   {idx > 0 ?
-                    <span className="hidden shrink-0 text-emerald-400 sm:inline" aria-hidden>
+                    <span
+                      className={
+                        "hidden shrink-0 sm:inline " +
+                        (accent === "amber" ? "text-amber-400" : "text-teal-400")
+                      }
+                      aria-hidden
+                    >
                       →
                     </span>
                   : null}
@@ -433,10 +521,10 @@ function AgendaSequenciaTimelines({ timelines }: { timelines: AgendaSequenciaTim
                     className={
                       "min-w-[4.5rem] flex-1 rounded-lg border px-2 py-1.5 text-center text-[10px] leading-tight transition " +
                       (active ?
-                        "border-emerald-600 bg-emerald-600 font-bold text-white shadow-sm"
+                        SEQ_STEP_ACTIVE[accent]
                       : done ?
-                        "border-emerald-200 bg-white/60 text-emerald-800 opacity-80 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
-                      : "border-emerald-200 bg-white text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100")
+                        SEQ_STEP_DONE[accent]
+                      : SEQ_STEP_IDLE[accent])
                     }
                     title={p.rotulo ?? undefined}
                   >
@@ -453,7 +541,8 @@ function AgendaSequenciaTimelines({ timelines }: { timelines: AgendaSequenciaTim
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -552,6 +641,7 @@ function TimeGrid({
                       lane={lane}
                       dayIdx={dayIdx}
                       spanMask={spanMask}
+                      sequencias={sequencias}
                       onDeleteCompromisso={onDeleteCompromisso}
                     />
                   : null}
@@ -595,6 +685,7 @@ function MonthGrid({
   todayKey,
   loading,
   onDeleteCompromisso,
+  maxLanes = 3,
 }: {
   anchor: Date;
   entriesByDay: Map<string, AgendaDayEntry[]>;
@@ -602,6 +693,7 @@ function MonthGrid({
   todayKey: string;
   loading: boolean;
   onDeleteCompromisso?: (id: string) => void;
+  maxLanes?: number;
 }) {
   const cells = useMemo(() => monthGridCells(anchor), [anchor]);
   const weeks = useMemo(() => {
@@ -628,13 +720,14 @@ function MonthGrid({
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7">
-          {weeks.flatMap((week) => {
+        <div>
+          {weeks.map((week, weekIdx) => {
             const weekKeys = week.map((c) => c.key);
             const lanes = buildAgendaLanes(sequencias, entriesByDay, weekKeys);
             const spanByLane = lanes.map((lane) => sequenciaSpanMask(lane, weekKeys, entriesByDay));
-            const maxLanes = 3;
-            return week.map((cell, dayIdx) => {
+            return (
+              <div key={weekIdx} className="grid grid-cols-7">
+            {week.map((cell, dayIdx) => {
               const isToday = cell.key === todayKey;
               let extra = 0;
               for (let li = maxLanes; li < lanes.length; li++) {
@@ -668,6 +761,7 @@ function MonthGrid({
                         lane={lane}
                         dayIdx={dayIdx}
                         spanMask={spanByLane[laneIdx]}
+                        sequencias={sequencias}
                         onDeleteCompromisso={onDeleteCompromisso}
                         compact
                       />
@@ -678,7 +772,9 @@ function MonthGrid({
                   </div>
                 </div>
               );
-            });
+            })}
+              </div>
+            );
           })}
         </div>
       </div>
@@ -688,13 +784,13 @@ function MonthGrid({
 
 export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dashboard" | "page" }) {
   const isPage = variant === "page";
-  const [mode, setMode] = useState<ViewMode>("semana");
+  const [mode, setMode] = useState<ViewMode>(isPage ? "mes" : "semana");
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [items, setItems] = useState<AgendaItem[]>([]);
   const [semPrazo, setSemPrazo] = useState<AgendaItem[]>([]);
   const [compromissos, setCompromissos] = useState<AgendaCompromissoItem[]>([]);
   const [sequencias, setSequencias] = useState<AgendaSequenciaTimeline[]>([]);
-  const [showFinalizados, setShowFinalizados] = useState(true);
+  const [showFinalizados, setShowFinalizados] = useState(!isPage);
   const [loading, setLoading] = useState(true);
   const [compromissoOpen, setCompromissoOpen] = useState(false);
   const [compromissoBusy, setCompromissoBusy] = useState(false);
@@ -889,7 +985,15 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
           </p>
           <div className="flex flex-wrap gap-1">
             {semPrazo.map((it) => (
-              <AgendaEventChip key={it.id} it={it} />
+              <AgendaEventChip
+                key={it.id}
+                it={it}
+                seqAccent={
+                  it.sequenciaGrupoId ?
+                    sequenciaAccentForGrupo(sequencias, it.sequenciaGrupoId)
+                  : undefined
+                }
+              />
             ))}
           </div>
         </div>
@@ -911,6 +1015,7 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
             todayKey={todayKey}
             loading={loading}
             onDeleteCompromisso={excluirCompromisso}
+            maxLanes={isPage ? 8 : 3}
           />
         : <TimeGrid
             days={weekDays}

@@ -150,6 +150,8 @@
   }
 
   function createModule(deps) {
+    var currentSeqAccentMap = {};
+
     var state = {
       mode: "mes",
       anchor: startOfDay(new Date()),
@@ -202,8 +204,16 @@
       var it = entry.data;
       var finalizado = Boolean(it.agendaFinalizado || (it.sequenciaGrupoId && it.status === "fechado"));
       if (finalizado) return "dim";
-      if (it.sequenciaGrupoId) return "teal";
+      if (it.sequenciaGrupoId) {
+        return currentSeqAccentMap[it.sequenciaGrupoId] || "teal";
+      }
       return "lilac";
+    }
+
+    function laneAccentClass(lane) {
+      if (lane.kind !== "sequencia") return "";
+      var a = currentSeqAccentMap[lane.grupoId] || "teal";
+      return " agenda-accent-" + a;
     }
 
     function entryTitle(entry) {
@@ -248,6 +258,14 @@
         if (d !== 0) return d;
         return String(a.grupoId).localeCompare(String(b.grupoId));
       });
+    }
+
+    function sequenciaAccentMap(sequencias) {
+      var map = {};
+      sortSequenciasForLanes(sequencias).forEach(function (seq, idx) {
+        map[seq.grupoId] = seqAccent(idx);
+      });
+      return map;
     }
 
     function entryStableId(entry) {
@@ -372,7 +390,9 @@
       if (!entry) {
         if (inSpan) {
           return (
-            '<div class="agenda-bar-slot agenda-bar-slot--bridge" aria-hidden="true">' +
+            '<div class="agenda-bar-slot agenda-bar-slot--bridge agenda-bar-slot--seq' +
+            laneAccentClass(lane) +
+            '" aria-hidden="true">' +
             '<span class="agenda-seq-line"></span></div>'
           );
         }
@@ -381,7 +401,7 @@
       var bridgeL = Boolean(inSpan && dayIdx > 0 && spanMask[dayIdx - 1]);
       var bridgeR = Boolean(inSpan && dayIdx < spanMask.length - 1 && spanMask[dayIdx + 1]);
       var cls = "agenda-bar-slot";
-      if (lane.kind === "sequencia") cls += " agenda-bar-slot--seq";
+      if (lane.kind === "sequencia") cls += " agenda-bar-slot--seq" + laneAccentClass(lane);
       if (bridgeL) cls += " is-link-l";
       if (bridgeR) cls += " is-link-r";
       return '<div class="' + cls + '">' + barHtml(entry, variant) + "</div>";
@@ -437,8 +457,8 @@
         (list.length === 1 ? "" : "s") +
         "</span></div>" +
         '<div class="agenda-seq-stack-list">';
-      list.forEach(function (seq, idx) {
-        var accent = seqAccent(idx);
+      list.forEach(function (seq) {
+        var accent = currentSeqAccentMap[seq.grupoId] || "teal";
         var passos = seq.passos || [];
         var active = passos.find(function (p) {
           return p.status === "aberto" || p.status === "em_andamento";
@@ -942,6 +962,7 @@
       var todayKey = toIsoLocal(startOfDay(new Date()));
       var pickKey = resolvePickDay(todayKey);
       var entriesByDay = groupEntriesByDay(state.items, state.compromissos);
+      currentSeqAccentMap = sequenciaAccentMap(state.sequencias);
 
       var html = '<div class="agenda-v2">';
       html += toolbarHtml(range);
