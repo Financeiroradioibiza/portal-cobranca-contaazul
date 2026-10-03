@@ -214,6 +214,10 @@
     function entrySub(entry) {
       if (entry.kind === "chamado") {
         var it = entry.data;
+        if (it.sequenciaGrupoId && it.sequenciaPasso && it.sequenciaTotal) {
+          var tail = it.sequenciaRotulo || "Sequência";
+          return it.sequenciaPasso + "/" + it.sequenciaTotal + " · " + tail;
+        }
         if (it.sequenciaRotulo) return it.sequenciaRotulo;
         if (it.sequenciaGrupoId) return "Sequência";
         return "Chamado";
@@ -228,16 +232,108 @@
       return s.slice(0, n - 1) + "…";
     }
 
-    function barHtml(entry, variant) {
+    function sequenciaMinTime(seq) {
+      var t = Infinity;
+      (seq.passos || []).forEach(function (p) {
+        if (!p.prazoEntrega) return;
+        var x = new Date(p.prazoEntrega).getTime();
+        if (x < t) t = x;
+      });
+      return t === Infinity ? 0 : t;
+    }
+
+    function sortSequenciasForLanes(sequencias) {
+      return (sequencias || []).slice().sort(function (a, b) {
+        var d = sequenciaMinTime(a) - sequenciaMinTime(b);
+        if (d !== 0) return d;
+        return String(a.grupoId).localeCompare(String(b.grupoId));
+      });
+    }
+
+    function entryStableId(entry) {
+      if (entry.kind === "chamado") return entry.data.id;
+      return "c-" + entry.data.id;
+    }
+
+    function isSequenciaEntry(entry) {
+      return entry.kind === "chamado" && entry.data.sequenciaGrupoId;
+    }
+
+    function buildAgendaLanes(sequencias, entriesByDay, dayKeys) {
+      var lanes = [];
+      sortSequenciasForLanes(sequencias).forEach(function (seq) {
+        lanes.push({ kind: "sequencia", grupoId: seq.grupoId });
+      });
+      var orphans = [];
+      var seen = {};
+      dayKeys.forEach(function (dk, di) {
+        var list = entriesByDay[dk] || [];
+        list.forEach(function (entry) {
+          if (isSequenciaEntry(entry)) return;
+          var id = entryStableId(entry);
+          if (seen[id]) return;
+          seen[id] = true;
+          orphans.push({ id: id, firstDayIdx: di, sortAt: entry.sortAt });
+        });
+      });
+      orphans.sort(function (a, b) {
+        if (a.firstDayIdx !== b.firstDayIdx) return a.firstDayIdx - b.firstDayIdx;
+        return a.sortAt.localeCompare(b.sortAt);
+      });
+      orphans.forEach(function (o) {
+        lanes.push({ kind: "other", id: o.id });
+      });
+      return lanes;
+    }
+
+    function findEntryInLane(lane, dayKey, entriesByDay) {
+      var list = entriesByDay[dayKey] || [];
+      if (lane.kind === "sequencia") {
+        for (var i = 0; i < list.length; i++) {
+          var e = list[i];
+          if (e.kind === "chamado" && e.data.sequenciaGrupoId === lane.grupoId) return e;
+        }
+        return null;
+      }
+      for (var j = 0; j < list.length; j++) {
+        var e2 = list[j];
+        if (entryStableId(e2) === lane.id) return e2;
+      }
+      return null;
+    }
+
+    function sequenciaSpanMask(lane, dayKeys, entriesByDay) {
+      if (lane.kind !== "sequencia") return null;
+      var mask = dayKeys.map(function (dk) {
+        return Boolean(findEntryInLane(lane, dk, entriesByDay));
+      });
+      var first = -1;
+      var last = -1;
+      mask.forEach(function (v, i) {
+        if (v) {
+          if (first < 0) first = i;
+          last = i;
+        }
+      });
+      if (first < 0) return mask;
+      var span = mask.slice();
+      for (var k = first; k <= last; k++) span[k] = true;
+      return span;
+    }
+
+    function barInnerHtml(entry, variant) {
       var tone = entryTone(entry);
       if (tone === "dim") tone = "lilac";
       var title = deps.escapeHtml(truncate(entryTitle(entry), variant === "week" ? 14 : 18));
-      var sub = deps.escapeHtml(truncate(entrySub(entry), 16));
+      var sub = deps.escapeHtml(truncate(entrySub(entry), variant === "week" ? 22 : 16));
+      var seqBar = entry.kind === "chamado" && entry.data.sequenciaGrupoId;
       if (variant === "month") {
         return (
           '<div class="agenda-bar agenda-bar--' +
           tone +
-          ' agenda-bar--month">' +
+          " agenda-bar--month" +
+          (seqBar ? " agenda-bar--seq" : "") +
+          '">' +
           title +
           "</div>"
         );
@@ -245,7 +341,9 @@
       return (
         '<div class="agenda-bar agenda-bar--' +
         tone +
-        ' agenda-bar--week">' +
+        " agenda-bar--week" +
+        (seqBar ? " agenda-bar--seq" : "") +
+        '">' +
         '<div class="agenda-bar-t">' +
         title +
         "</div>" +
@@ -253,6 +351,62 @@
         sub +
         "</div></div>"
       );
+    }
+
+    function barHtml(entry, variant) {
+      var inner = barInnerHtml(entry, variant);
+      if (entry.kind === "chamado") {
+        return (
+          '<div class="agenda-bar-hit" role="button" tabindex="0" data-chamado-id="' +
+          deps.escapeHtml(entry.data.id) +
+          '">' +
+          inner +
+          "</div>"
+        );
+      }
+      return inner;
+    }
+
+    function laneSlotHtml(entry, lane, dayIdx, spanMask, variant) {
+      var inSpan = lane.kind === "sequencia" && spanMask && spanMask[dayIdx];
+      if (!entry) {
+        if (inSpan) {
+          return (
+            '<div class="agenda-bar-slot agenda-bar-slot--bridge" aria-hidden="true">' +
+            '<span class="agenda-seq-line"></span></div>'
+          );
+        }
+        return '<div class="agenda-bar-slot agenda-bar-slot--empty" aria-hidden="true"></div>';
+      }
+      var bridgeL = Boolean(inSpan && dayIdx > 0 && spanMask[dayIdx - 1]);
+      var bridgeR = Boolean(inSpan && dayIdx < spanMask.length - 1 && spanMask[dayIdx + 1]);
+      var cls = "agenda-bar-slot";
+      if (lane.kind === "sequencia") cls += " agenda-bar-slot--seq";
+      if (bridgeL) cls += " is-link-l";
+      if (bridgeR) cls += " is-link-r";
+      return '<div class="' + cls + '">' + barHtml(entry, variant) + "</div>";
+    }
+
+    function dayLanesBarsHtml(dayKey, dayIdx, dayKeys, entriesByDay, lanes, spanByLane, variant, maxLanes) {
+      var barsRoot =
+        variant === "month" ? "agenda-month-bars agenda-week-bars--lanes" : "agenda-week-bars agenda-week-bars--lanes";
+      var html = '<div class="' + barsRoot + '">';
+      var slice = maxLanes ? lanes.slice(0, maxLanes) : lanes;
+      slice.forEach(function (lane, laneIdx) {
+        var entry = findEntryInLane(lane, dayKey, entriesByDay);
+        html += laneSlotHtml(entry, lane, dayIdx, spanByLane[laneIdx], variant);
+      });
+      if (maxLanes && lanes.length > maxLanes) {
+        var extra = 0;
+        for (var li = maxLanes; li < lanes.length; li++) {
+          if (findEntryInLane(lanes[li], dayKey, entriesByDay)) extra++;
+        }
+        if (extra) {
+          html += '<div class="agenda-month-more">+' + extra + "</div>";
+        }
+      }
+      html += "</div>";
+      return html;
     }
 
     function sequenciasStackHtml(dayKey) {
@@ -411,9 +565,15 @@
       html += "</div>";
 
       weeks.forEach(function (week) {
+        var weekKeys = week.map(function (c) {
+          return c.key;
+        });
+        var lanes = buildAgendaLanes(state.sequencias, entriesByDay, weekKeys);
+        var spanByLane = lanes.map(function (lane) {
+          return sequenciaSpanMask(lane, weekKeys, entriesByDay);
+        });
         html += '<div class="agenda-cal-week">';
-        week.forEach(function (cell) {
-          var list = entriesByDay[cell.key] || [];
+        week.forEach(function (cell, dayIdx) {
           var n = cell.date.getDate();
           var numCls = dayNumClass(cell.key, pickKey, todayKey, cell.inMonth);
           html +=
@@ -428,16 +588,18 @@
             numCls +
             '">' +
             n +
-            "</span>" +
-            '<div class="agenda-month-bars">';
-          var maxBars = 2;
-          list.slice(0, maxBars).forEach(function (entry) {
-            html += barHtml(entry, "month");
-          });
-          if (list.length > maxBars) {
-            html += '<div class="agenda-month-more">+' + (list.length - maxBars) + " mais</div>";
-          }
-          html += "</div></button>";
+            "</span>";
+          html += dayLanesBarsHtml(
+            cell.key,
+            dayIdx,
+            weekKeys,
+            entriesByDay,
+            lanes,
+            spanByLane,
+            "month",
+            3,
+          );
+          html += "</button>";
         });
         html += "</div>";
       });
@@ -447,10 +609,16 @@
 
     function weekCalendarHtml(entriesByDay, todayKey, pickKey) {
       var days = weekDaysFromAnchor(state.anchor);
+      var dayKeys = days.map(function (d) {
+        return toIsoLocal(d);
+      });
+      var lanes = buildAgendaLanes(state.sequencias, entriesByDay, dayKeys);
+      var spanByLane = lanes.map(function (lane) {
+        return sequenciaSpanMask(lane, dayKeys, entriesByDay);
+      });
       var html = '<div class="agenda-cal agenda-cal--week"><div class="agenda-week-cols">';
-      days.forEach(function (day) {
+      days.forEach(function (day, dayIdx) {
         var key = toIsoLocal(day);
-        var list = entriesByDay[key] || [];
         var numCls = dayNumClass(key, pickKey, todayKey, true);
         html +=
           '<button type="button" class="agenda-week-col' +
@@ -465,16 +633,18 @@
           numCls +
           '">' +
           day.getDate() +
-          "</span>" +
-          '<div class="agenda-week-bars">';
-        var maxWeekBars = 4;
-        list.slice(0, maxWeekBars).forEach(function (entry) {
-          html += barHtml(entry, "week");
-        });
-        if (list.length > maxWeekBars) {
-          html += '<div class="agenda-month-more">+' + (list.length - maxWeekBars) + "</div>";
-        }
-        html += "</div></button>";
+          "</span>";
+        html += dayLanesBarsHtml(
+          key,
+          dayIdx,
+          dayKeys,
+          entriesByDay,
+          lanes,
+          spanByLane,
+          "week",
+          null,
+        );
+        html += "</button>";
       });
       html += "</div></div>";
       return html;

@@ -159,6 +159,151 @@ function groupEntriesByDay(
   return map;
 }
 
+type AgendaLane =
+  | { kind: "sequencia"; grupoId: string }
+  | { kind: "other"; id: string };
+
+function sequenciaMinTime(seq: AgendaSequenciaTimeline): number {
+  let t = Infinity;
+  for (const p of seq.passos) {
+    const x = new Date(p.prazoEntrega).getTime();
+    if (x < t) t = x;
+  }
+  return t === Infinity ? 0 : t;
+}
+
+function sortSequenciasForLanes(sequencias: AgendaSequenciaTimeline[]): AgendaSequenciaTimeline[] {
+  return [...sequencias].sort(
+    (a, b) => sequenciaMinTime(a) - sequenciaMinTime(b) || a.grupoId.localeCompare(b.grupoId),
+  );
+}
+
+function entryStableId(entry: AgendaDayEntry): string {
+  return entry.kind === "chamado" ? entry.data.id : `c-${entry.data.id}`;
+}
+
+function isSequenciaEntry(entry: AgendaDayEntry): boolean {
+  return entry.kind === "chamado" && Boolean(entry.data.sequenciaGrupoId);
+}
+
+function buildAgendaLanes(
+  sequencias: AgendaSequenciaTimeline[],
+  entriesByDay: Map<string, AgendaDayEntry[]>,
+  dayKeys: string[],
+): AgendaLane[] {
+  const lanes: AgendaLane[] = sortSequenciasForLanes(sequencias).map((seq) => ({
+    kind: "sequencia",
+    grupoId: seq.grupoId,
+  }));
+  const orphans: { id: string; firstDayIdx: number; sortAt: string }[] = [];
+  const seen = new Set<string>();
+  dayKeys.forEach((dk, di) => {
+    for (const entry of entriesByDay.get(dk) ?? []) {
+      if (isSequenciaEntry(entry)) continue;
+      const id = entryStableId(entry);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      orphans.push({ id, firstDayIdx: di, sortAt: entry.sortAt });
+    }
+  });
+  orphans.sort((a, b) => a.firstDayIdx - b.firstDayIdx || a.sortAt.localeCompare(b.sortAt));
+  for (const o of orphans) lanes.push({ kind: "other", id: o.id });
+  return lanes;
+}
+
+function findEntryInLane(
+  lane: AgendaLane,
+  dayKey: string,
+  entriesByDay: Map<string, AgendaDayEntry[]>,
+): AgendaDayEntry | null {
+  const list = entriesByDay.get(dayKey) ?? [];
+  if (lane.kind === "sequencia") {
+    return (
+      list.find((e) => e.kind === "chamado" && e.data.sequenciaGrupoId === lane.grupoId) ?? null
+    );
+  }
+  return list.find((e) => entryStableId(e) === lane.id) ?? null;
+}
+
+function sequenciaSpanMask(
+  lane: AgendaLane,
+  dayKeys: string[],
+  entriesByDay: Map<string, AgendaDayEntry[]>,
+): boolean[] | null {
+  if (lane.kind !== "sequencia") return null;
+  const mask = dayKeys.map((dk) => Boolean(findEntryInLane(lane, dk, entriesByDay)));
+  let first = -1;
+  let last = -1;
+  mask.forEach((v, i) => {
+    if (v) {
+      if (first < 0) first = i;
+      last = i;
+    }
+  });
+  if (first < 0) return mask;
+  const span = [...mask];
+  for (let k = first; k <= last; k++) span[k] = true;
+  return span;
+}
+
+function AgendaLaneSlot({
+  entry,
+  lane,
+  dayIdx,
+  spanMask,
+  onDeleteCompromisso,
+  compact,
+}: {
+  entry: AgendaDayEntry | null;
+  lane: AgendaLane;
+  dayIdx: number;
+  spanMask: boolean[] | null;
+  onDeleteCompromisso?: (id: string) => void;
+  compact?: boolean;
+}) {
+  const inSpan = lane.kind === "sequencia" && spanMask?.[dayIdx];
+  if (!entry) {
+    if (inSpan) {
+      return (
+        <div
+          className={compact ? "relative min-h-[14px]" : "relative min-h-[26px]"}
+          aria-hidden
+        >
+          <span className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded bg-emerald-400/60" />
+        </div>
+      );
+    }
+    return <div className={compact ? "min-h-[14px]" : "min-h-[6px]"} aria-hidden />;
+  }
+  const bridgeL = Boolean(inSpan && dayIdx > 0 && spanMask?.[dayIdx - 1]);
+  const bridgeR = Boolean(inSpan && spanMask && dayIdx < spanMask.length - 1 && spanMask[dayIdx + 1]);
+  return (
+    <div
+      className={
+        "relative " +
+        (compact ? "min-h-[14px]" : "min-h-[26px]") +
+        (lane.kind === "sequencia" ? " agenda-lane-seq" : "")
+      }
+    >
+      {bridgeL ?
+        <span
+          className="pointer-events-none absolute -left-0.5 top-1/2 z-0 h-0.5 w-1 -translate-y-1/2 bg-emerald-400/60"
+          aria-hidden
+        />
+      : null}
+      {bridgeR ?
+        <span
+          className="pointer-events-none absolute -right-0.5 top-1/2 z-0 h-0.5 w-1 -translate-y-1/2 bg-emerald-400/60"
+          aria-hidden
+        />
+      : null}
+      <div className="relative z-[1]">
+        <AgendaDayChip entry={entry} onDeleteCompromisso={onDeleteCompromisso} />
+      </div>
+    </div>
+  );
+}
+
 function AgendaCompromissoChip({
   c,
   onDelete,
@@ -316,6 +461,7 @@ function AgendaSequenciaTimelines({ timelines }: { timelines: AgendaSequenciaTim
 function TimeGrid({
   days,
   entriesByDay,
+  sequencias,
   todayKey,
   loading,
   onDeleteCompromisso,
@@ -323,6 +469,7 @@ function TimeGrid({
 }: {
   days: Date[];
   entriesByDay: Map<string, AgendaDayEntry[]>;
+  sequencias: AgendaSequenciaTimeline[];
   todayKey: string;
   loading: boolean;
   onDeleteCompromisso?: (id: string) => void;
@@ -331,7 +478,16 @@ function TimeGrid({
   const colCount = days.length;
   const gridCols = `3rem repeat(${colCount}, minmax(0, 1fr))`;
   const partRow = expanded ? "min-h-[5.5rem]" : PART_ROW;
-  const eventsRow = expanded ? "min-h-[5rem]" : "min-h-[3rem]";
+  const dayKeys = useMemo(() => days.map((d) => toIsoLocal(d)), [days]);
+  const lanes = useMemo(
+    () => buildAgendaLanes(sequencias, entriesByDay, dayKeys),
+    [sequencias, entriesByDay, dayKeys],
+  );
+  const spanByLane = useMemo(
+    () => lanes.map((lane) => sequenciaSpanMask(lane, dayKeys, entriesByDay)),
+    [lanes, dayKeys, entriesByDay],
+  );
+  const laneRows = lanes.length > 0 ? lanes : null;
 
   return (
     <div
@@ -369,29 +525,41 @@ function TimeGrid({
           })}
         </div>
 
-        <div className="grid border-b border-slate-200 dark:border-slate-700" style={{ gridTemplateColumns: gridCols }}>
-          <div className="flex items-start justify-end border-r border-slate-200 px-1 py-2 text-[9px] font-semibold text-slate-400 dark:border-slate-700">
-            Eventos
+        {(laneRows ?? [{ kind: "other" as const, id: "__empty" }]).map((lane, laneIdx) => (
+          <div
+            key={lane.kind === "sequencia" ? lane.grupoId : lane.id + String(laneIdx)}
+            className="grid border-b border-slate-200 dark:border-slate-700"
+            style={{ gridTemplateColumns: gridCols }}
+          >
+            <div className="flex items-start justify-end border-r border-slate-200 px-1 py-2 text-[9px] font-semibold text-slate-400 dark:border-slate-700">
+              {laneIdx === 0 ? "Eventos" : ""}
+            </div>
+            {days.map((day, dayIdx) => {
+              const key = toIsoLocal(day);
+              const entry =
+                laneRows && lane.id !== "__empty" ?
+                  findEntryInLane(lane, key, entriesByDay)
+                : null;
+              const spanMask = laneRows ? spanByLane[laneIdx] : null;
+              return (
+                <div
+                  key={`prazo-${key}-${laneIdx}`}
+                  className="min-h-[1.75rem] border-r border-slate-200 p-0.5 last:border-r-0 dark:border-slate-700"
+                >
+                  {laneRows && lane.id !== "__empty" ?
+                    <AgendaLaneSlot
+                      entry={entry}
+                      lane={lane}
+                      dayIdx={dayIdx}
+                      spanMask={spanMask}
+                      onDeleteCompromisso={onDeleteCompromisso}
+                    />
+                  : null}
+                </div>
+              );
+            })}
           </div>
-          {days.map((day) => {
-            const key = toIsoLocal(day);
-            const dayEntries = entriesByDay.get(key) ?? [];
-            return (
-              <div
-                key={`prazo-${key}`}
-                className={`${eventsRow} space-y-1 border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700`}
-              >
-                {dayEntries.map((entry) => (
-                  <AgendaDayChip
-                    key={entry.kind === "chamado" ? entry.data.id : `c-${entry.data.id}`}
-                    entry={entry}
-                    onDeleteCompromisso={onDeleteCompromisso}
-                  />
-                ))}
-              </div>
-            );
-          })}
-        </div>
+        ))}
 
         <div className="grid" style={{ gridTemplateColumns: gridCols }}>
           {DAY_PARTS.map((part) => (
@@ -423,17 +591,24 @@ function TimeGrid({
 function MonthGrid({
   anchor,
   entriesByDay,
+  sequencias,
   todayKey,
   loading,
   onDeleteCompromisso,
 }: {
   anchor: Date;
   entriesByDay: Map<string, AgendaDayEntry[]>;
+  sequencias: AgendaSequenciaTimeline[];
   todayKey: string;
   loading: boolean;
   onDeleteCompromisso?: (id: string) => void;
 }) {
   const cells = useMemo(() => monthGridCells(anchor), [anchor]);
+  const weeks = useMemo(() => {
+    const rows: { date: Date; inMonth: boolean; key: string }[][] = [];
+    for (let w = 0; w < 6; w++) rows.push(cells.slice(w * 7, w * 7 + 7));
+    return rows;
+  }, [cells]);
 
   return (
     <div
@@ -454,43 +629,56 @@ function MonthGrid({
           ))}
         </div>
         <div className="grid grid-cols-7">
-          {cells.map((cell) => {
-            const dayEntries = entriesByDay.get(cell.key) ?? [];
-            const isToday = cell.key === todayKey;
-            return (
-              <div
-                key={cell.key}
-                className={
-                  "min-h-[5.5rem] border-b border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700 " +
-                  (cell.inMonth ? "bg-white dark:bg-slate-900" : "bg-slate-50/80 dark:bg-slate-950/50")
-                }
-              >
+          {weeks.flatMap((week) => {
+            const weekKeys = week.map((c) => c.key);
+            const lanes = buildAgendaLanes(sequencias, entriesByDay, weekKeys);
+            const spanByLane = lanes.map((lane) => sequenciaSpanMask(lane, weekKeys, entriesByDay));
+            const maxLanes = 3;
+            return week.map((cell, dayIdx) => {
+              const isToday = cell.key === todayKey;
+              let extra = 0;
+              for (let li = maxLanes; li < lanes.length; li++) {
+                if (findEntryInLane(lanes[li], cell.key, entriesByDay)) extra++;
+              }
+              return (
                 <div
+                  key={cell.key}
                   className={
-                    "mb-1 flex h-6 w-6 items-center justify-center text-[11px] font-bold " +
-                    (isToday ?
-                      "rounded-full bg-red-600 text-white"
-                    : cell.inMonth ?
-                      "text-slate-800 dark:text-slate-200"
-                    : "text-slate-400")
+                    "min-h-[5.5rem] border-b border-r border-slate-200 p-1 last:border-r-0 dark:border-slate-700 " +
+                    (cell.inMonth ? "bg-white dark:bg-slate-900" : "bg-slate-50/80 dark:bg-slate-950/50")
                   }
                 >
-                  {cell.date.getDate()}
+                  <div
+                    className={
+                      "mb-1 flex h-6 w-6 items-center justify-center text-[11px] font-bold " +
+                      (isToday ?
+                        "rounded-full bg-red-600 text-white"
+                      : cell.inMonth ?
+                        "text-slate-800 dark:text-slate-200"
+                      : "text-slate-400")
+                    }
+                  >
+                    {cell.date.getDate()}
+                  </div>
+                  <div className="space-y-0.5">
+                    {lanes.slice(0, maxLanes).map((lane, laneIdx) => (
+                      <AgendaLaneSlot
+                        key={lane.kind === "sequencia" ? lane.grupoId : lane.id}
+                        entry={findEntryInLane(lane, cell.key, entriesByDay)}
+                        lane={lane}
+                        dayIdx={dayIdx}
+                        spanMask={spanByLane[laneIdx]}
+                        onDeleteCompromisso={onDeleteCompromisso}
+                        compact
+                      />
+                    ))}
+                    {extra > 0 ?
+                      <p className="text-[9px] text-slate-500">+{extra} evento(s)</p>
+                    : null}
+                  </div>
                 </div>
-                <div className="space-y-0.5">
-                  {dayEntries.slice(0, 3).map((entry) => (
-                    <AgendaDayChip
-                      key={entry.kind === "chamado" ? entry.data.id : `c-${entry.data.id}`}
-                      entry={entry}
-                      onDeleteCompromisso={onDeleteCompromisso}
-                    />
-                  ))}
-                  {dayEntries.length > 3 ?
-                    <p className="text-[9px] text-slate-500">+{dayEntries.length - 3} evento(s)</p>
-                  : null}
-                </div>
-              </div>
-            );
+              );
+            });
           })}
         </div>
       </div>
@@ -719,6 +907,7 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
           <MonthGrid
             anchor={anchor}
             entriesByDay={entriesByDay}
+            sequencias={sequencias}
             todayKey={todayKey}
             loading={loading}
             onDeleteCompromisso={excluirCompromisso}
@@ -726,6 +915,7 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
         : <TimeGrid
             days={weekDays}
             entriesByDay={entriesByDay}
+            sequencias={sequencias}
             todayKey={todayKey}
             loading={loading}
             onDeleteCompromisso={excluirCompromisso}

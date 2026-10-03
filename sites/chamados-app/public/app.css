@@ -1793,6 +1793,82 @@ body {
   display: none;
 }
 
+.agenda-cal--week .agenda-bar--seq .agenda-bar-s {
+  display: block;
+  font-size: 0.48rem;
+  line-height: 1.05;
+  font-weight: 700;
+  opacity: 0.92;
+}
+
+.agenda-bar-hit {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agenda-bar-slot {
+  position: relative;
+  min-height: 14px;
+  width: 100%;
+}
+
+.agenda-cal--week .agenda-bar-slot {
+  min-height: 28px;
+}
+
+.agenda-bar-slot--empty {
+  min-height: 14px;
+}
+
+.agenda-cal--week .agenda-bar-slot--empty {
+  min-height: 6px;
+}
+
+.agenda-bar-slot--bridge {
+  display: flex;
+  align-items: center;
+  padding: 0 1px;
+}
+
+.agenda-seq-line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--agenda-teal) 55%, transparent);
+}
+
+.agenda-bar-slot--seq.is-link-l .agenda-bar-hit::before,
+.agenda-bar-slot--seq.is-link-r .agenda-bar-hit::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 2px;
+  margin-top: -1px;
+  background: color-mix(in srgb, var(--agenda-teal) 55%, transparent);
+  pointer-events: none;
+}
+
+.agenda-bar-slot--seq.is-link-l .agenda-bar-hit::before {
+  left: -3px;
+}
+
+.agenda-bar-slot--seq.is-link-r .agenda-bar-hit::after {
+  right: -3px;
+}
+
+.agenda-bar-slot--seq .agenda-bar-hit {
+  position: relative;
+}
+
 .agenda-bar-t {
   font-size: 0.58rem;
   font-weight: 800;
