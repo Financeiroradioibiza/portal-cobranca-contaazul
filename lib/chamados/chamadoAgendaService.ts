@@ -2,7 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { chamadoToView, parseStringArrayJson } from "@/lib/chamados/chamadoUtils";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
-import { userParticipatesInChamado, getChamadoUserContext } from "@/lib/chamados/chamadoService";
+import {
+  userParticipatesInChamado,
+  getChamadoUserContext,
+  type ChamadoUserContext,
+} from "@/lib/chamados/chamadoService";
 
 export type ChamadoAgendaItem = ChamadoView & {
   prazoLabel: string;
@@ -120,7 +124,20 @@ export async function listChamadosAgendaSemPrazoForUser(userEmail: string): Prom
   return out;
 }
 
-/** Fluxos em sequência criados por você — timeline completa quando algum prazo cai no período. */
+function userSeesSequenciaTimeline(
+  groupRows: {
+    criadoPorEmail: string;
+    responsaveisJson: string;
+    setoresJson: string;
+    status: string;
+    sequenciaGrupoId: string | null;
+  }[],
+  ctx: ChamadoUserContext,
+): boolean {
+  return groupRows.some((r) => userParticipatesInChamado(r, ctx));
+}
+
+/** Fluxos em sequência em que você participa (qualquer etapa) — timeline completa de todos os passos quando algum prazo cai no período. */
 export async function listAgendaSequenciaTimelinesForUser(
   userEmail: string,
   fromIso: string,
@@ -135,7 +152,6 @@ export async function listAgendaSequenciaTimelinesForUser(
 
   const rows = await prisma.chamado.findMany({
     where: {
-      criadoPorEmail: ctx.email,
       sequenciaGrupoId: { not: null },
     },
     orderBy: [{ sequenciaGrupoId: "asc" }, { sequenciaPasso: "asc" }],
@@ -151,6 +167,7 @@ export async function listAgendaSequenciaTimelinesForUser(
 
   const timelines: AgendaSequenciaTimeline[] = [];
   for (const [grupoId, groupRows] of byGroup) {
+    if (!userSeesSequenciaTimeline(groupRows, ctx)) continue;
     if (sequenciaTotalmenteEncerrada(groupRows)) continue;
 
     const anyPrazoInRange = groupRows.some((r) => {
