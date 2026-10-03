@@ -31,7 +31,17 @@
     loading: true,
     ptrRefreshing: false,
     createDraft: null,
+    agendaSequencias: [],
+    inbox: null,
+    chatSearch: "",
   };
+
+  var SVG_REFRESH =
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path></svg>';
+  var SVG_SEARCH =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>';
+
+  var CLIENT_AVATAR_COLORS = ["#62b8ff", "#3fd6a0", "#b392ff", "#f5c04a", "#ff8f7a"];
 
   var mainEl = document.getElementById("main");
   var titleEl = document.getElementById("screen-title");
@@ -228,8 +238,280 @@
     });
   }
 
-  function setScreenHeader(sectionTitle) {
-    titleEl.textContent = (sectionTitle || "Chamados").toUpperCase();
+  function setScreenHeader(sectionTitle, layoutV2) {
+    var shell = document.getElementById("app");
+    if (layoutV2) {
+      titleEl.textContent = "";
+      if (shell) shell.classList.add("head-v2");
+    } else {
+      titleEl.textContent = (sectionTitle || "Chamados").toUpperCase();
+      if (shell) shell.classList.remove("head-v2");
+    }
+  }
+
+  function ibizMarkLetter() {
+    var name = (state.user && (state.user.displayName || state.user.email)) || "Z";
+    return escapeHtml(String(name).trim().charAt(0).toUpperCase() || "Z");
+  }
+
+  function ibizScreenHead(title) {
+    return (
+      '<header class="ibiz-head">' +
+      '<div class="ibiz-head-row">' +
+      '<div class="ibiz-head-brand">' +
+      '<div class="ibiz-head-mark" aria-hidden="true">' +
+      ibizMarkLetter() +
+      "</div>" +
+      '<div class="ibiz-head-title">' +
+      escapeHtml(title) +
+      "</div></div>" +
+      '<button type="button" class="ibiz-icon-btn" id="ibiz-refresh" aria-label="Atualizar">' +
+      SVG_REFRESH +
+      "</button></div></header>"
+    );
+  }
+
+  function bindIbizRefresh() {
+    var btn = document.getElementById("ibiz-refresh");
+    if (!btn) return;
+    btn.onclick = function () {
+      refreshCurrentView();
+    };
+  }
+
+  function sequenciaSortKey(seq) {
+    var t = Infinity;
+    (seq.passos || []).forEach(function (p) {
+      if (!p.prazoEntrega) return;
+      var x = new Date(p.prazoEntrega).getTime();
+      if (x < t) t = x;
+    });
+    return t === Infinity ? 0 : t;
+  }
+
+  function sequenciaAccentIndex(grupoId) {
+    var sorted = (state.agendaSequencias || []).slice().sort(function (a, b) {
+      return sequenciaSortKey(a) - sequenciaSortKey(b) || String(a.grupoId).localeCompare(String(b.grupoId));
+    });
+    var idx = sorted.findIndex(function (s) {
+      return s.grupoId === grupoId;
+    });
+    return idx >= 0 ? idx : 0;
+  }
+
+  function sequenciaUnreadForGrupo(grupoId) {
+    var n = 0;
+    state.chamados.forEach(function (c) {
+      if (c.sequenciaGrupoId === grupoId) n += Number(c.unreadCount) || 0;
+    });
+    return n;
+  }
+
+  function activeChamadoForSequencia(seq) {
+    var passos = seq.passos || [];
+    var active = passos.find(function (p) {
+      return p.status === "aberto" || p.status === "em_andamento";
+    });
+    return (active && active.chamadoId) || (passos[0] && passos[0].chamadoId) || null;
+  }
+
+  function sequenciaStatusFromChamados(grupoId) {
+    var rows = state.chamados.filter(function (c) {
+      return c.sequenciaGrupoId === grupoId;
+    });
+    if (rows.some(function (c) {
+      return c.status === "em_andamento";
+    })) {
+      return STATUS.em_andamento;
+    }
+    if (rows.some(function (c) {
+      return c.status === "aberto";
+    })) {
+      return STATUS.aberto;
+    }
+    return STATUS.aguardando;
+  }
+
+  function sequenciaLimiteLabel(seq) {
+    var passos = seq.passos || [];
+    var active = passos.find(function (p) {
+      return p.status === "aberto" || p.status === "em_andamento";
+    });
+    var pick = active || passos[passos.length - 1];
+    if (pick && pick.prazoLabel) return "Limite " + pick.prazoLabel.replace(/\./g, "/");
+    return "";
+  }
+
+  function renderSequenciasRailHtml() {
+    var seqs = (state.agendaSequencias || []).slice().sort(function (a, b) {
+      return sequenciaSortKey(a) - sequenciaSortKey(b) || String(a.grupoId).localeCompare(String(b.grupoId));
+    });
+    if (!seqs.length) return "";
+    var html =
+      '<section><div class="ibiz-section-head">' +
+      '<span class="ibiz-kicker ibiz-kicker-seq">Minhas sequências</span>' +
+      '<span class="ibiz-kicker-meta">' +
+      seqs.length +
+      " ativa" +
+      (seqs.length === 1 ? "" : "s") +
+      '</span></div><div class="ibiz-seq-rail">';
+    seqs.forEach(function (seq) {
+      var accentIdx = sequenciaAccentIndex(seq.grupoId);
+      var accentCls = accentIdx % 2 === 1 ? " ibiz-seq-card--yellow" : "";
+      var dotCls = accentIdx % 2 === 1 ? " ibiz-seq-dot--yellow" : "";
+      var unread = sequenciaUnreadForGrupo(seq.grupoId);
+      var st = sequenciaStatusFromChamados(seq.grupoId);
+      var pr =
+        PRI.media;
+      state.chamados.forEach(function (c) {
+        if (c.sequenciaGrupoId === seq.grupoId && c.prioridade) pr = PRI[c.prioridade] || pr;
+      });
+      var cols = Math.max((seq.passos || []).length, 1);
+      html +=
+        '<button type="button" class="ibiz-seq-card' +
+        accentCls +
+        '" data-seq-grupo="' +
+        escapeHtml(seq.grupoId) +
+        '">' +
+        '<div class="ibiz-seq-card-top"><div class="ibiz-seq-card-name">' +
+        '<span class="ibiz-seq-dot' +
+        dotCls +
+        '"></span><span>' +
+        escapeHtml(seq.titulo || "Sequência") +
+        "</span></div>" +
+        (unread > 0 ?
+          '<span class="ibiz-seq-unread">' + (unread > 99 ? "99+" : String(unread)) + "</span>"
+        : "") +
+        "</div>" +
+        '<div class="ibiz-seq-badges">' +
+        '<span class="badge ' +
+        st.cls +
+        '">' +
+        st.label.toUpperCase() +
+        "</span>" +
+        '<span class="badge ' +
+        pr.cls +
+        '">' +
+        pr.label.toUpperCase() +
+        "</span>" +
+        (sequenciaLimiteLabel(seq) ?
+          '<span class="ibiz-seq-limit">' + escapeHtml(sequenciaLimiteLabel(seq)) + "</span>"
+        : "") +
+        "</div>" +
+        '<div class="ibiz-seq-steps" style="grid-template-columns:repeat(' +
+        cols +
+        ',minmax(0,1fr))">';
+      (seq.passos || []).forEach(function (p) {
+        var done = p.status === "fechado";
+        var isActive = p.status === "aberto" || p.status === "em_andamento";
+        var rot = p.rotulo ? p.passo + " · " + p.rotulo : String(p.passo);
+        if (rot.length > 14) rot = rot.slice(0, 13) + "…";
+        html +=
+          '<div><div class="ibiz-seq-step-bar' +
+          (done ? " is-done" : isActive ? " is-active" : "") +
+          '"></div><div class="ibiz-seq-step-date' +
+          (isActive ? " is-active" : "") +
+          '">' +
+          escapeHtml(rot) +
+          "</div></div>";
+      });
+      html += "</div></button>";
+    });
+    html += "</div></section>";
+    return html;
+  }
+
+  function chamadosNoticeHtml() {
+    if (!state.resumo || !(state.resumo.chamadosNaoLidos > 0)) return "";
+    return (
+      '<p class="ibiz-notice">' +
+      '<span class="ibiz-notice-dot" aria-hidden="true"></span>' +
+      escapeHtml(state.resumo.chamadosNaoLidos + " não lido(s) em chamados") +
+      "</p>"
+    );
+  }
+
+  function clienteAvatarColor(key) {
+    var h = 0;
+    var s = String(key || "");
+    for (var i = 0; i < s.length; i++) h = (h + s.charCodeAt(i) * (i + 1)) % CLIENT_AVATAR_COLORS.length;
+    return CLIENT_AVATAR_COLORS[h];
+  }
+
+  function clienteInitials(nome) {
+    var parts = String(nome || "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return String(nome || "?")
+      .slice(0, 2)
+      .toUpperCase();
+  }
+
+  function papelCanalLabel(papel) {
+    return papel === "mus" ? "Musical" : "Suporte";
+  }
+
+  function assuntoTipoTag(a) {
+    if (a.tipo === "cliente") {
+      var p = a.clientePapel === "mus" ? "MUSICAL" : a.clientePapel === "sup" ? "SUPORTE" : "CLIENTE";
+      return p;
+    }
+    if (a.tipo === "prospect") return "PROSPECT";
+    return "GERAL";
+  }
+
+  function recentConversas() {
+    return sortedAssuntosForChat()
+      .filter(function (a) {
+        return a.lastMessagePreview;
+      })
+      .slice(0, 6);
+  }
+
+  function clientesInboxFiltered() {
+    var rows = (state.inbox && state.inbox.clientes) || [];
+    var q = String(state.chatSearch || "")
+      .trim()
+      .toLowerCase();
+    if (!q) return rows;
+    return rows.filter(function (c) {
+      return String(c.nome || "")
+        .toLowerCase()
+        .includes(q);
+    });
+  }
+
+  function openAssuntoById(id) {
+    var a =
+      state.assuntos.find(function (x) {
+        return x.id === id;
+      }) || null;
+    if (!a) return;
+    state.selectedAssunto = a;
+    renderChatThread();
+  }
+
+  function openClienteCanal(clienteKey, papel) {
+    auth
+      .apiFetch("/api/chamados/conversas/cliente", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clienteKey: clienteKey, papel: papel }),
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error("canal");
+        return r.json();
+      })
+      .then(function (d) {
+        return Promise.all([loadAssuntos(), loadInbox()]).then(function () {
+          if (d.assunto && d.assunto.id) openAssuntoById(d.assunto.id);
+        });
+      })
+      .catch(function () {
+        alert("Não foi possível abrir o assunto.");
+      });
   }
 
   function messageRowHtml(opts) {
@@ -982,6 +1264,45 @@
     });
   }
 
+  function loadInbox() {
+    return auth
+      .apiFetch("/api/chamados/conversas/inbox")
+      .then(function (r) {
+        if (!r.ok) throw new Error("inbox");
+        return r.json();
+      })
+      .then(function (d) {
+        state.inbox = d.inbox || null;
+      })
+      .catch(function () {
+        state.inbox = null;
+      });
+  }
+
+  function loadAgendaSequencias() {
+    var now = new Date();
+    var first = new Date(now.getFullYear(), now.getMonth(), 1);
+    var next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    var q =
+      "from=" +
+      encodeURIComponent(first.toISOString()) +
+      "&to=" +
+      encodeURIComponent(next.toISOString()) +
+      "&includeFinalizados=0";
+    return auth
+      .apiFetch("/api/chamados/agenda?" + q)
+      .then(function (r) {
+        if (!r.ok) throw new Error("agenda");
+        return r.json();
+      })
+      .then(function (d) {
+        state.agendaSequencias = d.sequencias || [];
+      })
+      .catch(function () {
+        state.agendaSequencias = [];
+      });
+  }
+
   function loadMessages(assuntoId) {
     return auth.apiFetch("/api/chamados/conversas/" + encodeURIComponent(assuntoId) + "/mensagens")
       .then(function (r) {
@@ -1127,15 +1448,29 @@
   }
 
   function renderTickets() {
-    setScreenHeader("Chamados");
+    setScreenHeader("Chamados", true);
     navEl.hidden = false;
-    var list = filteredTickets();
-    var html = noticeBarHtml() +
-      '<div class="pill-row">' +
+    mainEl.className = "main ibiz-main";
+    var list = filteredTickets().filter(function (c) {
+      return !c.sequenciaGrupoId;
+    });
+    var html =
+      '<div class="ibiz-screen">' +
+      ibizScreenHead("Chamados") +
+      chamadosNoticeHtml() +
+      renderSequenciasRailHtml() +
+      '<section class="ibiz-assuntos">' +
+      '<div class="ibiz-section-head">' +
+      '<span class="ibiz-kicker">Assuntos</span>' +
+      '<span class="ibiz-kicker-meta">' +
+      list.length +
+      (state.ticketFilter === "fechados" ? " resolvido(s)" : " em aberto") +
+      "</span></div>" +
+      '<div class="ibiz-filter-row">' +
       ["abertos", "todos", "fechados"].map(function (f) {
         var labels = { abertos: "Em aberto", todos: "Todos", fechados: "Resolvidos" };
         return (
-          '<button type="button" class="pill' +
+          '<button type="button" class="ibiz-filter-pill' +
           (state.ticketFilter === f ? " active" : "") +
           '" data-filter="' +
           f +
@@ -1149,71 +1484,55 @@
     if (list.length === 0) {
       html += '<p class="empty">Nenhum chamado neste filtro.</p>';
     } else {
-      html += '<div class="card-list">';
       list.forEach(function (c) {
         var st = STATUS[c.status] || STATUS.aberto;
         var pr = PRI[c.prioridade] || PRI.media;
-        var unread = Number(c.unreadCount) || 0;
-        var isSeq = Boolean(c.sequenciaGrupoId);
-        var seqLabel =
-          isSeq && c.sequenciaPasso && c.sequenciaTotal ? c.sequenciaPasso + "/" + c.sequenciaTotal : "";
         var prazoLabel = fmtPrazoEntrega(c.prazoEntrega);
         html +=
-          '<button type="button" class="ticket-card' +
-          (isSeq ? " ticket-card-seq" : "") +
-          (unread > 0 ? " has-unread" : "") +
-          '" data-ticket="' +
+          '<button type="button" class="ibiz-ticket-card" data-ticket="' +
           escapeHtml(c.id) +
           '">' +
-          '<div class="ticket-title-row">' +
-          '<h3 class="ticket-title">' +
+          '<h3 class="ibiz-ticket-title">' +
           escapeHtml(c.titulo) +
-          (isSeq ? ' <span class="ticket-seq-tag">(SEQUÊNCIA)</span>' : "") +
           "</h3>" +
-          (unread > 0 ?
-            '<span class="ticket-title-badge" aria-label="' +
-            unread +
-            ' não lidas">' +
-            (unread > 99 ? "99+" : String(unread)) +
-            "</span>"
-          : "") +
-          "</div>" +
           '<div class="ticket-meta">' +
           '<span class="badge ' +
           st.cls +
           '">' +
-          st.label +
+          st.label.toUpperCase() +
           "</span>" +
           '<span class="badge ' +
           pr.cls +
           '">' +
-          pr.label +
+          pr.label.toUpperCase() +
           "</span>" +
           '<span class="muted">' +
           fmtWhen(c.updatedAt) +
-          "</span>" +
-          "</div>" +
-          (isSeq && c.sequenciaRotulo ?
-            '<p class="ticket-seq-rotulo">' + escapeHtml(c.sequenciaRotulo) + "</p>"
-          : "") +
-          (isSeq && (seqLabel || prazoLabel) ?
-            '<div class="ticket-seq-foot">' +
-            (seqLabel ? '<span class="ticket-seq-step">' + seqLabel + "</span>" : "") +
-            (prazoLabel ? '<span class="ticket-seq-prazo">Limite: ' + escapeHtml(prazoLabel) + "</span>" : "") +
-            "</div>"
-          : prazoLabel ?
-            '<p class="ticket-seq-prazo" style="margin:0.35rem 0 0">Limite: ' + escapeHtml(prazoLabel) + "</p>"
-          : "") +
+          "</span></div>" +
+          (prazoLabel ?
+            '<div class="ticket-seq-prazo">Limite: ' + escapeHtml(prazoLabel) + "</div>"
+          : '<div class="ticket-seq-prazo" style="font-weight:800;color:var(--agenda-hoje-text)">Sem data limite · toque para definir</div>') +
           "</button>";
       });
-      html += "</div>";
     }
+    html += "</section></div>";
     mainEl.innerHTML = html;
 
+    bindIbizRefresh();
     mainEl.querySelectorAll("[data-filter]").forEach(function (btn) {
       btn.onclick = function () {
         state.ticketFilter = btn.getAttribute("data-filter");
         renderTickets();
+      };
+    });
+    mainEl.querySelectorAll("[data-seq-grupo]").forEach(function (btn) {
+      btn.onclick = function () {
+        var gid = btn.getAttribute("data-seq-grupo");
+        var seq = (state.agendaSequencias || []).find(function (s) {
+          return s.grupoId === gid;
+        });
+        var id = seq ? activeChamadoForSequencia(seq) : null;
+        if (id) openChamadoById(id);
       };
     });
     mainEl.querySelectorAll("[data-ticket]").forEach(function (btn) {
@@ -1670,43 +1989,157 @@
   }
 
   function renderChatList() {
-    setScreenHeader("Chat");
+    setScreenHeader("Chat", true);
     navEl.hidden = false;
     state.selectedAssunto = null;
     state.messages = [];
     setUrl();
+    mainEl.className = "main ibiz-main";
 
-    var html = noticeBarHtml();
-    var chatList = sortedAssuntosForChat();
-    if (chatList.length === 0) {
-      html += '<p class="empty">Nenhum canal # ainda. Crie um com +.</p>';
-    } else {
-      html += '<div class="card-list">';
-      chatList.forEach(function (a) {
+    var recent = recentConversas();
+    var clientes = clientesInboxFiltered();
+    var canais = sortedAssuntosForChat().filter(function (a) {
+      return a.tipo === "canal" || a.tipo === "prospect";
+    });
+
+    var html =
+      '<div class="ibiz-screen">' +
+      ibizScreenHead("Chat") +
+      '<label class="ibiz-search">' +
+      SVG_SEARCH +
+      '<input type="search" id="chat-search" placeholder="Buscar cliente ou assunto" aria-label="Buscar cliente ou assunto" value="' +
+      escapeHtml(state.chatSearch) +
+      '" /></label>';
+
+    if (recent.length) {
+      html +=
+        '<section><div class="ibiz-section-head">' +
+        '<span class="ibiz-kicker">Conversas recentes</span>' +
+        '<span class="ibiz-kicker-meta">' +
+        recent.length +
+        " com mensagens</span></div>";
+      recent.forEach(function (a) {
+        var unread = (Number(a.unreadMentionCount) || 0) + (Number(a.unreadGeneralCount) || 0);
+        var title = a.tipo === "cliente" ? a.titulo.split(" · ")[0] : a.display || a.slug;
         html +=
-          '<button type="button" class="channel-card" data-assunto="' +
+          '<button type="button" class="ibiz-recent-btn" data-assunto="' +
           escapeHtml(a.id) +
           '">' +
-          chatBadgesHtml(a) +
-          '<h3 class="ticket-title"><span class="channel-hash">#</span>' +
-          escapeHtml(a.display || a.slug) +
-          "</h3>" +
-          '<p class="muted" style="margin:0.35rem 0 0">' +
-          (a.lastMessagePreview ? escapeHtml(a.lastMessagePreview.slice(0, 120)) : "Sem mensagens") +
-          "</p></button>";
+          '<span class="ibiz-avatar" style="background:' +
+          clienteAvatarColor(a.clienteKey || a.slug) +
+          ";color:#fff\">" +
+          escapeHtml(clienteInitials(title)) +
+          "</span>" +
+          '<span class="ibiz-recent-body">' +
+          '<span class="ibiz-recent-title-row">' +
+          '<span class="ibiz-recent-title">' +
+          escapeHtml(title) +
+          "</span>" +
+          '<span class="ibiz-tag-pill">' +
+          escapeHtml(assuntoTipoTag(a)) +
+          "</span></span>" +
+          '<span class="ibiz-recent-preview">' +
+          (a.lastMessagePreview ? corpoWithMentionsHtml(a.lastMessagePreview.slice(0, 140)) : "Sem mensagens") +
+          "</span></span>" +
+          (unread > 0 ?
+            '<span class="ibiz-chat-unread">' + (unread > 99 ? "99+" : String(unread)) + "</span>"
+          : "") +
+          "</button>";
       });
-      html += "</div>";
+      html += "</section>";
     }
+
+    html +=
+      '<section><div class="ibiz-section-head">' +
+      '<span class="ibiz-kicker">Clientes</span>' +
+      '<span class="ibiz-kicker-meta">' +
+      clientes.length +
+      " cliente" +
+      (clientes.length === 1 ? "" : "s") +
+      "</span></div>";
+
+    if (clientes.length === 0 && !canais.length) {
+      html += '<p class="empty" style="padding:0 1rem">Nenhum cliente ou canal ainda.</p>';
+    }
+
+    clientes.forEach(function (cl) {
+      var bg = clienteAvatarColor(cl.clienteKey);
+      var canaisComId = (cl.canais || []).filter(function (ch) {
+        return ch.assuntoId || ch.assuntoSlug;
+      });
+      var count = canaisComId.length || (cl.canais || []).length;
+      html +=
+        '<div class="ibiz-client-card">' +
+        '<div class="ibiz-client-head">' +
+        '<span class="ibiz-avatar ibiz-avatar-sm" style="background:' +
+        bg +
+        ';color:#08243d">' +
+        escapeHtml(clienteInitials(cl.nome)) +
+        "</span>" +
+        '<span class="ibiz-client-name">' +
+        escapeHtml(cl.nome) +
+        "</span>" +
+        '<span class="ibiz-client-meta">' +
+        count +
+        " assunto" +
+        (count === 1 ? "" : "s") +
+        '</span></div><div class="ibiz-channel-row">';
+      (cl.canais || []).forEach(function (ch) {
+        var unread = (Number(ch.unreadMention) || 0) + (Number(ch.unreadGeneral) || 0);
+        html +=
+          '<button type="button" class="ibiz-channel-chip" data-cliente-key="' +
+          escapeHtml(cl.clienteKey) +
+          '" data-cliente-papel="' +
+          escapeHtml(ch.papel) +
+          '"' +
+          (ch.assuntoId ? ' data-assunto="' + escapeHtml(ch.assuntoId) + '"' : "") +
+          "><span class=\"ibiz-hash\">#</span> " +
+          escapeHtml(papelCanalLabel(ch.papel)) +
+          (unread > 0 ? '<span class="ibiz-channel-dot" aria-label="Não lidas"></span>' : "") +
+          "</button>";
+      });
+      html += "</div></div>";
+    });
+
+    canais.forEach(function (a) {
+      html +=
+        '<div class="ibiz-client-card">' +
+        '<div class="ibiz-client-head">' +
+        '<span class="ibiz-avatar ibiz-avatar-sm" style="background:var(--agenda-lilac);color:var(--agenda-lilac-fg)">#</span>' +
+        '<span class="ibiz-client-name">' +
+        escapeHtml(a.display || a.slug) +
+        "</span></div>" +
+        '<div class="ibiz-channel-row">' +
+        '<button type="button" class="ibiz-channel-chip" data-assunto="' +
+        escapeHtml(a.id) +
+        '"><span class="ibiz-hash">#</span> Abrir</button></div></div>';
+    });
+
+    html += "</section></div>";
     mainEl.innerHTML = html;
+
+    bindIbizRefresh();
+    var searchEl = document.getElementById("chat-search");
+    if (searchEl) {
+      searchEl.oninput = function () {
+        state.chatSearch = searchEl.value;
+        renderChatList();
+      };
+    }
 
     mainEl.querySelectorAll("[data-assunto]").forEach(function (btn) {
       btn.onclick = function () {
-        var id = btn.getAttribute("data-assunto");
-        state.selectedAssunto =
-          state.assuntos.find(function (a) {
-            return a.id === id;
-          }) || null;
-        renderChatThread();
+        openAssuntoById(btn.getAttribute("data-assunto"));
+      };
+    });
+    mainEl.querySelectorAll("[data-cliente-key]").forEach(function (btn) {
+      btn.onclick = function () {
+        var aid = btn.getAttribute("data-assunto");
+        if (aid) {
+          openAssuntoById(aid);
+          return;
+        }
+        openClienteCanal(btn.getAttribute("data-cliente-key"), btn.getAttribute("data-cliente-papel"));
       };
     });
 
@@ -1800,7 +2233,7 @@
     if (kind === "none") return;
     fabEl = document.createElement("button");
     fabEl.type = "button";
-    fabEl.className = "fab";
+    fabEl.className = "fab ibiz-fab";
     fabEl.setAttribute("aria-label", "Novo");
     fabEl.textContent = "+";
     fabEl.onclick = function () {
@@ -1884,7 +2317,7 @@
       return Promise.resolve();
     }
     state.ptrRefreshing = true;
-    var tasks = [loadParticipants(), loadChamados(), loadAssuntos()];
+    var tasks = [loadParticipants(), loadChamados(), loadAssuntos(), loadInbox(), loadAgendaSequencias()];
     return Promise.all(tasks)
       .then(function () {
         if (state.selectedTicket) {
@@ -2194,7 +2627,7 @@
       }
       registerSwOnce();
     }
-    return Promise.all([loadParticipants(), loadChamados(), loadAssuntos()])
+    return Promise.all([loadParticipants(), loadChamados(), loadAssuntos(), loadInbox(), loadAgendaSequencias()])
       .catch(function () {
         state.chamados = state.chamados || [];
         state.assuntos = state.assuntos || [];
