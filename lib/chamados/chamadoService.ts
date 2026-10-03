@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 import { CHAMADO_SETORES } from "@/lib/chamados/chamadoConstants";
+import { chamadoAgendaVisivelNow } from "@/lib/chamados/chamadoAgendaVisibility";
 import {
   chamadoToView,
   defaultPrazoLimiteInput,
@@ -278,6 +279,15 @@ export async function createChamado(
   const prazoEntrega = parsePrazoEntregaInput(prazoRaw);
   if (!prazoEntrega) throw new Error("prazo_obrigatorio");
 
+  const visRaw = input.agendaVisivelDesde?.trim() || defaultPrazoLimiteInput();
+  const agendaVisivelDesde = parsePrazoEntregaInput(visRaw);
+  if (!agendaVisivelDesde) throw new Error("visivel_desde_invalido");
+
+  const visivelNaAbertura = chamadoAgendaVisivelNow({
+    agendaVisivelDesde,
+    createdAt: new Date(),
+  });
+
   const row = await prisma.chamado.create({
     data: {
       titulo,
@@ -291,10 +301,14 @@ export async function createChamado(
       rioPdvKey,
       clienteNome,
       prazoEntrega,
+      agendaVisivelDesde,
+      agendaVisivelNotificado: visivelNaAbertura,
     },
   });
   const view = chamadoToView(row);
-  scheduleChamadoNotifyEmail(view, "created");
+  if (visivelNaAbertura) {
+    scheduleChamadoNotifyEmail(view, "created");
+  }
   try {
     await bumpChamadoInbox(view, { kind: "created", actorEmail: ctx.email });
   } catch (e) {
@@ -319,6 +333,7 @@ export async function updateChamado(
     setoresJson?: string;
     responsaveisJson?: string;
     prazoEntrega?: Date | null;
+    agendaVisivelDesde?: Date | null;
     fechadoPorEmail?: string | null;
     fechadoPorNome?: string | null;
     fechadoEm?: Date | null;
@@ -336,6 +351,9 @@ export async function updateChamado(
   }
   if (input.prazoEntrega !== undefined) {
     data.prazoEntrega = parsePrazoEntregaInput(input.prazoEntrega);
+  }
+  if (input.agendaVisivelDesde !== undefined) {
+    data.agendaVisivelDesde = parsePrazoEntregaInput(input.agendaVisivelDesde);
   }
   if (input.status !== undefined && VALID_STATUS.has(input.status)) {
     data.status = input.status;
@@ -390,6 +408,24 @@ export async function updateChamado(
   }
 
   return view;
+}
+
+/** Dispara notificação de abertura quando a data inicial passa a valer (poll via resumo/lista). */
+export async function flushDeferredChamadoVisibilityNotifications(): Promise<void> {
+  const rows = await prisma.chamado.findMany({
+    where: { agendaVisivelNotificado: false },
+    orderBy: { agendaVisivelDesde: "asc" },
+    take: 40,
+  });
+  for (const row of rows) {
+    if (!chamadoAgendaVisivelNow(row)) continue;
+    const view = chamadoToView(row);
+    scheduleChamadoNotifyEmail(view, "created");
+    await prisma.chamado.update({
+      where: { id: row.id },
+      data: { agendaVisivelNotificado: true },
+    });
+  }
 }
 
 export async function resendChamadoNotifyEmail(id: string): Promise<ChamadoView> {

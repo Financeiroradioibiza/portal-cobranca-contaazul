@@ -125,6 +125,54 @@ export async function createAgendaCompromisso(
   return toView(row, ctx.email);
 }
 
+export async function updateAgendaCompromisso(
+  id: string,
+  input: {
+    titulo?: string;
+    descricao?: string;
+    inicioEm?: string;
+    participantes?: string[];
+  },
+  ctx: ChamadoUserContext,
+): Promise<AgendaCompromissoView> {
+  const row = await prisma.portalAgendaCompromisso.findUnique({ where: { id } });
+  if (!row) throw new Error("not_found");
+  if (row.criadoPorEmail.toLowerCase() !== ctx.email.toLowerCase()) throw new Error("forbidden");
+
+  const data: {
+    titulo?: string;
+    descricao?: string;
+    inicioEm?: Date;
+    participantesJson?: string;
+  } = {};
+
+  if (input.titulo !== undefined) {
+    const titulo = input.titulo.trim().slice(0, 200);
+    if (!titulo) throw new Error("titulo_obrigatorio");
+    data.titulo = titulo;
+  }
+  if (input.descricao !== undefined) {
+    data.descricao = input.descricao.trim().slice(0, 4000);
+  }
+  if (input.inicioEm !== undefined) {
+    const inicio = new Date(input.inicioEm);
+    if (Number.isNaN(inicio.getTime())) throw new Error("inicio_invalido");
+    data.inicioEm = inicio;
+  }
+  if (input.participantes !== undefined) {
+    const participantes = normalizeEmails(input.participantes).filter(
+      (e) => e.toLowerCase() !== ctx.email.toLowerCase(),
+    );
+    data.participantesJson = serializeStringArray(participantes);
+  }
+
+  const updated = await prisma.portalAgendaCompromisso.update({
+    where: { id },
+    data,
+  });
+  return toView(updated, ctx.email);
+}
+
 export async function deleteAgendaCompromisso(id: string, ctx: ChamadoUserContext): Promise<void> {
   const row = await prisma.portalAgendaCompromisso.findUnique({ where: { id } });
   if (!row) throw new Error("not_found");

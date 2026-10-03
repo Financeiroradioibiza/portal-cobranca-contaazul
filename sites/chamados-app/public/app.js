@@ -28,6 +28,7 @@
     ticketAnexos: [],
     detailDraft: null,
     detailPeopleOpen: false,
+    ticketFlowBusy: false,
     loading: true,
     ptrRefreshing: false,
     createDraft: null,
@@ -603,11 +604,80 @@
     return null;
   }
 
+  function digitsOnlyPhone(raw) {
+    return String(raw || "").replace(/\D/g, "");
+  }
+
+  function normalizeWhatsAppE164(raw) {
+    var d = digitsOnlyPhone(raw);
+    if (!d) return null;
+    if (d.charAt(0) === "0") d = d.replace(/^0+/, "");
+    if (d.indexOf("55") === 0) {
+      if (d.length < 12 || d.length > 13) return null;
+      return "+" + d;
+    }
+    if (d.length === 10 || d.length === 11) return "+55" + d;
+    return null;
+  }
+
+  function corpoPlainRichHtml(text) {
+    var URL_RE = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+    var PHONE_RE =
+      /(?:\+?\s*55\s*)?(?:\(\s*\d{2}\s*\)|\d{2})[\s.\-]*(?:9\s*)?\d{4}[\s.\-]*\d{4}|\+\s*55\s*\(?\d{2}\)?[\s.\-]*\d{4,5}[\s.\-]*\d{4}/g;
+    var s = String(text || "");
+    var matches = [];
+    var m;
+    URL_RE.lastIndex = 0;
+    while ((m = URL_RE.exec(s))) {
+      var label = m[0];
+      var href = label;
+      if (/^www\./i.test(href)) href = "https://" + href;
+      matches.push({ start: m.index, end: m.index + label.length, kind: "url", href: href, label: label });
+    }
+    PHONE_RE.lastIndex = 0;
+    while ((m = PHONE_RE.exec(s))) {
+      var pl = m[0];
+      var e164 = normalizeWhatsAppE164(pl);
+      if (!e164) continue;
+      matches.push({
+        start: m.index,
+        end: m.index + pl.length,
+        kind: "phone",
+        href: "https://wa.me/" + e164.slice(1),
+        label: pl,
+      });
+    }
+    matches.sort(function (a, b) {
+      return a.start - b.start || b.end - a.end;
+    });
+    var filtered = [];
+    var lastEnd = 0;
+    matches.forEach(function (x) {
+      if (x.start < lastEnd) return;
+      filtered.push(x);
+      lastEnd = x.end;
+    });
+    var out = "";
+    var cursor = 0;
+    filtered.forEach(function (x) {
+      if (x.start > cursor) out += escapeHtml(s.slice(cursor, x.start));
+      out +=
+        '<a class="corpo-link" href="' +
+        escapeHtml(x.href) +
+        '" target="_blank" rel="noopener noreferrer">' +
+        escapeHtml(x.label) +
+        "</a>";
+      cursor = x.end;
+    });
+    if (cursor < s.length) out += escapeHtml(s.slice(cursor));
+    return out;
+  }
+
   function corpoWithMentionsHtml(corpo) {
     var parts = String(corpo || "").split(/(@[a-zA-Z0-9._\-]+(?:@[a-zA-Z0-9.\-]+)?)/g);
     return parts
       .map(function (part) {
-        if (part.indexOf("@") !== 0) return escapeHtml(part);
+        if (part.indexOf("@") !== 0) return corpoPlainRichHtml(part);
         var person = participantForMentionToken(part);
         var color = normalizeTagCor(person && person.tagCor);
         return '<span style="font-weight:800;color:' + color + '">' + escapeHtml(part) + "</span>";
@@ -704,7 +774,17 @@
       setorEmails: {},
       setoresMeta: [],
       prazoLimite: defaultPrazoInputDate(),
+      prazoVisivelDesde: defaultPrazoInputDate(),
     };
+  }
+
+  function closeTicketDetailScreen() {
+    state.selectedTicket = null;
+    state.detailDraft = null;
+    state.detailPeopleOpen = false;
+    state.ticketFlowBusy = false;
+    navEl.hidden = false;
+    renderTickets();
   }
 
   function tituloChamadoParaCliente(nome) {
@@ -922,10 +1002,14 @@
       (d.prioridade === "urgente" ? " selected" : "") +
       ">Urgente</option></select></label>" +
       (showPadraoSetores ?
+        '<div class="agenda-comp-row">' +
+        '<label><span>Visível a partir de</span><input type="date" id="create-prazo-visivel" required value="' +
+        escapeHtml(d.prazoVisivelDesde || defaultPrazoInputDate()) +
+        '" /></label>' +
         '<label><span>Data limite (agenda)</span><input type="date" id="create-prazo-limite" required value="' +
         escapeHtml(d.prazoLimite || defaultPrazoInputDate()) +
-        '" /></label>' +
-        '<p class="sheet-hint">Quem participa (setores e responsáveis) vê este chamado na agenda neste dia.</p>'
+        '" /></label></div>' +
+        '<p class="sheet-hint">Antes da data inicial o chamado não aparece na agenda nem nas notificações.</p>'
       : "") +
       (showPadraoSetores ?
         '<div class="sheet-block"><p class="sheet-block-title">Setores</p><div class="setor-row">' +
@@ -1159,6 +1243,12 @@
         d.prazoLimite = prazoLimiteEl.value || "";
       };
     }
+    var prazoVisivelEl = document.getElementById("create-prazo-visivel");
+    if (prazoVisivelEl) {
+      prazoVisivelEl.onchange = function () {
+        d.prazoVisivelDesde = prazoVisivelEl.value || "";
+      };
+    }
 
     bindCreateOpcoesPickers();
 
@@ -1202,6 +1292,8 @@
       };
       if ((d.template || "padrao") === "padrao") {
         body.prazoEntrega = d.prazoLimite;
+        var pv = prazoVisivelEl ? prazoVisivelEl.value : d.prazoVisivelDesde;
+        body.agendaVisivelDesde = pv || defaultPrazoInputDate();
       }
       if (d.template === "cliente_novo" || d.template === "vinhetas") {
         var enabled = (d.sequenciaSteps || []).filter(function (s) {
@@ -1437,6 +1529,7 @@
       setores: (c.setores || []).slice(),
       responsaveis: (c.responsaveis || []).slice(),
       prazoAgenda: prazoToInputDate(c.prazoEntrega),
+      prazoVisivelDesde: prazoToInputDate(c.agendaVisivelDesde) || defaultPrazoInputDate(),
     };
     var unread = c.unreadCount || 0;
     markTicketRead(c.id, unread).then(function () {
@@ -1729,11 +1822,16 @@
         '<p class="muted" style="margin:0 0 0.5rem">Prazo da etapa: ' + escapeHtml(fmtPrazoEntrega(c.prazoEntrega)) + "</p>"
       : "") +
       (!c.sequenciaGrupoId ?
+        '<div class="agenda-comp-row">' +
+        '<label class="detail-agenda-date"><span>Visível a partir de</span>' +
+        '<input type="date" id="d-prazo-visivel" required value="' +
+        escapeHtml(d.prazoVisivelDesde || defaultPrazoInputDate()) +
+        '" /></label>' +
         '<label class="detail-agenda-date"><span>Data limite (agenda)</span>' +
         '<input type="date" id="d-prazo-agenda" required value="' +
         escapeHtml(d.prazoAgenda || defaultPrazoInputDate()) +
-        '" /></label>' +
-        '<p class="sheet-hint" style="margin:0 0 0.5rem">Todos os envolvidos veem na Agenda neste dia.</p>'
+        '" /></label></div>' +
+        '<p class="sheet-hint" style="margin:0 0 0.5rem">Antes da data inicial não aparece na agenda/notificações.</p>'
       : "") +
       '<div class="detail-block detail-block-tight">' +
       '<div class="thread-list">' +
@@ -1769,7 +1867,11 @@
       '<input type="file" id="d-anexo" /></label></div>' +
       '<div class="sheet-actions" style="margin-top:1rem;flex-wrap:wrap;gap:0.5rem">' +
       (c.status !== "em_andamento" ?
-        '<button type="button" class="btn-secondary" data-quick-status="em_andamento">Em andamento</button>'
+        '<button type="button" class="btn-secondary" data-quick-status="em_andamento"' +
+        (state.ticketFlowBusy ? " disabled" : "") +
+        ">" +
+        (state.ticketFlowBusy ? "Processando…" : "Em andamento") +
+        "</button>"
       : "") +
       (function () {
         var isSeq = Boolean(c.sequenciaGrupoId);
@@ -1780,10 +1882,22 @@
           (c.sequenciaPasso || 0) < (c.sequenciaTotal || 0);
         var sequenciaUltima = isSeq && c.sequenciaPasso === c.sequenciaTotal && c.status !== "fechado";
         if (sequenciaAtiva || sequenciaUltima) {
-          return '<button type="button" class="btn-primary" id="btn-seq-proximo">Encerrar / próximo processo</button>';
+          return (
+            '<button type="button" class="btn-primary" id="btn-seq-proximo"' +
+            (state.ticketFlowBusy ? " disabled" : "") +
+            ">" +
+            (state.ticketFlowBusy ? "Processando…" : "Encerrar / próximo processo") +
+            "</button>"
+          );
         }
         if (c.status !== "fechado") {
-          return '<button type="button" class="btn-primary" data-quick-status="fechado">Resolver</button>';
+          return (
+            '<button type="button" class="btn-primary" data-quick-status="fechado"' +
+            (state.ticketFlowBusy ? " disabled" : "") +
+            ">" +
+            (state.ticketFlowBusy ? "Processando…" : "Resolver") +
+            "</button>"
+          );
         }
         return "";
       })() +
@@ -1795,11 +1909,7 @@
     mainEl.innerHTML = html;
 
     document.getElementById("back-tickets").onclick = function () {
-      state.selectedTicket = null;
-      state.detailDraft = null;
-      state.detailPeopleOpen = false;
-      navEl.hidden = false;
-      renderTickets();
+      closeTicketDetailScreen();
     };
 
     var togglePeople = document.getElementById("toggle-people-panel");
@@ -1833,6 +1943,12 @@
     if (prazoInp) {
       prazoInp.onchange = function () {
         d.prazoAgenda = prazoInp.value || "";
+      };
+    }
+    var prazoVisInp = document.getElementById("d-prazo-visivel");
+    if (prazoVisInp) {
+      prazoVisInp.onchange = function () {
+        d.prazoVisivelDesde = prazoVisInp.value || "";
       };
     }
 
@@ -1888,16 +2004,20 @@
 
     mainEl.querySelectorAll("[data-quick-status]").forEach(function (btn) {
       btn.onclick = function () {
-        btn.disabled = true;
+        if (state.ticketFlowBusy) return;
+        state.ticketFlowBusy = true;
+        renderTicketDetail();
         patchTicket({ status: btn.getAttribute("data-quick-status"), notificar: true })
           .then(function () {
-            renderTicketDetail();
+            return loadChamados();
+          })
+          .then(function () {
+            closeTicketDetailScreen();
           })
           .catch(function () {
             alert("Não foi possível atualizar o status.");
-          })
-          .finally(function () {
-            btn.disabled = false;
+            state.ticketFlowBusy = false;
+            renderTicketDetail();
           });
       };
     });
@@ -1905,7 +2025,9 @@
     var btnSeq = document.getElementById("btn-seq-proximo");
     if (btnSeq) {
       btnSeq.onclick = function () {
-        btnSeq.disabled = true;
+        if (state.ticketFlowBusy) return;
+        state.ticketFlowBusy = true;
+        renderTicketDetail();
         auth
           .apiFetch("/api/chamados/" + encodeURIComponent(c.id) + "/sequencia/proximo", { method: "POST" })
           .then(function (r) {
@@ -1914,46 +2036,20 @@
           })
           .then(function (data) {
             var fechado = data.fechado;
-            var proximo = data.proximo;
-            var fim = Boolean(data.fim);
             if (fechado) {
               state.chamados = state.chamados.map(function (x) {
                 return x.id === fechado.id ? fechado : x;
               });
             }
-            if (proximo) {
-              var has = state.chamados.some(function (x) {
-                return x.id === proximo.id;
-              });
-              state.chamados = has ?
-                state.chamados.map(function (x) {
-                  return x.id === proximo.id ? proximo : x;
-                })
-              : [proximo].concat(state.chamados);
-              state.selectedTicket = proximo;
-              state.detailDraft = {
-                titulo: proximo.titulo,
-                descricao: proximo.descricao || "",
-                prioridade: proximo.prioridade,
-                setores: (proximo.setores || []).slice(),
-                responsaveis: (proximo.responsaveis || []).slice(),
-                prazoAgenda: prazoToInputDate(proximo.prazoEntrega),
-              };
-            } else if (fim && fechado) {
-              state.selectedTicket = fechado;
-            }
-            return loadChamados().then(function () {
-              return loadTicketThread(state.selectedTicket.id);
-            });
+            return loadChamados();
           })
           .then(function () {
-            renderTicketDetail();
+            closeTicketDetailScreen();
           })
           .catch(function () {
             alert("Não foi possível avançar a sequência.");
-          })
-          .finally(function () {
-            btnSeq.disabled = false;
+            state.ticketFlowBusy = false;
+            renderTicketDetail();
           });
       };
     }
@@ -1970,6 +2066,7 @@
         setores: d.setores,
         responsaveis: d.responsaveis,
         prazoEntrega: d.prazoAgenda ? d.prazoAgenda : null,
+        agendaVisivelDesde: d.prazoVisivelDesde ? d.prazoVisivelDesde : null,
         notificar: true,
       })
         .then(function () {

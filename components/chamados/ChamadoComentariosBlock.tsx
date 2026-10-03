@@ -5,6 +5,7 @@ import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 import { ChamadoAnexoMedia } from "@/components/chamados/ChamadoAnexosBlock";
 import { CONVERSA_REACOES } from "@/lib/chamados/conversaConstants";
 import type { ChamadoComentarioView, ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
+import { ChamadoMentionCorpo } from "@/components/chamados/ChamadoMentionCorpo";
 
 function fmtWhen(iso: string): string {
   try {
@@ -172,7 +173,9 @@ export function ChamadoComentariosBlock({
                     {c.autorNome} · {fmtWhen(c.createdAt)}
                   </div>
                   {c.corpo && c.corpo !== "(anexo)" ?
-                    <p className="mt-1 whitespace-pre-wrap leading-relaxed">{c.corpo}</p>
+                    <p className="mt-1 whitespace-pre-wrap leading-relaxed">
+                      <ChamadoMentionCorpo corpo={c.corpo} participants={participants} />
+                    </p>
                   : null}
                   {c.anexos.map((a) => (
                     <ChamadoAnexoMedia key={a.id} anexo={a} />

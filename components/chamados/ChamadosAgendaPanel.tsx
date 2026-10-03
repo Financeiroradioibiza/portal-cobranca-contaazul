@@ -314,6 +314,7 @@ function AgendaLaneSlot({
   spanMask,
   sequencias,
   onDeleteCompromisso,
+  onEditCompromisso,
   compact,
 }: {
   entry: AgendaDayEntry | null;
@@ -322,6 +323,7 @@ function AgendaLaneSlot({
   spanMask: boolean[] | null;
   sequencias: AgendaSequenciaTimeline[];
   onDeleteCompromisso?: (id: string) => void;
+  onEditCompromisso?: (c: AgendaCompromissoItem) => void;
   compact?: boolean;
 }) {
   const laneAccent = sequenciaLaneAccent(lane, sequencias);
@@ -367,6 +369,7 @@ function AgendaLaneSlot({
           entry={entry}
           sequencias={sequencias}
           onDeleteCompromisso={onDeleteCompromisso}
+          onEditCompromisso={onEditCompromisso}
         />
       </div>
     </div>
@@ -376,20 +379,35 @@ function AgendaLaneSlot({
 function AgendaCompromissoChip({
   c,
   onDelete,
+  onEdit,
 }: {
   c: AgendaCompromissoItem;
   onDelete?: () => void;
+  onEdit?: () => void;
 }) {
   const mine = c.papel === "criador";
   return (
     <div
+      role={mine && onEdit ? "button" : undefined}
+      tabIndex={mine && onEdit ? 0 : undefined}
+      onClick={mine && onEdit ? onEdit : undefined}
+      onKeyDown={
+        mine && onEdit ?
+          (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onEdit();
+            }
+          }
+        : undefined
+      }
       className={
         "relative rounded-md border px-1.5 py-1 text-[10px] leading-tight " +
         (mine ?
-          "border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/70 dark:text-sky-100"
+          "cursor-pointer border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/70 dark:text-sky-100"
         : "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100")
       }
-      title={c.descricao || c.titulo}
+      title={mine && onEdit ? "Clique para editar" : c.descricao || c.titulo}
     >
       {onDelete ?
         <button
@@ -419,10 +437,12 @@ function AgendaDayChip({
   entry,
   sequencias,
   onDeleteCompromisso,
+  onEditCompromisso,
 }: {
   entry: AgendaDayEntry;
   sequencias: AgendaSequenciaTimeline[];
   onDeleteCompromisso?: (id: string) => void;
+  onEditCompromisso?: (c: AgendaCompromissoItem) => void;
 }) {
   if (entry.kind === "chamado") {
     const seqAccent =
@@ -434,6 +454,11 @@ function AgendaDayChip({
   return (
     <AgendaCompromissoChip
       c={entry.data}
+      onEdit={
+        entry.data.papel === "criador" && onEditCompromisso ?
+          () => onEditCompromisso(entry.data)
+        : undefined
+      }
       onDelete={
         entry.data.papel === "criador" && onDeleteCompromisso ?
           () => onDeleteCompromisso(entry.data.id)
@@ -554,6 +579,7 @@ function TimeGrid({
   todayKey,
   loading,
   onDeleteCompromisso,
+  onEditCompromisso,
   expanded,
 }: {
   days: Date[];
@@ -562,6 +588,7 @@ function TimeGrid({
   todayKey: string;
   loading: boolean;
   onDeleteCompromisso?: (id: string) => void;
+  onEditCompromisso?: (c: AgendaCompromissoItem) => void;
   expanded?: boolean;
 }) {
   const colCount = days.length;
@@ -642,6 +669,7 @@ function TimeGrid({
                       spanMask={spanMask}
                       sequencias={sequencias}
                       onDeleteCompromisso={onDeleteCompromisso}
+                      onEditCompromisso={onEditCompromisso}
                     />
                   : null}
                 </div>
@@ -684,6 +712,7 @@ function MonthGrid({
   todayKey,
   loading,
   onDeleteCompromisso,
+  onEditCompromisso,
   maxLanes = 3,
 }: {
   anchor: Date;
@@ -692,6 +721,7 @@ function MonthGrid({
   todayKey: string;
   loading: boolean;
   onDeleteCompromisso?: (id: string) => void;
+  onEditCompromisso?: (c: AgendaCompromissoItem) => void;
   maxLanes?: number;
 }) {
   const cells = useMemo(() => monthGridCells(anchor), [anchor]);
@@ -762,6 +792,7 @@ function MonthGrid({
                         spanMask={spanByLane[laneIdx]}
                         sequencias={sequencias}
                         onDeleteCompromisso={onDeleteCompromisso}
+                        onEditCompromisso={onEditCompromisso}
                         compact
                       />
                     ))}
@@ -792,6 +823,7 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
   const [showFinalizados, setShowFinalizados] = useState(!isPage);
   const [loading, setLoading] = useState(true);
   const [compromissoOpen, setCompromissoOpen] = useState(false);
+  const [compromissoEdit, setCompromissoEdit] = useState<AgendaCompromissoItem | null>(null);
   const [compromissoBusy, setCompromissoBusy] = useState(false);
   const [participants, setParticipants] = useState<ChamadoParticipant[]>([]);
   const [viewerEmail, setViewerEmail] = useState("");
@@ -884,6 +916,27 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
     await load();
   }
 
+  async function atualizarCompromisso(
+    id: string,
+    payload: { titulo: string; descricao: string; inicioEm: string; participantes: string[] },
+  ) {
+    setCompromissoBusy(true);
+    try {
+      const res = await fetch(`/api/chamados/agenda/compromissos/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("fail");
+      setCompromissoOpen(false);
+      setCompromissoEdit(null);
+      await load();
+    } finally {
+      setCompromissoBusy(false);
+    }
+  }
+
   const emptyHint =
     !loading &&
     items.length === 0 &&
@@ -918,7 +971,10 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
           <button
             type="button"
             className="rounded-lg bg-sky-600 px-2.5 py-0.5 text-[11px] font-bold text-white"
-            onClick={() => setCompromissoOpen(true)}
+            onClick={() => {
+              setCompromissoEdit(null);
+              setCompromissoOpen(true);
+            }}
           >
             + Compromisso
           </button>
@@ -1014,6 +1070,10 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
             todayKey={todayKey}
             loading={loading}
             onDeleteCompromisso={excluirCompromisso}
+            onEditCompromisso={(c) => {
+              setCompromissoEdit(c);
+              setCompromissoOpen(true);
+            }}
             maxLanes={isPage ? 8 : 3}
           />
         : <TimeGrid
@@ -1023,6 +1083,10 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
             todayKey={todayKey}
             loading={loading}
             onDeleteCompromisso={excluirCompromisso}
+            onEditCompromisso={(c) => {
+              setCompromissoEdit(c);
+              setCompromissoOpen(true);
+            }}
             expanded={isPage}
           />}
         {loading ?
@@ -1044,8 +1108,23 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
         defaultDate={toIsoLocal(anchor)}
         participants={participants}
         viewerEmail={viewerEmail}
-        onClose={() => setCompromissoOpen(false)}
+        edit={
+          compromissoEdit ?
+            {
+              id: compromissoEdit.id,
+              titulo: compromissoEdit.titulo,
+              descricao: compromissoEdit.descricao,
+              inicioEm: compromissoEdit.inicioEm,
+              participantes: compromissoEdit.participantes,
+            }
+          : null
+        }
+        onClose={() => {
+          setCompromissoOpen(false);
+          setCompromissoEdit(null);
+        }}
         onSubmit={(p) => void criarCompromisso(p)}
+        onUpdate={(id, p) => void atualizarCompromisso(id, p)}
       />
     </section>
   );

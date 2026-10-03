@@ -15,6 +15,7 @@ import { listChamadoParticipants, type ChamadoUserContext } from "@/lib/chamados
 import {
   scheduleConversaGrupoActivityEmails,
   scheduleConversaMentionEmails,
+  scheduleConversaReplyEmail,
 } from "@/lib/chamados/conversaNotifyEmail";
 import { computeConversaUnreadMap } from "@/lib/chamados/conversaUnread";
 import {
@@ -275,11 +276,15 @@ export async function postConversaMensagem(
   const { mencoes } = resolveMentionEmails(corpo, participants);
 
   let replyId: string | null = null;
+  let replyParentAutorEmail: string | null = null;
   if (replyToMensagemId?.trim()) {
     const parent = await prisma.chamadoConversaMensagem.findFirst({
       where: { id: replyToMensagemId.trim(), assuntoId },
     });
-    if (parent) replyId = parent.id;
+    if (parent) {
+      replyId = parent.id;
+      replyParentAutorEmail = parent.autorEmail;
+    }
   }
 
   const row = await prisma.chamadoConversaMensagem.create({
@@ -320,6 +325,17 @@ export async function postConversaMensagem(
     mencoes,
     excludeEmail: ctx.email,
   });
+
+  if (replyParentAutorEmail) {
+    scheduleConversaReplyEmail({
+      assuntoSlug: assunto.slug,
+      assuntoTitulo: assunto.titulo,
+      autorNome: ctx.displayName,
+      replyToAutorEmail: replyParentAutorEmail,
+      corpoPreview: corpo,
+      excludeEmail: ctx.email,
+    });
+  }
 
   const list = await listConversaMensagens(assuntoId, ctx.email);
   const hit = list.find((m) => m.id === row.id);

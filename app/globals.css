@@ -274,6 +274,11 @@ body {
   min-width: 0;
 }
 
+.portal-sidebar-item .portal-sidebar-chamados-badges {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .portal-sidebar-separator {
   height: 1px;
   margin: 6px 14px;

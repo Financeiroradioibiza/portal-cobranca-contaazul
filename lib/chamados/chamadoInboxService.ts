@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { normalizePortalEmail } from "@/lib/auth/users";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
+import { chamadoAgendaVisivelNow } from "@/lib/chamados/chamadoAgendaVisibility";
 import { resolveChamadoNotifyRecipients } from "@/lib/chamados/chamadoNotifyEmail";
 
 export type ChamadoInboxKind = "created" | "updated" | "closed" | "comment";
@@ -62,21 +63,36 @@ export async function inboxUnreadByChamadoId(userEmailRaw: string): Promise<Map<
 
 export async function totalChamadoInboxUnread(userEmailRaw: string): Promise<number> {
   const userEmail = normalizePortalEmail(userEmailRaw);
-  const agg = await prisma.chamadoInboxUsuario.aggregate({
+  const rows = await prisma.chamadoInboxUsuario.findMany({
     where: { userEmail, unreadCount: { gt: 0 } },
-    _sum: { unreadCount: true },
+    select: {
+      unreadCount: true,
+      chamado: { select: { agendaVisivelDesde: true, createdAt: true } },
+    },
   });
-  return agg._sum.unreadCount ?? 0;
+  let total = 0;
+  for (const r of rows) {
+    if (!chamadoAgendaVisivelNow(r.chamado)) continue;
+    total += r.unreadCount;
+  }
+  return total;
 }
 
 export function attachInboxToChamados(
   chamados: ChamadoView[],
   inbox: Map<string, number>,
 ): ChamadoView[] {
-  return chamados.map((c) => ({
-    ...c,
-    unreadCount: inbox.get(c.id) ?? 0,
-  }));
+  return chamados.map((c) => {
+    const raw = inbox.get(c.id) ?? 0;
+    const visivel = chamadoAgendaVisivelNow({
+      agendaVisivelDesde: c.agendaVisivelDesde ? new Date(c.agendaVisivelDesde) : null,
+      createdAt: new Date(c.createdAt),
+    });
+    return {
+      ...c,
+      unreadCount: visivel ? raw : 0,
+    };
+  });
 }
 
 export function sortChamadosByInboxThenPriority(a: ChamadoView, b: ChamadoView): number {

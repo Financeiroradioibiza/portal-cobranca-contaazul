@@ -706,10 +706,16 @@
           deps.escapeHtml(entry.data.id) +
           '" aria-label="Excluir">×</button>'
         : "";
+      var editBtn =
+        entry.data.papel === "criador" ?
+          ' data-edit-comp-id="' + deps.escapeHtml(entry.data.id) + '" role="button" tabindex="0" style="cursor:pointer"'
+        : "";
       return (
         '<div class="agenda-detail-row agenda-detail-row--' +
         tone +
-        '">' +
+        '"' +
+        editBtn +
+        ">" +
         del +
         body +
         "</div>"
@@ -856,6 +862,21 @@
       });
     }
 
+    function bindEditComp(root) {
+      root.querySelectorAll("[data-edit-comp-id]").forEach(function (el) {
+        el.onclick = function (e) {
+          if (e.target && e.target.closest && e.target.closest("[data-del-comp]")) return;
+          var id = el.getAttribute("data-edit-comp-id");
+          if (!id) return;
+          var found = null;
+          (state.compromissos || []).forEach(function (c) {
+            if (c.id === id) found = c;
+          });
+          if (found) openCompromissoSheet(found);
+        };
+      });
+    }
+
     function bindDeleteComp(root) {
       root.querySelectorAll("[data-del-comp]").forEach(function (btn) {
         btn.onclick = function (e) {
@@ -876,18 +897,49 @@
       });
     }
 
-    function openCompromissoSheet() {
+    function isoToLocalParts(iso) {
+      try {
+        var d = new Date(iso);
+        var date = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/Sao_Paulo",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(d);
+        var hora = new Intl.DateTimeFormat("pt-BR", {
+          timeZone: "America/Sao_Paulo",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).format(d);
+        return { date: date, hora: hora.replace(".", ":") };
+      } catch (e) {
+        return { date: toIsoLocal(state.anchor), hora: "09:00" };
+      }
+    }
+
+    function openCompromissoSheet(editComp) {
       var defaultDate = toIsoLocal(state.anchor);
+      var editParts = editComp ? isoToLocalParts(editComp.inicioEm) : null;
       var people = deps.getParticipants() || [];
       var viewer = (deps.getUser() && deps.getUser().email) || "";
+      var guestSet = {};
+      if (editComp && editComp.participantes) {
+        editComp.participantes.forEach(function (e) {
+          guestSet[String(e).toLowerCase()] = true;
+        });
+      }
       var peopleHtml = people
         .map(function (p) {
           if (p.email.toLowerCase() === viewer.toLowerCase()) return "";
+          var checked = guestSet[p.email.toLowerCase()] ? " checked" : "";
           return (
             '<label class="person-row">' +
             '<input type="checkbox" data-comp-guest="' +
             deps.escapeHtml(p.email) +
-            '" />' +
+            '"' +
+            checked +
+            " />" +
             deps.avatarHtml(p.email, p.displayName) +
             '<span class="person-name">' +
             deps.escapeHtml(p.displayName) +
@@ -897,16 +949,24 @@
         .join("");
 
       deps.showOverlay(
-        "<h2>Novo compromisso</h2>" +
+        "<h2>" +
+        (editComp ? "Editar compromisso" : "Novo compromisso") +
+        "</h2>" +
           '<p class="sheet-hint">Azul = seu; âmbar = convite para outras pessoas.</p>' +
           '<form id="form-compromisso">' +
-          '<label><span>Título</span><input name="titulo" required maxlength="200" /></label>' +
-          '<label><span>Descrição (opcional)</span><textarea name="descricao" rows="2"></textarea></label>' +
+          '<label><span>Título</span><input name="titulo" required maxlength="200" value="' +
+          deps.escapeHtml(editComp ? editComp.titulo : "") +
+          '" /></label>' +
+          '<label><span>Descrição (opcional)</span><textarea name="descricao" rows="2">' +
+          deps.escapeHtml(editComp ? editComp.descricao || "" : "") +
+          "</textarea></label>" +
           '<div class="agenda-comp-row">' +
           '<label><span>Data</span><input type="date" name="data" required value="' +
-          deps.escapeHtml(defaultDate) +
+          deps.escapeHtml(editParts ? editParts.date : defaultDate) +
           '" /></label>' +
-          '<label><span>Hora</span><input type="time" name="hora" required value="09:00" /></label>' +
+          '<label><span>Hora</span><input type="time" name="hora" required value="' +
+          deps.escapeHtml(editParts ? editParts.hora : "09:00") +
+          '" /></label>' +
           "</div>" +
           (peopleHtml ?
             '<div class="sheet-block sheet-people"><p class="sheet-block-title">Convidar</p>' +
@@ -931,11 +991,18 @@
           if (inp.checked) guests.push(inp.getAttribute("data-comp-guest"));
         });
         var inicioEm = data + "T" + hora + ":00-03:00";
+        var payload = { titulo: titulo, descricao: descricao, inicioEm: inicioEm, participantes: guests };
+        var url = "/api/chamados/agenda/compromissos";
+        var method = "POST";
+        if (editComp && editComp.id) {
+          url = url + "/" + encodeURIComponent(editComp.id);
+          method = "PATCH";
+        }
         deps.auth
-          .apiFetch("/api/chamados/agenda/compromissos", {
-            method: "POST",
+          .apiFetch(url, {
+            method: method,
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ titulo: titulo, descricao: descricao, inicioEm: inicioEm, participantes: guests }),
+            body: JSON.stringify(payload),
           })
           .then(function (r) {
             if (!r.ok) throw new Error("create");
@@ -1044,6 +1111,7 @@
 
       bindChamadoClicks(deps.mainEl);
       bindDeleteComp(deps.mainEl);
+      bindEditComp(deps.mainEl);
       if (state.mode === "dia") scrollSequenciaTimelineIntoView(deps.mainEl);
       deps.ensureFab("compromisso", openCompromissoSheet);
     }

@@ -102,9 +102,8 @@ export function PortalSidebar() {
   const perm = preview?.effectiveMenuPermissions ?? session?.menuPermissions ?? {};
   const isRealMaster = preview?.effectiveIsMasterForNav ?? session?.isMaster ?? false;
   const menuItems = filterSidebarItems(menu.items, perm);
-  const { resumo: chamadosResumo, loading: chamadosResumoLoading } = useChamadosResumo(
-    moduleId === "chamados",
-  );
+  const chamadosNavActive = moduleId === "chamados";
+  const { resumo: chamadosResumo, loading: chamadosResumoLoading } = useChamadosResumo(chamadosNavActive);
   const accountHref = (() => {
     if (perm === "all") return "/config/usuarios";
     const cfg = perm.config;
@@ -166,7 +165,7 @@ export function PortalSidebar() {
                   {atlCadastrosPendentes > 99 ? "99+" : atlCadastrosPendentes}
                 </span>
               : null}
-              {moduleId === "chamados" && !chamadosResumoLoading && href === "/chamados/conversas" ?
+              {chamadosNavActive && href === "/chamados/conversas" ?
                 <span className="portal-sidebar-chamados-badges">
                   {chamadosResumo.conversasMencoes > 0 ?
                     <span
@@ -194,7 +193,7 @@ export function PortalSidebar() {
                   : null}
                 </span>
               : null}
-              {moduleId === "chamados" && !chamadosResumoLoading && href === "/chamados/kanban" ?
+              {chamadosNavActive && href === "/chamados/kanban" ?
                 chamadosResumo.chamadosNaoLidos > 0 ?
                   <span className="portal-sidebar-chamados-badges">
                     <span

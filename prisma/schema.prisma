@@ -738,6 +738,10 @@ model Chamado {
   clienteNome      String            @default("") @map("cliente_nome") @db.VarChar(200)
   /// Prazo de entrega (agenda / template cliente novo).
   prazoEntrega     DateTime?         @map("prazo_entrega")
+  /// Dia a partir do qual o chamado aparece na agenda e nas notificações (padrão: abertura).
+  agendaVisivelDesde DateTime?       @map("agenda_visivel_desde")
+  /// E-mail/push de abertura já disparado (incl. após data inicial futura).
+  agendaVisivelNotificado Boolean    @default(true) @map("agenda_visivel_notificado")
   templateKind     String?           @map("template_kind") @db.VarChar(32)
   sequenciaGrupoId String?           @map("sequencia_grupo_id") @db.VarChar(64)
   sequenciaPasso   Int?              @map("sequencia_passo")

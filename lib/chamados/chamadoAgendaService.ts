@@ -7,6 +7,7 @@ import {
   getChamadoUserContext,
   type ChamadoUserContext,
 } from "@/lib/chamados/chamadoService";
+import { chamadoAgendaVisivelNow, startOfDaySaoPaulo } from "@/lib/chamados/chamadoAgendaVisibility";
 
 export type ChamadoAgendaItem = ChamadoView & {
   prazoLabel: string;
@@ -73,9 +74,12 @@ export async function listChamadosAgendaForUser(
     undefined
   : { status: { in: ["aberto", "em_andamento", "aguardando"] as ("aberto" | "em_andamento" | "aguardando")[] } };
 
+  const visivelAte = startOfDaySaoPaulo(toEnd);
+
   const rows = await prisma.chamado.findMany({
     where: {
       prazoEntrega: { not: null, gte: from, lte: toEnd },
+      OR: [{ agendaVisivelDesde: null }, { agendaVisivelDesde: { lte: visivelAte } }],
       ...(statusFilter ?? {}),
     },
     orderBy: { prazoEntrega: "asc" },
@@ -84,6 +88,7 @@ export async function listChamadosAgendaForUser(
   const out: ChamadoAgendaItem[] = [];
   for (const row of rows) {
     if (!userParticipatesInChamado(row, ctx)) continue;
+    if (!chamadoAgendaVisivelNow(row)) continue;
     const view = chamadoToView(row);
     if (!view.prazoEntrega) continue;
     const finalizado = row.status === "fechado";
@@ -166,6 +171,7 @@ export async function listAgendaSequenciaTimelinesForUser(
 
     const anyPrazoInRange = groupRows.some((r) => {
       if (!r.prazoEntrega) return false;
+      if (!chamadoAgendaVisivelNow(r)) return false;
       const t = r.prazoEntrega.getTime();
       return t >= from.getTime() && t <= to.getTime();
     });

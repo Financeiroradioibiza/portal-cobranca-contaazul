@@ -18,6 +18,7 @@ import {
 import { ChamadoAnexosBlock } from "@/components/chamados/ChamadoAnexosBlock";
 import { ChamadoClienteNovoStepsEditor } from "@/components/chamados/ChamadoClienteNovoStepsEditor";
 import { ChamadoComentariosBlock } from "@/components/chamados/ChamadoComentariosBlock";
+import { ChamadoMentionCorpo } from "@/components/chamados/ChamadoMentionCorpo";
 import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 import {
   buildDefaultClienteNovoSteps,
@@ -139,6 +140,7 @@ export function ChamadosBoard({
   const [formPrazoModo, setFormPrazoModo] = useState<PrazoModo>("um_dia_util");
   const [formDataInstalacao, setFormDataInstalacao] = useState("");
   const [formPrazoLimite, setFormPrazoLimite] = useState(() => defaultPrazoLimiteInput());
+  const [formVisivelDesde, setFormVisivelDesde] = useState(() => defaultPrazoLimiteInput());
   const [formSequenciaSteps, setFormSequenciaSteps] = useState<SequenciaStepDraft[]>(() =>
     buildDefaultClienteNovoSteps(new Date(), "um_dia_util"),
   );
@@ -362,6 +364,7 @@ export function ChamadosBoard({
             setores: formSetores,
             responsaveis: formResp,
             prazoEntrega: formPrazoLimite,
+            agendaVisivelDesde: formVisivelDesde,
             rioLinhaId: formVinculo.rioLinhaId,
             rioPdvKey: formVinculo.rioPdvKey,
             clienteNome: formVinculo.clienteNome,
@@ -656,6 +659,8 @@ export function ChamadosBoard({
           onDataInstalacao={setFormDataInstalacao}
           prazoLimite={formPrazoLimite}
           onPrazoLimite={setFormPrazoLimite}
+          visivelDesde={formVisivelDesde}
+          onVisivelDesde={setFormVisivelDesde}
           onClose={() => setCreating(false)}
           onSubmit={createChamado}
           submitLabel="Abrir chamado"
@@ -694,11 +699,9 @@ export function ChamadosBoard({
                   const has = prev.some((c) => c.id === proximo.id);
                   return has ? prev.map((c) => (c.id === proximo.id ? proximo : c)) : [proximo, ...prev];
                 });
-                setSelected(proximo);
-              } else if (fim && fechado) {
-                setSelected(fechado);
               }
               setMsg(fim ? "Fluxo cliente novo concluído." : "Próxima etapa aberta.");
+              setSelected(null);
               await load();
             } finally {
               setBusy(false);
@@ -884,6 +887,8 @@ function FormModal({
   onDataInstalacao,
   prazoLimite,
   onPrazoLimite,
+  visivelDesde,
+  onVisivelDesde,
   onClose,
   onSubmit,
   submitLabel,
@@ -917,6 +922,8 @@ function FormModal({
   onDataInstalacao: (v: string) => void;
   prazoLimite: string;
   onPrazoLimite: (v: string) => void;
+  visivelDesde: string;
+  onVisivelDesde: (v: string) => void;
   onClose: () => void;
   onSubmit: () => void;
   submitLabel: string;
@@ -964,18 +971,30 @@ function FormModal({
           participants={participants}
         />
       : <>
-          <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
-            Data limite (agenda)
-            <input
-              type="date"
-              required
-              className="mt-1 w-full max-w-[12rem] rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-              value={prazoLimite}
-              onChange={(e) => onPrazoLimite(e.target.value)}
-            />
-          </label>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+              Visível a partir de
+              <input
+                type="date"
+                required
+                className="mt-1 block w-full max-w-[12rem] rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+                value={visivelDesde}
+                onChange={(e) => onVisivelDesde(e.target.value)}
+              />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+              Data limite (agenda)
+              <input
+                type="date"
+                required
+                className="mt-1 block w-full max-w-[12rem] rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+                value={prazoLimite}
+                onChange={(e) => onPrazoLimite(e.target.value)}
+              />
+            </label>
+          </div>
           <p className="mt-1 text-[10px] text-slate-500">
-            Todos os envolvidos (setores e responsáveis) veem o chamado neste dia na agenda.
+            Antes da data inicial o chamado não entra na agenda nem nas notificações.
           </p>
           <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-400">
             Descrição
@@ -1119,14 +1138,21 @@ function DetailModal({
   const [setores, setSetores] = useState(chamado.setores);
   const [responsaveis, setResponsaveis] = useState(chamado.responsaveis);
   const [prazoLimite, setPrazoLimite] = useState(() => prazoLimiteInputFromIso(chamado.prazoEntrega));
+  const [visivelDesde, setVisivelDesde] = useState(
+    () => prazoLimiteInputFromIso(chamado.agendaVisivelDesde) || defaultPrazoLimiteInput(),
+  );
   const [editMeta, setEditMeta] = useState(false);
+  const [flowBusy, setFlowBusy] = useState(false);
+  const processing = busy || flowBusy;
 
   useEffect(() => {
     setPrioridade(chamado.prioridade);
     setSetores(chamado.setores);
     setResponsaveis(chamado.responsaveis);
     setPrazoLimite(prazoLimiteInputFromIso(chamado.prazoEntrega));
+    setVisivelDesde(prazoLimiteInputFromIso(chamado.agendaVisivelDesde) || defaultPrazoLimiteInput());
     setEditMeta(false);
+    setFlowBusy(false);
   }, [chamado]);
 
   const pri = prioridadeMeta(prioridade);
@@ -1136,7 +1162,9 @@ function DetailModal({
     !arraysEqual(setores, chamado.setores) ||
     !arraysEqual(responsaveis, chamado.responsaveis) ||
     (!chamado.sequenciaGrupoId &&
-      prazoLimite !== prazoLimiteInputFromIso(chamado.prazoEntrega));
+      (prazoLimite !== prazoLimiteInputFromIso(chamado.prazoEntrega) ||
+        visivelDesde !==
+          (prazoLimiteInputFromIso(chamado.agendaVisivelDesde) || defaultPrazoLimiteInput())));
 
   const sequenciaAtiva =
     Boolean(chamado.sequenciaGrupoId) &&
@@ -1208,16 +1236,28 @@ function DetailModal({
       {editMeta ?
         <div className="mb-3 space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3 dark:border-violet-800 dark:bg-violet-950/20">
           {!chamado.sequenciaGrupoId ?
-            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
-              Data limite (agenda)
-              <input
-                type="date"
-                required
-                className="mt-1 w-full max-w-[12rem] rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-950"
-                value={prazoLimite}
-                onChange={(e) => setPrazoLimite(e.target.value)}
-              />
-            </label>
+            <div className="flex flex-wrap gap-3">
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+                Visível a partir de
+                <input
+                  type="date"
+                  required
+                  className="mt-1 block w-full max-w-[12rem] rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-950"
+                  value={visivelDesde}
+                  onChange={(e) => setVisivelDesde(e.target.value)}
+                />
+              </label>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+                Data limite (agenda)
+                <input
+                  type="date"
+                  required
+                  className="mt-1 block w-full max-w-[12rem] rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-950"
+                  value={prazoLimite}
+                  onChange={(e) => setPrazoLimite(e.target.value)}
+                />
+              </label>
+            </div>
           : null}
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-500">Prioridade</p>
@@ -1300,7 +1340,7 @@ function DetailModal({
           Pedido inicial · {chamado.criadoPorNome} · {fmtWhen(chamado.createdAt)}
         </p>
         <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-slate-100">
-          {chamado.descricao || "—"}
+          <ChamadoMentionCorpo corpo={chamado.descricao || "—"} participants={participants} />
         </p>
         <ChamadoAnexosBlock chamadoId={chamado.id} scope="initial" compact label="Anexos do pedido" />
       </div>
@@ -1340,39 +1380,55 @@ function DetailModal({
         {chamado.status === "aberto" ?
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void onPatch(chamado.id, { status: "em_andamento", notificar: true })}
-            className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200"
+            disabled={processing}
+            onClick={() => {
+              setFlowBusy(true);
+              void onPatch(chamado.id, { status: "em_andamento", notificar: true })
+                .then(() => onClose())
+                .finally(() => setFlowBusy(false));
+            }}
+            className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200 disabled:opacity-60"
           >
-            Em andamento
+            {processing ? "Processando…" : "Em andamento"}
           </button>
         : null}
         {sequenciaAtiva ?
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void onSequenciaProximo(chamado.id)}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+            disabled={processing}
+            onClick={() => {
+              setFlowBusy(true);
+              void onSequenciaProximo(chamado.id).finally(() => setFlowBusy(false));
+            }}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
           >
-            Encerrar / próximo processo
+            {processing ? "Processando…" : "Encerrar / próximo processo"}
           </button>
         : sequenciaUltima ?
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void onSequenciaProximo(chamado.id)}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+            disabled={processing}
+            onClick={() => {
+              setFlowBusy(true);
+              void onSequenciaProximo(chamado.id).finally(() => setFlowBusy(false));
+            }}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
           >
-            Encerrar fluxo
+            {processing ? "Processando…" : "Encerrar fluxo"}
           </button>
         : chamado.status !== "fechado" ?
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void onPatch(chamado.id, { status: "fechado", notificar: true })}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+            disabled={processing}
+            onClick={() => {
+              setFlowBusy(true);
+              void onPatch(chamado.id, { status: "fechado", notificar: true })
+                .then(() => onClose())
+                .finally(() => setFlowBusy(false));
+            }}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
           >
-            Resolver / fechar
+            {processing ? "Processando…" : "Resolver / fechar"}
           </button>
         : null}
         <button
@@ -1386,7 +1442,10 @@ function DetailModal({
               setores,
               responsaveis,
               ...(!chamado.sequenciaGrupoId ?
-                { prazoEntrega: prazoLimite.trim() || null }
+                {
+                  prazoEntrega: prazoLimite.trim() || null,
+                  agendaVisivelDesde: visivelDesde.trim() || null,
+                }
               : {}),
               notificar: false,
             }).then(() => setEditMeta(false));

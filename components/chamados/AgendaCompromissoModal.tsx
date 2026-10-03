@@ -2,6 +2,15 @@
 
 import { useEffect, useState } from "react";
 import type { ChamadoParticipant } from "@/lib/chamados/chamadoTypes";
+import { prazoLimiteInputFromIso } from "@/lib/chamados/chamadoUtils";
+
+export type AgendaCompromissoEditInitial = {
+  id: string;
+  titulo: string;
+  descricao: string;
+  inicioEm: string;
+  participantes: string[];
+};
 
 type Props = {
   open: boolean;
@@ -9,6 +18,7 @@ type Props = {
   defaultDate: string;
   participants: ChamadoParticipant[];
   viewerEmail: string;
+  edit?: AgendaCompromissoEditInitial | null;
   onClose: () => void;
   onSubmit: (payload: {
     titulo: string;
@@ -16,7 +26,37 @@ type Props = {
     inicioEm: string;
     participantes: string[];
   }) => void;
+  onUpdate?: (
+    id: string,
+    payload: {
+      titulo: string;
+      descricao: string;
+      inicioEm: string;
+      participantes: string[];
+    },
+  ) => void;
 };
+
+function isoToLocalDateTime(iso: string): { date: string; hora: string } {
+  try {
+    const d = new Date(iso);
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+    const hora = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+    return { date, hora: hora.replace(".", ":") };
+  } catch {
+    return { date: prazoLimiteInputFromIso(iso), hora: "09:00" };
+  }
+}
 
 export function AgendaCompromissoModal({
   open,
@@ -24,8 +64,10 @@ export function AgendaCompromissoModal({
   defaultDate,
   participants,
   viewerEmail,
+  edit,
   onClose,
   onSubmit,
+  onUpdate,
 }: Props) {
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
@@ -34,14 +76,22 @@ export function AgendaCompromissoModal({
   const [sel, setSel] = useState<string[]>([]);
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    if (edit) {
+      setTitulo(edit.titulo);
+      setDescricao(edit.descricao || "");
+      const { date, hora: h } = isoToLocalDateTime(edit.inicioEm);
+      setData(date || defaultDate);
+      setHora(h);
+      setSel(edit.participantes.slice());
+    } else {
       setData(defaultDate);
       setTitulo("");
       setDescricao("");
       setHora("09:00");
       setSel([]);
     }
-  }, [open, defaultDate]);
+  }, [open, defaultDate, edit]);
 
   if (!open) return null;
 
@@ -56,7 +106,9 @@ export function AgendaCompromissoModal({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const inicioEm = `${data}T${hora}:00-03:00`;
-    onSubmit({ titulo, descricao, inicioEm, participantes: sel });
+    const payload = { titulo, descricao, inicioEm, participantes: sel };
+    if (edit && onUpdate) onUpdate(edit.id, payload);
+    else onSubmit(payload);
   }
 
   return (
@@ -65,7 +117,9 @@ export function AgendaCompromissoModal({
         onSubmit={handleSubmit}
         className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
       >
-        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Novo compromisso</h3>
+        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+          {edit ? "Editar compromisso" : "Novo compromisso"}
+        </h3>
         <p className="mt-1 text-[11px] text-slate-500">
           Aparece na agenda em <strong className="text-sky-700 dark:text-sky-300">azul</strong> para você; convidados
           veem em <strong className="text-amber-700 dark:text-amber-300">âmbar</strong>.
@@ -148,7 +202,7 @@ export function AgendaCompromissoModal({
             disabled={busy || !titulo.trim()}
             className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
           >
-            {busy ? "Salvando…" : "Salvar compromisso"}
+            {busy ? "Salvando…" : edit ? "Salvar alterações" : "Salvar compromisso"}
           </button>
         </div>
       </form>

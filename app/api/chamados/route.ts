@@ -8,6 +8,7 @@ import {
 import { getChamadosResumoForUser } from "@/lib/chamados/chamadosResumo";
 import {
   createChamado,
+  flushDeferredChamadoVisibilityNotifications,
   getChamadoUserContext,
   listAllChamados,
   listChamadosForUser,
@@ -31,6 +32,8 @@ export async function GET(request: Request) {
     if (!ctx) {
       return NextResponse.json({ error: "user_not_found" }, { status: 404 });
     }
+
+    await flushDeferredChamadoVisibilityNotifications();
 
     const scope = new URL(request.url).searchParams.get("scope");
     let chamados =
@@ -109,6 +112,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "prazo_obrigatorio" }, { status: 400 });
     }
 
+    const agendaVisivelDesde =
+      typeof body.agendaVisivelDesde === "string" ? body.agendaVisivelDesde.trim()
+      : typeof body.prazoVisivelDesde === "string" ? body.prazoVisivelDesde.trim()
+      : typeof body.visivelDesde === "string" ? body.visivelDesde.trim()
+      : undefined;
+
     const chamado = await createChamado(
       {
         titulo,
@@ -117,6 +126,7 @@ export async function POST(request: Request) {
         setores,
         responsaveis,
         prazoEntrega,
+        agendaVisivelDesde,
         rioLinhaId,
         rioPdvKey,
         clienteNome,

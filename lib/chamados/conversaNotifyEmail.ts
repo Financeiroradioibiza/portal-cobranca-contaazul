@@ -64,6 +64,39 @@ export function scheduleConversaGrupoActivityEmails(opts: {
   }
 }
 
+/** Resposta direta a uma mensagem — notifica o autor original (exceto quem respondeu). */
+export function scheduleConversaReplyEmail(opts: {
+  assuntoSlug: string;
+  assuntoTitulo: string;
+  autorNome: string;
+  replyToAutorEmail: string;
+  corpoPreview?: string;
+  excludeEmail?: string;
+}): void {
+  const to = normalizePortalEmail(opts.replyToAutorEmail);
+  const exclude = normalizePortalEmail(opts.excludeEmail ?? "");
+  if (!to.includes("@") || to === exclude) return;
+
+  after(async () => {
+    const label = conversaDisplayTitulo(opts.assuntoSlug, opts.assuntoTitulo);
+    const preview = opts.corpoPreview?.trim() ?? "";
+    const subject = `Resposta à sua mensagem em ${label} — IbiZap Chat`;
+
+    try {
+      await sendPushToEmails([to], {
+        title: subject.slice(0, 120),
+        body: (preview ? `${opts.autorNome}: ${preview}` : `${opts.autorNome} respondeu você`).slice(
+          0,
+          200,
+        ),
+        url: chamadosMobilePushUrl({ conversa: opts.assuntoSlug }),
+      });
+    } catch (e) {
+      console.error("[conversaNotify] falha push resposta", e);
+    }
+  });
+}
+
 export function scheduleConversaActivityEmail(opts: {
   assuntoSlug: string;
   assuntoTitulo: string;

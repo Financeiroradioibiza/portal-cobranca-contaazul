@@ -70,6 +70,7 @@ export function chamadoToView(row: Chamado): ChamadoView {
     rioPdvKey: row.rioPdvKey,
     clienteNome: row.clienteNome,
     prazoEntrega: row.prazoEntrega?.toISOString() ?? null,
+    agendaVisivelDesde: row.agendaVisivelDesde?.toISOString() ?? null,
     templateKind: row.templateKind,
     sequenciaGrupoId: row.sequenciaGrupoId,
     sequenciaPasso: row.sequenciaPasso,

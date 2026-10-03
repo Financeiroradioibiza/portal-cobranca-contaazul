@@ -19,6 +19,7 @@ export type ChamadoView = {
   createdAt: string;
   updatedAt: string;
   prazoEntrega: string | null;
+  agendaVisivelDesde: string | null;
   templateKind: string | null;
   sequenciaGrupoId: string | null;
   sequenciaPasso: number | null;
@@ -52,8 +53,10 @@ export type CreateChamadoInput = {
   prioridade: ChamadoPrioridade;
   setores: string[];
   responsaveis: string[];
-  /** Obrigatório — dia na agenda (YYYY-MM-DD ou ISO). */
+  /** Obrigatório — dia limite na agenda (YYYY-MM-DD ou ISO). */
   prazoEntrega: string;
+  /** Quando passa a aparecer na agenda/notificações (YYYY-MM-DD); padrão hoje. */
+  agendaVisivelDesde?: string;
   rioLinhaId?: string | null;
   rioPdvKey?: string | null;
   clienteNome?: string;
@@ -94,6 +97,7 @@ export type UpdateChamadoInput = {
   responsaveis?: string[];
   /** Data na agenda (YYYY-MM-DD ou ISO); null limpa. */
   prazoEntrega?: string | null;
+  agendaVisivelDesde?: string | null;
   /** Salvar no portal — sempre notificar setores/responsáveis (como reenviar). */
   notificar?: boolean;
 };

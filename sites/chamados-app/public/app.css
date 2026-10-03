@@ -2168,6 +2168,17 @@ div.agenda-detail-row {
   box-shadow: 0 1px 4px rgba(2, 132, 199, 0.4);
 }
 
+.corpo-link {
+  color: #0284c7;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.corpo-link:hover {
+  color: #0369a1;
+}
+
 .bottom-nav .nav-badge-mention {
   right: 0.15rem;
   top: 0.05rem;

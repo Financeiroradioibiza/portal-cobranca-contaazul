@@ -44,6 +44,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
           body.prazoEntrega === null ? null
           : typeof body.prazoEntrega === "string" ? body.prazoEntrega.trim() || null
           : undefined,
+        agendaVisivelDesde:
+          body.agendaVisivelDesde === null ? null
+          : typeof body.agendaVisivelDesde === "string" ? body.agendaVisivelDesde.trim() || null
+          : typeof body.prazoVisivelDesde === "string" ? body.prazoVisivelDesde.trim() || null
+          : undefined,
         notificar: body.notificar === true,
       },
       userCtx,
