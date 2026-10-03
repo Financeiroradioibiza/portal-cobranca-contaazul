@@ -5,15 +5,19 @@
   var ICONS = { day: "☀️", night: "🌙", ibiza: "💜" };
   var META_COLORS = { day: "#1565c0", night: "#0f172a", ibiza: "#6b21a8" };
 
+  var DEFAULT_THEME = "ibiza";
+
   function normalize(raw) {
-    return ORDER.indexOf(raw) >= 0 ? raw : "day";
+    return ORDER.indexOf(raw) >= 0 ? raw : DEFAULT_THEME;
   }
 
   function getTheme() {
     try {
-      return normalize(localStorage.getItem(STORAGE_KEY));
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw == null || raw === "") return DEFAULT_THEME;
+      return normalize(raw);
     } catch (e) {
-      return "day";
+      return DEFAULT_THEME;
     }
   }
 

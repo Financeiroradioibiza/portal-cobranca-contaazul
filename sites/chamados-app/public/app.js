@@ -15,7 +15,7 @@
 
   var state = {
     user: null,
-    tab: "tickets",
+    tab: "agenda",
     ticketFilter: "abertos",
     chamados: [],
     resumo: null,
