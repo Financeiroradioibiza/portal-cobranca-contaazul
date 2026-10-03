@@ -157,6 +157,7 @@
       anchor: startOfDay(new Date()),
       items: [],
       semPrazo: [],
+      atrasados: [],
       compromissos: [],
       sequencias: [],
       showFinalizados: readShowFinalizados(),
@@ -183,12 +184,14 @@
         .then(function (data) {
           state.items = Array.isArray(data.items) ? data.items : [];
           state.semPrazo = Array.isArray(data.semPrazo) ? data.semPrazo : [];
+          state.atrasados = Array.isArray(data.atrasados) ? data.atrasados : [];
           state.sequencias = Array.isArray(data.sequencias) ? data.sequencias : [];
           state.compromissos = Array.isArray(data.compromissos) ? data.compromissos : [];
         })
         .catch(function () {
           state.items = [];
           state.semPrazo = [];
+          state.atrasados = [];
           state.sequencias = [];
           state.compromissos = [];
         })
@@ -546,9 +549,33 @@
       });
     }
 
+    function atrasadosHtml() {
+      if (!state.atrasados.length) return "";
+      var html =
+        '<section class="agenda-atrasados"><div class="agenda-kicker">Prazo passou · ainda em aberto</div><div class="agenda-sem-prazo-list">';
+      state.atrasados.forEach(function (it, i) {
+        html +=
+          '<button type="button" class="agenda-sem-prazo-btn agenda-atrasado-btn" data-chamado-id="' +
+          deps.escapeHtml(it.id) +
+          '">' +
+          '<span class="agenda-sem-prazo-badge">' +
+          (i + 1) +
+          "</span>" +
+          '<span class="agenda-sem-prazo-title">' +
+          deps.escapeHtml(it.titulo) +
+          "</span>" +
+          '<span class="agenda-sem-prazo-cta">' +
+          deps.escapeHtml(it.prazoLabel || "Abrir") +
+          "</span></button>";
+      });
+      html += "</div></section>";
+      return html;
+    }
+
     function semPrazoHtml() {
       if (!state.semPrazo.length) return "";
-      var html = '<div class="agenda-sem-prazo-list">';
+      var html =
+        '<section class="agenda-sem-prazo"><div class="agenda-kicker">Sem data na agenda</div><div class="agenda-sem-prazo-list">';
       state.semPrazo.forEach(function (it, i) {
         html +=
           '<button type="button" class="agenda-sem-prazo-btn" data-chamado-id="' +
@@ -562,7 +589,7 @@
           "</span>" +
           '<span class="agenda-sem-prazo-cta">Definir data</span></button>';
       });
-      html += "</div>";
+      html += "</div></section>";
       return html;
     }
 
@@ -1038,6 +1065,7 @@
 
       var seqDayKey = state.mode === "dia" ? toIsoLocal(startOfDay(state.anchor)) : null;
       html += sequenciasStackHtml(seqDayKey);
+      html += atrasadosHtml();
       html += semPrazoHtml();
 
       if (state.mode === "mes") {
@@ -1054,6 +1082,7 @@
         !state.loading &&
         state.items.length === 0 &&
         state.semPrazo.length === 0 &&
+        state.atrasados.length === 0 &&
         state.compromissos.length === 0 &&
         state.sequencias.length === 0;
       if (empty) html += '<p class="empty agenda-v2-empty">Nada na agenda neste período.</p>';

@@ -1338,13 +1338,19 @@
   }
 
   function loadChamados() {
-    return auth.apiFetch("/api/chamados?scope=mine-all").then(function (r) {
-      if (!r.ok) throw new Error("chamados");
-      return r.json();
-    }).then(function (d) {
-      state.chamados = d.chamados || [];
-      state.resumo = d.resumo || null;
-    });
+    return auth
+      .apiFetch("/api/chamados?scope=mine-all")
+      .then(function (r) {
+        if (!r.ok) throw new Error("chamados");
+        return r.json();
+      })
+      .then(function (d) {
+        state.chamados = d.chamados || [];
+        state.resumo = d.resumo || null;
+      })
+      .catch(function () {
+        state.chamados = state.chamados || [];
+      });
   }
 
   function loadAssuntos() {

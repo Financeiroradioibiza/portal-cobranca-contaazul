@@ -2179,6 +2179,14 @@ div.agenda-detail-row {
   color: #0369a1;
 }
 
+.agenda-atrasados {
+  margin-bottom: 0.75rem;
+}
+
+.agenda-atrasado-btn {
+  border-color: rgba(234, 88, 12, 0.45);
+}
+
 .bottom-nav .nav-badge-mention {
   right: 0.15rem;
   top: 0.05rem;

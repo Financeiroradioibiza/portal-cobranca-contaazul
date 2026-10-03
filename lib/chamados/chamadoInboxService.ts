@@ -85,7 +85,9 @@ export function attachInboxToChamados(
   return chamados.map((c) => {
     const raw = inbox.get(c.id) ?? 0;
     const visivel = chamadoAgendaVisivelNow({
-      agendaVisivelDesde: c.agendaVisivelDesde ? new Date(c.agendaVisivelDesde) : null,
+      agendaVisivelDesde:
+        c.agendaVisivelDesde ? new Date(c.agendaVisivelDesde)
+        : null,
       createdAt: new Date(c.createdAt),
     });
     return {

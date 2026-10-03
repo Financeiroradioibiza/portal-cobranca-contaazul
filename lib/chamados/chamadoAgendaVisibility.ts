@@ -37,14 +37,24 @@ export function chamadoAgendaVisivelNow(row: {
 
 /** Garante início preenchido no banco (legado sem migrate ou PATCH que zerou o campo). */
 export async function backfillChamadoAgendaVisivelDesde(): Promise<void> {
-  await prisma.$executeRaw`
-    UPDATE chamado SET agenda_visivel_desde = created_at WHERE agenda_visivel_desde IS NULL
-  `;
-  /* Legado: início no futuro em chamado já aberto antes do recurso — tratar como abertura. */
-  await prisma.$executeRaw`
-    UPDATE chamado
-    SET agenda_visivel_desde = created_at
-    WHERE agenda_visivel_desde > created_at
-      AND created_at < '2026-10-03 12:00:00'
-  `;
+  try {
+    await prisma.$executeRaw`
+      UPDATE chamado SET agenda_visivel_desde = created_at WHERE agenda_visivel_desde IS NULL
+    `;
+    /* Abertos antigos com “início” no futuro por engano — voltam a valer desde a abertura. */
+    await prisma.$executeRaw`
+      UPDATE chamado
+      SET agenda_visivel_desde = created_at
+      WHERE status IN ('aberto', 'em_andamento', 'aguardando')
+        AND (
+          agenda_visivel_desde IS NULL
+          OR (
+            agenda_visivel_desde > NOW()
+            AND created_at < DATE_SUB(NOW(), INTERVAL 2 DAY)
+          )
+        )
+    `;
+  } catch (e) {
+    console.error("[chamadoAgendaVisibility] backfill agenda_visivel_desde", e);
+  }
 }

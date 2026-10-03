@@ -10,6 +10,7 @@ import {
 import {
   backfillChamadoAgendaVisivelDesde,
   chamadoAgendaVisivelNow,
+  startOfDaySaoPaulo,
 } from "@/lib/chamados/chamadoAgendaVisibility";
 
 export type ChamadoAgendaItem = ChamadoView & {
@@ -18,6 +19,8 @@ export type ChamadoAgendaItem = ChamadoView & {
   agendaFinalizado?: boolean;
   /** Aberto sem data — lista separada; usuário é criador ou responsável. */
   agendaSemPrazo?: boolean;
+  /** Prazo no passado, ainda em aberto. */
+  agendaAtrasado?: boolean;
 };
 
 function sequenciaTotalmenteEncerrada(rows: { status: string }[]): boolean {
@@ -104,10 +107,45 @@ export async function listChamadosAgendaForUser(
   return out;
 }
 
+/** Em aberto com prazo já passou — não entram na grade do mês atual, mas devem aparecer na agenda (mobile). */
+export async function listChamadosAgendaAtrasadosForUser(userEmail: string): Promise<ChamadoAgendaItem[]> {
+  const ctx = await getChamadoUserContext(userEmail);
+  if (!ctx) return [];
+
+  await backfillChamadoAgendaVisivelDesde();
+
+  const startToday = startOfDaySaoPaulo(new Date());
+
+  const rows = await prisma.chamado.findMany({
+    where: {
+      prazoEntrega: { not: null, lt: startToday },
+      status: { in: ["aberto", "em_andamento", "aguardando"] },
+    },
+    orderBy: { prazoEntrega: "asc" },
+    take: 120,
+  });
+
+  const out: ChamadoAgendaItem[] = [];
+  for (const row of rows) {
+    if (!userParticipatesInChamado(row, ctx)) continue;
+    if (!chamadoAgendaVisivelNow(row)) continue;
+    const view = chamadoToView(row);
+    if (!view.prazoEntrega) continue;
+    out.push({
+      ...view,
+      prazoLabel: fmtPrazo(view.prazoEntrega),
+      agendaAtrasado: true,
+    });
+  }
+  return out;
+}
+
 /** Chamados em aberto atribuídos a você (ou que você abriu) sem data de prazo — aparecem fora da grade. */
 export async function listChamadosAgendaSemPrazoForUser(userEmail: string): Promise<ChamadoAgendaItem[]> {
   const ctx = await getChamadoUserContext(userEmail);
   if (!ctx) return [];
+
+  await backfillChamadoAgendaVisivelDesde();
 
   const rows = await prisma.chamado.findMany({
     where: {
@@ -121,6 +159,7 @@ export async function listChamadosAgendaSemPrazoForUser(userEmail: string): Prom
   const out: ChamadoAgendaItem[] = [];
   for (const row of rows) {
     if (!userParticipatesInChamado(row, ctx)) continue;
+    if (!chamadoAgendaVisivelNow(row)) continue;
     const view = chamadoToView(row);
     out.push({
       ...view,

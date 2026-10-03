@@ -3,6 +3,7 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { listAgendaCompromissosForUser } from "@/lib/chamados/agendaCompromissoService";
 import {
   listAgendaSequenciaTimelinesForUser,
+  listChamadosAgendaAtrasadosForUser,
   listChamadosAgendaForUser,
   listChamadosAgendaSemPrazoForUser,
 } from "@/lib/chamados/chamadoAgendaService";
@@ -17,13 +18,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "from_to_obrigatorio" }, { status: 400 });
     }
     const includeFinalizados = url.searchParams.get("includeFinalizados") !== "0";
-    const [items, sequencias, compromissos, semPrazo] = await Promise.all([
+    const [items, sequencias, compromissos, semPrazo, atrasados] = await Promise.all([
       listChamadosAgendaForUser(session.email, from, to, { includeFinalizados }),
       listAgendaSequenciaTimelinesForUser(session.email, from, to),
       listAgendaCompromissosForUser(session.email, from, to),
       listChamadosAgendaSemPrazoForUser(session.email),
+      listChamadosAgendaAtrasadosForUser(session.email),
     ]);
-    return NextResponse.json({ ok: true, items, sequencias, compromissos, semPrazo });
+    return NextResponse.json({ ok: true, items, sequencias, compromissos, semPrazo, atrasados });
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[chamados/agenda GET]", e);
