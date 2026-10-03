@@ -625,17 +625,16 @@ function TimeGrid({
             </div>
             {days.map((day, dayIdx) => {
               const key = toIsoLocal(day);
+              const placeholder = lane.kind === "other" && lane.id === "__empty";
               const entry =
-                laneRows && lane.id !== "__empty" ?
-                  findEntryInLane(lane, key, entriesByDay)
-                : null;
+                laneRows && !placeholder ? findEntryInLane(lane, key, entriesByDay) : null;
               const spanMask = laneRows ? spanByLane[laneIdx] : null;
               return (
                 <div
                   key={`prazo-${key}-${laneIdx}`}
                   className="min-h-[1.75rem] border-r border-slate-200 p-0.5 last:border-r-0 dark:border-slate-700"
                 >
-                  {laneRows && lane.id !== "__empty" ?
+                  {laneRows && !placeholder ?
                     <AgendaLaneSlot
                       entry={entry}
                       lane={lane}

@@ -125,13 +125,7 @@ export async function listChamadosAgendaSemPrazoForUser(userEmail: string): Prom
 }
 
 function userSeesSequenciaTimeline(
-  groupRows: {
-    criadoPorEmail: string;
-    responsaveisJson: string;
-    setoresJson: string;
-    status: string;
-    sequenciaGrupoId: string | null;
-  }[],
+  groupRows: Parameters<typeof userParticipatesInChamado>[0][],
   ctx: ChamadoUserContext,
 ): boolean {
   return groupRows.some((r) => userParticipatesInChamado(r, ctx));
