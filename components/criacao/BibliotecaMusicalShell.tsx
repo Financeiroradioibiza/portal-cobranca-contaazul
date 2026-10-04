@@ -59,10 +59,37 @@ function SelectionDragHandle({
 }
 
 type ViewMode = "full" | "slim";
+type TagViewMode = "icons" | "full";
+
+const TAG_VIEW_STORAGE_KEY = "bib-tag-view-mode";
+
+function readTagViewMode(): TagViewMode {
+  if (typeof window === "undefined") return "icons";
+  try {
+    const v = localStorage.getItem(TAG_VIEW_STORAGE_KEY);
+    return v === "full" ? "full" : "icons";
+  } catch {
+    return "icons";
+  }
+}
 
 export function BibliotecaMusicalShell() {
   const [folder, setFolder] = useState<BibliotecaFolderKey>({ kind: "all", label: "Biblioteca" });
   const [viewMode, setViewMode] = useState<ViewMode>("slim");
+  const [tagViewMode, setTagViewModeState] = useState<TagViewMode>("icons");
+
+  useEffect(() => {
+    setTagViewModeState(readTagViewMode());
+  }, []);
+
+  const setTagViewMode = useCallback((mode: TagViewMode) => {
+    setTagViewModeState(mode);
+    try {
+      localStorage.setItem(TAG_VIEW_STORAGE_KEY, mode);
+    } catch {
+      /* silencioso */
+    }
+  }, []);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [sidebarRefresh, setSidebarRefresh] = useState(0);
@@ -322,6 +349,36 @@ export function BibliotecaMusicalShell() {
                 Slim
               </button>
             </div>
+            <div
+              className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700"
+              role="group"
+              aria-label="Visualização das tags criativas"
+            >
+              <button
+                type="button"
+                onClick={() => setTagViewMode("icons")}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  tagViewMode === "icons" ?
+                    "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                  : "text-slate-600 hover:bg-slate-50 dark:text-slate-300"
+                }`}
+                title="Avatares dos criativos — passe o mouse ou clique para ver os nomes das tags"
+              >
+                Tags no show
+              </button>
+              <button
+                type="button"
+                onClick={() => setTagViewMode("full")}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  tagViewMode === "full" ?
+                    "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                  : "text-slate-600 hover:bg-slate-50 dark:text-slate-300"
+                }`}
+                title="Mostra todos os chips de tag na linha"
+              >
+                Tags completos
+              </button>
+            </div>
             {folderListTotal > folderListPageSize ?
               <button
                 type="button"
@@ -367,6 +424,8 @@ export function BibliotecaMusicalShell() {
               folderTitle={folder.label}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
+              tagViewMode={tagViewMode}
+              onTagViewModeChange={setTagViewMode}
               dragMusicaEnabled
               selectedIds={selectedIds}
               onToggleSelect={(id, shiftKey, metaKey) => onToggleSelect(id, shiftKey, metaKey)}

@@ -10,6 +10,7 @@ export async function GET(request: Request) {
     const page = Number(url.searchParams.get("page") ?? "1");
     const pageSize = Number(url.searchParams.get("pageSize") ?? "100");
     const search = url.searchParams.get("search") ?? undefined;
+    const tagSearchOwner = url.searchParams.get("tagSearchOwner") ?? undefined;
     const status = url.searchParams.get("status") ?? undefined;
     const tagId = url.searchParams.get("tagId") ?? undefined;
     const bibliotecaPastaId = url.searchParams.get("bibliotecaPastaId") ?? undefined;
@@ -29,6 +30,10 @@ export async function GET(request: Request) {
       sortRaw === "titulo" ||
       sortRaw === "gravadora" ||
       sortRaw === "programacoes" ||
+      sortRaw === "likes_desc" ||
+      sortRaw === "likes_asc" ||
+      sortRaw === "dislikes_desc" ||
+      sortRaw === "dislikes_asc" ||
       sortRaw === "recent" ?
         sortRaw
       : "recent";
@@ -37,6 +42,7 @@ export async function GET(request: Request) {
       page: Number.isFinite(page) ? page : 1,
       pageSize: Number.isFinite(pageSize) ? pageSize : 100,
       search,
+      tagSearchOwner,
       status,
       tagId,
       bibliotecaPastaId,

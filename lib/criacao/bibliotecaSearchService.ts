@@ -3,13 +3,27 @@ import { prisma } from "@/lib/prisma";
 import { EXPLICIT_MUSICA_SQL } from "@/lib/criacao/explicitMusicaSql";
 import { LEGACY_MUSICA_SQL } from "@/lib/criacao/legacyMusicaSql";
 import { B2_FULL_MUSICA_SQL, PRE_B2_MUSICA_SQL } from "@/lib/criacao/musicaB2Criteria";
+import { tagCriativoOwnerSql } from "@/lib/criacao/bibliotecaTagOwnerFilter";
 
 export type BibliotecaCatalogSortBy =
   | "recent"
   | "artista"
   | "titulo"
   | "gravadora"
-  | "programacoes";
+  | "programacoes"
+  | "likes_desc"
+  | "likes_asc"
+  | "dislikes_desc"
+  | "dislikes_asc";
+
+export function isBibliotecaVoteSort(sortBy: BibliotecaCatalogSortBy | undefined): boolean {
+  return (
+    sortBy === "likes_desc" ||
+    sortBy === "likes_asc" ||
+    sortBy === "dislikes_desc" ||
+    sortBy === "dislikes_asc"
+  );
+}
 
 export type BibliotecaListFilter = "all" | "unused" | "leastUsed" | "legacy";
 
@@ -41,6 +55,8 @@ type BibliotecaSqlFilterOpts = {
   search?: string;
   status?: string;
   tagId?: string;
+  /** E-mail ou nome do criativo — restringe busca de tag (estilo Mercado Livre). */
+  tagSearchOwner?: string;
   gravadora?: string;
   explicitOnly?: boolean;
   bibliotecaPastaId?: string;
@@ -56,7 +72,18 @@ function buildBibliotecaSqlConditions(opts: BibliotecaSqlFilterOpts): Prisma.Sql
   }
 
   const q = opts.search?.trim();
-  if (q) {
+  const owner = opts.tagSearchOwner?.trim();
+  if (q && owner) {
+    const like = `%${q}%`;
+    const ownerSql = tagCriativoOwnerSql(owner);
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM musica_tag_manual mt
+      JOIN tag_criativo tc ON tc.id = mt.tag_id
+      WHERE mt.musica_id = m.id
+        AND tc.nome ILIKE ${like}
+        AND ${ownerSql}
+    )`);
+  } else if (q) {
     const like = `%${q}%`;
     conditions.push(Prisma.sql`(
       m.titulo ILIKE ${like}
@@ -64,6 +91,12 @@ function buildBibliotecaSqlConditions(opts: BibliotecaSqlFilterOpts): Prisma.Sql
       OR COALESCE(m.isrc, '') ILIKE ${like}
       OR COALESCE(m.tom, '') ILIKE ${like}
       OR m.tags_auto::text ILIKE ${like}
+      OR EXISTS (
+        SELECT 1 FROM musica_tag_manual mt
+        JOIN tag_criativo tc ON tc.id = mt.tag_id
+        WHERE mt.musica_id = m.id
+          AND (tc.nome ILIKE ${like} OR tc.criativo_nome ILIKE ${like})
+      )
     )`);
   }
 
@@ -107,7 +140,20 @@ function buildBibliotecaSqlConditions(opts: BibliotecaSqlFilterOpts): Prisma.Sql
   return conditions;
 }
 
-function catalogOrderSql(sortBy: BibliotecaCatalogSortBy): Prisma.Sql {
+function catalogOrderSql(sortBy: BibliotecaCatalogSortBy, voteJoin: boolean): Prisma.Sql {
+  if (voteJoin) {
+    switch (sortBy) {
+      case "likes_asc":
+        return Prisma.sql`COALESCE(v.likes, 0) ASC, m.titulo ASC`;
+      case "dislikes_desc":
+        return Prisma.sql`COALESCE(v.dislikes, 0) DESC, m.titulo ASC`;
+      case "dislikes_asc":
+        return Prisma.sql`COALESCE(v.dislikes, 0) ASC, m.titulo ASC`;
+      case "likes_desc":
+      default:
+        return Prisma.sql`COALESCE(v.likes, 0) DESC, m.titulo ASC`;
+    }
+  }
   switch (sortBy) {
     case "artista":
       return Prisma.sql`m.artista ASC, m.titulo ASC`;
@@ -133,12 +179,24 @@ export async function listMusicaIdsByCatalogFilter(
   const pageSize = Math.min(200, Math.max(1, opts.pageSize));
   const skip = (page - 1) * pageSize;
   const whereSql = Prisma.join(buildBibliotecaSqlConditions(opts), " AND ");
-  const orderSql = catalogOrderSql(opts.sortBy ?? "recent");
+  const voteJoin = isBibliotecaVoteSort(opts.sortBy);
+  const orderSql = catalogOrderSql(opts.sortBy ?? "recent", voteJoin);
+  const voteFrom = voteJoin ?
+    Prisma.sql`
+      FROM musica_biblioteca m
+      LEFT JOIN (
+        SELECT musica_id,
+          SUM(CASE WHEN voto = 'like' THEN 1 ELSE 0 END)::int AS likes,
+          SUM(CASE WHEN voto = 'dislike' THEN 1 ELSE 0 END)::int AS dislikes
+        FROM musica_biblioteca_voto
+        GROUP BY musica_id
+      ) v ON v.musica_id = m.id`
+  : Prisma.sql`FROM musica_biblioteca m`;
 
   const [idRows, countRows] = await Promise.all([
     prisma.$queryRaw<{ id: string }[]>`
       SELECT m.id
-        FROM musica_biblioteca m
+        ${voteFrom}
        WHERE ${whereSql}
        ORDER BY ${orderSql}
        LIMIT ${pageSize} OFFSET ${skip}`,

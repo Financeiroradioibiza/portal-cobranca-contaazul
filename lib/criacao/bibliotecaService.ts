@@ -5,6 +5,7 @@ import { pickLowestPreviewFormato } from "@/lib/criacao/previewFormato";
 import { countRejeicoesPorMusica } from "@/lib/criacao/rejeicaoService";
 import { countVotosPorMusica, type MusicaVotoCounts } from "@/lib/criacao/musicaVotoService";
 import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
+import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
 import {
@@ -22,6 +23,8 @@ import {
   deriveMusicaStorageBadges,
   type MusicaStorageBadge,
 } from "@/lib/criacao/musicaStorageBadges";
+import { tagCriativoOwnerPrisma } from "@/lib/criacao/bibliotecaTagOwnerFilter";
+import { isBibliotecaVoteSort } from "@/lib/criacao/bibliotecaSearchService";
 
 /** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
 export const TAG_SOURCE_LABEL: Record<string, string> = {
@@ -41,6 +44,10 @@ export type MusicaTagManualView = {
   cor: string;
   criativoIniciais: string;
   criativoNome: string;
+  criativoUserId: string | null;
+  criativoPortalUserId: string | null;
+  criativoHasAvatar: boolean;
+  criativoAvatarVersion: string | null;
 };
 
 export type MusicaBibliotecaRow = {
@@ -287,7 +294,7 @@ function buildSearchWhere(q: string): Prisma.MusicaBibliotecaWhereInput["OR"] {
 
 function mapMusicaToRow(
   m: MusicaDbRow,
-  criativoUserMap: Map<string, { tagIniciais: string | null; displayName: string | null }>,
+  criativoUserMap: Map<string, CriativoUserRow>,
   rejMap: Map<string, number>,
   progMap: Map<string, number>,
   votoMap: Map<string, MusicaVotoCounts>,
@@ -309,14 +316,23 @@ function mapMusicaToRow(
     status: m.status,
     mixSegundosFinais: m.mixSegundosFinais,
     tagsManuais: m.tagsManuais.map((tm) => {
-      const u = tm.tag.criativoUserId ? criativoUserMap.get(tm.tag.criativoUserId) : undefined;
-      const criativoNome = tm.tag.criativoNome || u?.displayName || "";
+      const email = tm.tag.criativoUserId?.trim() || null;
+      const portalUser = email ? criativoUserMap.get(email) : undefined;
+      const criativoNome = tm.tag.criativoNome || portalUser?.displayName || "";
       return {
         id: tm.tag.id,
         nome: tm.tag.nome,
         cor: tm.tag.cor,
-        criativoIniciais: resolveCriativoIniciais(u?.tagIniciais, criativoNome, tm.tag.criativoUserId),
+        criativoIniciais: resolveCriativoIniciais(
+          portalUser?.tagIniciais,
+          criativoNome,
+          tm.tag.criativoUserId,
+        ),
         criativoNome,
+        criativoUserId: email,
+        criativoPortalUserId: portalUser?.id ?? null,
+        criativoHasAvatar: portalUser?.hasAvatar ?? false,
+        criativoAvatarVersion: portalUser?.avatarVersion ?? null,
       };
     }),
     tagsAuto,
@@ -339,9 +355,16 @@ function mapMusicaToRow(
   };
 }
 
-async function loadCriativoUserMap(
-  items: MusicaDbRow[],
-): Promise<Map<string, { tagIniciais: string | null; displayName: string | null }>> {
+type CriativoUserRow = {
+  id: string;
+  email: string;
+  tagIniciais: string | null;
+  displayName: string | null;
+  hasAvatar: boolean;
+  avatarVersion: string | null;
+};
+
+async function loadCriativoUserMap(items: MusicaDbRow[]): Promise<Map<string, CriativoUserRow>> {
   const criativoEmails = [
     ...new Set(
       items.flatMap((m) =>
@@ -352,9 +375,29 @@ async function loadCriativoUserMap(
   if (criativoEmails.length === 0) return new Map();
   const criativoUsers = await prisma.portalUser.findMany({
     where: { email: { in: criativoEmails } },
-    select: { email: true, tagIniciais: true, displayName: true },
+    select: {
+      id: true,
+      email: true,
+      tagIniciais: true,
+      displayName: true,
+      avatarMime: true,
+      avatarBase64: true,
+      updatedAt: true,
+    },
   });
-  return new Map(criativoUsers.map((u) => [u.email, u]));
+  return new Map(
+    criativoUsers.map((u) => [
+      u.email,
+      {
+        id: u.id,
+        email: u.email,
+        tagIniciais: u.tagIniciais,
+        displayName: u.displayName,
+        hasAvatar: portalUserHasAvatar(u),
+        avatarVersion: u.updatedAt.toISOString(),
+      },
+    ]),
+  );
 }
 
 const musicaInclude = {
@@ -369,12 +412,17 @@ export type BibliotecaSortBy =
   | "artista"
   | "titulo"
   | "gravadora"
-  | "programacoes";
+  | "programacoes"
+  | "likes_desc"
+  | "likes_asc"
+  | "dislikes_desc"
+  | "dislikes_asc";
 
 export async function listMusicasBiblioteca(opts: {
   page: number;
   pageSize: number;
   search?: string;
+  tagSearchOwner?: string;
   status?: string;
   tagId?: string;
   bibliotecaPastaId?: string;
@@ -419,7 +467,19 @@ export async function listMusicasBiblioteca(opts: {
     where.status = opts.status as Prisma.MusicaBibliotecaWhereInput["status"];
   }
   const q = opts.search?.trim();
-  if (q) {
+  const tagOwner = opts.tagSearchOwner?.trim();
+  if (q && tagOwner) {
+    where.tagsManuais = {
+      some: {
+        tag: {
+          AND: [
+            { nome: { contains: q, mode: "insensitive" } },
+            tagCriativoOwnerPrisma(tagOwner),
+          ],
+        },
+      },
+    };
+  } else if (q) {
     where.OR = buildSearchWhere(q);
   }
   if (opts.tagId) {
@@ -507,16 +567,17 @@ export async function listMusicasBiblioteca(opts: {
         .map((id) => byId.get(id))
         .filter((m): m is NonNullable<typeof m> => m != null) as MusicaDbRow[];
     }
-  } else if (opts.explicitOnly) {
+  } else if (opts.explicitOnly || isBibliotecaVoteSort(sortBy)) {
     const { listMusicaIdsByCatalogFilter } = await import("@/lib/criacao/bibliotecaSearchService");
     const catalog = await listMusicaIdsByCatalogFilter({
       page,
       pageSize,
       search: opts.search,
+      tagSearchOwner: opts.tagSearchOwner,
       status: opts.status,
       tagId: opts.tagId,
       gravadora: opts.gravadora,
-      explicitOnly: true,
+      explicitOnly: opts.explicitOnly === true,
       bibliotecaPastaId: opts.bibliotecaPastaId,
       pastaProgramacaoId: opts.pastaProgramacaoId,
       pastaEspecialId: opts.pastaEspecialId,

@@ -21,8 +21,9 @@ import {
   isUnauthorizedPollResponse,
   POLL_SKIP_REPORT_HEADERS,
 } from "@/lib/portal/backgroundPoll";
+import { MusicaVotosBadges, MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
 
-type SortKey = "titulo" | "artista" | "addedAt";
+type SortKey = "titulo" | "artista" | "addedAt" | "likes_desc" | "likes_asc" | "dislikes_desc" | "dislikes_asc";
 
 const FORMATO_LABEL: Record<string, string> = {
   mp3_128_mono: "128 kbps mono",
@@ -42,6 +43,8 @@ type PastaMusicaView = {
   mixSegundosFinais: number | null;
   previewUrl: string | null;
   addedAt: string | null;
+  likesCount: number;
+  dislikesCount: number;
 };
 type PastaView = {
   id: string;
@@ -143,6 +146,7 @@ function ProgramacaoEditor({
   const [sortByPasta, setSortByPasta] = useState<Record<string, SortKey>>({});
   /** Fechar atualização modal. */
   const [showFechar, setShowFechar] = useState(false);
+  const [votosModal, setVotosModal] = useState<{ id: string; titulo: string } | null>(null);
   const marcouAberta = useRef(false);
 
   async function registrarEdicao() {
@@ -523,6 +527,10 @@ function ProgramacaoEditor({
       if (key === "titulo") return (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
       if (key === "artista") return (a.artista || "").localeCompare(b.artista || "", "pt-BR");
       if (key === "addedAt") return (a.addedAt ?? "").localeCompare(b.addedAt ?? "");
+      if (key === "likes_desc") return b.likesCount - a.likesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
+      if (key === "likes_asc") return a.likesCount - b.likesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
+      if (key === "dislikes_desc") return b.dislikesCount - a.dislikesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
+      if (key === "dislikes_asc") return a.dislikesCount - b.dislikesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
       return 0;
     });
   }
@@ -773,6 +781,10 @@ function ProgramacaoEditor({
                       <option value="titulo">Por título</option>
                       <option value="artista">Por artista</option>
                       <option value="addedAt">Por data de entrada</option>
+                      <option value="likes_desc">Mais likes</option>
+                      <option value="likes_asc">Menos likes</option>
+                      <option value="dislikes_desc">Mais dislikes</option>
+                      <option value="dislikes_asc">Menos dislikes</option>
                     </select>
                   : null}
                   <label
@@ -882,6 +894,14 @@ function ProgramacaoEditor({
                           mix {m.mixSegundosFinais}s
                         </span>
                       : null}
+                      <MusicaVotosBadges
+                        musicaId={m.id}
+                        titulo={m.titulo || "(sem título)"}
+                        likes={m.likesCount}
+                        dislikes={m.dislikesCount}
+                        programacaoId={prog.id}
+                        onOpen={(mid, titulo) => setVotosModal({ id: mid, titulo })}
+                      />
                       <span
                         className={`shrink-0 text-[11px] tabular-nums ${
                           isNova ? "font-medium text-emerald-700 dark:text-emerald-300" : "text-slate-400"
@@ -995,6 +1015,13 @@ function ProgramacaoEditor({
           }
         />
       : null}
+
+      <MusicaVotosModal
+        musicaId={votosModal?.id ?? null}
+        titulo={votosModal?.titulo ?? ""}
+        programacaoId={id}
+        onClose={() => setVotosModal(null)}
+      />
     </>
   );
 }

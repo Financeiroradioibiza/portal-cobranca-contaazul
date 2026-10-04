@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import {
   iconeBibliotecaPastaEmoji,
@@ -89,9 +89,73 @@ function SidebarItem({
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+type SidebarSectionKey = "tags" | "custom" | "especiais" | "programacoes";
+
+const TAGS_SORT_STORAGE_KEY = "bib-sidebar-tags-sort";
+const SECTIONS_STORAGE_KEY = "bib-sidebar-sections-open";
+
+type TagsSortMode = "name" | "criativo";
+
+function readTagsSortMode(): TagsSortMode {
+  if (typeof window === "undefined") return "name";
+  try {
+    return localStorage.getItem(TAGS_SORT_STORAGE_KEY) === "criativo" ? "criativo" : "name";
+  } catch {
+    return "name";
+  }
+}
+
+function defaultSectionsOpen(): Record<SidebarSectionKey, boolean> {
+  return { tags: true, custom: true, especiais: true, programacoes: true };
+}
+
+function readSectionsOpen(): Record<SidebarSectionKey, boolean> {
+  const base = defaultSectionsOpen();
+  if (typeof window === "undefined") return base;
+  try {
+    const raw = localStorage.getItem(SECTIONS_STORAGE_KEY);
+    if (!raw) return base;
+    const parsed = JSON.parse(raw) as Partial<Record<SidebarSectionKey, boolean>>;
+    return { ...base, ...parsed };
+  } catch {
+    return base;
+  }
+}
+
+function CollapsibleSection({
+  sectionKey,
+  title,
+  open,
+  onToggle,
+  trailing,
+  children,
+}: {
+  sectionKey: SidebarSectionKey;
+  title: string;
+  open: boolean;
+  onToggle: (key: SidebarSectionKey) => void;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="px-2 pb-1 pt-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">{children}</div>
+    <div className="pt-2">
+      <div className="flex items-center gap-1 px-1">
+        <button
+          type="button"
+          onClick={() => onToggle(sectionKey)}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1 py-1 text-left text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          <span className="shrink-0 text-slate-500">{open ? "▾" : "▸"}</span>
+          <span className="truncate">{title}</span>
+        </button>
+        {trailing ?
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+            {trailing}
+          </div>
+        : null}
+      </div>
+      {open ? children : null}
+    </div>
   );
 }
 
@@ -113,6 +177,8 @@ export function BibliotecaSidebar({
   const [tree, setTree] = useState<BibliotecaSidebarTree | null>(null);
   const [loading, setLoading] = useState(true);
   const [progOpen, setProgOpen] = useState<Record<string, boolean>>({});
+  const [tagsSortMode, setTagsSortMode] = useState<TagsSortMode>("name");
+  const [sectionsOpen, setSectionsOpen] = useState<Record<SidebarSectionKey, boolean>>(defaultSectionsOpen);
   const [criando, setCriando] = useState(false);
   const [apagandoVazias, setApagandoVazias] = useState(false);
   const [novoNome, setNovoNome] = useState("");
@@ -136,8 +202,39 @@ export function BibliotecaSidebar({
   }, []);
 
   useEffect(() => {
+    setTagsSortMode(readTagsSortMode());
+    setSectionsOpen(readSectionsOpen());
+  }, []);
+
+  useEffect(() => {
     void load();
   }, [load]);
+
+  const toggleSection = useCallback((key: SidebarSectionKey) => {
+    setSectionsOpen((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* silencioso */
+      }
+      return next;
+    });
+  }, []);
+
+  const sortedTags = useMemo(() => {
+    const tags = [...(tree?.tags ?? [])];
+    if (tagsSortMode === "criativo") {
+      tags.sort((a, b) => {
+        const c = (a.criativoNome || "").localeCompare(b.criativoNome || "", "pt-BR");
+        if (c !== 0) return c;
+        return a.nome.localeCompare(b.nome, "pt-BR");
+      });
+    } else {
+      tags.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    }
+    return tags;
+  }, [tree?.tags, tagsSortMode]);
 
   useEffect(() => {
     if (refreshToken > 0) void load({ silent: true });
@@ -300,58 +397,89 @@ export function BibliotecaSidebar({
           onClick={() => onSelect({ kind: "all", label: filterOnly ? "Todas as faixas" : "Biblioteca" })}
         />
 
-        <SectionTitle>Tags</SectionTitle>
-        {(tree?.tags ?? []).map((t) => (
-          <SidebarItem
-            key={t.id}
-            active={isActive({ kind: "tag", id: t.id, label: t.nome, cor: t.cor })}
-            label={t.nome}
-            subtitle={t.criativoNome ? `[${t.criativoNome}]` : undefined}
-            leading={
-              <span
-                className="shrink-0 rounded-full p-[2px]"
-                style={{ backgroundColor: t.cor || "#64748b" }}
-                title={t.criativoNome || undefined}
+        <CollapsibleSection
+          sectionKey="tags"
+          title="Tags"
+          open={sectionsOpen.tags}
+          onToggle={toggleSection}
+          trailing={
+            sectionsOpen.tags ?
+              <select
+                value={tagsSortMode}
+                onChange={(e) => {
+                  const mode = e.target.value === "criativo" ? "criativo" : "name";
+                  setTagsSortMode(mode);
+                  try {
+                    localStorage.setItem(TAGS_SORT_STORAGE_KEY, mode);
+                  } catch {
+                    /* silencioso */
+                  }
+                }}
+                className="max-w-[5.5rem] rounded border border-slate-200 px-1 py-0.5 text-[9px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                title="Ordenação da lista de tags"
               >
-                <PortalUserAvatar
-                  userId={t.criativoPortalUserId}
-                  displayName={t.criativoNome || t.nome}
-                  email={t.criativoUserId ?? (t.criativoNome || t.nome)}
-                  hasAvatar={t.criativoHasAvatar}
-                  avatarVersion={t.criativoAvatarVersion}
-                  size="xs"
-                  className="h-6 w-6"
-                />
-              </span>
-            }
-            badge={t.usoCount}
-            onClick={() =>
-              onSelect({
-                kind: "tag",
-                id: t.id,
-                label: t.nome,
-                cor: t.cor,
-                criativoNome: t.criativoNome,
-              })
-            }
-          />
-        ))}
+                <option value="name">Por tag</option>
+                <option value="criativo">Por criativo</option>
+              </select>
+            : null
+          }
+        >
+          {sortedTags.map((t) => (
+            <SidebarItem
+              key={t.id}
+              active={isActive({ kind: "tag", id: t.id, label: t.nome, cor: t.cor })}
+              label={t.nome}
+              subtitle={t.criativoNome ? `[${t.criativoNome}]` : undefined}
+              leading={
+                <span
+                  className="shrink-0 rounded-full p-[2px]"
+                  style={{ backgroundColor: t.cor || "#64748b" }}
+                  title={t.criativoNome || undefined}
+                >
+                  <PortalUserAvatar
+                    userId={t.criativoPortalUserId}
+                    displayName={t.criativoNome || t.nome}
+                    email={t.criativoUserId ?? (t.criativoNome || t.nome)}
+                    hasAvatar={t.criativoHasAvatar}
+                    avatarVersion={t.criativoAvatarVersion}
+                    size="xs"
+                    className="h-6 w-6"
+                  />
+                </span>
+              }
+              badge={t.usoCount}
+              onClick={() =>
+                onSelect({
+                  kind: "tag",
+                  id: t.id,
+                  label: t.nome,
+                  cor: t.cor,
+                  criativoNome: t.criativoNome,
+                })
+              }
+            />
+          ))}
+        </CollapsibleSection>
 
-        {filterOnly ?
-          <SectionTitle>Pastas custom</SectionTitle>
-        : <div className="flex items-center justify-between gap-1 px-2 pb-1 pt-3">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pastas custom</div>
-            <button
-              type="button"
-              disabled={apagandoVazias}
-              onClick={() => void apagarPastasVazias()}
-              className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-200 hover:text-slate-800 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-              title="Remove pastas custom que não têm nenhuma faixa"
-            >
-              {apagandoVazias ? "…" : "Apagar vazias"}
-            </button>
-          </div>
-        }
+        <CollapsibleSection
+          sectionKey="custom"
+          title="Pastas custom"
+          open={sectionsOpen.custom}
+          onToggle={toggleSection}
+          trailing={
+            !filterOnly && sectionsOpen.custom ?
+              <button
+                type="button"
+                disabled={apagandoVazias}
+                onClick={() => void apagarPastasVazias()}
+                className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-200 hover:text-slate-800 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                title="Remove pastas custom que não têm nenhuma faixa"
+              >
+                {apagandoVazias ? "…" : "Apagar vazias"}
+              </button>
+            : null
+          }
+        >
         {(tree?.pastasCustom ?? []).map((p) => (
           <SidebarItem
             key={p.id}
@@ -414,8 +542,14 @@ export function BibliotecaSidebar({
             </button>
           </div>
         )}
+        </CollapsibleSection>
 
-        <SectionTitle>Pastas especiais</SectionTitle>
+        <CollapsibleSection
+          sectionKey="especiais"
+          title="Pastas especiais"
+          open={sectionsOpen.especiais}
+          onToggle={toggleSection}
+        >
         {(tree?.pastasEspeciais ?? []).map((p) => (
           <SidebarItem
             key={p.id}
@@ -427,8 +561,14 @@ export function BibliotecaSidebar({
             onClick={() => onSelect({ kind: "especial", id: p.id, label: p.nome, readOnly: true })}
           />
         ))}
+        </CollapsibleSection>
 
-        <SectionTitle>Programações</SectionTitle>
+        <CollapsibleSection
+          sectionKey="programacoes"
+          title="Programações"
+          open={sectionsOpen.programacoes}
+          onToggle={toggleSection}
+        >
         {(tree?.programacoes ?? []).map((prog) => {
           const open = progOpen[prog.id] ?? false;
           return (
@@ -510,6 +650,7 @@ export function BibliotecaSidebar({
             </div>
           );
         })}
+        </CollapsibleSection>
       </div>
     </aside>
   );

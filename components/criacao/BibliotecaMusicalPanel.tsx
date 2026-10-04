@@ -7,15 +7,18 @@ import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
 import { BibliotecaMusicaDragGrip } from "@/components/criacao/BibliotecaMusicaDragGrip";
 import { MusicaVotosBadges, MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
+import { BibliotecaManualTagsCell } from "@/components/criacao/BibliotecaManualTagsCell";
 import { MusicaStorageBadges } from "@/components/criacao/MusicaStorageBadges";
+import type { MusicaTagManualView } from "@/lib/criacao/bibliotecaService";
 import type { MusicaStorageBadge } from "@/lib/criacao/musicaStorageBadges";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };
-type ManualTag = { id: string; nome: string; cor: string; criativoIniciais: string; criativoNome: string };
+type ManualTag = MusicaTagManualView;
 type TagCriativo = { id: string; nome: string; cor: string; criativoNome: string; usoCount: number };
 type FacetTag = TagCriativo;
 type ListFilter = "all" | "unused" | "leastUsed" | "legacy";
 type ViewMode = "full" | "slim";
+type TagViewMode = "icons" | "full";
 
 const CORES_SUGERIDAS = [
   "#eab308", "#f97316", "#ef4444", "#ec4899", "#a855f7",
@@ -86,6 +89,8 @@ export type BibliotecaMusicalPanelProps = {
   folderTitle?: string;
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
+  tagViewMode?: TagViewMode;
+  onTagViewModeChange?: (mode: TagViewMode) => void;
   dragMusicaEnabled?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string, shiftKey: boolean, metaKey?: boolean) => void;
@@ -207,6 +212,8 @@ export function BibliotecaMusicalPanel({
   folderTitle,
   viewMode: viewModeProp,
   onViewModeChange,
+  tagViewMode: tagViewModeProp,
+  onTagViewModeChange,
   dragMusicaEnabled = false,
   selectedIds,
   onToggleSelect,
@@ -226,8 +233,18 @@ export function BibliotecaMusicalPanel({
   const [status, setStatus] = useState("all");
   const [listFilter, setListFilter] = useState<ListFilter>("all");
   const [sortBy, setSortBy] = useState<
-    "recent" | "artista" | "titulo" | "gravadora" | "programacoes"
+    | "recent"
+    | "artista"
+    | "titulo"
+    | "gravadora"
+    | "programacoes"
+    | "likes_desc"
+    | "likes_asc"
+    | "dislikes_desc"
+    | "dislikes_asc"
   >("recent");
+  const [tagSearchOwner, setTagSearchOwner] = useState("");
+  const [tagCriativos, setTagCriativos] = useState<Array<{ key: string; label: string }>>([]);
   const [tagIdFilter, setTagIdFilter] = useState<string | null>(null);
   const [gravadoraFilter, setGravadoraFilter] = useState("");
   const [explicitOnlyFilter, setExplicitOnlyFilter] = useState(false);
@@ -249,6 +266,32 @@ export function BibliotecaMusicalPanel({
   const [viewModeInternal, setViewModeInternal] = useState<ViewMode>("full");
   const viewMode = viewModeProp ?? viewModeInternal;
   const setViewMode = onViewModeChange ?? setViewModeInternal;
+  const [tagViewModeInternal, setTagViewModeInternal] = useState<TagViewMode>("icons");
+  const tagViewMode = tagViewModeProp ?? tagViewModeInternal;
+  const setTagViewMode = useCallback(
+    (mode: TagViewMode) => {
+      if (onTagViewModeChange) onTagViewModeChange(mode);
+      else {
+        setTagViewModeInternal(mode);
+        try {
+          localStorage.setItem("bib-tag-view-mode", mode);
+        } catch {
+          /* silencioso */
+        }
+      }
+    },
+    [onTagViewModeChange],
+  );
+
+  useEffect(() => {
+    if (tagViewModeProp != null) return;
+    try {
+      const v = localStorage.getItem("bib-tag-view-mode");
+      if (v === "full" || v === "icons") setTagViewModeInternal(v);
+    } catch {
+      /* silencioso */
+    }
+  }, [tagViewModeProp]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -263,6 +306,16 @@ export function BibliotecaMusicalPanel({
 
   useEffect(() => {
     void loadTags();
+    void (async () => {
+      try {
+        const res = await fetch("/api/criacao/tags/criativos", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { criativos?: Array<{ key: string; label: string }> };
+        setTagCriativos(data.criativos ?? []);
+      } catch {
+        /* silencioso */
+      }
+    })();
     void (async () => {
       try {
         const res = await fetch("/api/criacao/biblioteca/facets");
@@ -285,11 +338,22 @@ export function BibliotecaMusicalPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [search, status, listFilter, sortBy, tagIdFilter, gravadoraFilter, explicitOnlyFilter, folderFilter]);
+  }, [
+    search,
+    status,
+    listFilter,
+    sortBy,
+    tagIdFilter,
+    tagSearchOwner,
+    gravadoraFilter,
+    explicitOnlyFilter,
+    folderFilter,
+  ]);
 
   const queryBase = useMemo(() => {
     const params = new URLSearchParams();
     if (search.trim()) params.set("search", search.trim());
+    if (tagSearchOwner.trim()) params.set("tagSearchOwner", tagSearchOwner.trim());
     if (status !== "all") params.set("status", status);
     if (listFilter !== "all") params.set("listFilter", listFilter);
     if (folderFilter?.tagId) params.set("tagId", folderFilter.tagId);
@@ -304,6 +368,7 @@ export function BibliotecaMusicalPanel({
     return params.toString();
   }, [
     search,
+    tagSearchOwner,
     status,
     listFilter,
     sortBy,
@@ -693,6 +758,36 @@ export function BibliotecaMusicalPanel({
               Lista slim
             </button>
           </div>
+          <div
+            className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700"
+            role="group"
+            aria-label="Visualização das tags criativas"
+          >
+            <button
+              type="button"
+              onClick={() => setTagViewMode("icons")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                tagViewMode === "icons" ?
+                  "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+              title="Avatares dos criativos — passe o mouse ou clique para ver os nomes das tags"
+            >
+              Tags no show
+            </button>
+            <button
+              type="button"
+              onClick={() => setTagViewMode("full")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                tagViewMode === "full" ?
+                  "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+              title="Mostra todos os chips de tag na linha"
+            >
+              Tags completos
+            </button>
+          </div>
           <button
             type="button"
             disabled={batchGeminiRunning || checkingGeminiId != null}
@@ -752,15 +847,35 @@ export function BibliotecaMusicalPanel({
         }}
         className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
       >
-        <label className="min-w-[220px] flex-1 text-sm">
+        <label className="min-w-[280px] flex-1 text-sm">
           <span className="mb-1 block text-xs font-semibold text-slate-500">Buscar</span>
-          <input
-            type="search"
-            value={searchDraft}
-            onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Título, artista, tag, BPM, ISRC…"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
+          <div className="flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+            <input
+              type="search"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              placeholder={
+                tagSearchOwner ?
+                  "Nome da tag neste criativo…"
+                : "Título, artista, tag, BPM, ISRC…"
+              }
+              className="min-w-0 flex-1 border-0 bg-white px-3 py-2 text-sm dark:bg-slate-950"
+            />
+            <select
+              value={tagSearchOwner}
+              onChange={(e) => setTagSearchOwner(e.target.value)}
+              className="max-w-[9.5rem] shrink-0 border-0 border-l border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              title="Restringir busca de tag a um criativo"
+              aria-label="Buscar tags do criativo"
+            >
+              <option value="">Tags · todos</option>
+              {tagCriativos.map((c) => (
+                <option key={c.key} value={c.key}>
+                  por: {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </label>
         <label className="text-sm">
           <span className="mb-1 block text-xs font-semibold text-slate-500">Status</span>
@@ -793,7 +908,16 @@ export function BibliotecaMusicalPanel({
             value={sortBy}
             onChange={(e) =>
               setSortBy(
-                e.target.value as "recent" | "artista" | "titulo" | "gravadora" | "programacoes",
+                e.target.value as
+                  | "recent"
+                  | "artista"
+                  | "titulo"
+                  | "gravadora"
+                  | "programacoes"
+                  | "likes_desc"
+                  | "likes_asc"
+                  | "dislikes_desc"
+                  | "dislikes_asc",
               )
             }
             disabled={listFilter !== "all"}
@@ -804,6 +928,10 @@ export function BibliotecaMusicalPanel({
             <option value="titulo">{viewMode === "slim" ? "Música" : "Música"}</option>
             <option value="gravadora">Gravadora</option>
             <option value="programacoes">Uso em programações</option>
+            <option value="likes_desc">Mais likes</option>
+            <option value="likes_asc">Menos likes</option>
+            <option value="dislikes_desc">Mais dislikes</option>
+            <option value="dislikes_asc">Menos dislikes</option>
           </select>
         </label>
       </form>
@@ -1009,27 +1137,7 @@ export function BibliotecaMusicalPanel({
                       />
                     </div>
                     <div className="min-w-0 truncate text-xs text-slate-500">{m.artista || "—"}</div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-0.5 overflow-hidden">
-                      {m.tagsManuais.length === 0 ?
-                        <span className="truncate text-[11px] text-slate-400">—</span>
-                      : m.tagsManuais.map((t) => (
-                          <span
-                            key={t.id}
-                            className={
-                              "inline-flex max-w-full truncate rounded font-bold " +
-                              (isUploadCompetenciaTag(t.nome) ?
-                                "px-1 py-0 text-[7px] opacity-90"
-                              : "px-1.5 py-0 text-[9px]")
-                            }
-                            style={{ background: t.cor, color: readableText(t.cor) }}
-                            title={t.criativoNome ? `${t.criativoNome} · ${t.nome}` : t.nome}
-                          >
-                            {t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}
-                            {t.nome}
-                          </span>
-                        ))
-                      }
-                    </div>
+                    <BibliotecaManualTagsCell tags={m.tagsManuais} mode={tagViewMode} compact />
                     <div className="flex min-w-0 flex-wrap items-center justify-end gap-0.5">
                       <MusicaStorageBadges badges={m.storageBadges} size="compact" />
                     </div>
@@ -1126,20 +1234,7 @@ export function BibliotecaMusicalPanel({
                     verificada={m.geniusLetraVerificada}
                     explicit={m.geniusLetraExplicit}
                   />
-                  {m.tagsManuais.map((t) => (
-                    <span
-                      key={t.id}
-                      className={
-                        "inline-flex rounded font-bold " +
-                        (isUploadCompetenciaTag(t.nome) ? "px-1 py-0 text-[8px] opacity-90" : "px-2 py-0.5 text-[10px]")
-                      }
-                      style={{ background: t.cor, color: readableText(t.cor) }}
-                      title={t.criativoNome ? `${t.criativoNome} · ${t.nome}` : t.nome}
-                    >
-                      {t.criativoIniciais ? `[${t.criativoIniciais}] ` : ""}
-                      {t.nome}
-                    </span>
-                  ))}
+                  <BibliotecaManualTagsCell tags={m.tagsManuais} mode={tagViewMode} />
                   {m.energia != null ?
                     <AutoChip fonte="local" valor={`Energia ${Math.round(m.energia * 100)}`} />
                   : null}

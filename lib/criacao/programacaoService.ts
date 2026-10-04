@@ -6,6 +6,10 @@ import { listAgendamentosByProgramacaoIds, type AgendamentoRow } from "@/lib/cri
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { buildVinhetaPreviewUrl } from "@/lib/criacao/vinhetaSign";
 import { assignUnassignedPdvsToProgramacao } from "@/lib/criacao/pdvProgramacaoService";
+import {
+  countVotosPorMusicaFiltradoPdv,
+  portalPdvIdsForProgramacao,
+} from "@/lib/criacao/musicaVotoService";
 
 export const FORMATOS = ["mp3_128_mono", "mp3_128_stereo", "mp3_192_mono", "mp3_192_stereo"] as const;
 export type Formato = (typeof FORMATOS)[number];
@@ -273,6 +277,8 @@ export type PastaMusicaView = {
   previewUrl: string | null;
   /** ISO — quando a faixa entrou nesta pasta. */
   addedAt: string | null;
+  likesCount: number;
+  dislikesCount: number;
 };
 
 export type PastaView = {
@@ -343,6 +349,13 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
   const abertaEmRaw = hasAberta && "atualizacaoAbertaEm" in p ? p.atualizacaoAbertaEm : null;
   const abertaPorRaw = hasAberta && "atualizacaoAbertaPor" in p ? p.atualizacaoAbertaPor : "";
 
+  const musicaIds = p.pastas.flatMap((f) => f.musicas.map((pm) => pm.musica.id));
+  const portalPdvIds = await portalPdvIdsForProgramacao(p.id);
+  const votoMap =
+    musicaIds.length > 0 && portalPdvIds.length > 0 ?
+      await countVotosPorMusicaFiltradoPdv(musicaIds, portalPdvIds)
+    : new Map<string, { likes: number; dislikes: number }>();
+
   return {
     id: p.id,
     nome: p.nome,
@@ -363,6 +376,7 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
       musicas: f.musicas.map((pm) => {
         const m = pm.musica;
         const formatoUso = pickLowestPreviewFormato(m.versoes);
+        const v = votoMap.get(m.id);
         return {
           id: m.id,
           titulo: m.titulo,
@@ -372,6 +386,8 @@ export async function getProgramacao(id: string): Promise<ProgramacaoDetail | nu
           mixSegundosFinais: m.mixSegundosFinais,
           previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
           addedAt: pm.addedAt instanceof Date ? pm.addedAt.toISOString() : null,
+          likesCount: v?.likes ?? 0,
+          dislikesCount: v?.dislikes ?? 0,
         };
       }),
     })),

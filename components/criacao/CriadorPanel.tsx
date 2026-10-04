@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CronogramaAlvoBadges } from "@/components/criacao/CronogramaAlvoBadges";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
-import { MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
+import { MusicaVotosBadges, MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
 import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaClient";
 import { formatPastaMusicaAddedAt } from "@/lib/criacao/pastaMusicaUi";
@@ -14,7 +14,7 @@ import {
   type OffPercent,
 } from "@/lib/criacao/pastaOffSelect";
 
-type SortKey = "titulo" | "artista" | "addedAt";
+type SortKey = "titulo" | "artista" | "addedAt" | "likes_desc" | "likes_asc" | "dislikes_desc" | "dislikes_asc";
 
 type CriadorPasta = {
   id: string;
@@ -72,6 +72,10 @@ function sortMusicas(list: PastaMusicaSlim[], key: SortKey | null): PastaMusicaS
     if (key === "titulo") return (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
     if (key === "artista") return (a.artista || "").localeCompare(b.artista || "", "pt-BR");
     if (key === "addedAt") return (a.addedAt ?? "").localeCompare(b.addedAt ?? "");
+    if (key === "likes_desc") return b.likesCount - a.likesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
+    if (key === "likes_asc") return a.likesCount - b.likesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
+    if (key === "dislikes_desc") return b.dislikesCount - a.dislikesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
+    if (key === "dislikes_asc") return a.dislikesCount - b.dislikesCount || (a.titulo || "").localeCompare(b.titulo || "", "pt-BR");
     return 0;
   });
 }
@@ -175,30 +179,14 @@ function PastaMusicasInline({
               mix {m.mixSegundosFinais}s
             </span>
           : null}
-          {(m.likesCount > 0 || m.dislikesCount > 0) ?
-            <span className="inline-flex shrink-0 items-center gap-1">
-              {m.likesCount > 0 ?
-                <button
-                  type="button"
-                  onClick={() => setVotosModal({ id: m.id, titulo: m.titulo || "(sem título)" })}
-                  className="rounded px-1 py-0.5 text-xs hover:bg-emerald-100 dark:hover:bg-emerald-950"
-                  title={`${m.likesCount} like(s) nesta programação`}
-                >
-                  👍
-                </button>
-              : null}
-              {m.dislikesCount > 0 ?
-                <button
-                  type="button"
-                  onClick={() => setVotosModal({ id: m.id, titulo: m.titulo || "(sem título)" })}
-                  className="rounded px-1 py-0.5 text-xs hover:bg-red-100 dark:hover:bg-red-950"
-                  title={`${m.dislikesCount} dislike(s) nesta programação`}
-                >
-                  👎
-                </button>
-              : null}
-            </span>
-          : null}
+          <MusicaVotosBadges
+            musicaId={m.id}
+            titulo={m.titulo || "(sem título)"}
+            likes={m.likesCount}
+            dislikes={m.dislikesCount}
+            programacaoId={programacaoId}
+            onOpen={(id, titulo) => setVotosModal({ id, titulo })}
+          />
           <span className="shrink-0 text-[11px] tabular-nums text-slate-400" title="Data de entrada na pasta">
             {formatPastaMusicaAddedAt(m.addedAt)}
           </span>
@@ -541,6 +529,10 @@ export function CriadorPanel() {
                                       <option value="titulo">Por música</option>
                                       <option value="artista">Por artista</option>
                                       <option value="addedAt">Por data de entrada</option>
+                                      <option value="likes_desc">Mais likes</option>
+                                      <option value="likes_asc">Menos likes</option>
+                                      <option value="dislikes_desc">Mais dislikes</option>
+                                      <option value="dislikes_asc">Menos dislikes</option>
                                     </select>
                                   : null}
                                 </div>

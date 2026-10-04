@@ -4,12 +4,22 @@ import {
 } from "@/lib/portal/menuPermissions";
 
 export const PORTAL_PREVIEW_PROFILE_STORAGE_KEY = "portal_preview_profile_slug";
+export const PORTAL_PREVIEW_USER_STORAGE_KEY = "portal_preview_user_email";
 export const PORTAL_PREVIEW_PROFILE_EVENT = "portal-preview-profile-changed";
 
 export type PortalPreviewProfileOption = {
   slug: string;
   name: string;
   icon: string;
+  permissions: PortalPermissionsMap | "all";
+};
+
+export type PortalPreviewUserOption = {
+  email: string;
+  displayName: string;
+  profileSlug: string;
+  profileName: string;
+  profileIcon: string;
   permissions: PortalPermissionsMap | "all";
 };
 
@@ -27,7 +37,34 @@ export function writePreviewProfileSlug(slug: string | null): void {
   if (typeof window === "undefined") return;
   try {
     if (!slug) localStorage.removeItem(PORTAL_PREVIEW_PROFILE_STORAGE_KEY);
-    else localStorage.setItem(PORTAL_PREVIEW_PROFILE_STORAGE_KEY, slug);
+    else {
+      localStorage.setItem(PORTAL_PREVIEW_PROFILE_STORAGE_KEY, slug);
+      localStorage.removeItem(PORTAL_PREVIEW_USER_STORAGE_KEY);
+    }
+    window.dispatchEvent(new CustomEvent(PORTAL_PREVIEW_PROFILE_EVENT));
+  } catch {
+    //
+  }
+}
+
+export function readPreviewUserEmail(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PORTAL_PREVIEW_USER_STORAGE_KEY)?.trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writePreviewUserEmail(email: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (!email) localStorage.removeItem(PORTAL_PREVIEW_USER_STORAGE_KEY);
+    else {
+      localStorage.setItem(PORTAL_PREVIEW_USER_STORAGE_KEY, email);
+      localStorage.removeItem(PORTAL_PREVIEW_PROFILE_STORAGE_KEY);
+    }
     window.dispatchEvent(new CustomEvent(PORTAL_PREVIEW_PROFILE_EVENT));
   } catch {
     //
@@ -42,18 +79,25 @@ export function permissionsFromProfileJson(raw: string): PortalPermissionsMap | 
 export function resolveEffectiveMenuPermissions(
   real: PortalPermissionsMap | "all",
   preview: PortalPreviewProfileOption | null,
+  previewUser: PortalPreviewUserOption | null,
   isMaster: boolean,
 ): PortalPermissionsMap | "all" {
-  if (!isMaster || !preview) return real;
-  return preview.permissions;
+  if (!isMaster) return real;
+  if (previewUser) return previewUser.permissions;
+  if (preview) return preview.permissions;
+  return real;
 }
 
 /** Config master-only no topo — oculto em preview de perfil não-admin. */
 export function resolveEffectiveIsMasterForNav(
   isMaster: boolean,
   preview: PortalPreviewProfileOption | null,
+  previewUser: PortalPreviewUserOption | null,
 ): boolean {
   if (!isMaster) return false;
+  if (previewUser) {
+    return previewUser.permissions === "all" || previewUser.profileSlug === "admin";
+  }
   if (!preview) return true;
   return preview.permissions === "all" || preview.slug === "admin";
 }
@@ -62,8 +106,9 @@ export function resolveEffectiveIsMasterForNav(
 export function resolveEffectiveFluxoRafaelAdmin(
   fluxoRafaelAdmin: boolean,
   preview: PortalPreviewProfileOption | null,
+  previewUser: PortalPreviewUserOption | null,
   isMaster: boolean,
 ): boolean {
-  if (!isMaster || preview) return false;
+  if (!isMaster || preview || previewUser) return false;
   return fluxoRafaelAdmin;
 }

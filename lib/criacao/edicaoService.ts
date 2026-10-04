@@ -12,6 +12,7 @@ import {
 } from "@/lib/criacao/bibliotecaService";
 import { resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { pickDefaultTagCor } from "@/lib/config/portalUserService";
+import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 
 const DEFAULT_EDITOR_COR = "#6366f1";
 
@@ -123,10 +124,28 @@ export async function listFaixasEdicao(opts: {
     criativoEmails.length > 0 ?
       await prisma.portalUser.findMany({
         where: { email: { in: criativoEmails } },
-        select: { email: true, tagIniciais: true, displayName: true, tagCor: true },
+        select: {
+          id: true,
+          email: true,
+          tagIniciais: true,
+          displayName: true,
+          tagCor: true,
+          avatarMime: true,
+          avatarBase64: true,
+          updatedAt: true,
+        },
       })
     : [];
-  const criativoUserMap = new Map(criativoUsers.map((u) => [u.email, u]));
+  const criativoUserMap = new Map(
+    criativoUsers.map((u) => [
+      u.email,
+      {
+        ...u,
+        hasAvatar: portalUserHasAvatar(u),
+        avatarVersion: u.updatedAt.toISOString(),
+      },
+    ]),
+  );
 
   function editorCor(userId: string | null | undefined): string | null {
     if (!userId) return null;
@@ -153,7 +172,8 @@ export async function listFaixasEdicao(opts: {
       previewUrl: formatoUso ? buildPreviewUrl(m.id, formatoUso) : null,
       createdAt: m.createdAt.toISOString(),
       tagsManuais: m.tagsManuais.map((tm) => {
-        const u = tm.tag.criativoUserId ? criativoUserMap.get(tm.tag.criativoUserId) : undefined;
+        const email = tm.tag.criativoUserId?.trim() || null;
+        const u = email ? criativoUserMap.get(email) : undefined;
         const criativoNome = tm.tag.criativoNome || u?.displayName || "";
         return {
           id: tm.tag.id,
@@ -161,6 +181,10 @@ export async function listFaixasEdicao(opts: {
           cor: tm.tag.cor,
           criativoIniciais: resolveCriativoIniciais(u?.tagIniciais, criativoNome, tm.tag.criativoUserId),
           criativoNome,
+          criativoUserId: email,
+          criativoPortalUserId: u?.id ?? null,
+          criativoHasAvatar: u?.hasAvatar ?? false,
+          criativoAvatarVersion: u?.avatarVersion ?? null,
         };
       }),
       tagsAuto,

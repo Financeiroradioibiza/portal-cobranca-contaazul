@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type MusicaVotoLogRow = {
   id: string;
@@ -24,17 +24,89 @@ function fmtWhen(iso: string): string {
   }
 }
 
+function pdvTooltip(rows: MusicaVotoLogRow[], kind: "like" | "dislike"): string {
+  const names = rows
+    .filter((r) => r.voto === kind)
+    .map((r) => r.pdvNome || `PDV ${r.portalPdvId}`)
+    .filter(Boolean);
+  if (names.length === 0) return "";
+  const head = names.slice(0, 8).join(", ");
+  return names.length > 8 ? `${head}… (+${names.length - 8})` : head;
+}
+
+function VotoBadge({
+  musicaId,
+  titulo,
+  kind,
+  count,
+  programacaoId,
+  onOpen,
+}: {
+  musicaId: string;
+  titulo: string;
+  kind: "like" | "dislike";
+  count: number;
+  programacaoId?: string | null;
+  onOpen: (musicaId: string, titulo: string) => void;
+}) {
+  const [tip, setTip] = useState("");
+  const loaded = useRef(false);
+  const isLike = kind === "like";
+
+  const loadTip = useCallback(async () => {
+    if (loaded.current || count <= 0) return;
+    loaded.current = true;
+    try {
+      const qs = programacaoId ? `?programacaoId=${encodeURIComponent(programacaoId)}` : "";
+      const res = await fetch(`/api/criacao/biblioteca/${musicaId}/votos${qs}`, {
+        credentials: "same-origin",
+      });
+      const data = res.ok ? await res.json() : null;
+      const rows = Array.isArray((data as { votos?: unknown })?.votos) ?
+        (data as { votos: MusicaVotoLogRow[] }).votos
+      : [];
+      const text = pdvTooltip(rows, kind);
+      if (text) setTip(text);
+    } catch {
+      /* silencioso */
+    }
+  }, [musicaId, count, kind, programacaoId]);
+
+  return (
+    <button
+      type="button"
+      onMouseEnter={() => void loadTip()}
+      onFocus={() => void loadTip()}
+      onClick={() => onOpen(musicaId, titulo)}
+      className={
+        isLike ?
+          "inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
+        : "inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
+      }
+      title={
+        tip ?
+          `${count} ${kind}(s): ${tip} — clique para detalhes`
+        : `${count} ${kind}(s) — passe o mouse para ver PDVs`
+      }
+    >
+      {isLike ? "👍" : "👎"} {count}
+    </button>
+  );
+}
+
 export function MusicaVotosBadges({
   musicaId,
   titulo,
   likes,
   dislikes,
+  programacaoId,
   onOpen,
 }: {
   musicaId: string;
   titulo: string;
   likes: number;
   dislikes: number;
+  programacaoId?: string | null;
   onOpen: (musicaId: string, titulo: string) => void;
 }) {
   if (likes <= 0 && dislikes <= 0) return null;
@@ -42,24 +114,24 @@ export function MusicaVotosBadges({
   return (
     <span className="ml-2 inline-flex items-center gap-1">
       {likes > 0 ?
-        <button
-          type="button"
-          onClick={() => onOpen(musicaId, titulo)}
-          className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
-          title={`${likes} like(s) — ver quem votou`}
-        >
-          👍 {likes}
-        </button>
+        <VotoBadge
+          musicaId={musicaId}
+          titulo={titulo}
+          kind="like"
+          count={likes}
+          programacaoId={programacaoId}
+          onOpen={onOpen}
+        />
       : null}
       {dislikes > 0 ?
-        <button
-          type="button"
-          onClick={() => onOpen(musicaId, titulo)}
-          className="inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
-          title={`${dislikes} dislike(s) — ver quem votou`}
-        >
-          👎 {dislikes}
-        </button>
+        <VotoBadge
+          musicaId={musicaId}
+          titulo={titulo}
+          kind="dislike"
+          count={dislikes}
+          programacaoId={programacaoId}
+          onOpen={onOpen}
+        />
       : null}
     </span>
   );
