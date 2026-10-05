@@ -772,6 +772,8 @@ model PortalAgendaCompromisso {
   criadoPorNome      String   @map("criado_por_nome") @db.VarChar(120)
   /// JSON: e-mails convidados (além do criador).
   participantesJson  String   @default("[]") @map("participantes_json") @db.Text
+  alarmeAtivo        Boolean  @default(false) @map("alarme_ativo")
+  alarmeNotificado   Boolean  @default(false) @map("alarme_notificado")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 

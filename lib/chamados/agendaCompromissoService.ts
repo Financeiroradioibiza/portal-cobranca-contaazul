@@ -14,6 +14,7 @@ export type AgendaCompromissoView = {
   participantes: string[];
   /** Para o usuário da sessão. */
   papel: "criador" | "convidado";
+  alarmeAtivo: boolean;
 };
 
 function fmtHora(iso: string): string {
@@ -50,6 +51,7 @@ function toView(
     criadoPorEmail: string;
     criadoPorNome: string;
     participantesJson: string;
+    alarmeAtivo: boolean;
   },
   userEmail: string,
 ): AgendaCompromissoView {
@@ -66,7 +68,15 @@ function toView(
     criadoPorNome: row.criadoPorNome,
     participantes: parseStringArrayJson(row.participantesJson),
     papel,
+    alarmeAtivo: row.alarmeAtivo,
   };
+}
+
+export function parseCompromissoAlarmeAtivo(raw: unknown): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === true || raw === 1 || raw === "1" || raw === "true") return true;
+  if (raw === false || raw === 0 || raw === "0" || raw === "false") return false;
+  return undefined;
 }
 
 export async function listAgendaCompromissosForUser(
@@ -98,6 +108,7 @@ export async function createAgendaCompromisso(
     descricao?: string;
     inicioEm: string;
     participantes?: string[];
+    alarmeAtivo?: boolean;
   },
   ctx: ChamadoUserContext,
 ): Promise<AgendaCompromissoView> {
@@ -119,6 +130,8 @@ export async function createAgendaCompromisso(
       criadoPorEmail: ctx.email,
       criadoPorNome: ctx.displayName,
       participantesJson: serializeStringArray(participantes),
+      alarmeAtivo: Boolean(input.alarmeAtivo),
+      alarmeNotificado: false,
     },
   });
 
@@ -132,6 +145,7 @@ export async function updateAgendaCompromisso(
     descricao?: string;
     inicioEm?: string;
     participantes?: string[];
+    alarmeAtivo?: boolean;
   },
   ctx: ChamadoUserContext,
 ): Promise<AgendaCompromissoView> {
@@ -144,7 +158,11 @@ export async function updateAgendaCompromisso(
     descricao?: string;
     inicioEm?: Date;
     participantesJson?: string;
+    alarmeAtivo?: boolean;
+    alarmeNotificado?: boolean;
   } = {};
+
+  let resetAlarme = false;
 
   if (input.titulo !== undefined) {
     const titulo = input.titulo.trim().slice(0, 200);
@@ -158,12 +176,22 @@ export async function updateAgendaCompromisso(
     const inicio = new Date(input.inicioEm);
     if (Number.isNaN(inicio.getTime())) throw new Error("inicio_invalido");
     data.inicioEm = inicio;
+    if (inicio.getTime() !== row.inicioEm.getTime()) resetAlarme = true;
+  }
+  if (input.alarmeAtivo !== undefined) {
+    data.alarmeAtivo = input.alarmeAtivo;
+    if (input.alarmeAtivo && !row.alarmeAtivo) resetAlarme = true;
+    if (!input.alarmeAtivo) data.alarmeNotificado = false;
   }
   if (input.participantes !== undefined) {
     const participantes = normalizeEmails(input.participantes).filter(
       (e) => e.toLowerCase() !== ctx.email.toLowerCase(),
     );
     data.participantesJson = serializeStringArray(participantes);
+  }
+
+  if (resetAlarme && (input.alarmeAtivo ?? row.alarmeAtivo)) {
+    data.alarmeNotificado = false;
   }
 
   const updated = await prisma.portalAgendaCompromisso.update({

@@ -9,6 +9,10 @@ export type PushPayload = {
   title: string;
   body: string;
   url: string;
+  tag?: string;
+  /** Padrão de vibração no SW do PWA chamados. */
+  alarm?: boolean;
+  silent?: boolean;
 };
 
 export async function sendPushToEmails(emails: string[], payload: PushPayload): Promise<void> {

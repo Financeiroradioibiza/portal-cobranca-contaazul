@@ -10,6 +10,7 @@ export type AgendaCompromissoEditInitial = {
   descricao: string;
   inicioEm: string;
   participantes: string[];
+  alarmeAtivo?: boolean;
 };
 
 type Props = {
@@ -25,6 +26,7 @@ type Props = {
     descricao: string;
     inicioEm: string;
     participantes: string[];
+    alarmeAtivo: boolean;
   }) => void;
   onUpdate?: (
     id: string,
@@ -33,6 +35,7 @@ type Props = {
       descricao: string;
       inicioEm: string;
       participantes: string[];
+      alarmeAtivo: boolean;
     },
   ) => void;
 };
@@ -74,6 +77,7 @@ export function AgendaCompromissoModal({
   const [data, setData] = useState(defaultDate);
   const [hora, setHora] = useState("09:00");
   const [sel, setSel] = useState<string[]>([]);
+  const [alarmeAtivo, setAlarmeAtivo] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -84,12 +88,14 @@ export function AgendaCompromissoModal({
       setData(date || defaultDate);
       setHora(h);
       setSel(edit.participantes.slice());
+      setAlarmeAtivo(Boolean(edit.alarmeAtivo));
     } else {
       setData(defaultDate);
       setTitulo("");
       setDescricao("");
       setHora("09:00");
       setSel([]);
+      setAlarmeAtivo(false);
     }
   }, [open, defaultDate, edit]);
 
@@ -106,7 +112,7 @@ export function AgendaCompromissoModal({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const inicioEm = `${data}T${hora}:00-03:00`;
-    const payload = { titulo, descricao, inicioEm, participantes: sel };
+    const payload = { titulo, descricao, inicioEm, participantes: sel, alarmeAtivo };
     if (edit && onUpdate) onUpdate(edit.id, payload);
     else onSubmit(payload);
   }
@@ -166,6 +172,21 @@ export function AgendaCompromissoModal({
             value={descricao}
             onChange={(e) => setDescricao(e.target.value)}
           />
+        </label>
+
+        <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] dark:border-slate-700 dark:bg-slate-800/50">
+          <input
+            type="checkbox"
+            checked={alarmeAtivo}
+            onChange={(e) => setAlarmeAtivo(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+          />
+          <span>
+            <span className="font-semibold text-slate-800 dark:text-slate-100">Alarme sonoro</span>
+            <span className="mt-0.5 block text-slate-500">
+              Só toca se você marcar aqui. No celular, ative notificações do IbiZap (Tela de Início + permissão).
+            </span>
+          </span>
         </label>
 
         {participants.length > 0 ?

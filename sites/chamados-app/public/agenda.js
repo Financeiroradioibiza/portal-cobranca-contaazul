@@ -40,6 +40,14 @@
     }).format(new Date(iso));
   }
 
+  function chamadoAgendaRangeDayKeys(it) {
+    if (!it || !it.prazoEntrega) return null;
+    var startKey = prazoDayKey(it.agendaVisivelDesde || it.createdAt || it.prazoEntrega);
+    var endKey = prazoDayKey(it.prazoEntrega);
+    if (startKey <= endKey) return { startKey: startKey, endKey: endKey };
+    return { startKey: endKey, endKey: startKey };
+  }
+
   function rangeForMode(mode, anchor) {
     var a = startOfDay(anchor);
     if (mode === "dia") {
@@ -105,7 +113,8 @@
     }
     (items || []).forEach(function (it) {
       if (!it.prazoEntrega) return;
-      var key = prazoDayKey(it.prazoEntrega);
+      var range = it.sequenciaGrupoId ? null : chamadoAgendaRangeDayKeys(it);
+      var key = range ? range.startKey : prazoDayKey(it.prazoEntrega);
       push(key, { kind: "chamado", sortAt: it.prazoEntrega, data: it });
     });
     (compromissos || []).forEach(function (c) {
@@ -152,6 +161,46 @@
   function createModule(deps) {
     var currentSeqAccentMap = {};
 
+    var compromissoAlarmTimers = {};
+
+    function clearCompromissoLocalAlarms() {
+      Object.keys(compromissoAlarmTimers).forEach(function (id) {
+        clearTimeout(compromissoAlarmTimers[id]);
+        delete compromissoAlarmTimers[id];
+      });
+    }
+
+    function showLocalCompromissoAlarm(c) {
+      if (!c || !c.alarmeAtivo) return;
+      var title = "⏰ " + (c.titulo || "Compromisso");
+      var body = c.horaLabel ? c.horaLabel + " · toque para abrir a agenda" : "Hora do compromisso";
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try {
+          new Notification(title, {
+            body: body,
+            icon: "/chamados-icon-192.png",
+            tag: "compromisso-alarm-" + c.id,
+            silent: false,
+          });
+        } catch (e) {
+          /* silencioso */
+        }
+      }
+    }
+
+    function scheduleCompromissoLocalAlarms(compromissos) {
+      clearCompromissoLocalAlarms();
+      var maxMs = 7 * 24 * 60 * 60 * 1000;
+      (compromissos || []).forEach(function (c) {
+        if (!c.alarmeAtivo || !c.inicioEm) return;
+        var when = new Date(c.inicioEm).getTime() - Date.now();
+        if (when <= 0 || when > maxMs) return;
+        compromissoAlarmTimers[c.id] = setTimeout(function () {
+          showLocalCompromissoAlarm(c);
+        }, when);
+      });
+    }
+
     var state = {
       mode: "mes",
       anchor: startOfDay(new Date()),
@@ -187,6 +236,7 @@
           state.atrasados = Array.isArray(data.atrasados) ? data.atrasados : [];
           state.sequencias = Array.isArray(data.sequencias) ? data.sequencias : [];
           state.compromissos = Array.isArray(data.compromissos) ? data.compromissos : [];
+          scheduleCompromissoLocalAlarms(state.compromissos);
         })
         .catch(function () {
           state.items = [];
@@ -294,7 +344,17 @@
           var id = entryStableId(entry);
           if (seen[id]) return;
           seen[id] = true;
-          orphans.push({ id: id, firstDayIdx: di, sortAt: entry.sortAt });
+          var range =
+            entry.kind === "chamado" && !entry.data.sequenciaGrupoId ?
+              chamadoAgendaRangeDayKeys(entry.data)
+            : null;
+          orphans.push({
+            id: id,
+            firstDayIdx: di,
+            sortAt: entry.sortAt,
+            rangeStart: range ? range.startKey : undefined,
+            rangeEnd: range ? range.endKey : undefined,
+          });
         });
       });
       orphans.sort(function (a, b) {
@@ -302,7 +362,12 @@
         return a.sortAt.localeCompare(b.sortAt);
       });
       orphans.forEach(function (o) {
-        lanes.push({ kind: "other", id: o.id });
+        lanes.push({
+          kind: "other",
+          id: o.id,
+          rangeStart: o.rangeStart,
+          rangeEnd: o.rangeEnd,
+        });
       });
       return lanes;
     }
@@ -323,11 +388,7 @@
       return null;
     }
 
-    function sequenciaSpanMask(lane, dayKeys, entriesByDay) {
-      if (lane.kind !== "sequencia") return null;
-      var mask = dayKeys.map(function (dk) {
-        return Boolean(findEntryInLane(lane, dk, entriesByDay));
-      });
+    function fillSpanMask(mask) {
       var first = -1;
       var last = -1;
       mask.forEach(function (v, i) {
@@ -342,9 +403,23 @@
       return span;
     }
 
+    function laneSpanMask(lane, dayKeys, entriesByDay) {
+      if (lane.kind === "sequencia") {
+        var mask = dayKeys.map(function (dk) {
+          return Boolean(findEntryInLane(lane, dk, entriesByDay));
+        });
+        return fillSpanMask(mask);
+      }
+      if (lane.kind === "other" && lane.rangeStart && lane.rangeEnd) {
+        return dayKeys.map(function (dk) {
+          return dk >= lane.rangeStart && dk <= lane.rangeEnd;
+        });
+      }
+      return null;
+    }
+
     function barInnerHtml(entry, variant) {
       var tone = entryTone(entry);
-      if (tone === "dim") tone = "lilac";
       var title = deps.escapeHtml(truncate(entryTitle(entry), variant === "week" ? 14 : 18));
       var sub = deps.escapeHtml(truncate(entrySub(entry), variant === "week" ? 22 : 16));
       var seqBar = entry.kind === "chamado" && entry.data.sequenciaGrupoId;
@@ -354,6 +429,7 @@
           tone +
           " agenda-bar--month" +
           (seqBar ? " agenda-bar--seq" : "") +
+          (tone === "dim" ? " agenda-bar--dim" : "") +
           '">' +
           title +
           "</div>"
@@ -364,6 +440,7 @@
         tone +
         " agenda-bar--week" +
         (seqBar ? " agenda-bar--seq" : "") +
+        (tone === "dim" ? " agenda-bar--dim" : "") +
         '">' +
         '<div class="agenda-bar-t">' +
         title +
@@ -389,13 +466,16 @@
     }
 
     function laneSlotHtml(entry, lane, dayIdx, spanMask, variant) {
-      var inSpan = lane.kind === "sequencia" && spanMask && spanMask[dayIdx];
+      var spanLane = lane.kind === "sequencia" || (lane.kind === "other" && lane.rangeStart);
+      var inSpan = spanLane && spanMask && spanMask[dayIdx];
       if (!entry) {
         if (inSpan) {
+          var bridgeCls =
+            lane.kind === "sequencia" ?
+              " agenda-bar-slot--bridge agenda-bar-slot--seq" + laneAccentClass(lane)
+            : " agenda-bar-slot--bridge agenda-bar-slot--range";
           return (
-            '<div class="agenda-bar-slot agenda-bar-slot--bridge agenda-bar-slot--seq' +
-            laneAccentClass(lane) +
-            '" aria-hidden="true">' +
+            '<div class="agenda-bar-slot' + bridgeCls + '" aria-hidden="true">' +
             '<span class="agenda-seq-line"></span></div>'
           );
         }
@@ -405,6 +485,7 @@
       var bridgeR = Boolean(inSpan && dayIdx < spanMask.length - 1 && spanMask[dayIdx + 1]);
       var cls = "agenda-bar-slot";
       if (lane.kind === "sequencia") cls += " agenda-bar-slot--seq" + laneAccentClass(lane);
+      else if (lane.rangeStart) cls += " agenda-bar-slot--range";
       if (bridgeL) cls += " is-link-l";
       if (bridgeR) cls += " is-link-r";
       return '<div class="' + cls + '">' + barHtml(entry, variant) + "</div>";
@@ -617,7 +698,7 @@
         });
         var lanes = buildAgendaLanes(state.sequencias, entriesByDay, weekKeys);
         var spanByLane = lanes.map(function (lane) {
-          return sequenciaSpanMask(lane, weekKeys, entriesByDay);
+          return laneSpanMask(lane, weekKeys, entriesByDay);
         });
         html += '<div class="agenda-cal-week">';
         week.forEach(function (cell, dayIdx) {
@@ -661,7 +742,7 @@
       });
       var lanes = buildAgendaLanes(state.sequencias, entriesByDay, dayKeys);
       var spanByLane = lanes.map(function (lane) {
-        return sequenciaSpanMask(lane, dayKeys, entriesByDay);
+        return laneSpanMask(lane, dayKeys, entriesByDay);
       });
       var html = '<div class="agenda-cal agenda-cal--week"><div class="agenda-week-cols">';
       days.forEach(function (day, dayIdx) {
@@ -1000,6 +1081,11 @@
             peopleHtml +
             "</div>"
           : "") +
+          '<label class="sheet-alarm-opt">' +
+          '<input type="checkbox" name="alarmeAtivo"' +
+          (editComp && editComp.alarmeAtivo ? " checked" : "") +
+          " />" +
+          "<span><strong>Alarme sonoro</strong> — só toca se marcar aqui. Ative notificações do IbiZap no celular.</span></label>" +
           '<div class="sheet-actions">' +
           '<button type="button" class="btn-secondary" id="cancel-sheet">Cancelar</button>' +
           '<button type="submit" class="btn-primary">Salvar</button></div></form>',
@@ -1018,7 +1104,17 @@
           if (inp.checked) guests.push(inp.getAttribute("data-comp-guest"));
         });
         var inicioEm = data + "T" + hora + ":00-03:00";
-        var payload = { titulo: titulo, descricao: descricao, inicioEm: inicioEm, participantes: guests };
+        var alarmeAtivo = Boolean(fd.get("alarmeAtivo"));
+        var payload = {
+          titulo: titulo,
+          descricao: descricao,
+          inicioEm: inicioEm,
+          participantes: guests,
+          alarmeAtivo: alarmeAtivo,
+        };
+        if (alarmeAtivo && window.ChamadosAppPush) {
+          void window.ChamadosAppPush.syncIfGranted(deps.auth);
+        }
         var url = "/api/chamados/agenda/compromissos";
         var method = "POST";
         if (editComp && editComp.id) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChamadoParticipant, ChamadoView } from "@/lib/chamados/chamadoTypes";
 import Link from "next/link";
 import { AgendaCompromissoModal } from "@/components/chamados/AgendaCompromissoModal";
+import { chamadoAgendaRangeDayKeys } from "@/lib/chamados/chamadoAgendaRange";
 
 type AgendaItem = ChamadoView & {
   prazoLabel?: string;
@@ -21,6 +22,7 @@ type AgendaCompromissoItem = {
   criadoPorNome: string;
   participantes: string[];
   papel: "criador" | "convidado";
+  alarmeAtivo?: boolean;
 };
 
 type AgendaDayEntry =
@@ -142,7 +144,8 @@ function groupEntriesByDay(
   const map = new Map<string, AgendaDayEntry[]>();
   for (const it of chamados) {
     if (!it.prazoEntrega) continue;
-    const key = prazoDayKey(it.prazoEntrega);
+    const range = it.sequenciaGrupoId ? null : chamadoAgendaRangeDayKeys(it);
+    const key = range ? range.startKey : prazoDayKey(it.prazoEntrega);
     const list = map.get(key) ?? [];
     list.push({ kind: "chamado", sortAt: it.prazoEntrega, data: it });
     map.set(key, list);
@@ -161,7 +164,7 @@ function groupEntriesByDay(
 
 type AgendaLane =
   | { kind: "sequencia"; grupoId: string }
-  | { kind: "other"; id: string };
+  | { kind: "other"; id: string; rangeStart?: string; rangeEnd?: string };
 
 function sequenciaMinTime(seq: AgendaSequenciaTimeline): number {
   let t = Infinity;
@@ -195,7 +198,13 @@ function buildAgendaLanes(
     kind: "sequencia",
     grupoId: seq.grupoId,
   }));
-  const orphans: { id: string; firstDayIdx: number; sortAt: string }[] = [];
+  const orphans: {
+    id: string;
+    firstDayIdx: number;
+    sortAt: string;
+    rangeStart?: string;
+    rangeEnd?: string;
+  }[] = [];
   const seen = new Set<string>();
   dayKeys.forEach((dk, di) => {
     for (const entry of entriesByDay.get(dk) ?? []) {
@@ -203,11 +212,28 @@ function buildAgendaLanes(
       const id = entryStableId(entry);
       if (seen.has(id)) continue;
       seen.add(id);
-      orphans.push({ id, firstDayIdx: di, sortAt: entry.sortAt });
+      const range =
+        entry.kind === "chamado" && !entry.data.sequenciaGrupoId ?
+          chamadoAgendaRangeDayKeys(entry.data)
+        : null;
+      orphans.push({
+        id,
+        firstDayIdx: di,
+        sortAt: entry.sortAt,
+        rangeStart: range?.startKey,
+        rangeEnd: range?.endKey,
+      });
     }
   });
   orphans.sort((a, b) => a.firstDayIdx - b.firstDayIdx || a.sortAt.localeCompare(b.sortAt));
-  for (const o of orphans) lanes.push({ kind: "other", id: o.id });
+  for (const o of orphans) {
+    lanes.push({
+      kind: "other",
+      id: o.id,
+      rangeStart: o.rangeStart,
+      rangeEnd: o.rangeEnd,
+    });
+  }
   return lanes;
 }
 
@@ -225,13 +251,7 @@ function findEntryInLane(
   return list.find((e) => entryStableId(e) === lane.id) ?? null;
 }
 
-function sequenciaSpanMask(
-  lane: AgendaLane,
-  dayKeys: string[],
-  entriesByDay: Map<string, AgendaDayEntry[]>,
-): boolean[] | null {
-  if (lane.kind !== "sequencia") return null;
-  const mask = dayKeys.map((dk) => Boolean(findEntryInLane(lane, dk, entriesByDay)));
+function fillSpanMask(mask: boolean[]): boolean[] {
   let first = -1;
   let last = -1;
   mask.forEach((v, i) => {
@@ -244,6 +264,21 @@ function sequenciaSpanMask(
   const span = [...mask];
   for (let k = first; k <= last; k++) span[k] = true;
   return span;
+}
+
+function laneSpanMask(
+  lane: AgendaLane,
+  dayKeys: string[],
+  entriesByDay: Map<string, AgendaDayEntry[]>,
+): boolean[] | null {
+  if (lane.kind === "sequencia") {
+    const mask = dayKeys.map((dk) => Boolean(findEntryInLane(lane, dk, entriesByDay)));
+    return fillSpanMask(mask);
+  }
+  if (lane.kind === "other" && lane.rangeStart && lane.rangeEnd) {
+    return dayKeys.map((dk) => dk >= lane.rangeStart! && dk <= lane.rangeEnd!);
+  }
+  return null;
 }
 
 const SEQ_ACCENT_IDS = ["teal", "amber"] as const;
@@ -327,8 +362,11 @@ function AgendaLaneSlot({
   compact?: boolean;
 }) {
   const laneAccent = sequenciaLaneAccent(lane, sequencias);
-  const connector = laneAccent ? SEQ_CONNECTOR[laneAccent] : "bg-emerald-400/60";
-  const inSpan = lane.kind === "sequencia" && spanMask?.[dayIdx];
+  const connector =
+    laneAccent ? SEQ_CONNECTOR[laneAccent]
+    : lane.kind === "other" && lane.rangeStart ? "bg-violet-400/55"
+    : "bg-emerald-400/60";
+  const inSpan = Boolean(spanMask?.[dayIdx] && (lane.kind === "sequencia" || lane.rangeStart));
   if (!entry) {
     if (inSpan) {
       return (
@@ -477,7 +515,7 @@ function AgendaEventChip({ it, seqAccent }: { it: AgendaItem; seqAccent?: SeqAcc
       className={
         "block rounded-md border px-1.5 py-1 text-[10px] leading-tight " +
         (finalizado ?
-          "border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400 dark:hover:bg-slate-800"
+          "agenda-finish-hatch border-slate-300/70 bg-slate-200/45 text-slate-500 hover:bg-slate-200/60 dark:border-slate-600/70 dark:bg-slate-800/35 dark:text-slate-400 dark:hover:bg-slate-800/50"
         : seq && seqAccent ?
           SEQ_EVENT_CHIP[seqAccent]
         : seq ?
@@ -600,7 +638,7 @@ function TimeGrid({
     [sequencias, entriesByDay, dayKeys],
   );
   const spanByLane = useMemo(
-    () => lanes.map((lane) => sequenciaSpanMask(lane, dayKeys, entriesByDay)),
+    () => lanes.map((lane) => laneSpanMask(lane, dayKeys, entriesByDay)),
     [lanes, dayKeys, entriesByDay],
   );
   const laneRows = lanes.length > 0 ? lanes : null;
@@ -753,7 +791,7 @@ function MonthGrid({
           {weeks.map((week, weekIdx) => {
             const weekKeys = week.map((c) => c.key);
             const lanes = buildAgendaLanes(sequencias, entriesByDay, weekKeys);
-            const spanByLane = lanes.map((lane) => sequenciaSpanMask(lane, weekKeys, entriesByDay));
+            const spanByLane = lanes.map((lane) => laneSpanMask(lane, weekKeys, entriesByDay));
             return (
               <div key={weekIdx} className="grid grid-cols-7">
             {week.map((cell, dayIdx) => {
@@ -890,6 +928,7 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
     descricao: string;
     inicioEm: string;
     participantes: string[];
+    alarmeAtivo: boolean;
   }) {
     setCompromissoBusy(true);
     try {
@@ -918,7 +957,13 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
 
   async function atualizarCompromisso(
     id: string,
-    payload: { titulo: string; descricao: string; inicioEm: string; participantes: string[] },
+    payload: {
+      titulo: string;
+      descricao: string;
+      inicioEm: string;
+      participantes: string[];
+      alarmeAtivo: boolean;
+    },
   ) {
     setCompromissoBusy(true);
     try {
@@ -1116,6 +1161,7 @@ export function ChamadosAgendaPanel({ variant = "dashboard" }: { variant?: "dash
               descricao: compromissoEdit.descricao,
               inicioEm: compromissoEdit.inicioEm,
               participantes: compromissoEdit.participantes,
+              alarmeAtivo: Boolean(compromissoEdit.alarmeAtivo),
             }
           : null
         }

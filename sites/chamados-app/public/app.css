@@ -675,6 +675,26 @@ body {
   color: var(--ri-blue-deep);
 }
 
+.sheet-alarm-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0.65rem 0 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.sheet-alarm-opt input {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
 .sheet-hint {
   margin: 0 0 0.5rem;
   font-size: 0.82rem;
@@ -1945,6 +1965,27 @@ body {
 .agenda-bar--sky {
   background: var(--agenda-sky);
   color: var(--agenda-sky-fg);
+}
+
+.agenda-bar--dim {
+  background-color: color-mix(in srgb, var(--agenda-lilac) 38%, transparent);
+  color: color-mix(in srgb, var(--agenda-lilac-fg) 75%, transparent);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--agenda-lilac-fg) 16%, transparent) 0,
+    color-mix(in srgb, var(--agenda-lilac-fg) 16%, transparent) 3px,
+    transparent 3px,
+    transparent 8px
+  );
+}
+
+.agenda-bar-slot--range .agenda-seq-line {
+  background: color-mix(in srgb, var(--agenda-lilac) 52%, transparent);
+}
+
+.agenda-bar-slot--range.is-link-l .agenda-bar-hit::before,
+.agenda-bar-slot--range.is-link-r .agenda-bar-hit::after {
+  background: color-mix(in srgb, var(--agenda-lilac) 52%, transparent);
 }
 
 .agenda-month-more {

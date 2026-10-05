@@ -12,6 +12,7 @@ import {
   chamadoAgendaVisivelNow,
   startOfDaySaoPaulo,
 } from "@/lib/chamados/chamadoAgendaVisibility";
+import { chamadoAgendaRangeOverlapsPeriod } from "@/lib/chamados/chamadoAgendaRange";
 
 export type ChamadoAgendaItem = ChamadoView & {
   prazoLabel: string;
@@ -84,7 +85,7 @@ export async function listChamadosAgendaForUser(
 
   const rows = await prisma.chamado.findMany({
     where: {
-      prazoEntrega: { not: null, gte: from, lte: toEnd },
+      prazoEntrega: { not: null, gte: from },
       ...(statusFilter ?? {}),
     },
     orderBy: { prazoEntrega: "asc" },
@@ -93,7 +94,7 @@ export async function listChamadosAgendaForUser(
   const out: ChamadoAgendaItem[] = [];
   for (const row of rows) {
     if (!userParticipatesInChamado(row, ctx)) continue;
-    if (!chamadoAgendaVisivelNow(row)) continue;
+    if (!chamadoAgendaRangeOverlapsPeriod(row, from, toEnd)) continue;
     const view = chamadoToView(row);
     if (!view.prazoEntrega) continue;
     const finalizado = row.status === "fechado";

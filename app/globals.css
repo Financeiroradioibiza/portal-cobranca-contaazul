@@ -507,6 +507,17 @@ body {
   text-underline-offset: 2px;
 }
 
+/* IbiZap agenda — chamados finalizados na grade */
+.agenda-finish-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(100, 116, 139, 0.16) 0,
+    rgba(100, 116, 139, 0.16) 4px,
+    transparent 4px,
+    transparent 9px
+  );
+}
+
 .portal-sidebar-chamados-list {
   list-style: none;
   margin: 0;

@@ -13,6 +13,8 @@ self.addEventListener("push", (event) => {
       badge: "/chamados-icon-192.png",
       tag: payload.tag || "ibizap-chamados",
       renotify: true,
+      silent: payload.silent === true,
+      vibrate: payload.alarm ? [180, 80, 180, 80, 240] : undefined,
       data: { url: payload.url || "/app.html" },
     }),
   );

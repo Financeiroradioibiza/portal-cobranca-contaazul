@@ -3,8 +3,10 @@ import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess"
 import { getChamadoUserContext } from "@/lib/chamados/chamadoService";
 import {
   deleteAgendaCompromisso,
+  parseCompromissoAlarmeAtivo,
   updateAgendaCompromisso,
 } from "@/lib/chamados/agendaCompromissoService";
+import { flushAgendaCompromissoAlarms } from "@/lib/chamados/agendaCompromissoAlarmService";
 
 export const runtime = "nodejs";
 
@@ -29,6 +31,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
         body.participantes.filter((x): x is string => typeof x === "string")
       : undefined;
 
+    const alarmeAtivo = parseCompromissoAlarmeAtivo(body.alarmeAtivo);
+
     const view = await updateAgendaCompromisso(
       id,
       {
@@ -36,9 +40,11 @@ export async function PATCH(request: Request, ctx: Ctx) {
         descricao: typeof body.descricao === "string" ? body.descricao : undefined,
         inicioEm: typeof body.inicioEm === "string" ? body.inicioEm : undefined,
         participantes,
+        alarmeAtivo,
       },
       userCtx,
     );
+    await flushAgendaCompromissoAlarms();
     return NextResponse.json({ ok: true, compromisso: view });
   } catch (e) {
     if (e instanceof Response) return e;

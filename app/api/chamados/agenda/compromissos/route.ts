@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getPortalSession, requirePortalSession } from "@/lib/auth/portalAccess";
 import { getChamadoUserContext } from "@/lib/chamados/chamadoService";
-import { createAgendaCompromisso } from "@/lib/chamados/agendaCompromissoService";
+import {
+  createAgendaCompromisso,
+  parseCompromissoAlarmeAtivo,
+} from "@/lib/chamados/agendaCompromissoService";
+import { flushAgendaCompromissoAlarms } from "@/lib/chamados/agendaCompromissoAlarmService";
 
 export const runtime = "nodejs";
 
@@ -25,10 +29,13 @@ export async function POST(request: Request) {
       body.participantes.filter((x): x is string => typeof x === "string")
     : [];
 
+    const alarmeAtivo = parseCompromissoAlarmeAtivo(body.alarmeAtivo) ?? false;
+
     const compromisso = await createAgendaCompromisso(
-      { titulo, descricao, inicioEm, participantes },
+      { titulo, descricao, inicioEm, participantes, alarmeAtivo },
       ctx,
     );
+    await flushAgendaCompromissoAlarms();
     return NextResponse.json({ ok: true, compromisso });
   } catch (e) {
     if (e instanceof Response) return e;

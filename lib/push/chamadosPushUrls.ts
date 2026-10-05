@@ -12,9 +12,13 @@ function chamadosAppOrigin(): string {
 export function chamadosMobilePushUrl(query?: {
   conversa?: string;
   chamadoId?: string;
+  view?: "agenda" | "chat" | "tickets";
 }): string {
   const base = `${chamadosAppOrigin()}/`;
   const qs = new URLSearchParams();
+  if (query?.view === "agenda") {
+    qs.set("view", "agenda");
+  }
   if (query?.conversa?.trim()) {
     qs.set("view", "chat");
     qs.set("conversa", query.conversa.trim());
