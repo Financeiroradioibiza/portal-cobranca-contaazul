@@ -2926,6 +2926,23 @@ div.agenda-detail-row {
   margin-bottom: 0.35rem;
 }
 
+.tool-search-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.tool-search-row input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  padding: 0.65rem 0.85rem;
+  font-size: 1rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
 .tool-search input {
   width: 100%;
   border-radius: 14px;
@@ -2934,6 +2951,57 @@ div.agenda-detail-row {
   font-size: 1rem;
   background: var(--surface);
   color: var(--text);
+}
+
+.btn-search {
+  flex-shrink: 0;
+  padding: 0 1rem;
+  border-radius: 14px;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 800;
+  background: var(--brand-gradient-btn);
+  color: #fff;
+  min-width: 5.5rem;
+}
+
+.btn-search:disabled {
+  opacity: 0.72;
+}
+
+.tool-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 1.25rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.tool-loading p {
+  margin: 0;
+}
+
+.tool-loading-spin {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--ri-blue-mid);
+  animation: tool-spin 0.75s linear infinite;
+}
+
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.suporte-results {
+  min-height: 0.5rem;
 }
 
 .tool-search-list {
@@ -2980,6 +3048,33 @@ div.agenda-detail-row {
   background: var(--surface-muted);
 }
 
+.tool-status-banner {
+  margin: -0.25rem 0 0.65rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.tool-search-item .tool-status-banner {
+  margin: 0 0 0.4rem;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.tool-status-bloqueado {
+  background: #ff9800;
+  color: #1a0f00;
+}
+
+.tool-status-cancelado {
+  background: #d32f2f;
+  color: #fff;
+}
+
 .tool-card h2 {
   margin: 0 0 0.25rem;
   font-size: 1.05rem;
@@ -3008,6 +3103,45 @@ div.agenda-detail-row {
   margin: 0.15rem 0 0;
   font-size: 0.88rem;
   word-break: break-word;
+}
+
+.tool-kv-cache {
+  margin-bottom: 0.75rem;
+}
+
+.tool-cache {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.35rem;
+}
+
+.tool-cache-track {
+  flex: 1;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.tool-cache-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #9d4edd, #c77dff);
+  transition: width 0.35s ease;
+}
+
+[data-theme="day"] .tool-cache-fill {
+  background: linear-gradient(90deg, #7b1fa2, #ab47bc);
+}
+
+.tool-cache-pct {
+  flex-shrink: 0;
+  min-width: 2.5rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text);
+  text-align: right;
 }
 
 .tool-kv-row {

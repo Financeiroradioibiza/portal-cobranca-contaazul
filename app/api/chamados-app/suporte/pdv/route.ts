@@ -8,6 +8,8 @@ import {
   loadInstalacaoGeracaoGate,
   loadInstalacaoPdvStatus,
 } from "@/lib/suporte/instalacaoPdvStatusService";
+import { loadProducaoSuporteEspelho } from "@/lib/cadastros/producaoSuporteEspelhoService";
+import { effectiveRioTagCobranca } from "@/lib/rio/rioTagCobranca";
 
 export const runtime = "nodejs";
 
@@ -69,6 +71,19 @@ export async function GET(request: Request) {
   const progOk =
     alert.programacaoAmarrada && alert.programacaoFechada !== false && Boolean(alert.programacaoNome);
 
+  let tagCobrancaEfetiva: ReturnType<typeof effectiveRioTagCobranca> = "cobrando";
+  try {
+    const { payload } = await loadProducaoSuporteEspelho();
+    const supRow = payload.pdvs.find(
+      (p) => p.rioPdvKey === ctx.rioPdvKey || p.portalPdvId === portalPdvId,
+    );
+    if (supRow) {
+      tagCobrancaEfetiva = effectiveRioTagCobranca(supRow.tagCobranca, supRow.clienteTagCobranca);
+    }
+  } catch {
+    //
+  }
+
   return NextResponse.json({
     ok: true,
     canRegenerarToken,
@@ -76,6 +91,7 @@ export async function GET(request: Request) {
     programacaoAlert: alert,
     programacaoOk: progOk,
     pdvStatus,
+    tagCobrancaEfetiva,
     pdv: {
       portalClienteId: ctx.portalClienteId,
       portalPdvId: ctx.portalPdvId,
