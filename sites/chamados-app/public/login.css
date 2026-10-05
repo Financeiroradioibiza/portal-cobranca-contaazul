@@ -1,5 +1,11 @@
 /* Escopo só na tela de login — não sobrescrever temas do app (day/night/ibiza). */
 .login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+
   --login-bg: #eef4fb;
   --login-text: #1a1a1a;
   --login-muted: #5c5c5c;
@@ -12,6 +18,7 @@
   min-height: 100dvh;
   max-width: 420px;
   margin: 0 auto;
+  width: 100%;
   padding: 2.5rem 1.25rem 2rem;
   background: linear-gradient(165deg, #dbeafe 0%, var(--login-bg) 40%, #e0f2fe 70%, #f8fafc 100%);
   color: var(--login-text);

@@ -17,10 +17,20 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/chamados-icon-180.png" />
     <script src="/theme.js?v=20260403d"></script>
-    <link rel="stylesheet" href="/app.css?v=20260403c" />
-    <link rel="stylesheet" href="/login.css" />
+    <link rel="stylesheet" href="/app.css?v=20260405a" />
+    <link rel="stylesheet" href="/login.css?v=20260405a" />
+    <style>
+      body[data-auth-gate="app"] #login-screen,
+      body[data-auth-gate="checking"] #login-screen {
+        display: none !important;
+      }
+      body[data-auth-gate="login"] #app,
+      body[data-auth-gate="checking"] #app {
+        display: none !important;
+      }
+    </style>
   </head>
-  <body>
+  <body data-auth-gate="checking">
     <div id="login-screen" class="login-screen">
       <div class="brand">
         <img
@@ -89,12 +99,12 @@
       </nav>
     </div>
     <div id="overlay" class="overlay" hidden></div>
-    <script src="/auth.js?v=20260402d"></script>
-    <script src="/login-panel.js?v=20260402d"></script>
-    <script src="/push.js?v=20260402d"></script>
-    <script src="/sequencia-defaults.js?v=20260402d"></script>
-    <script src="/sequencia-editor.js?v=20260402d"></script>
-    <script src="/agenda.js?v=20260403g"></script>
-    <script src="/app.js?v=20260403g"></script>
+    <script src="/auth.js?v=20260405a"></script>
+    <script src="/login-panel.js?v=20260405a"></script>
+    <script src="/push.js?v=20260405a"></script>
+    <script src="/sequencia-defaults.js?v=20260405a"></script>
+    <script src="/sequencia-editor.js?v=20260405a"></script>
+    <script src="/agenda.js?v=20260405a"></script>
+    <script src="/app.js?v=20260405a"></script>
   </body>
 </html>

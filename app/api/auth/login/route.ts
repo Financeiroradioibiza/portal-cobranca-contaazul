@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import {
+  CHAMADOS_APP_SESSION_MAX_AGE,
   PORTAL_SESSION_COOKIE,
+  PORTAL_SESSION_MAX_AGE,
   portalSessionCookieOptions,
   signPortalSession,
 } from "@/lib/auth/sessionToken";
@@ -64,11 +66,18 @@ export async function POST(request: Request) {
 
   await touchPortalUserLastLogin(user.email);
 
-  const token = await signPortalSession({
-    email: user.email,
-    roles: user.roles,
-    displayName: user.displayName,
-  });
+  const viaChamadosApp = isChamadosAppLoginRequest(request);
+
+  const token = await signPortalSession(
+    {
+      email: user.email,
+      roles: user.roles,
+      displayName: user.displayName,
+    },
+    {
+      maxAgeSec: viaChamadosApp ? CHAMADOS_APP_SESSION_MAX_AGE : PORTAL_SESSION_MAX_AGE,
+    },
+  );
 
   try {
     await recordPortalAuditLog({
@@ -86,8 +95,6 @@ export async function POST(request: Request) {
   } catch (e) {
     console.error("[auth/login audit]", e);
   }
-
-  const viaChamadosApp = isChamadosAppLoginRequest(request);
 
   const res = NextResponse.json({
     ok: true,

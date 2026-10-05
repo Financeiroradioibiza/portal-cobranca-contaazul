@@ -2,6 +2,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { PortalRole } from "@/lib/auth/roles";
 import { parsePortalRoles } from "@/lib/auth/roles";
 import {
+  CHAMADOS_APP_SESSION_MAX_AGE,
   PORTAL_SESSION_COOKIE,
   PORTAL_SESSION_MAX_AGE,
 } from "@/lib/auth/constants";
@@ -21,9 +22,13 @@ function getSecretKey() {
   return new TextEncoder().encode(s);
 }
 
-export async function signPortalSession(user: PortalSessionPayload): Promise<string> {
+export async function signPortalSession(
+  user: PortalSessionPayload,
+  opts?: { maxAgeSec?: number },
+): Promise<string> {
   const key = getSecretKey();
-  const exp = new Date(Date.now() + PORTAL_SESSION_MAX_AGE * 1000);
+  const maxAge = opts?.maxAgeSec ?? PORTAL_SESSION_MAX_AGE;
+  const exp = new Date(Date.now() + maxAge * 1000);
   return new SignJWT({
     sub: user.email,
     roles: user.roles,
@@ -79,4 +84,4 @@ export function portalSessionCookieOptions(): {
   };
 }
 
-export { PORTAL_SESSION_COOKIE, PORTAL_SESSION_MAX_AGE };
+export { CHAMADOS_APP_SESSION_MAX_AGE, PORTAL_SESSION_COOKIE, PORTAL_SESSION_MAX_AGE };

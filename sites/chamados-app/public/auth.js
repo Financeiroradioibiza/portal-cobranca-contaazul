@@ -143,9 +143,9 @@
   }
 
   function requireSessionForApp() {
-    var retries = 0;
+    var retries = getToken() ? 4 : 0;
     try {
-      if (sessionStorage.getItem(FRESH_LOGIN_KEY) === "1") retries = 5;
+      if (sessionStorage.getItem(FRESH_LOGIN_KEY) === "1") retries = Math.max(retries, 6);
     } catch (e) {
       //
     }

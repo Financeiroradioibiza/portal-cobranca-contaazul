@@ -2584,9 +2584,22 @@
   var appShellEl = document.getElementById("app");
   var appBooted = false;
 
+  function setAuthGate(mode) {
+    document.body.setAttribute("data-auth-gate", mode);
+    if (mode === "app") {
+      if (loginScreenEl) loginScreenEl.hidden = true;
+      if (appShellEl) appShellEl.hidden = false;
+    } else if (mode === "login") {
+      if (loginScreenEl) loginScreenEl.hidden = false;
+      if (appShellEl) appShellEl.hidden = true;
+    } else {
+      if (loginScreenEl) loginScreenEl.hidden = true;
+      if (appShellEl) appShellEl.hidden = true;
+    }
+  }
+
   function showLoginScreen() {
-    if (appShellEl) appShellEl.hidden = true;
-    if (loginScreenEl) loginScreenEl.hidden = false;
+    setAuthGate("login");
     if (window.ChamadosLoginPanel) {
       window.ChamadosLoginPanel.mount({
         auth: auth,
@@ -2595,11 +2608,20 @@
         },
       });
     }
+    if (auth.getToken()) {
+      auth
+        .requireSessionForApp()
+        .then(function (user) {
+          void bootApp(user);
+        })
+        .catch(function () {
+          /* mantém formulário — ex.: sem rede */
+        });
+    }
   }
 
   function showAppShell() {
-    if (loginScreenEl) loginScreenEl.hidden = true;
-    if (appShellEl) appShellEl.hidden = false;
+    setAuthGate("app");
   }
 
   document.getElementById("btn-logout").onclick = function () {
@@ -2747,14 +2769,29 @@
       });
   }
 
+  setAuthGate("checking");
+
   auth
     .requireSessionForApp()
     .then(function (user) {
       return bootApp(user);
     })
-    .catch(function () {
-      auth.setToken(null);
+    .catch(function (e) {
+      var st = e && e.status;
+      if (st === 401 || st === 403) {
+        auth.setToken(null);
+      }
       state.loading = false;
+      if (st === 401 || st === 403 || !auth.getToken()) {
+        showLoginScreen();
+        return;
+      }
+      var errEl = document.getElementById("login-err");
       showLoginScreen();
+      if (errEl) {
+        errEl.textContent =
+          "Sem conexão com o portal. Verifique a internet e toque em Entrar para tentar de novo.";
+        errEl.hidden = false;
+      }
     });
 })();
