@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   PORTAL_SIDEBARS,
   PORTAL_TOP_NAV,
@@ -22,6 +22,11 @@ import {
 } from "@/lib/portal/mobilePaths";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PortalErrorReporter } from "@/components/portal/PortalErrorReporter";
+import {
+  ChamadosAppSessionBootstrap,
+  IbiZapReturnBar,
+  patchChamadosAppFetchOnce,
+} from "@/components/portal-mobile/ChamadosAppEmbedHelpers";
 
 type MeResponse = {
   email?: string;
@@ -117,6 +122,10 @@ export function MobilePortalShell({ children }: { children: React.ReactNode }) {
     menuPermissions: PortalPermissionsMap | "all";
   } | null>(null);
 
+  useLayoutEffect(() => {
+    patchChamadosAppFetchOnce();
+  }, []);
+
   useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
@@ -185,7 +194,11 @@ export function MobilePortalShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto min-h-0 w-full max-w-lg flex-1 overflow-x-hidden px-3 py-3 pb-24">{children}</main>
+      <main className="mx-auto min-h-0 w-full max-w-lg flex-1 overflow-x-hidden px-3 py-3 pb-24">
+        <ChamadosAppSessionBootstrap />
+        <IbiZapReturnBar />
+        {children}
+      </main>
 
       <nav
         className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 safe-area-pb"

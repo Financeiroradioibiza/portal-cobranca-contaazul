@@ -104,6 +104,14 @@
         });
     }
 
+    function formatCodigo(portalPdvId) {
+      var id = Number(portalPdvId);
+      if (!Number.isFinite(id)) return "";
+      var clienteId = Math.floor(id / 1000);
+      var seq = id % 1000;
+      return clienteId + "." + String(seq).padStart(3, "0");
+    }
+
     function runSearch(q) {
       var term = String(q || "").trim();
       if (term.length < 2) {
@@ -112,12 +120,26 @@
       }
       state.searchBusy = true;
       return auth
-        .apiFetch("/api/suporte/player-avisos/pdv-search?q=" + encodeURIComponent(term))
+        .apiFetch("/api/producao/suporte?q=" + encodeURIComponent(term))
         .then(function (r) {
           return r.json();
         })
         .then(function (data) {
-          state.results = Array.isArray(data.targets) ? data.targets : [];
+          var pdvs = Array.isArray(data.pdvs) ? data.pdvs : [];
+          state.results = pdvs
+            .filter(function (p) {
+              return p.portalPdvId != null && p.portalClienteId != null;
+            })
+            .slice(0, 30)
+            .map(function (p) {
+              return {
+                portalClienteId: p.portalClienteId,
+                portalPdvId: p.portalPdvId,
+                codigoDisplay: formatCodigo(p.portalPdvId),
+                clienteNome: p.clienteNome || "Cliente",
+                pdvNome: p.nome || formatCodigo(p.portalPdvId),
+              };
+            });
         })
         .catch(function () {
           state.results = [];

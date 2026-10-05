@@ -93,29 +93,28 @@
   headers = {X-Chamados-App-Proxy = "1"}
 
 [[redirects]]
-  from = "/api/criacao/clientes"
-  to = "https://portal.radioibiza.app.br/api/criacao/clientes"
+  from = "/api/criacao/*"
+  to = "https://portal.radioibiza.app.br/api/criacao/:splat"
   status = 200
   force = true
   headers = {X-Chamados-App-Proxy = "1"}
 
 [[redirects]]
-  from = "/api/criacao/clientes/*"
-  to = "https://portal.radioibiza.app.br/api/criacao/clientes/:splat"
+  from = "/_next/*"
+  to = "https://portal.radioibiza.app.br/_next/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/m"
+  to = "https://portal.radioibiza.app.br/m"
   status = 200
   force = true
   headers = {X-Chamados-App-Proxy = "1"}
 
 [[redirects]]
-  from = "/api/criacao/programacoes"
-  to = "https://portal.radioibiza.app.br/api/criacao/programacoes"
-  status = 200
-  force = true
-  headers = {X-Chamados-App-Proxy = "1"}
-
-[[redirects]]
-  from = "/api/criacao/programacoes/*"
-  to = "https://portal.radioibiza.app.br/api/criacao/programacoes/:splat"
+  from = "/m/*"
+  to = "https://portal.radioibiza.app.br/m/:splat"
   status = 200
   force = true
   headers = {X-Chamados-App-Proxy = "1"}

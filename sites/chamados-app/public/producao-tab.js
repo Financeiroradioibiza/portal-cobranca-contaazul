@@ -1,6 +1,4 @@
 (function (global) {
-  var PORTAL_ORIGIN = "https://portal.radioibiza.app.br";
-
   global.ChamadosProducaoModule = function (deps) {
     var auth = deps.auth;
     var mainEl = deps.mainEl;
@@ -40,13 +38,13 @@
     }
 
     function openProgramacao(id) {
-      var url = PORTAL_ORIGIN + "/m/criacao/programacoes/" + encodeURIComponent(id);
       try {
-        sessionStorage.setItem("ibizap_return", window.location.href);
+        sessionStorage.setItem("criacao-open-prog", id);
+        sessionStorage.setItem("ibizap_return", "/app.html#producao");
       } catch (e) {
         //
       }
-      window.location.assign(url);
+      window.location.assign("/m/criacao/programacoes");
     }
 
     function renderPdvRows() {
@@ -215,7 +213,7 @@
         "<h3>Programações</h3>" +
         renderProgramacoes() +
         '<button type="button" class="btn-primary" id="btn-nova-prog">+ Nova programação</button>' +
-        '<p class="tool-foot">Pastas, faixas, cronograma e publicação abrem no portal mobile (mesmo login).</p>';
+        '<p class="tool-foot">Editor completo (pastas, faixas, preview, cronograma) abre aqui no IbiZap — use «Voltar ao IbiZap» no topo.</p>';
       bindPanel(body);
     }
 

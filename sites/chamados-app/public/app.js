@@ -805,7 +805,9 @@
     var p = new URLSearchParams(window.location.search);
     var view = p.get("view");
     var conversa = p.get("conversa");
-    if (view === "agenda") {
+    if (window.location.hash === "#producao") {
+      state.tab = "producao";
+    } else if (view === "agenda") {
       state.tab = "agenda";
     } else if (view === "chat" || conversa) {
       state.tab = "chat";

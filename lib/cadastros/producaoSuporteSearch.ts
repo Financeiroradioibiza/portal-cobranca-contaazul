@@ -29,7 +29,7 @@ export function matchesSuporteSearch(row: SuportePdvRow, needle: string): boolea
       e.telefone.toLowerCase().includes(q),
   );
 
-  return (
+  if (
     row.nome.toLowerCase().includes(q) ||
     row.clienteNome.toLowerCase().includes(q) ||
     (row.clienteLoginEmail?.toLowerCase().includes(q) ?? false) ||
@@ -38,5 +38,25 @@ export function matchesSuporteSearch(row: SuportePdvRow, needle: string): boolea
     row.contatoLojaEmail.toLowerCase().includes(q) ||
     row.contatoLojaTelefone.toLowerCase().includes(q) ||
     extraHit
-  );
+  ) {
+    return true;
+  }
+
+  const words = q.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return false;
+
+  const hay = [
+    row.nome,
+    row.clienteNome,
+    row.clienteLoginEmail ?? "",
+    row.programacaoCriacaoNome ?? "",
+    row.contatoLojaNome,
+    row.contatoLojaEmail,
+    row.contatoLojaTelefone,
+    ...extras.flatMap((e) => [e.nome, e.email, e.telefone]),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return words.every((w) => hay.includes(w));
 }
