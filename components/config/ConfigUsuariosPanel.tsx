@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   PORTAL_MENU_MODULES,
   type PortalMenuModuleId,
@@ -115,6 +116,64 @@ export function ConfigUsuariosPanel() {
   const [formSaving, setFormSaving] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarMsg, setAvatarMsg] = useState<string | null>(null);
+
+  const userDialogOpen = Boolean(showNewUser || editUser);
+  const userDialogScrollRef = useRef<HTMLDivElement>(null);
+  const [userDialogPortalReady, setUserDialogPortalReady] = useState(false);
+
+  useEffect(() => {
+    setUserDialogPortalReady(true);
+  }, []);
+
+  const closeUserDialog = useCallback(() => {
+    setShowNewUser(false);
+    setEditUser(null);
+  }, []);
+
+  useEffect(() => {
+    if (!userDialogOpen) return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+
+    const scrollRoots: HTMLElement[] = [];
+    for (const el of document.querySelectorAll("main")) {
+      if (!(el instanceof HTMLElement)) continue;
+      const oy = getComputedStyle(el).overflowY;
+      if (oy === "auto" || oy === "scroll") scrollRoots.push(el);
+    }
+    const savedRoots = scrollRoots.map((el) => ({
+      el,
+      overflow: el.style.overflow,
+      touchAction: el.style.touchAction,
+    }));
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    for (const el of scrollRoots) {
+      el.style.overflow = "hidden";
+      el.style.touchAction = "none";
+    }
+
+    const blockBackgroundTouchMove = (e: TouchEvent) => {
+      const scrollEl = userDialogScrollRef.current;
+      if (scrollEl && e.target instanceof Node && scrollEl.contains(e.target)) return;
+      e.preventDefault();
+    };
+    document.addEventListener("touchmove", blockBackgroundTouchMove, { passive: false });
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      for (const { el, overflow, touchAction } of savedRoots) {
+        el.style.overflow = overflow;
+        el.style.touchAction = touchAction;
+      }
+      document.removeEventListener("touchmove", blockBackgroundTouchMove);
+    };
+  }, [userDialogOpen]);
 
   const selectedProfile = useMemo(
     () => profiles.find((p) => p.id === selectedProfileId) ?? profiles[0] ?? null,
@@ -628,29 +687,31 @@ export function ConfigUsuariosPanel() {
         </div>
       </div>
 
-      {(showNewUser || editUser) ?
+      {userDialogPortalReady && userDialogOpen ?
+        createPortal(
         <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
+          className="fixed inset-0 z-[100] flex touch-none items-end justify-center overflow-hidden bg-black/40 sm:items-center sm:touch-auto sm:p-4"
           role="presentation"
           onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowNewUser(false);
-              setEditUser(null);
-            }
+            if (e.target === e.currentTarget) closeUserDialog();
           }}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="config-user-dialog-title"
-            className="flex max-h-[min(94dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:max-h-[90dvh] sm:rounded-xl dark:bg-slate-900"
+            className="flex h-[94dvh] max-h-[94dvh] w-full max-w-md touch-auto flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:h-auto sm:max-h-[min(90dvh,100%)] sm:rounded-xl dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="shrink-0 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
               <h2 id="config-user-dialog-title" className="text-lg font-bold">
                 {editUser ? "Editar usuário" : "Novo usuário"}
               </h2>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 [-webkit-overflow-scrolling:touch]">
+            <div
+              ref={userDialogScrollRef}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-4 touch-pan-y [-webkit-overflow-scrolling:touch]"
+            >
             <div className="space-y-3">
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">E-mail (login)</span>
@@ -814,10 +875,7 @@ export function ConfigUsuariosPanel() {
                 <button
                   type="button"
                   className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                  onClick={() => {
-                    setShowNewUser(false);
-                    setEditUser(null);
-                  }}
+                  onClick={closeUserDialog}
                 >
                   Cancelar
                 </button>
@@ -832,7 +890,9 @@ export function ConfigUsuariosPanel() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
+        )
       : null}
     </div>
   );
