@@ -10,6 +10,17 @@ const FINANCEIRO: PortalRole[] = ["cobranca"];
 const CONSULTA_PAINEL: PortalRole[] = ["cobranca", "suporte"];
 const CADASTROS_FULL: PortalRole[] = ["cadastros"];
 const CADASTROS_VINCULOS: PortalRole[] = ["cadastros", "cobranca", "suporte"];
+/** Rio × Produção (Cadastros → grupos) — alinhado a perfis Curador / Operação. */
+const CADASTROS_GRUPOS: PortalRole[] = ["cadastros", "criacao", "producao", "suporte"];
+
+function isCadastrosGruposApiOrPage(pathname: string): boolean {
+  if (pathname.startsWith("/cadastros/grupos")) return true;
+  return (
+    pathname.includes("/producao-layout") ||
+    pathname.includes("/producao-catalog") ||
+    pathname.includes("/producao/custom-group")
+  );
+}
 /** Espelho Rio × Produção (Cadastros → grupos): leitura do mês, sem menu Financeiro. */
 const RIO_PLANILHA_CADASTROS_READ: PortalRole[] = ["cobranca", "cadastros"];
 
@@ -67,6 +78,9 @@ function cadastrosApiRule(pathname: string): RouteAccessRule {
   ) {
     return { kind: "roles", roles: CADASTROS_VINCULOS };
   }
+  if (isCadastrosGruposApiOrPage(pathname)) {
+    return { kind: "roles", roles: CADASTROS_GRUPOS };
+  }
   return { kind: "roles", roles: CADASTROS_FULL };
 }
 
@@ -118,8 +132,14 @@ export function resolveRouteAccessRule(
   }
 
   if (pathname.startsWith("/api/cadastros") || pathname.startsWith("/cadastros")) {
+    if (pathname === "/cadastros" || pathname === "/cadastros/") {
+      return { kind: "authenticated" };
+    }
     if (pathname.startsWith("/cadastros/vinculos") || pathname.startsWith("/cadastros/primeiro-ping")) {
       return { kind: "roles", roles: CADASTROS_VINCULOS };
+    }
+    if (isCadastrosGruposApiOrPage(pathname)) {
+      return { kind: "roles", roles: CADASTROS_GRUPOS };
     }
     if (pathname.startsWith("/cadastros/atualizacoes") || pathname.includes("/atualizacoes")) {
       return { kind: "roles", roles: CADASTROS_FULL };

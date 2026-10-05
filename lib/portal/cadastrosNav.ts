@@ -1,3 +1,6 @@
+import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
+import { isSidebarHrefAllowed } from "@/lib/portal/pathMenuMap";
+
 /** Sidebar do módulo Cadastros. */
 export const CADASTROS_SIDEBAR = [
   { href: "/cadastros/grupos", label: "Rio × Produção", icon: "👥" },
@@ -6,8 +9,18 @@ export const CADASTROS_SIDEBAR = [
   { href: "/cadastros/atualizacoes", label: "Atl. cadastros", icon: "🔄" },
 ] as const;
 
-/** Página principal ao clicar em Cadastros no topo. */
+/** Fallback legado — preferir `resolveCadastrosHomeHref(perm)`. */
 export const CADASTROS_HOME_HREF = "/cadastros/grupos";
+
+/** Primeira tela de Cadastros permitida no perfil (ex.: Financeiro → IDs Player, não Grupos). */
+export function resolveCadastrosHomeHref(perm: PortalPermissionsMap | "all"): string {
+  for (const item of CADASTROS_SIDEBAR) {
+    if (item.href && isSidebarHrefAllowed(item.href, perm)) {
+      return item.href;
+    }
+  }
+  return CADASTROS_HOME_HREF;
+}
 
 /** @deprecated */
 export const CADASTROS_NAV = CADASTROS_SIDEBAR.map((x) => ({
