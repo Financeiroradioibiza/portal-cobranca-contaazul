@@ -15,10 +15,13 @@ export async function GET(request: Request) {
   }
   const suporteRule = resolveRouteAccessRule("/api/suporte/instalacao");
   const producaoRule = resolveRouteAccessRule("/api/producao/dashboard");
+  const cobrancaRule = resolveRouteAccessRule("/api/cobranca-aberta/send");
   const mobileSuporte =
     suporteRule ? isRouteAccessAllowed(suporteRule, session.roles) : false;
   const mobileProducao =
     producaoRule ? isRouteAccessAllowed(producaoRule, session.roles) : false;
+  const mobileCobranca =
+    cobrancaRule ? isRouteAccessAllowed(cobrancaRule, session.roles) : false;
 
   return NextResponse.json(
     {
@@ -29,6 +32,7 @@ export async function GET(request: Request) {
       mobileTools: {
         suporte: mobileSuporte,
         producao: mobileProducao,
+        cobranca: mobileCobranca,
       },
     },
     { headers: { "Cache-Control": "no-store" } },

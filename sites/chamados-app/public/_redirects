@@ -7,6 +7,9 @@
 /api/chamados/*  https://portal.radioibiza.app.br/api/chamados/:splat  200!
 /api/push/*  https://portal.radioibiza.app.br/api/push/:splat  200!
 /api/config/users/*  https://portal.radioibiza.app.br/api/config/users/:splat  200!
+/api/contaazul/*  https://portal.radioibiza.app.br/api/contaazul/:splat  200!
+/api/producao/*  https://portal.radioibiza.app.br/api/producao/:splat  200!
+/api/suporte/*  https://portal.radioibiza.app.br/api/suporte/:splat  200!
 
 /login  /login.html  200
 /  /app.html  200

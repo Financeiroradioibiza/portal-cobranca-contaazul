@@ -61,7 +61,8 @@
   var agendaApi = null;
   var suporteApi = null;
   var producaoApi = null;
-  var mobileTools = { suporte: false, producao: false };
+  var cobrancaApi = null;
+  var mobileTools = { suporte: false, producao: false, cobranca: false };
   var navCarouselPage = 0;
   var toastTimer = null;
 
@@ -262,24 +263,26 @@
   }
 
   function applyMobileTools(tools) {
-    mobileTools = tools || { suporte: false, producao: false };
+    mobileTools = tools || { suporte: false, producao: false, cobranca: false };
     var pageTools = document.getElementById("nav-page-tools");
     var hint = document.getElementById("nav-carousel-hint");
     var track = document.getElementById("nav-track");
-    var has = mobileTools.suporte || mobileTools.producao;
+    var toolCount = [mobileTools.suporte, mobileTools.producao, mobileTools.cobranca].filter(
+      Boolean,
+    ).length;
+    var has = toolCount > 0;
     if (pageTools) {
       pageTools.hidden = !has;
       var suporteBtn = pageTools.querySelector('[data-tab="suporte"]');
       var prodBtn = pageTools.querySelector('[data-tab="producao"]');
+      var cobBtn = pageTools.querySelector('[data-tab="cobranca"]');
       if (suporteBtn) suporteBtn.hidden = !mobileTools.suporte;
       if (prodBtn) prodBtn.hidden = !mobileTools.producao;
+      if (cobBtn) cobBtn.hidden = !mobileTools.cobranca;
     }
     if (hint) hint.hidden = !has;
     if (track) {
-      track.classList.toggle(
-        "nav-page-tools-only",
-        has && mobileTools.suporte !== mobileTools.producao,
-      );
+      track.classList.toggle("nav-page-tools-only", toolCount === 1);
       if (!has) {
         navCarouselPage = 0;
         track.setAttribute("data-page", "0");
@@ -302,7 +305,7 @@
     viewport.addEventListener(
       "touchstart",
       function (e) {
-        if (!mobileTools.suporte && !mobileTools.producao) return;
+        if (!mobileTools.suporte && !mobileTools.producao && !mobileTools.cobranca) return;
         if (!e.touches[0]) return;
         startX = e.touches[0].clientX;
         dragging = true;
@@ -807,6 +810,8 @@
     var conversa = p.get("conversa");
     if (window.location.hash === "#producao") {
       state.tab = "producao";
+    } else if (window.location.hash === "#cobranca") {
+      state.tab = "cobranca";
     } else if (view === "agenda") {
       state.tab = "agenda";
     } else if (view === "chat" || conversa) {
@@ -2502,6 +2507,9 @@
     } else if (state.tab === "producao") {
       if (producaoApi) producaoApi.render();
       setNavCarouselPage(1);
+    } else if (state.tab === "cobranca") {
+      if (cobrancaApi) cobrancaApi.render();
+      setNavCarouselPage(1);
     } else if (state.selectedAssunto) {
       renderChatThread();
     } else {
@@ -2569,6 +2577,11 @@
         if (state.tab === "producao" && producaoApi) {
           return producaoApi.refresh().then(function () {
             producaoApi.render();
+          });
+        }
+        if (state.tab === "cobranca" && cobrancaApi) {
+          return cobrancaApi.refresh().then(function () {
+            cobrancaApi.render();
           });
         }
         render();
@@ -2690,6 +2703,7 @@
     var tab = btn.getAttribute("data-tab");
     if (tab === "suporte" && !mobileTools.suporte) return;
     if (tab === "producao" && !mobileTools.producao) return;
+    if (tab === "cobranca" && !mobileTools.cobranca) return;
     state.tab = tab;
     state.selectedTicket = null;
     state.selectedAssunto = null;
@@ -2770,6 +2784,16 @@
       getUser: function () {
         return state.user;
       },
+      showToast: showToast,
+    });
+  }
+
+  if (window.ChamadosCobrancaModule) {
+    cobrancaApi = window.ChamadosCobrancaModule({
+      auth: auth,
+      mainEl: mainEl,
+      escapeHtml: escapeHtml,
+      setScreenHeader: setScreenHeader,
       showToast: showToast,
     });
   }
