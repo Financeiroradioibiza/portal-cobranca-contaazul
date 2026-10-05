@@ -629,12 +629,29 @@ export function ConfigUsuariosPanel() {
       </div>
 
       {(showNewUser || editUser) ?
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl dark:bg-slate-900">
-            <h2 className="text-lg font-bold">
-              {editUser ? "Editar usuário" : "Novo usuário"}
-            </h2>
-            <div className="mt-4 space-y-3">
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowNewUser(false);
+              setEditUser(null);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="config-user-dialog-title"
+            className="flex max-h-[min(94dvh,100%)] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:max-h-[90dvh] sm:rounded-xl dark:bg-slate-900"
+          >
+            <div className="shrink-0 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+              <h2 id="config-user-dialog-title" className="text-lg font-bold">
+                {editUser ? "Editar usuário" : "Novo usuário"}
+              </h2>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 [-webkit-overflow-scrolling:touch]">
+            <div className="space-y-3">
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">E-mail (login)</span>
                 <input
@@ -782,34 +799,37 @@ export function ConfigUsuariosPanel() {
                 </>
               : null}
             </div>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
+            </div>
+            <div className="shrink-0 space-y-3 border-t border-slate-200 bg-white px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-slate-800 dark:bg-slate-900">
               {editUser ?
                 <button
                   type="button"
-                  className="me-auto text-xs font-semibold text-amber-700 underline"
+                  className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
                   onClick={() => void resetTotp(editUser)}
                 >
-                  Resetar Authenticator
+                  Resetar Google Authenticator
                 </button>
               : null}
-              <button
-                type="button"
-                className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                onClick={() => {
-                  setShowNewUser(false);
-                  setEditUser(null);
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={formSaving}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
-                onClick={() => void (editUser ? submitEditUser() : submitNewUser())}
-              >
-                {formSaving ? "Salvando…" : "Salvar"}
-              </button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setShowNewUser(false);
+                    setEditUser(null);
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={formSaving}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                  onClick={() => void (editUser ? submitEditUser() : submitNewUser())}
+                >
+                  {formSaving ? "Salvando…" : "Salvar"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

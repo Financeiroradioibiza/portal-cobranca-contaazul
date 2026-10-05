@@ -194,7 +194,7 @@ export function MobilePortalShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto min-h-0 w-full max-w-lg flex-1 overflow-x-hidden px-3 py-3 pb-24">
+      <main className="mx-auto min-h-0 w-full max-w-lg flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 pb-24 [-webkit-overflow-scrolling:touch]">
         <ChamadosAppSessionBootstrap />
         <IbiZapReturnBar />
         {children}
