@@ -11,22 +11,129 @@
 
     var state = {
       q: "",
-      clientes: [],
+      searchResults: [],
       clienteRef: null,
       clienteNome: "",
       payload: null,
       busy: false,
       editorUrl: null,
+      searchBusy: false,
     };
 
-    var searchTimer = null;
+    function formatCodigo(portalPdvId) {
+      var id = Number(portalPdvId);
+      if (!Number.isFinite(id)) return "";
+      var clienteId = Math.floor(id / 1000);
+      var seq = id % 1000;
+      return clienteId + "." + String(seq).padStart(3, "0");
+    }
 
-    function loadClientes(q) {
-      var url = "/api/criacao/clientes";
-      if (q && q.trim()) url += "?q=" + encodeURIComponent(q.trim());
-      return auth.apiFetch(url).then(function (r) {
-        return r.json();
+    function focusSearchInput() {
+      requestAnimationFrame(function () {
+        var el = mainEl.querySelector("#prod-q");
+        if (!el) return;
+        el.focus();
+        try {
+          var len = el.value.length;
+          el.setSelectionRange(len, len);
+        } catch (e) {
+          //
+        }
       });
+    }
+
+    function submitSearch() {
+      var term = String(state.q || "").trim();
+      if (term.length < 2) {
+        showToast("Digite pelo menos 2 caracteres para buscar.");
+        return;
+      }
+      state.searchBusy = true;
+      state.searchResults = [];
+      render();
+      focusSearchInput();
+      runSearch(term)
+        .catch(function () {
+          showToast("Falha na busca. Tente de novo.");
+        })
+        .finally(function () {
+          state.searchBusy = false;
+          render();
+          focusSearchInput();
+        });
+    }
+
+    function runSearch(q) {
+      var term = String(q || "").trim();
+      if (term.length < 2) {
+        state.searchResults = [];
+        return Promise.resolve();
+      }
+      return auth
+        .apiFetch("/api/producao/suporte?q=" + encodeURIComponent(term))
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (data) {
+          var pdvs = Array.isArray(data.pdvs) ? data.pdvs : [];
+          state.searchResults = pdvs
+            .filter(function (p) {
+              return p.clienteKey && p.portalPdvId != null;
+            })
+            .slice(0, 30)
+            .map(function (p) {
+              return {
+                clienteKey: p.clienteKey,
+                clienteNome: p.clienteNome || "Cliente",
+                pdvNome: p.nome || formatCodigo(p.portalPdvId),
+                codigoDisplay: formatCodigo(p.portalPdvId),
+              };
+            });
+        })
+        .catch(function () {
+          state.searchResults = [];
+        });
+    }
+
+    function searchResultsHtml() {
+      if (state.searchBusy) {
+        return (
+          '<div class="tool-loading" aria-live="polite">' +
+          '<span class="tool-loading-spin" aria-hidden="true"></span>' +
+          "<p>Buscando PDVs…</p></div>"
+        );
+      }
+      if (state.searchResults.length === 0) {
+        if (state.q.trim().length >= 2) {
+          return '<p class="empty-hint">Nenhum PDV encontrado.</p>';
+        }
+        return '<p class="empty-hint">Digite e toque em Buscar.</p>';
+      }
+      return (
+        '<ul class="tool-search-list">' +
+        state.searchResults
+          .map(function (t) {
+            return (
+              '<li><button type="button" class="tool-search-item prod-cliente-pick" data-ref="' +
+              escapeHtml(t.clienteKey) +
+              '" data-nome="' +
+              escapeHtml(t.clienteNome) +
+              '" data-label="' +
+              escapeHtml(t.pdvNome) +
+              '">' +
+              "<strong>" +
+              escapeHtml(t.pdvNome) +
+              "</strong>" +
+              "<span>" +
+              escapeHtml(t.clienteNome) +
+              " · " +
+              escapeHtml(t.codigoDisplay) +
+              "</span></button></li>"
+            );
+          })
+          .join("") +
+        "</ul>"
+      );
     }
 
     function loadClientePdvs(ref) {
@@ -219,58 +326,48 @@
 
     function render() {
       setScreenHeader("Produção", true);
-      var listHtml =
-        state.clientes.length === 0 ?
-          '<p class="empty-hint">' +
-          (state.q.trim().length >= 2 ? "Nenhum cliente." : "Digite para filtrar clientes.") +
-          "</p>"
-        : '<ul class="tool-search-list">' +
-          state.clientes
-            .slice(0, 40)
-            .map(function (c) {
-              return (
-                '<li><button type="button" class="tool-search-item prod-cliente-pick" data-ref="' +
-                escapeHtml(c.ref) +
-                '" data-nome="' +
-                escapeHtml(c.nome) +
-                '">' +
-                "<strong>" +
-                escapeHtml(c.nome) +
-                "</strong>" +
-                '<span>' +
-                String(c.pdvCount || 0) +
-                " PDVs</span></button></li>"
-              );
-            })
-            .join("") +
-          "</ul>";
+      var searchBtnLabel = state.searchBusy ? "Buscando…" : "Buscar";
 
       mainEl.innerHTML =
         '<div class="producao-panel tool-panel">' +
-        '<label class="tool-search">' +
-        "<span>Cliente produção</span>" +
-        '<input type="search" id="prod-q" autocomplete="off" placeholder="Nome do cliente…" value="' +
+        '<div class="tool-search">' +
+        "<span>Buscar PDV</span>" +
+        '<div class="tool-search-row">' +
+        '<input type="search" enterkeyhint="search" id="prod-q" autocomplete="off" placeholder="Nome, cliente ou código 316.001…" value="' +
         escapeHtml(state.q) +
         '" />' +
-        "</label>" +
-        listHtml +
+        '<button type="button" id="btn-prod-search" class="btn-search"' +
+        (state.searchBusy ? " disabled" : "") +
+        ">" +
+        escapeHtml(searchBtnLabel) +
+        "</button></div></div>" +
+        '<div class="producao-results">' +
+        searchResultsHtml() +
+        "</div>" +
         '<div class="producao-body">' +
         (state.clienteRef ?
           ""
-        : '<p class="empty-hint">Selecione um cliente.</p>') +
+        : '<p class="empty-hint">Selecione um PDV na lista.</p>') +
         "</div></div>";
 
       var input = mainEl.querySelector("#prod-q");
+      var searchBtn = mainEl.querySelector("#btn-prod-search");
       if (input) {
         input.oninput = function () {
           state.q = input.value;
-          clearTimeout(searchTimer);
-          searchTimer = setTimeout(function () {
-            loadClientes(state.q).then(function (data) {
-              state.clientes = Array.isArray(data.clientes) ? data.clientes : [];
-              render();
-            });
-          }, 300);
+        };
+        input.onkeydown = function (e) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            submitSearch();
+          }
+        };
+      }
+      if (searchBtn) {
+        searchBtn.onclick = function () {
+          if (state.searchBusy) return;
+          state.q = input ? input.value : state.q;
+          submitSearch();
         };
       }
 
@@ -278,7 +375,8 @@
         btn.onclick = function () {
           state.clienteRef = btn.getAttribute("data-ref");
           state.clienteNome = btn.getAttribute("data-nome") || "";
-          state.clientes = [];
+          state.q = btn.getAttribute("data-label") || state.q;
+          state.searchResults = [];
           state.busy = true;
           loadClientePdvs(state.clienteRef)
             .then(function (data) {
