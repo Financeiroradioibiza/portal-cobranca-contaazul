@@ -50,10 +50,22 @@ export async function markChamadoRead(userEmailRaw: string, chamadoId: string): 
   });
 }
 
+/** Zera não lidos de todos os envolvidos — chamado encerrado não deve aparecer no inbox. */
+export async function clearChamadoInboxForAll(chamadoId: string): Promise<void> {
+  await prisma.chamadoInboxUsuario.updateMany({
+    where: { chamadoId, unreadCount: { gt: 0 } },
+    data: { unreadCount: 0 },
+  });
+}
+
 export async function inboxUnreadByChamadoId(userEmailRaw: string): Promise<Map<string, number>> {
   const userEmail = normalizePortalEmail(userEmailRaw);
   const rows = await prisma.chamadoInboxUsuario.findMany({
-    where: { userEmail, unreadCount: { gt: 0 } },
+    where: {
+      userEmail,
+      unreadCount: { gt: 0 },
+      chamado: { status: { not: "fechado" } },
+    },
     select: { chamadoId: true, unreadCount: true },
   });
   const map = new Map<string, number>();
@@ -67,11 +79,12 @@ export async function totalChamadoInboxUnread(userEmailRaw: string): Promise<num
     where: { userEmail, unreadCount: { gt: 0 } },
     select: {
       unreadCount: true,
-      chamado: { select: { agendaVisivelDesde: true, createdAt: true } },
+      chamado: { select: { status: true, agendaVisivelDesde: true, createdAt: true } },
     },
   });
   let total = 0;
   for (const r of rows) {
+    if (r.chamado.status === "fechado") continue;
     if (!chamadoAgendaVisivelNow(r.chamado)) continue;
     total += r.unreadCount;
   }
@@ -83,6 +96,9 @@ export function attachInboxToChamados(
   inbox: Map<string, number>,
 ): ChamadoView[] {
   return chamados.map((c) => {
+    if (c.status === "fechado") {
+      return { ...c, unreadCount: 0 };
+    }
     const raw = inbox.get(c.id) ?? 0;
     const visivel = chamadoAgendaVisivelNow({
       agendaVisivelDesde: c.agendaVisivelDesde ? new Date(c.agendaVisivelDesde) : null,

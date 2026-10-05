@@ -17,8 +17,26 @@ function fmtSize(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function fileUrl(id: string, kind: "chamado" | "conversa"): string {
-  return `/api/chamados/anexos/${id}/file?kind=${kind}`;
+function fileUrl(id: string, kind: "chamado" | "conversa", download = false): string {
+  const q = new URLSearchParams({ kind });
+  if (download) q.set("download", "1");
+  return `/api/chamados/anexos/${id}/file?${q.toString()}`;
+}
+
+function AnexoDownloadLink({
+  href,
+  fileName,
+  className,
+}: {
+  href: string;
+  fileName: string;
+  className: string;
+}) {
+  return (
+    <a href={href} download={fileName} className={className}>
+      Baixar
+    </a>
+  );
 }
 
 export function ChamadoAnexoMedia({
@@ -27,17 +45,25 @@ export function ChamadoAnexoMedia({
   anexo: { id: string; fileName: string; mimeType: string; sizeBytes: number };
 }) {
   const url = fileUrl(anexo.id, "chamado");
+  const downloadUrl = fileUrl(anexo.id, "chamado", true);
   return (
     <div className="mt-1.5">
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
-      >
-        {anexo.fileName}
-      </a>
-      <span className="ml-1 text-[10px] text-slate-400">({fmtSize(anexo.sizeBytes)})</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+        >
+          {anexo.fileName}
+        </a>
+        <span className="text-[10px] text-slate-400">({fmtSize(anexo.sizeBytes)})</span>
+        <AnexoDownloadLink
+          href={downloadUrl}
+          fileName={anexo.fileName}
+          className="rounded-md bg-slate-200/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600"
+        />
+      </div>
       {anexo.mimeType.startsWith("image/") ?
         <img
           src={url}
@@ -176,12 +202,25 @@ export function ConversaAnexoPreview({
   anexo: { id: string; fileName: string; mimeType: string; sizeBytes: number };
 }) {
   const url = fileUrl(anexo.id, "conversa");
+  const downloadUrl = fileUrl(anexo.id, "conversa", true);
   return (
     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-600 dark:bg-slate-950/50">
-      <a href={url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-violet-700 dark:text-violet-300">
-        {anexo.fileName}
-      </a>
-      <span className="ml-1 text-[10px] text-slate-400">({fmtSize(anexo.sizeBytes)})</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-semibold text-violet-700 dark:text-violet-300"
+        >
+          {anexo.fileName}
+        </a>
+        <span className="text-[10px] text-slate-400">({fmtSize(anexo.sizeBytes)})</span>
+        <AnexoDownloadLink
+          href={downloadUrl}
+          fileName={anexo.fileName}
+          className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900 hover:bg-violet-200 dark:bg-violet-950 dark:text-violet-100 dark:hover:bg-violet-900"
+        />
+      </div>
       {anexo.mimeType.startsWith("image/") ?
         <img src={url} alt="" className="mt-1 max-h-48 max-w-full rounded" />
       : null}

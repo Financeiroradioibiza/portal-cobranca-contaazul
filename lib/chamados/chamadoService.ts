@@ -11,7 +11,7 @@ import {
   parseStringArrayJson,
   serializeStringArray,
 } from "@/lib/chamados/chamadoUtils";
-import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
+import { bumpChamadoInbox, clearChamadoInboxForAll } from "@/lib/chamados/chamadoInboxService";
 import {
   notifyChamadoEmail,
   scheduleChamadoNotifyEmail,
@@ -372,6 +372,15 @@ export async function updateChamado(
   const row = await prisma.chamado.update({ where: { id }, data });
   const view = chamadoToView(row);
 
+  const fechouAgora = input.status === "fechado" && existing.status !== "fechado";
+  if (fechouAgora) {
+    try {
+      await clearChamadoInboxForAll(id);
+    } catch (e) {
+      console.error("[chamadoService] inbox clear ao fechar", id, e);
+    }
+  }
+
   let notifyKind: ChamadoNotifyKind | null = null;
   if (input.notificar === false) {
     notifyKind = null;
@@ -397,14 +406,13 @@ export async function updateChamado(
         e instanceof Error ? e.message : e,
       );
     }
-    try {
-      const inboxKind =
-        notifyKind === "closed" ? "closed"
-        : notifyKind === "created" ? "created"
-        : "updated";
-      await bumpChamadoInbox(view, { kind: inboxKind, actorEmail: ctx.email });
-    } catch (e) {
-      console.error("[chamadoService] inbox update", view.id, e);
+    if (notifyKind !== "closed") {
+      try {
+        const inboxKind = notifyKind === "created" ? "created" : "updated";
+        await bumpChamadoInbox(view, { kind: inboxKind, actorEmail: ctx.email });
+      } catch (e) {
+        console.error("[chamadoService] inbox update", view.id, e);
+      }
     }
   }
 

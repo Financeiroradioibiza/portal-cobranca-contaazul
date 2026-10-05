@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { ChamadoUserContext } from "@/lib/chamados/chamadoService";
 import { chamadoToView } from "@/lib/chamados/chamadoUtils";
 import type { ChamadoView } from "@/lib/chamados/chamadoTypes";
-import { bumpChamadoInbox } from "@/lib/chamados/chamadoInboxService";
+import { bumpChamadoInbox, clearChamadoInboxForAll } from "@/lib/chamados/chamadoInboxService";
 import { scheduleChamadoNotifyEmail } from "@/lib/chamados/chamadoNotifyEmail";
 import {
   enabledSteps,
@@ -131,6 +131,12 @@ export async function avancarSequenciaChamado(
     },
   });
   const closedView = chamadoToView(closed);
+
+  try {
+    await clearChamadoInboxForAll(chamadoId);
+  } catch (e) {
+    console.error("[sequencia] inbox clear ao fechar", chamadoId, e);
+  }
 
   scheduleChamadoNotifyEmail(closedView, "closed");
 

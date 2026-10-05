@@ -885,6 +885,78 @@ body {
   margin-top: 0.35rem;
 }
 
+.msg-anexos {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.msg-anexo-item {
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--border);
+}
+
+.msg-row-mine .msg-anexo-item {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.msg-anexo-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.msg-anexo-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  word-break: break-word;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.btn-anexo-dl {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--ri-blue-deep);
+  color: #fff;
+  cursor: pointer;
+}
+
+.btn-anexo-dl:disabled {
+  opacity: 0.55;
+}
+
+.msg-anexo-img {
+  display: block;
+  margin-top: 0.4rem;
+  max-width: 100%;
+  max-height: 12rem;
+  border-radius: 8px;
+}
+
+.msg-anexo-audio {
+  display: block;
+  margin-top: 0.4rem;
+  width: 100%;
+  max-width: 100%;
+}
+
+.ticket-anexo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 .ticket-detail-title {
   margin: 0.5rem 0 0.75rem;
   font-size: 1.2rem;

@@ -295,13 +295,19 @@ export function ChamadosBoard({
       }
       const updated = (data as { chamado?: ChamadoView }).chamado;
       if (updated) {
+        const unreadAfter =
+          updated.status === "fechado" ? 0 : undefined;
         setChamados((prev) =>
           prev.map((c) =>
-            c.id === updated.id ? { ...updated, unreadCount: c.unreadCount ?? 0 } : c,
+            c.id === updated.id ?
+              { ...updated, unreadCount: unreadAfter ?? c.unreadCount ?? 0 }
+            : c,
           ),
         );
         setSelected((prev) =>
-          prev?.id === updated.id ? { ...updated, unreadCount: prev.unreadCount ?? 0 } : prev,
+          prev?.id === updated.id ?
+            { ...updated, unreadCount: unreadAfter ?? prev.unreadCount ?? 0 }
+          : prev,
         );
       } else {
         await load();
@@ -692,7 +698,11 @@ export function ChamadosBoard({
               const proximo = (data as { proximo?: ChamadoView | null }).proximo;
               const fim = Boolean((data as { fim?: boolean }).fim);
               if (fechado) {
-                setChamados((prev) => prev.map((c) => (c.id === fechado.id ? fechado : c)));
+                setChamados((prev) =>
+                  prev.map((c) =>
+                    c.id === fechado.id ? { ...fechado, unreadCount: 0 } : c,
+                  ),
+                );
               }
               if (proximo) {
                 setChamados((prev) => {

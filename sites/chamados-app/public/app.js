@@ -608,12 +608,107 @@
       });
   }
 
+  function chamadoAnexoFilePath(anexoId, kind, download) {
+    var k = kind || "chamado";
+    var u =
+      "/api/chamados/anexos/" +
+      encodeURIComponent(anexoId) +
+      "/file?kind=" +
+      encodeURIComponent(k);
+    if (download) u += "&download=1";
+    return u;
+  }
+
+  function renderAnexosHtml(anexos, kind) {
+    if (!anexos || !anexos.length) return "";
+    return (
+      '<div class="msg-anexos">' +
+      anexos
+        .map(function (a) {
+          var openHref = chamadoAnexoFilePath(a.id, kind, false);
+          var dlHref = chamadoAnexoFilePath(a.id, kind, true);
+          var mime = a.mimeType || "";
+          var preview = "";
+          if (mime.indexOf("image/") === 0) {
+            preview =
+              '<img class="msg-anexo-img" src="' + escapeHtml(openHref) + '" alt="" loading="lazy" />';
+          } else if (mime.indexOf("audio/") === 0) {
+            preview =
+              '<audio class="msg-anexo-audio" controls preload="none" src="' +
+              escapeHtml(openHref) +
+              '"></audio>';
+          }
+          return (
+            '<div class="msg-anexo-item">' +
+            '<div class="msg-anexo-head">' +
+            '<span class="msg-anexo-name">' +
+            escapeHtml(a.fileName || "arquivo") +
+            "</span>" +
+            '<button type="button" class="btn-anexo-dl" data-anexo-download="1" data-anexo-id="' +
+            escapeHtml(a.id) +
+            '" data-anexo-kind="' +
+            escapeHtml(kind || "chamado") +
+            '" data-anexo-name="' +
+            escapeHtml(a.fileName || "arquivo") +
+            '">Baixar</button>' +
+            "</div>" +
+            preview +
+            "</div>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function bindAnexoDownloadButtons(root) {
+    if (!root) return;
+    root.querySelectorAll("[data-anexo-download]").forEach(function (btn) {
+      btn.onclick = function (e) {
+        e.preventDefault();
+        var id = btn.getAttribute("data-anexo-id");
+        var kind = btn.getAttribute("data-anexo-kind") || "chamado";
+        var name = btn.getAttribute("data-anexo-name") || "arquivo";
+        if (!id) return;
+        btn.disabled = true;
+        auth
+          .apiFetch(chamadoAnexoFilePath(id, kind, true))
+          .then(function (r) {
+            if (!r.ok) throw new Error("download");
+            return r.blob();
+          })
+          .then(function (blob) {
+            var obj = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = obj;
+            a.download = name;
+            a.rel = "noopener";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function () {
+              URL.revokeObjectURL(obj);
+            }, 5000);
+          })
+          .catch(function () {
+            showToast("Não foi possível baixar o arquivo.");
+          })
+          .finally(function () {
+            btn.disabled = false;
+          });
+      };
+    });
+  }
+
   function messageRowHtml(opts) {
     var email = opts.email || "";
     var name = opts.name || email;
     var corpo = opts.corpo || "";
     var when = opts.when || "";
     var mine = !!opts.mine;
+    var anexosBlock = renderAnexosHtml(opts.anexos, opts.anexoKind || "chamado");
+    var corpoHtml =
+      corpo && corpo !== "(anexo)" ? corpoWithMentionsHtml(corpo) : anexosBlock ? "" : "";
     return (
       '<div class="msg-row' +
       (mine ? " msg-row-mine" : "") +
@@ -623,7 +718,8 @@
       '<div class="msg-author">' +
       escapeHtml(name) +
       "</div>" +
-      corpoWithMentionsHtml(corpo) +
+      corpoHtml +
+      anexosBlock +
       (when ? '<div class="msg-time">' + escapeHtml(when) + "</div>" : "") +
       "</div></div>"
     );
@@ -1762,7 +1858,9 @@
           var prev = state.chamados.find(function (x) {
             return x.id === d.chamado.id;
           });
-          var merged = Object.assign({}, d.chamado, { unreadCount: prev ? prev.unreadCount || 0 : 0 });
+          var unreadAfter =
+            d.chamado.status === "fechado" ? 0 : prev ? prev.unreadCount || 0 : 0;
+          var merged = Object.assign({}, d.chamado, { unreadCount: unreadAfter });
           state.selectedTicket = merged;
           state.chamados = state.chamados.map(function (x) {
             return x.id === merged.id ? merged : x;
@@ -1881,6 +1979,7 @@
               corpo: cm.corpo,
               when: fmtWhen(cm.createdAt),
               mine: cm.autorEmail === (state.user && state.user.email),
+              anexos: cm.anexos || [],
             });
           })
           .join("") +
@@ -1889,15 +1988,13 @@
     var anexosHtml =
       state.ticketAnexos.length === 0 ?
         '<p class="muted">Nenhum anexo.</p>'
-      : "<ul>" +
+      : '<ul class="ticket-anexo-list">' +
         state.ticketAnexos
           .map(function (a) {
             return (
-              '<li><a href="/api/chamados/anexos/' +
-              encodeURIComponent(a.id) +
-              '/file" target="_blank" rel="noopener">' +
-              escapeHtml(a.fileName) +
-              "</a></li>"
+              "<li>" +
+              renderAnexosHtml([a], "chamado") +
+              "</li>"
             );
           })
           .join("") +
@@ -2010,6 +2107,7 @@
       '<button type="button" class="btn-primary" id="btn-save-ticket">Salvar setores e pessoas</button></div>';
 
     mainEl.innerHTML = html;
+    bindAnexoDownloadButtons(mainEl);
 
     document.getElementById("back-tickets").onclick = function () {
       closeTicketDetailScreen();
@@ -2421,9 +2519,12 @@
           corpo: m.corpo,
           when: fmtWhen(m.createdAt),
           mine: m.autorEmail === me,
+          anexos: m.anexos || [],
+          anexoKind: "conversa",
         });
       })
       .join("");
+    bindAnexoDownloadButtons(thread);
     thread.scrollTop = thread.scrollHeight;
   }
 

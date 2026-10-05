@@ -125,10 +125,12 @@ export async function postChamadoComentario(
     console.error("[chamadoComentario] falha e-mail resposta", chamadoId, e);
   }
 
-  try {
-    await bumpChamadoInbox(view, { kind: "comment", actorEmail: ctx.email });
-  } catch (e) {
-    console.error("[chamadoComentario] inbox resposta", chamadoId, e);
+  if (chamado.status !== "fechado") {
+    try {
+      await bumpChamadoInbox(view, { kind: "comment", actorEmail: ctx.email });
+    } catch (e) {
+      console.error("[chamadoComentario] inbox resposta", chamadoId, e);
+    }
   }
 
   const [enriched] = await enrichComentarios([row], ctx.email);

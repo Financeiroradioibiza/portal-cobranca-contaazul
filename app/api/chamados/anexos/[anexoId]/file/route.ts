@@ -32,9 +32,13 @@ export async function GET(req: Request, ctx: Ctx) {
     }
 
     const safeName = file.fileName.replace(/[^\w.\-() ]+/g, "_").slice(0, 180);
+    const forceDownload = url.searchParams.get("download") === "1";
     const headers = new Headers();
     headers.set("Content-Type", file.mimeType);
-    headers.set("Content-Disposition", `inline; filename="${safeName}"`);
+    headers.set(
+      "Content-Disposition",
+      `${forceDownload ? "attachment" : "inline"}; filename="${safeName}"`,
+    );
     headers.set("Cache-Control", "private, max-age=3600");
     return new NextResponse(new Uint8Array(file.data), { status: 200, headers });
   } catch (e) {

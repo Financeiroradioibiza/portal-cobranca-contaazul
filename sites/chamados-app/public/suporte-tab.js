@@ -55,7 +55,7 @@
       selected: null,
       detail: null,
       busy: false,
-      tipo: "pdv_play5",
+      tipo: "pdv_senha_temp",
       link: "",
       senhaTemp: "",
       codigoPlay: "",
@@ -335,12 +335,12 @@
         : "") +
         '<label class="tool-select-label">Tipo</label>' +
         '<select id="inst-tipo" class="tool-select">' +
-        '<option value="pdv_play5"' +
-        (state.tipo === "pdv_play5" ? " selected" : "") +
-        ">Player 5 (celular)</option>" +
         '<option value="pdv_senha_temp"' +
         (state.tipo === "pdv_senha_temp" ? " selected" : "") +
-        ">Windows — senha temporária</option>" +
+        ">Windows — senha temporária (Edge/Chrome)</option>" +
+        '<option value="pdv_play5"' +
+        (state.tipo === "pdv_play5" ? " selected" : "") +
+        ">Player 5 (celular / Android)</option>" +
         '<option value="electron_ti"' +
         (state.tipo === "electron_ti" ? " selected" : "") +
         ">Electron TI</option>" +
