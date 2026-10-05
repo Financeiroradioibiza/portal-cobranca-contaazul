@@ -79,6 +79,48 @@
   headers = {X-Chamados-App-Proxy = "1"}
 
 [[redirects]]
+  from = "/api/suporte/*"
+  to = "https://portal.radioibiza.app.br/api/suporte/:splat"
+  status = 200
+  force = true
+  headers = {X-Chamados-App-Proxy = "1"}
+
+[[redirects]]
+  from = "/api/producao/*"
+  to = "https://portal.radioibiza.app.br/api/producao/:splat"
+  status = 200
+  force = true
+  headers = {X-Chamados-App-Proxy = "1"}
+
+[[redirects]]
+  from = "/api/criacao/clientes"
+  to = "https://portal.radioibiza.app.br/api/criacao/clientes"
+  status = 200
+  force = true
+  headers = {X-Chamados-App-Proxy = "1"}
+
+[[redirects]]
+  from = "/api/criacao/clientes/*"
+  to = "https://portal.radioibiza.app.br/api/criacao/clientes/:splat"
+  status = 200
+  force = true
+  headers = {X-Chamados-App-Proxy = "1"}
+
+[[redirects]]
+  from = "/api/criacao/programacoes"
+  to = "https://portal.radioibiza.app.br/api/criacao/programacoes"
+  status = 200
+  force = true
+  headers = {X-Chamados-App-Proxy = "1"}
+
+[[redirects]]
+  from = "/api/criacao/programacoes/*"
+  to = "https://portal.radioibiza.app.br/api/criacao/programacoes/:splat"
+  status = 200
+  force = true
+  headers = {X-Chamados-App-Proxy = "1"}
+
+[[redirects]]
   from = "/login"
   to = "/login.html"
   status = 200

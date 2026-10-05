@@ -59,6 +59,11 @@
 
   var seqDefaults = window.ChamadosSequenciaDefaults;
   var agendaApi = null;
+  var suporteApi = null;
+  var producaoApi = null;
+  var mobileTools = { suporte: false, producao: false };
+  var navCarouselPage = 0;
+  var toastTimer = null;
 
   var PRI = {
     urgente: { label: "Urgente", cls: "badge-pri-urgente" },
@@ -237,6 +242,91 @@
     loadChamados().then(function () {
       if (!tryOpen()) alert("Chamado não encontrado ou sem acesso.");
     });
+  }
+
+  function showToast(msg) {
+    var el = document.getElementById("app-toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "app-toast";
+      el.className = "app-toast";
+      el.setAttribute("role", "status");
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.add("visible");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      el.classList.remove("visible");
+    }, 2200);
+  }
+
+  function applyMobileTools(tools) {
+    mobileTools = tools || { suporte: false, producao: false };
+    var pageTools = document.getElementById("nav-page-tools");
+    var hint = document.getElementById("nav-carousel-hint");
+    var track = document.getElementById("nav-track");
+    var has = mobileTools.suporte || mobileTools.producao;
+    if (pageTools) {
+      pageTools.hidden = !has;
+      var suporteBtn = pageTools.querySelector('[data-tab="suporte"]');
+      var prodBtn = pageTools.querySelector('[data-tab="producao"]');
+      if (suporteBtn) suporteBtn.hidden = !mobileTools.suporte;
+      if (prodBtn) prodBtn.hidden = !mobileTools.producao;
+    }
+    if (hint) hint.hidden = !has;
+    if (track) {
+      track.classList.toggle(
+        "nav-page-tools-only",
+        has && mobileTools.suporte !== mobileTools.producao,
+      );
+      if (!has) {
+        navCarouselPage = 0;
+        track.setAttribute("data-page", "0");
+      }
+    }
+  }
+
+  function setNavCarouselPage(page) {
+    navCarouselPage = page ? 1 : 0;
+    var track = document.getElementById("nav-track");
+    if (track) track.setAttribute("data-page", String(navCarouselPage));
+  }
+
+  function initNavCarousel() {
+    var viewport = document.getElementById("nav-viewport");
+    var track = document.getElementById("nav-track");
+    if (!viewport || !track) return;
+    var startX = 0;
+    var dragging = false;
+    viewport.addEventListener(
+      "touchstart",
+      function (e) {
+        if (!mobileTools.suporte && !mobileTools.producao) return;
+        if (!e.touches[0]) return;
+        startX = e.touches[0].clientX;
+        dragging = true;
+      },
+      { passive: true },
+    );
+    viewport.addEventListener(
+      "touchmove",
+      function (e) {
+        if (!dragging || !e.touches[0]) return;
+        var dx = e.touches[0].clientX - startX;
+        if (Math.abs(dx) < 8) return;
+        if (dx < -30) setNavCarouselPage(1);
+        if (dx > 30) setNavCarouselPage(0);
+      },
+      { passive: true },
+    );
+    viewport.addEventListener(
+      "touchend",
+      function () {
+        dragging = false;
+      },
+      { passive: true },
+    );
   }
 
   function setScreenHeader(sectionTitle, layoutV2) {
@@ -2398,17 +2488,28 @@
   }
 
   function render() {
+    removeFab();
     if (state.tab === "tickets") {
       if (state.selectedTicket) renderTicketDetail();
       else renderTickets();
     } else if (state.tab === "agenda") {
       if (agendaApi) agendaApi.render();
+    } else if (state.tab === "suporte") {
+      if (suporteApi) suporteApi.render();
+      setNavCarouselPage(1);
+    } else if (state.tab === "producao") {
+      if (producaoApi) producaoApi.render();
+      setNavCarouselPage(1);
     } else if (state.selectedAssunto) {
       renderChatThread();
     } else {
       renderChatList();
     }
+    if (state.tab === "tickets" || state.tab === "agenda" || state.tab === "chat") {
+      setNavCarouselPage(0);
+    }
     navEl.querySelectorAll(".nav-btn").forEach(function (btn) {
+      if (btn.hidden) return;
       btn.classList.toggle("active", btn.getAttribute("data-tab") === state.tab);
     });
     updateNavBadges();
@@ -2456,6 +2557,16 @@
         if (state.tab === "agenda" && agendaApi) {
           return agendaApi.refresh().then(function () {
             agendaApi.renderOnly();
+          });
+        }
+        if (state.tab === "suporte" && suporteApi) {
+          return suporteApi.refresh().then(function () {
+            suporteApi.render();
+          });
+        }
+        if (state.tab === "producao" && producaoApi) {
+          return producaoApi.refresh().then(function () {
+            producaoApi.render();
           });
         }
         render();
@@ -2571,15 +2682,18 @@
     );
   }
 
-  navEl.querySelectorAll(".nav-btn").forEach(function (btn) {
-    btn.onclick = function () {
-      state.tab = btn.getAttribute("data-tab");
-      state.selectedTicket = null;
-      state.selectedAssunto = null;
-      state.detailDraft = null;
-      state.detailPeopleOpen = false;
-      render();
-    };
+  navEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".nav-btn");
+    if (!btn || btn.hidden) return;
+    var tab = btn.getAttribute("data-tab");
+    if (tab === "suporte" && !mobileTools.suporte) return;
+    if (tab === "producao" && !mobileTools.producao) return;
+    state.tab = tab;
+    state.selectedTicket = null;
+    state.selectedAssunto = null;
+    state.detailDraft = null;
+    state.detailPeopleOpen = false;
+    render();
   });
 
   var loginScreenEl = document.getElementById("login-screen");
@@ -2634,6 +2748,29 @@
   };
 
   closeOverlay();
+
+  if (window.ChamadosSuporteModule) {
+    suporteApi = window.ChamadosSuporteModule({
+      auth: auth,
+      mainEl: mainEl,
+      escapeHtml: escapeHtml,
+      setScreenHeader: setScreenHeader,
+      showToast: showToast,
+    });
+  }
+
+  if (window.ChamadosProducaoModule) {
+    producaoApi = window.ChamadosProducaoModule({
+      auth: auth,
+      mainEl: mainEl,
+      escapeHtml: escapeHtml,
+      setScreenHeader: setScreenHeader,
+      getUser: function () {
+        return state.user;
+      },
+      showToast: showToast,
+    });
+  }
 
   if (window.ChamadosAgendaModule) {
     agendaApi = window.ChamadosAgendaModule({
@@ -2742,8 +2879,10 @@
   function bootApp(user) {
     showAppShell();
     state.user = user;
+    applyMobileTools(user.mobileTools || {});
     if (!appBooted) {
       appBooted = true;
+      initNavCarousel();
       if (pushApi) {
         void pushApi.syncIfGranted(auth).then(function () {
           updatePushBanner();

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolvePortalSessionForApi } from "@/lib/auth/portalSessionFromRequest";
+import { isRouteAccessAllowed, resolveRouteAccessRule } from "@/lib/auth/routeAccess";
 
 export const runtime = "nodejs";
 
@@ -12,12 +13,23 @@ export async function GET(request: Request) {
       { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
+  const suporteRule = resolveRouteAccessRule("/api/suporte/instalacao");
+  const producaoRule = resolveRouteAccessRule("/api/producao/dashboard");
+  const mobileSuporte =
+    suporteRule ? isRouteAccessAllowed(suporteRule, session.roles) : false;
+  const mobileProducao =
+    producaoRule ? isRouteAccessAllowed(producaoRule, session.roles) : false;
+
   return NextResponse.json(
     {
       ok: true,
       email: session.email,
       displayName: session.displayName ?? session.email,
       roles: session.roles,
+      mobileTools: {
+        suporte: mobileSuporte,
+        producao: mobileProducao,
+      },
     },
     { headers: { "Cache-Control": "no-store" } },
   );

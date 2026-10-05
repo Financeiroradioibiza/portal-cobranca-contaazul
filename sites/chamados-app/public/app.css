@@ -2854,11 +2854,354 @@ div.agenda-detail-row {
 }
 
 .bottom-nav.ibiz-nav {
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.35rem;
-  padding: 0.35rem 0.75rem max(0.5rem, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.25rem 0.5rem max(0.35rem, env(safe-area-inset-bottom));
   height: auto;
   min-height: 4.875rem;
+}
+
+.nav-carousel-viewport {
+  overflow: hidden;
+  width: 100%;
+  touch-action: pan-y;
+}
+
+.nav-carousel-track {
+  display: flex;
+  width: 200%;
+  transition: transform 0.28s ease;
+  will-change: transform;
+}
+
+.nav-carousel-track.nav-page-tools-only {
+  width: 100%;
+}
+
+.nav-carousel-track[data-page="1"] {
+  transform: translateX(-50%);
+}
+
+.nav-carousel-track.nav-page-tools-only[data-page="1"] {
+  transform: translateX(-100%);
+}
+
+.nav-page {
+  flex: 0 0 50%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+  padding: 0 0.25rem;
+  align-items: stretch;
+}
+
+.nav-page-tools {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 50%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.nav-carousel-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.tool-panel {
+  padding: 0.75rem 1rem 5rem;
+}
+
+.tool-search span {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--ri-blue-deep);
+  margin-bottom: 0.35rem;
+}
+
+.tool-search input {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  padding: 0.65rem 0.85rem;
+  font-size: 1rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tool-search-list {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.tool-search-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tool-search-item:last-child {
+  border-bottom: none;
+}
+
+.tool-search-item strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.tool-search-item span {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.tool-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.tool-card h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.tool-sub {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.tool-kv {
+  margin-bottom: 0.55rem;
+}
+
+.tool-kv > span {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.tool-kv-val {
+  margin: 0.15rem 0 0;
+  font-size: 0.88rem;
+  word-break: break-word;
+}
+
+.tool-kv-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.tool-kv-row .tool-kv-val {
+  flex: 1;
+}
+
+.btn-copy,
+.btn-wa {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.35rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ri-blue-mid);
+  text-decoration: none;
+}
+
+.btn-wa {
+  display: inline-block;
+  margin-top: 0.35rem;
+  background: #dcf8c6;
+  color: #1b5e20;
+  border-color: #81c784;
+}
+
+.prog-ok {
+  color: #2e7d32;
+  font-weight: 800;
+}
+
+.prog-bad {
+  color: #c62828;
+  font-weight: 900;
+  font-size: 1.1rem;
+}
+
+.tool-block {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+}
+
+.tool-block h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.88rem;
+}
+
+.tool-warn {
+  font-size: 0.78rem;
+  color: #e65100;
+  margin: 0 0 0.5rem;
+}
+
+.tool-select-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.tool-select {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.tool-gen-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.btn-primary,
+.btn-secondary {
+  display: block;
+  width: 100%;
+  margin-top: 0.45rem;
+  padding: 0.6rem;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 0.88rem;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--brand-gradient-btn);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.prod-pdv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.prod-pdv-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.prod-pdv-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.prod-prog-select {
+  width: 100%;
+  padding: 0.45rem;
+  border-radius: 10px;
+}
+
+.prod-prog-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.prod-prog-open {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-weight: 700;
+}
+
+.prod-prog-open span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ri-blue-mid);
+  margin-top: 0.2rem;
+}
+
+.tool-foot {
+  margin-top: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.empty-hint {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 1rem 0.5rem;
+}
+
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--nav-h) + 1rem);
+  transform: translateX(-50%);
+  z-index: 90;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  background: rgba(20, 20, 30, 0.92);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.app-toast.visible {
+  opacity: 1;
 }
 
 .bottom-nav.ibiz-nav .nav-btn {
