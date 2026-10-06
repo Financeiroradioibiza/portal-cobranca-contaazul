@@ -2011,3 +2011,39 @@ model PlanilhaProdRow {
   @@index([monthId, criativo])
   @@map("planilha_prod_row")
 }
+
+/// Agendamento de e-mail boleto + NFS-e (migrado do painel Vercel / Upstash).
+model EnvioManualAgendamento {
+  id             String   @id
+  tipo           String   @default("individual") @db.VarChar(16)
+  clientLabel    String   @default("") @map("client_label") @db.VarChar(240)
+  caClienteId    String?  @map("ca_cliente_id") @db.VarChar(64)
+  diaMes         Int      @map("dia_mes")
+  recorrente     Boolean  @default(false) @map("recorrente")
+  emails         Json
+  mensagem       String   @default("") @db.Text
+  colorIdx       Int      @default(0) @map("color_idx")
+  sent           Boolean  @default(false)
+  grupoClientes  Json?    @map("grupo_clientes")
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([diaMes, sent])
+  @@index([sortOrder])
+  @@map("envio_manual_agendamento")
+}
+
+model EnvioManualLog {
+  id             String   @id @default(cuid())
+  clientLabel    String   @default("") @map("client_label") @db.VarChar(240)
+  emailsSnapshot String   @default("") @map("emails_snapshot") @db.Text
+  referencia     String   @default("") @db.VarChar(480)
+  ok             Boolean  @default(true)
+  aviso          String   @default("") @db.VarChar(480)
+  sandbox        Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@map("envio_manual_log")
+}
