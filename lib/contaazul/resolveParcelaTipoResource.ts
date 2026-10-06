@@ -10,12 +10,11 @@ import {
 import { tryResolveNfeDownloadUrl } from "./nfeFromVenda";
 import { tryResolveNfseServicoDownload } from "./nfseServico";
 import { fetchParcelaAnexoFile } from "./parcelaAnexoDownload";
-import { fetchServiceInvoicePdfBufferByVendaId } from "./serviceInvoicePdf";
 import { tryFetchBoletoPdfViaCobrancaApi } from "./cobrancaBoletoPdfApi";
 import { fetchInstallmentById } from "./receivables";
 import {
-  ensureVendaIdForNfPdf,
   enrichInstallmentVendaContext,
+  tryFetchNfPdfBufferForInstallment,
 } from "./resolveVendaFromInstallment";
 import type { CaInstallmentDetail } from "./types";
 
@@ -63,18 +62,14 @@ export async function resolveParcelaTipoResource(
 
   detail = await enrichInstallmentVendaContext(token, detail);
   if (tipo === "nf") {
-    detail = await ensureVendaIdForNfPdf(token, detail);
-    const vendaId = detail.id_venda?.trim();
-    if (vendaId) {
-      const nfPdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, token);
-      if (nfPdf) {
-        return {
-          kind: "buffer",
-          mime: "application/pdf",
-          disposition: 'attachment; filename="nota.pdf"',
-          data: nfPdf,
-        };
-      }
+    const nfPdf = await tryFetchNfPdfBufferForInstallment(token, detail);
+    if (nfPdf) {
+      return {
+        kind: "buffer",
+        mime: "application/pdf",
+        disposition: 'attachment; filename="nota.pdf"',
+        data: nfPdf,
+      };
     }
   }
 
@@ -256,17 +251,14 @@ export async function resolveParcelaTipoResource(
   }
 
   if (tipo === "nf") {
-    const vendaId = detail.id_venda?.trim();
-    if (vendaId) {
-      const nfPdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, token);
-      if (nfPdf) {
-        return {
-          kind: "buffer",
-          mime: "application/pdf",
-          disposition: 'attachment; filename="nota.pdf"',
-          data: nfPdf,
-        };
-      }
+    const nfPdf = await tryFetchNfPdfBufferForInstallment(token, detail);
+    if (nfPdf) {
+      return {
+        kind: "buffer",
+        mime: "application/pdf",
+        disposition: 'attachment; filename="nota.pdf"',
+        data: nfPdf,
+      };
     }
     if (isProd) {
       console.error("[resolveParcelaTipo] NF not_found:", parcelaId, {

@@ -3,6 +3,7 @@ import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoRe
 import { getValidAccessToken } from "@/lib/contaazul/session";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 function plain(msg: string, status: number) {
   return new NextResponse(msg, {

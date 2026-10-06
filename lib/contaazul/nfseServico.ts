@@ -252,32 +252,18 @@ export async function tryResolveNfseServicoDownload(
   return { url: null, pdfResponse: null };
 }
 
-/** UUID da venda na listagem NFS-e (para PDF `service-invoice/{id}/pdf`). */
-export async function lookupIdVendaFromNfseServicoList(
+async function lookupIdVendaFromNfseServicoListOnce(
   accessToken: string,
+  refYmd: string,
   opts: {
     idVenda?: string;
     idCliente?: string;
-    dataCompetencia?: string;
     numeroVenda?: number;
     numeroNfse?: number;
     numeroRps?: number;
   },
 ): Promise<string | null> {
-  const ref =
-    (opts.dataCompetencia ?? new Date().toISOString().slice(0, 10)).slice(
-      0,
-      10,
-    );
-  const { de, ate } = windowCompetencia15(ref);
-
-  const hasFilter =
-    Boolean(opts.idVenda?.trim()) ||
-    (opts.numeroVenda != null && opts.numeroVenda > 0) ||
-    (opts.numeroNfse != null && opts.numeroNfse > 0) ||
-    (opts.numeroRps != null && opts.numeroRps > 0);
-
-  if (!hasFilter) return null;
+  const { de, ate } = windowCompetencia15(refYmd);
 
   const qs = new URLSearchParams();
   qs.set("data_competencia_de", de);
@@ -302,19 +288,87 @@ export async function lookupIdVendaFromNfseServicoList(
     qs.set("numero_rps_final", String(opts.numeroRps));
   }
 
-  try {
-    const list = await caFetch<NfseList>(
-      `/v1/notas-fiscais-servico?${qs.toString()}`,
-      accessToken,
-    );
-    for (const raw of list.itens ?? list.items ?? []) {
-      if (!isRecord(raw)) continue;
-      if (!rowMatches(raw, opts)) continue;
-      const idV = itemIdVenda(raw);
-      if (idV?.trim()) return idV.trim();
+  const list = await caFetch<NfseList>(
+    `/v1/notas-fiscais-servico?${qs.toString()}`,
+    accessToken,
+  );
+  for (const raw of list.itens ?? list.items ?? []) {
+    if (!isRecord(raw)) continue;
+    if (!rowMatches(raw, opts)) continue;
+    const idV = itemIdVenda(raw);
+    if (idV?.trim()) return idV.trim();
+  }
+  return null;
+}
+
+function competenciaAnchorDates(opts: {
+  dataCompetencia?: string;
+  dataVencimento?: string;
+}): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw?: string) => {
+    const ymd = raw?.trim().slice(0, 10);
+    if (!ymd || seen.has(ymd)) return;
+    seen.add(ymd);
+    out.push(ymd);
+  };
+  push(opts.dataCompetencia);
+  push(opts.dataVencimento);
+  if (!out.length) push(new Date().toISOString().slice(0, 10));
+  return out;
+}
+
+/** UUID da venda na listagem NFS-e (para PDF `service-invoice/{id}/pdf`). */
+export async function lookupIdVendaFromNfseServicoList(
+  accessToken: string,
+  opts: {
+    idVenda?: string;
+    idCliente?: string;
+    dataCompetencia?: string;
+    dataVencimento?: string;
+    numeroVenda?: number;
+    numeroNfse?: number;
+    numeroRps?: number;
+  },
+): Promise<string | null> {
+  const hasFilter =
+    Boolean(opts.idVenda?.trim()) ||
+    (opts.numeroVenda != null && opts.numeroVenda > 0) ||
+    (opts.numeroNfse != null && opts.numeroNfse > 0) ||
+    (opts.numeroRps != null && opts.numeroRps > 0);
+
+  if (!hasFilter) return null;
+
+  const matchOpts = {
+    idVenda: opts.idVenda,
+    idCliente: opts.idCliente,
+    numeroVenda: opts.numeroVenda,
+    numeroNfse: opts.numeroNfse,
+    numeroRps: opts.numeroRps,
+  };
+
+  const refDates = new Set<string>();
+  for (const anchor of competenciaAnchorDates(opts)) {
+    for (const shiftDays of [0, -15, -30, -45, -60, -75, -90]) {
+      const d = new Date(`${anchor}T12:00:00`);
+      if (Number.isNaN(d.getTime())) continue;
+      d.setDate(d.getDate() + shiftDays);
+      refDates.add(d.toISOString().slice(0, 10));
     }
-  } catch {
-    return null;
+  }
+
+  for (const ref of refDates) {
+    try {
+      const id = await lookupIdVendaFromNfseServicoListOnce(
+        accessToken,
+        ref,
+        matchOpts,
+      );
+      if (id) return id;
+    } catch {
+      continue;
+    }
   }
 
   return null;

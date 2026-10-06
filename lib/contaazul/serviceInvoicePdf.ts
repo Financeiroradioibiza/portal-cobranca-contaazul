@@ -1,3 +1,5 @@
+import https from "node:https";
+
 /**
  * PDF da NFS-e (DANFSE) por venda — mesmo caminho usado pelo ERP / integrações legadas.
  * Documentado na prática em: app.contaazul.com/pub/rest/billing-data/…
@@ -6,8 +8,77 @@
 const BILLING_SERVICE_INVOICE_PDF =
   "https://app.contaazul.com/pub/rest/billing-data/service-invoice";
 
+const PDF_HEADERS = {
+  Accept: "application/pdf,application/octet-stream,*/*",
+  "User-Agent":
+    "Mozilla/5.0 (compatible; RadioIbizaPortal/1.0; +https://portal.radioibiza.app.br)",
+  Referer: "https://app.contaazul.com/",
+};
+
 function looksLikePdf(buf: Buffer): boolean {
   return buf.length >= 500 && buf.subarray(0, 5).toString() === "%PDF-";
+}
+
+function fetchPdfViaNodeHttps(url: string): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    const req = https.get(url, { headers: PDF_HEADERS }, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        fetchPdfViaNodeHttps(res.headers.location).then(resolve);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        resolve(null);
+        return;
+      }
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        resolve(looksLikePdf(buf) ? buf : null);
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.setTimeout(25_000, () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+async function fetchPdfViaFetch(
+  url: string,
+  accessToken: string,
+  withBearer: boolean,
+): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        ...PDF_HEADERS,
+        ...(withBearer ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      cache: "no-store",
+      redirect: "follow",
+      signal: AbortSignal.timeout(25_000),
+    });
+
+    if (!res.ok) return null;
+
+    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (
+      ct.includes("application/json") ||
+      ct.includes("text/html") ||
+      (ct.includes("text/plain") && !ct.includes("pdf"))
+    ) {
+      return null;
+    }
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    return looksLikePdf(buf) ? buf : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchServiceInvoicePdfBufferByVendaId(
@@ -21,35 +92,11 @@ export async function fetchServiceInvoicePdfBufferByVendaId(
 
   /** ERP legado usa fetch sem Bearer; tentamos nessa ordem. */
   for (const withBearer of [false, true]) {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          Accept: "application/pdf,application/octet-stream,*/*",
-          ...(withBearer ? { Authorization: `Bearer ${accessToken}` } : {}),
-        },
-        cache: "no-store",
-        redirect: "follow",
-      });
-
-      if (!res.ok) continue;
-
-      const ct = (res.headers.get("content-type") ?? "").toLowerCase();
-      if (
-        ct.includes("application/json") ||
-        ct.includes("text/html") ||
-        (ct.includes("text/plain") && !ct.includes("pdf"))
-      ) {
-        continue;
-      }
-
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (looksLikePdf(buf)) return buf;
-    } catch {
-      continue;
-    }
+    const buf = await fetchPdfViaFetch(url, accessToken, withBearer);
+    if (buf) return buf;
   }
 
-  return null;
+  return fetchPdfViaNodeHttps(url);
 }
 
 /** @deprecated Prefer `fetchServiceInvoicePdfBufferByVendaId`. */

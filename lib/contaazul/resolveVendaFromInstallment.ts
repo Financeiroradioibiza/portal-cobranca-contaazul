@@ -1,5 +1,6 @@
 import { caFetch } from "./caHttp";
 import { lookupIdVendaFromNfseServicoList } from "./nfseServico";
+import { fetchServiceInvoicePdfBufferByVendaId } from "./serviceInvoicePdf";
 import type { CaInstallmentDetail } from "./types";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -89,6 +90,7 @@ export async function ensureVendaIdForNfPdf(
   const idFromNfse = await lookupIdVendaFromNfseServicoList(accessToken, {
     idCliente: next.cliente?.id,
     dataCompetencia: next.data_referencia_nf,
+    dataVencimento: next.data_vencimento,
     numeroVenda: next.numero_venda,
     numeroNfse,
     numeroRps: next.numero_rps,
@@ -97,6 +99,48 @@ export async function ensureVendaIdForNfPdf(
     return { ...next, id_venda: idFromNfse };
   }
   return next;
+}
+
+function pushVendaIdCandidate(out: string[], id?: string) {
+  const v = id?.trim();
+  if (!v || out.includes(v)) return;
+  out.push(v);
+}
+
+/**
+ * Baixa DANFSE (service-invoice) tentando vários candidatos a UUID de venda —
+ * corrige `id_venda` errado na parcela e falhas pontuais de fetch.
+ */
+export async function tryFetchNfPdfBufferForInstallment(
+  accessToken: string,
+  detail: CaInstallmentDetail,
+): Promise<Buffer | null> {
+  const candidates: string[] = [];
+  let work: CaInstallmentDetail = {
+    ...detail,
+    numero_venda: numeroVendaFromDetail(detail) ?? detail.numero_venda,
+  };
+
+  pushVendaIdCandidate(candidates, work.id_venda);
+
+  if (work.numero_venda != null && work.numero_venda > 0) {
+    const fromBusca = await enrichInstallmentVendaContext(accessToken, {
+      ...work,
+      id_venda: undefined,
+    });
+    pushVendaIdCandidate(candidates, fromBusca.id_venda);
+    work = { ...work, ...fromBusca };
+  }
+
+  work = await ensureVendaIdForNfPdf(accessToken, work);
+  pushVendaIdCandidate(candidates, work.id_venda);
+
+  for (const vendaId of candidates) {
+    const pdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, accessToken);
+    if (pdf) return pdf;
+  }
+
+  return null;
 }
 
 /** Extrai número da venda de textos como «Venda 119360 / NFS-e:7162». */

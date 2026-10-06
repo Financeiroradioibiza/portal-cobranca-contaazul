@@ -37,6 +37,8 @@ export type CaPeopleSearchResponse = {
 export type CaInstallmentDetail = {
   id?: string;
   descricao?: string;
+  /** Vencimento da parcela (YYYY-MM-DD) — janela NFS-e quando competência ≠ vencimento. */
+  data_vencimento?: string;
   anexos?: Array<{
     id?: string;
     url?: string | null;

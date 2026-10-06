@@ -306,15 +306,7 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
     }
   }
 
-  if (!id_venda && isRecord(data.evento)) {
-    const tipoEv = (str((data.evento as Record<string, unknown>).tipo) ?? "").toUpperCase();
-    if (tipoEv === "RECEITA") {
-      const r = str(data.referencia) ?? str(data.idReferencia);
-      if (r && /^[0-9a-f-]{36}$/i.test(r)) {
-        id_venda = r;
-      }
-    }
-  }
+  /** Não usar `referencia` solta na raiz como venda — costuma ser id do evento financeiro, não da venda. */
 
   data_referencia_nf =
     data_referencia_nf ??
@@ -370,9 +362,14 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
     }
   }
 
+  const data_vencimento =
+    str(data.data_vencimento)?.slice(0, 10) ??
+    str(data.dataVencimento)?.slice(0, 10);
+
   return {
     id: str(data.id),
     descricao: descricaoParcela || undefined,
+    data_vencimento,
     id_venda,
     numero_venda,
     data_referencia_nf,
