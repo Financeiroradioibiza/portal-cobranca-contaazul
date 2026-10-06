@@ -1,11 +1,14 @@
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import {
+  extractBillingChargeFileUuid,
   extractBillingChargeUuidFromUrlString,
   fetchBillingChargePdfPublic,
 } from "@/lib/contaazul/billingChargeFilePdf";
 import { listBoletoLinksForInstallmentEmail } from "@/lib/contaazul/boletoLinksForEmail";
+import { extractBoletoAndDocUrls } from "@/lib/contaazul/installmentLinks";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
+import type { CaInstallmentDetail } from "@/lib/contaazul/types";
 import type { SaleRow } from "@/lib/types";
 
 const MAX_ATTACHMENTS = 26;
@@ -22,6 +25,49 @@ function buildFilename(comp: string, id: string, role: string): string {
 function isProbablyPdf(buf: Buffer, mime?: string | null): boolean {
   if (mime?.toLowerCase().includes("pdf")) return true;
   return buf.length >= 5 && buf.subarray(0, 5).toString() === "%PDF-";
+}
+
+/** PDF do boleto iugu/faturas (`public.contaazul.com/.../charge/file/{uuid}`). */
+async function tryAttachPublicBillingBoletoPdf(
+  detail: CaInstallmentDetail,
+  sale: SaleRow,
+  attachments: EmailAttachment[],
+): Promise<boolean> {
+  if (attachments.length >= MAX_ATTACHMENTS) return false;
+
+  const parcelaLinks = extractBoletoAndDocUrls(detail);
+  const referers: string[] = [];
+  if (parcelaLinks.boletoUrl) referers.push(parcelaLinks.boletoUrl);
+  for (const row of listBoletoLinksForInstallmentEmail(detail)) {
+    if (/digital \(conta azul\)/i.test(row.label)) referers.push(row.href);
+  }
+
+  const uuids = new Set<string>();
+  const primary = extractBillingChargeFileUuid(detail, parcelaLinks);
+  if (primary) uuids.add(primary);
+  for (const ref of referers) {
+    const u = extractBillingChargeUuidFromUrlString(ref);
+    if (u) uuids.add(u);
+  }
+  if (!uuids.size) return false;
+
+  for (const uuid of uuids) {
+    const trialReferers = [
+      ...referers,
+      `https://faturas.contaazul.com/?tipo=boleto#/fatura/visualizar/${uuid}`,
+    ];
+    for (const ref of trialReferers) {
+      const got = await fetchBillingChargePdfPublic(uuid, { preferredReferer: ref });
+      if (!got?.buffer || !isProbablyPdf(got.buffer, "application/pdf")) continue;
+      attachments.push({
+        filename: buildFilename(sale.comp, sale.id, "boleto"),
+        content: got.buffer,
+        contentType: "application/pdf",
+      });
+      return true;
+    }
+  }
+  return false;
 }
 
 async function fetchPublicUrlAsPdf(url: string): Promise<Buffer | null> {
@@ -67,6 +113,9 @@ export async function collectOpenChargesEmailAssets(
       throw new Error(`A parcela ${s.id.slice(0, 8)}… não pertence a este cliente.`);
     }
 
+    let boletoAttached = false;
+    let nfAttached = false;
+
     for (const role of ["boleto", "nf"] as const) {
       if (attachments.length >= MAX_ATTACHMENTS) break;
       const tipo = role === "nf" ? "nf" : "boleto";
@@ -85,6 +134,8 @@ export async function collectOpenChargesEmailAssets(
           content: res.data,
           contentType: "application/pdf",
         });
+        if (role === "boleto") boletoAttached = true;
+        else nfAttached = true;
         continue;
       }
       if (res.kind === "external_redirect") {
@@ -104,6 +155,7 @@ export async function collectOpenChargesEmailAssets(
                 content: got.buffer,
                 contentType: "application/pdf",
               });
+              boletoAttached = true;
               continue;
             }
           }
@@ -115,15 +167,29 @@ export async function collectOpenChargesEmailAssets(
             content: pdf,
             contentType: "application/pdf",
           });
+          if (role === "boleto") boletoAttached = true;
+          else nfAttached = true;
         } else if (tipo !== "boleto") {
           linkLines.push(`- ${labelShort}: ${res.url}`);
         }
+        if (tipo === "boleto" && !boletoAttached) {
+          boletoAttached = await tryAttachPublicBillingBoletoPdf(detail, s, attachments);
+        }
         continue;
+      }
+
+      if (tipo === "boleto" && !boletoAttached) {
+        boletoAttached = await tryAttachPublicBillingBoletoPdf(detail, s, attachments);
+        if (boletoAttached) continue;
+      }
+      if (tipo === "nf" && !nfAttached && res.kind === "not_found") {
+        linkLines.push(`- ${labelShort}: nota não encontrada na Conta Azul para esta parcela.`);
       }
     }
 
-    /** Sempre lista todos os links de boleto (Conta Azul público normalizado + banco/registradora). */
+    /** Links de boleto só quando não anexamos PDF (digital) ou para banco/registradora. */
     for (const row of listBoletoLinksForInstallmentEmail(detail)) {
+      if (boletoAttached && /digital \(conta azul\)/i.test(row.label)) continue;
       linkLines.push(`- ${s.comp} · venc. ${s.due} · ${row.label}: ${row.href}`);
     }
   }

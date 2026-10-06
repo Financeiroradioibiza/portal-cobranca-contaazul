@@ -4,6 +4,7 @@ import {
 } from "./installmentLinks";
 import {
   extractBillingChargeFileUuid,
+  extractBillingChargeUuidFromUrlString,
   fetchBillingChargePdfPublic,
 } from "./billingChargeFilePdf";
 import { tryResolveNfeDownloadUrl } from "./nfeFromVenda";
@@ -139,6 +140,26 @@ export async function resolveParcelaTipoResource(
     }
 
     if (!shouldProxyContaAzulDownload(targetUrl)) {
+      if (tipo === "boleto" && /faturas\.contaazul\.com/i.test(targetUrl)) {
+        const uuid =
+          extractBillingChargeUuidFromUrlString(targetUrl) ??
+          extractBillingChargeFileUuid(detail, parcelaLinks);
+        if (uuid) {
+          try {
+            const pdf = await fetchBillingChargePdfPublic(uuid, { preferredReferer: targetUrl });
+            if (pdf?.buffer && pdf.buffer.length >= 500) {
+              return {
+                kind: "buffer",
+                mime: "application/pdf",
+                disposition: pdf.disposition ?? 'attachment; filename="boleto.pdf"',
+                data: pdf.buffer,
+              };
+            }
+          } catch {
+            /* cai no redirect abaixo */
+          }
+        }
+      }
       return { kind: "external_redirect", url: targetUrl };
     }
 
