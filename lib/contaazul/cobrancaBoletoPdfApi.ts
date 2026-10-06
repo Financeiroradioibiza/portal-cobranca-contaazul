@@ -4,7 +4,7 @@ import type { CaInstallmentDetail } from "./types";
 const RX_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** GET …/contas-a-receber/cobranca/{id}/pdf — API Cobranças (2026-10). */
+/** GET …/contas-a-receber/cobranca/{id}/imprimir — API Cobranças (2026-10). */
 export async function fetchCobrancaBoletoPdfApi(
   accessToken: string,
   idCobranca: string,
@@ -12,7 +12,7 @@ export async function fetchCobrancaBoletoPdfApi(
   const id = idCobranca.trim();
   if (!RX_UUID.test(id)) return null;
 
-  const url = `${CONTA_AZUL_API_BASE}/v1/financeiro/eventos-financeiros/contas-a-receber/cobranca/${encodeURIComponent(id)}/pdf`;
+  const url = `${CONTA_AZUL_API_BASE}/v1/financeiro/eventos-financeiros/contas-a-receber/cobranca/${encodeURIComponent(id)}/imprimir`;
 
   try {
     const res = await fetch(url, {
