@@ -3,36 +3,19 @@ import { createTag } from "@/lib/criacao/tagService";
 import { addMusicasToPasta, createPasta } from "@/lib/criacao/programacaoService";
 import { resolveCriativoIniciais } from "@/lib/criacao/uploadTagService";
 import { pickDefaultTagCor } from "@/lib/config/portalUserService";
+import {
+  normalizeBibliotecaPastaIcone,
+  type BibliotecaPastaView,
+} from "@/lib/criacao/bibliotecaPastaShared";
 
-export type BibliotecaPastaView = {
-  id: string;
-  nome: string;
-  cor: string;
-  icone: string;
-  criativoUserId: string | null;
-  criativoNome: string;
-  criativoIniciais: string;
-  musicaCount: number;
-  sortOrder: number;
-  createdAt: string;
-};
-
-const ICONES_VALIDOS = new Set([
-  "folder",
-  "music",
-  "party",
-  "sun",
-  "star",
-  "vinyl",
-  "wave",
-  "fire",
-  "heart",
-  "spark",
-]);
+export type { BibliotecaPastaView };
+export {
+  BIBLIOTECA_PASTA_ICONES,
+  iconeBibliotecaPastaEmoji,
+} from "@/lib/criacao/bibliotecaPastaShared";
 
 function normalizeIcone(raw: string | undefined): string {
-  const v = (raw ?? "folder").trim().toLowerCase();
-  return ICONES_VALIDOS.has(v) ? v : "folder";
+  return normalizeBibliotecaPastaIcone(raw);
 }
 
 function mapPastaRow(
@@ -366,29 +349,3 @@ export async function createPastaFromBibliotecaCustom(
   };
 }
 
-export const BIBLIOTECA_PASTA_ICONES = [...ICONES_VALIDOS];
-
-export function iconeBibliotecaPastaEmoji(icone: string): string {
-  switch (icone) {
-    case "music":
-      return "🎵";
-    case "party":
-      return "🎉";
-    case "sun":
-      return "☀️";
-    case "star":
-      return "⭐";
-    case "vinyl":
-      return "💿";
-    case "wave":
-      return "🌊";
-    case "fire":
-      return "🔥";
-    case "heart":
-      return "❤️";
-    case "spark":
-      return "✨";
-    default:
-      return "📁";
-  }
-}

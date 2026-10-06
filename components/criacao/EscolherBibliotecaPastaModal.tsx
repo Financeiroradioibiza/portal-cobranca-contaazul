@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   iconeBibliotecaPastaEmoji,
   type BibliotecaPastaView,
-} from "@/lib/criacao/bibliotecaPastaService";
+} from "@/lib/criacao/bibliotecaPastaShared";
 
 function readableText(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());

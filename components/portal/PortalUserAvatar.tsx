@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { initials } from "@/lib/config/portalUserService";
+import { initials } from "@/lib/config/portalUserInitials";
 import { portalUserAvatarUrl } from "@/lib/config/portalUserAvatar";
 
 function avatarGradient(seed: string): string {

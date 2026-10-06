@@ -26,29 +26,13 @@ import {
 import { tagCriativoOwnerPrisma } from "@/lib/criacao/bibliotecaTagOwnerFilter";
 import { isBibliotecaVoteSort } from "@/lib/criacao/bibliotecaSearchService";
 
-/** Fontes de tags automáticas e seus rótulos curtos (prefixo no chip). */
-export const TAG_SOURCE_LABEL: Record<string, string> = {
-  lastfm: "LF",
-  deezer: "DZ",
-  musicbrainz: "MB",
-  discogs: "DG",
-  local: "AI",
-  moderacao: "EXP",
-};
+export { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaTagSourceLabel";
 
 export type AutoTag = { fonte: string; chave?: string; valor: string };
 
-export type MusicaTagManualView = {
-  id: string;
-  nome: string;
-  cor: string;
-  criativoIniciais: string;
-  criativoNome: string;
-  criativoUserId: string | null;
-  criativoPortalUserId: string | null;
-  criativoHasAvatar: boolean;
-  criativoAvatarVersion: string | null;
-};
+import type { MusicaTagManualView } from "@/lib/criacao/bibliotecaClientTypes";
+
+export type { MusicaTagManualView };
 
 export type MusicaBibliotecaRow = {
   id: string;

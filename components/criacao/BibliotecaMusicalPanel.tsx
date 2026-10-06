@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaTagSourceLabel";
 import { LEGACY_MOTIVO_LABEL, type LegacyMotivo } from "@/lib/criacao/legacyMusicaCriteria";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { MusicaPreviewButton } from "@/components/criacao/MusicaPreviewDock";
@@ -9,7 +9,7 @@ import { BibliotecaMusicaDragGrip } from "@/components/criacao/BibliotecaMusicaD
 import { MusicaVotosBadges, MusicaVotosModal } from "@/components/criacao/MusicaVotosModal";
 import { BibliotecaManualTagsCell } from "@/components/criacao/BibliotecaManualTagsCell";
 import { MusicaStorageBadges } from "@/components/criacao/MusicaStorageBadges";
-import type { MusicaTagManualView } from "@/lib/criacao/bibliotecaService";
+import type { MusicaTagManualView } from "@/lib/criacao/bibliotecaClientTypes";
 import type { MusicaStorageBadge } from "@/lib/criacao/musicaStorageBadges";
 
 type AutoTag = { fonte: string; chave?: string; valor: string };

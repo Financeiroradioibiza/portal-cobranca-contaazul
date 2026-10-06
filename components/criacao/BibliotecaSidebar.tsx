@@ -5,10 +5,10 @@ import { useDroppable } from "@dnd-kit/core";
 import {
   iconeBibliotecaPastaEmoji,
   type BibliotecaPastaView,
-} from "@/lib/criacao/bibliotecaPastaService";
+} from "@/lib/criacao/bibliotecaPastaShared";
 import type { BibliotecaFolderKey } from "@/lib/criacao/bibliotecaFolderTypes";
 import { folderDropTargetId } from "@/lib/criacao/bibliotecaFolderTypes";
-import type { BibliotecaSidebarTree } from "@/lib/criacao/bibliotecaSidebarService";
+import type { BibliotecaSidebarTree } from "@/lib/criacao/bibliotecaClientTypes";
 import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 
 function readableText(hex: string): string {

@@ -23,7 +23,7 @@ import {
   type BibliotecaMusicaDragData,
 } from "@/lib/criacao/bibliotecaFolderTypes";
 import { fetchAllBibliotecaMusicaIds } from "@/lib/criacao/bibliotecaFetchAllIds";
-import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaService";
+import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaShared";
 
 function SelectionDragHandle({
   count,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { MusicaTagManualView } from "@/lib/criacao/bibliotecaService";
+import type { MusicaTagManualView } from "@/lib/criacao/bibliotecaClientTypes";
 import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 

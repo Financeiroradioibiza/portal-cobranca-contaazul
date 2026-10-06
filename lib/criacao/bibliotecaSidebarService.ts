@@ -1,56 +1,20 @@
 import { prisma } from "@/lib/prisma";
-import { listTags, type TagCriativoRow } from "@/lib/criacao/tagService";
-import { listBibliotecaPastas, type BibliotecaPastaView } from "@/lib/criacao/bibliotecaPastaService";
+import { listTags } from "@/lib/criacao/tagService";
+import { listBibliotecaPastas } from "@/lib/criacao/bibliotecaPastaService";
 import { listPastasEspeciais } from "@/lib/criacao/pastaEspecialService";
-import {
-  listOffArquivoForBibliotecaSidebar,
-  type BibliotecaOffSidebarItem,
-} from "@/lib/criacao/atualizacaoArquivoService";
+import { listOffArquivoForBibliotecaSidebar } from "@/lib/criacao/atualizacaoArquivoService";
+import type { BibliotecaSidebarTree } from "@/lib/criacao/bibliotecaClientTypes";
 
-export type BibliotecaSidebarTag = TagCriativoRow & { kind: "tag" };
-
-export type BibliotecaSidebarPastaCustom = BibliotecaPastaView & { kind: "custom" };
-
-export type BibliotecaSidebarPastaEspecial = {
-  kind: "especial";
-  id: string;
-  nome: string;
-  musicaCount: number;
-  selecionavel: boolean;
-};
-
-export type BibliotecaSidebarPastaProgramacao = {
-  kind: "prog";
-  id: string;
-  nome: string;
-  musicaCount: number;
-  programacaoId: string;
-  programacaoNome: string;
-  clienteNome: string;
-  readOnly: true;
-};
-
-export type BibliotecaSidebarProgramacao = {
-  id: string;
-  nome: string;
-  clienteNome: string;
-  pastas: BibliotecaSidebarPastaProgramacao[];
-  offs: BibliotecaOffSidebarItem[];
-};
-
-export type BibliotecaSidebarProgramacaoArquivada = {
-  programacaoNome: string;
-  clienteNome: string;
-  offs: BibliotecaOffSidebarItem[];
-};
-
-export type BibliotecaSidebarTree = {
-  tags: BibliotecaSidebarTag[];
-  pastasCustom: BibliotecaSidebarPastaCustom[];
-  pastasEspeciais: BibliotecaSidebarPastaEspecial[];
-  programacoes: BibliotecaSidebarProgramacao[];
-  programacoesArquivadas: BibliotecaSidebarProgramacaoArquivada[];
-};
+export type {
+  BibliotecaOffSidebarItem,
+  BibliotecaSidebarPastaCustom,
+  BibliotecaSidebarPastaEspecial,
+  BibliotecaSidebarPastaProgramacao,
+  BibliotecaSidebarProgramacao,
+  BibliotecaSidebarProgramacaoArquivada,
+  BibliotecaSidebarTag,
+  BibliotecaSidebarTree,
+} from "@/lib/criacao/bibliotecaClientTypes";
 
 export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree> {
   const [tags, pastasCustom, especiais, progs, offIndex] = await Promise.all([

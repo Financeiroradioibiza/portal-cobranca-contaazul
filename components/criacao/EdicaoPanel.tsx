@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { BibliotecaSidebar } from "@/components/criacao/BibliotecaSidebar";
-import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaService";
+import { TAG_SOURCE_LABEL } from "@/lib/criacao/bibliotecaTagSourceLabel";
 import { folderKeyToQuery, type BibliotecaFolderKey } from "@/lib/criacao/bibliotecaFolderTypes";
-import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaService";
+import { iconeBibliotecaPastaEmoji } from "@/lib/criacao/bibliotecaPastaShared";
 import { MIX_PADRAO_SEGUNDOS } from "@/lib/criacao/criacaoDefaults";
 import { isUploadCompetenciaTag } from "@/lib/criacao/uploadCompetenciaTag";
 import { LazyWaveformBars, WaveformBars, WaveformEditBadges } from "@/components/criacao/waveform/WaveformBars";
