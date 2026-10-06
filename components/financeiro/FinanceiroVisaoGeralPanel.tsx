@@ -193,10 +193,9 @@ export function FinanceiroVisaoGeralPanel() {
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white">TOP 10 atrasados de 90 dias</h2>
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white">TOP 10 atrasados de 6 meses</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Clientes do financeiro · vencidos em aberto · vencimento de {data.topVencidos.periodoLabel} (inclui{" "}
-            {data.labels.mesAtual})
+            Clientes do financeiro · vencidos em aberto · vencimento em {data.topVencidos.periodoLabel}
           </p>
         </div>
         {data.topVencidos.clientes.length === 0 ?

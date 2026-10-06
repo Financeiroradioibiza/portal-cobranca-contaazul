@@ -63,27 +63,29 @@ function overdueInMonth(items: CaReceivableItem[], ym: number): number {
 }
 
 const TOP_VENCIDOS_LIMIT = 10;
-const TOP_VENCIDOS_DIAS = 90;
+/** Competências de vencimento no ranking (6 meses, incluindo mês atual). */
+const TOP_VENCIDOS_MESES = 6;
 
-function formatYmdBr(ymd: string): string {
-  const [y, mo, d] = ymd.slice(0, 10).split("-");
-  if (!y || !mo || !d) return ymd;
-  return `${d}/${mo}/${y}`;
+function topVencidosMonthRange(currentYm: number): number[] {
+  const months: number[] = [];
+  for (let off = -(TOP_VENCIDOS_MESES - 1); off <= 0; off += 1) {
+    months.push(shiftYearMonth(currentYm, off));
+  }
+  return months;
 }
 
-/** Vencimento entre `desde` e `ate` (inclusive), parcela vencida em aberto. */
+/** Vencimento na competência informada, parcela vencida em aberto. */
 function buildTopVencidosPorCliente(
   items: CaReceivableItem[],
-  desde: string,
-  ate: string,
+  months: number[],
   limit = TOP_VENCIDOS_LIMIT,
 ): FinanceiroTopVencidoCliente[] {
+  const monthSet = new Set(months);
   const byClient = new Map<string, { nome: string; total: number; parcelas: number }>();
 
   for (const it of items) {
     if (!isPastDueOpen(it)) continue;
-    const due = it.data_vencimento?.slice(0, 10);
-    if (!due || ymdCompare(due, desde) < 0 || ymdCompare(due, ate) > 0) continue;
+    if (!monthSet.has(dueYearMonth(it.data_vencimento))) continue;
     const cid = it.cliente?.id?.trim();
     if (!cid) continue;
     const nome = it.cliente?.nome?.trim() || "Cliente";
@@ -136,9 +138,8 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
   if (!token) return { error: "not_connected" };
 
   const ctx = currentOverviewContext();
-  const topVencidosAte = addDaysYmd(ctx.today, -1);
-  const topVencidosDesde = addDaysYmd(ctx.today, -TOP_VENCIDOS_DIAS);
-  const fetchMonths = [...new Set([...ctx.fetchMonths, dueYearMonth(topVencidosDesde)])];
+  const topVencidosMonths = topVencidosMonthRange(ctx.ym);
+  const fetchMonths = [...new Set([...ctx.fetchMonths, ...topVencidosMonths])];
   const items = await fetchOverviewInstallments(token, fetchMonths, ctx.ym);
 
   const cards: FinanceiroOverviewCards = {
@@ -176,8 +177,11 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
     },
     cards,
     topVencidos: {
-      periodoLabel: `${formatYmdBr(topVencidosDesde)} a ${formatYmdBr(topVencidosAte)}`,
-      clientes: buildTopVencidosPorCliente(items, topVencidosDesde, topVencidosAte),
+      periodoLabel:
+        topVencidosMonths.length >= 2 ?
+          `${formatYearMonthLabel(topVencidosMonths[0])} – ${formatYearMonthLabel(topVencidosMonths[topVencidosMonths.length - 1])}`
+        : formatYearMonthLabel(ctx.ym),
+      clientes: buildTopVencidosPorCliente(items, topVencidosMonths),
     },
   };
 }
