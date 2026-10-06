@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { replaceEnvioManualAgendamentos, appendEnvioManualLog } from "@/lib/enviosManuais/agendamentoStore";
-import { fetchUpstashAgendamentos, fetchUpstashLogs } from "@/lib/enviosManuais/importFromUpstash";
+import { fetchUpstashAgendamentosDetailed, fetchUpstashLogs } from "@/lib/enviosManuais/importFromUpstash";
 import { requireFinanceiroCaSession } from "@/lib/enviosManuais/requireFinanceiroApi";
 import { enviosManuaisLiveEnabled } from "@/lib/enviosManuais/safeRecipients";
 
@@ -10,14 +10,28 @@ export async function POST() {
   const auth = await requireFinanceiroCaSession();
   if ("error" in auth) return auth.error;
 
-  const agendamentos = await fetchUpstashAgendamentos();
-  if (!agendamentos.length) {
+  const upstash = await fetchUpstashAgendamentosDetailed();
+  if (upstash.kind === "unconfigured") {
     return NextResponse.json(
-      { ok: false, error: "upstash_empty_or_unconfigured", hint: "Defina KV_REST_API_URL e KV_REST_API_TOKEN no portal." },
+      {
+        ok: false,
+        error: "upstash_unconfigured",
+        hint: "No Netlify (portal), adicione KV_REST_API_URL e KV_REST_API_TOKEN (copie do projeto Vercel radioibiza) e redeploy. Ou use Importar JSON.",
+      },
       { status: 502 },
     );
   }
-  const total = await replaceEnvioManualAgendamentos(agendamentos);
+  if (upstash.kind === "empty") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "upstash_empty",
+        hint: "Upstash respondeu, mas a chave agendamentos está vazia. Use Importar JSON exportado do painel Vercel.",
+      },
+      { status: 502 },
+    );
+  }
+  const total = await replaceEnvioManualAgendamentos(upstash.agendamentos);
 
   const legacyLogs = await fetchUpstashLogs();
   for (const l of legacyLogs.slice(-100)) {

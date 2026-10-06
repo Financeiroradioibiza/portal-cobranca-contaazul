@@ -66,9 +66,24 @@ export function mapUpstashAgendamentos(raw: unknown): EnvioManualAgendamentoDto[
   return out;
 }
 
-export async function fetchUpstashAgendamentos(): Promise<EnvioManualAgendamentoDto[]> {
+export type UpstashImportStatus =
+  | { kind: "ok"; agendamentos: EnvioManualAgendamentoDto[] }
+  | { kind: "unconfigured" }
+  | { kind: "empty" };
+
+export async function fetchUpstashAgendamentosDetailed(): Promise<UpstashImportStatus> {
+  const kvUrl = process.env.KV_REST_API_URL?.trim();
+  const kvToken = process.env.KV_REST_API_TOKEN?.trim();
+  if (!kvUrl || !kvToken) return { kind: "unconfigured" };
   const data = await kvGet("agendamentos");
-  return mapUpstashAgendamentos(data);
+  const agendamentos = mapUpstashAgendamentos(data);
+  if (!agendamentos.length) return { kind: "empty" };
+  return { kind: "ok", agendamentos };
+}
+
+export async function fetchUpstashAgendamentos(): Promise<EnvioManualAgendamentoDto[]> {
+  const r = await fetchUpstashAgendamentosDetailed();
+  return r.kind === "ok" ? r.agendamentos : [];
 }
 
 export async function fetchUpstashLogs(): Promise<

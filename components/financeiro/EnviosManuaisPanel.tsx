@@ -69,15 +69,48 @@ export function EnviosManuaisPanel() {
     if (!confirm("Importar agendamentos do Upstash (Vercel)? Isso substitui a lista no portal.")) return;
     setBusy("import");
     setNotice(null);
+    setError(null);
     try {
       const res = await fetch("/api/financeiro/envios-manuais/import-upstash", { method: "POST", credentials: "same-origin" });
       const json = await res.json();
       if (!res.ok || !json.ok) {
-        setError(String(json.error ?? json.hint ?? "Falha na importação"));
+        setError([json.error, json.hint].filter(Boolean).join(" — "));
         return;
       }
       setNotice(`Importados ${json.total} agendamento(s).`);
       await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function importJsonFile(file: File) {
+    if (!confirm("Importar este JSON? Substitui todos os agendamentos no portal.")) return;
+    setBusy("import-json");
+    setError(null);
+    setNotice(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+      const payload =
+        typeof parsed === "object" && parsed !== null && "agendamentos" in parsed ?
+          parsed
+        : { agendamentos: parsed };
+      const res = await fetch("/api/financeiro/envios-manuais/import-json", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError([json.error, json.hint].filter(Boolean).join(" — "));
+        return;
+      }
+      setNotice(`Importados ${json.total} agendamento(s) do arquivo.`);
+      await load();
+    } catch {
+      setError("Arquivo JSON inválido.");
     } finally {
       setBusy(null);
     }
@@ -185,6 +218,20 @@ export function EnviosManuaisPanel() {
         >
           Importar Upstash
         </button>
+        <label className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold dark:border-slate-600">
+          Importar JSON
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            disabled={busy !== null}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void importJsonFile(f);
+              e.target.value = "";
+            }}
+          />
+        </label>
         <button
           type="button"
           disabled={busy !== null}
