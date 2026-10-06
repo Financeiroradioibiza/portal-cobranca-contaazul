@@ -50,6 +50,8 @@ export type CaInstallmentDetail = {
     id_baixa?: string | null;
   }>;
   solicitacoes_cobrancas?: Array<{
+    /** UUID da cobrança (GET …/cobranca/{id}/pdf). */
+    id?: string;
     url?: string | null;
     tipo_solicitacao_cobranca?: string;
   }>;
@@ -57,6 +59,8 @@ export type CaInstallmentDetail = {
    * Quando o evento financeiro vem de venda — usado em `GET /v1/notas-fiscais?id_venda=`.
    */
   id_venda?: string;
+  /** Número sequencial da venda no ERP (ex.: 119360). */
+  numero_venda?: number;
   /** YYYY-MM-DD para montar janela de datas na API de NF-e */
   data_referencia_nf?: string;
   /** Campo `fatura.numero` da parcela (filtro opcional em notas-fiscais) */

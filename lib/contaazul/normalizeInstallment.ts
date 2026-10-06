@@ -35,7 +35,9 @@ function collectChargeRequestUrlRecords(root: Record<string, unknown>): unknown[
         /** `id` pode ser outro GUID que o `#/fatura/visualizar/` — só o URL abre o boleto certo. */
         const urlPortal = str(raw.url);
         if (urlPortal) {
+          const cobId = str(raw.id) ?? str(raw.id_cobranca) ?? str(raw.idCobranca);
           out.push({
+            id: cobId,
             url: urlPortal,
             link: urlPortal,
             tipoSolicitacaoCobranca: "charge_request",
@@ -43,8 +45,10 @@ function collectChargeRequestUrlRecords(root: Record<string, unknown>): unknown[
           continue;
         }
         const id = str(raw.id);
+        const cobId = str(raw.id) ?? str(raw.id_cobranca) ?? str(raw.idCobranca);
         if (id && RX_BILLING_CHARGE_ID.test(id))
           out.push({
+            id: cobId && RX_BILLING_CHARGE_ID.test(cobId) ? cobId : id,
             url: `https://faturas.contaazul.com/#/fatura/visualizar/${id}`,
             link: `https://faturas.contaazul.com/#/fatura/visualizar/${id}`,
             tipoSolicitacaoCobranca: "charge_request_id_fallback",
@@ -218,8 +222,15 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
       str(s.tipoCobranca);
     if (url && seenSolicUrl.has(url)) continue;
     if (url) seenSolicUrl.add(url);
-    if (url || tipo) {
+    const cobId =
+      str(s.id) ??
+      str(s.id_cobranca) ??
+      str(s.idCobranca) ??
+      str(s.cobrancaId) ??
+      str(s.cobranca_id);
+    if (url || tipo || cobId) {
       solicitacoes_cobrancas.push({
+        id: cobId,
         url: url ?? null,
         tipo_solicitacao_cobranca: tipo,
       });
@@ -227,6 +238,7 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
   }
 
   let id_venda: string | undefined;
+  let numero_venda: number | undefined;
   let data_referencia_nf: string | undefined;
   let numero_fatura: number | undefined;
   let tipo_fatura: string | undefined;
@@ -236,14 +248,29 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
 
   function pickClienteFrom(o: Record<string, unknown>) {
     if (cliente?.id) return;
-    const cRaw = o.cliente ?? (isRecord(o.pessoa) ? o.pessoa : undefined);
+    const cRaw =
+      o.cliente ??
+      o.client ??
+      o.pessoa ??
+      o.pessoaCliente ??
+      o.customer;
     if (isRecord(cRaw)) {
-      const cid = str(cRaw.id) ?? str(cRaw.uuid) ?? str(cRaw.id_pessoa);
+      const cid =
+        str(cRaw.id) ??
+        str(cRaw.uuid) ??
+        str(cRaw.id_pessoa) ??
+        str(cRaw.idPessoa) ??
+        str(cRaw.id_cliente) ??
+        str(cRaw.idCliente);
       if (cid) cliente = { id: cid };
     }
   }
 
   pickClienteFrom(data as Record<string, unknown>);
+
+  if (isRecord(data.pessoa) && !cliente?.id) {
+    pickClienteFrom({ cliente: data.pessoa });
+  }
 
   if (isRecord(data.evento)) {
     const ev = data.evento as Record<string, unknown>;
@@ -254,16 +281,29 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
     if (isRecord(ref)) {
       const origem = (str(ref.origem) ?? str(ref.origemReferencia) ?? "").toUpperCase();
       const rid = str(ref.id);
+      const refNum = ref.numero ?? ref.numeroReferencia ?? ref.number;
+      if (typeof refNum === "number" && Number.isFinite(refNum)) numero_venda = refNum;
+      else if (typeof refNum === "string" && /^\d+$/.test(refNum.trim())) {
+        numero_venda = parseInt(refNum.trim(), 10);
+      }
       if (
         rid &&
         (origem === "VENDA" ||
           origem === "VENDA_AGENDADA" ||
-          /VENDA/.test(origem))
+          /VENDA/.test(origem) ||
+          !origem)
       ) {
         id_venda = rid;
       }
     }
     id_venda = id_venda ?? str(ev.id_venda) ?? str(ev.idVenda);
+    const evNum = ev.numero ?? ev.numeroVenda ?? ev.numero_venda;
+    if (numero_venda == null) {
+      if (typeof evNum === "number" && Number.isFinite(evNum)) numero_venda = evNum;
+      else if (typeof evNum === "string" && /^\d+$/.test(evNum.trim())) {
+        numero_venda = parseInt(evNum.trim(), 10);
+      }
+    }
   }
 
   if (!id_venda && isRecord(data.evento)) {
@@ -278,11 +318,14 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
 
   data_referencia_nf =
     data_referencia_nf ??
+    str(data.data_competencia)?.slice(0, 10) ??
+    str(data.dataCompetencia)?.slice(0, 10) ??
     str(data.data_vencimento)?.slice(0, 10) ??
     str(data.dataVencimento)?.slice(0, 10);
 
   if (isRecord(data.fatura)) {
     const f = data.fatura as Record<string, unknown>;
+    pickClienteFrom(f);
     tipo_fatura = str(f.tipo_fatura) ?? str(f.tipoFatura);
     const n = f.numero ?? f.numeroFatura ?? f.numero_nota;
     if (typeof n === "number" && Number.isFinite(n)) {
@@ -311,9 +354,26 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
     }
   }
 
+  const descricaoParcela = str(data.descricao) ?? str(data.description) ?? "";
+  if (descricaoParcela) {
+    if (numero_venda == null) {
+      const m = /\bvenda\s*(\d{4,})\b/i.exec(descricaoParcela);
+      if (m?.[1]) numero_venda = parseInt(m[1], 10);
+    }
+    if (numero_nfse == null) {
+      const m = /nfs-?e\s*[#:]?\s*(\d+)/i.exec(descricaoParcela);
+      if (m?.[1]) numero_nfse = parseInt(m[1], 10);
+    }
+    if (numero_rps == null) {
+      const m = /\brps\s*[#:]?\s*(\d+)/i.exec(descricaoParcela);
+      if (m?.[1]) numero_rps = parseInt(m[1], 10);
+    }
+  }
+
   return {
     id: str(data.id),
     id_venda,
+    numero_venda,
     data_referencia_nf,
     numero_fatura,
     tipo_fatura,

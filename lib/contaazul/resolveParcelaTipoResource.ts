@@ -11,7 +11,9 @@ import { tryResolveNfeDownloadUrl } from "./nfeFromVenda";
 import { tryResolveNfseServicoDownload } from "./nfseServico";
 import { fetchParcelaAnexoFile } from "./parcelaAnexoDownload";
 import { fetchServiceInvoicePdfByVendaId } from "./serviceInvoicePdf";
+import { tryFetchBoletoPdfViaCobrancaApi } from "./cobrancaBoletoPdfApi";
 import { fetchInstallmentById } from "./receivables";
+import { enrichInstallmentVendaContext } from "./resolveVendaFromInstallment";
 import type { CaInstallmentDetail } from "./types";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -56,11 +58,22 @@ export async function resolveParcelaTipoResource(
     }
   }
 
+  detail = await enrichInstallmentVendaContext(token, detail);
+
   const parcelaLinks = extractBoletoAndDocUrls(detail);
   const { boletoUrl, docUrl, boletoAnexoId, docAnexoId, boletoAnexoBaixaId, docAnexoBaixaId } =
     parcelaLinks;
 
   if (tipo === "boleto") {
+    const cobApiPdf = await tryFetchBoletoPdfViaCobrancaApi(token, detail);
+    if (cobApiPdf) {
+      return {
+        kind: "buffer",
+        mime: "application/pdf",
+        disposition: 'attachment; filename="boleto.pdf"',
+        data: cobApiPdf,
+      };
+    }
     const billingChargeId = extractBillingChargeFileUuid(detail, parcelaLinks);
     if (billingChargeId) {
       try {
@@ -104,7 +117,9 @@ export async function resolveParcelaTipoResource(
           (detail.id_venda && detail.numero_fatura ? detail.numero_fatura : undefined);
         const se = await tryResolveNfseServicoDownload(token, {
           idVenda: detail.id_venda,
+          idCliente: detail.cliente?.id,
           dataCompetencia: detail.data_referencia_nf,
+          numeroVenda: detail.numero_venda,
           numeroNfse: numeroNfse ?? undefined,
           numeroRps: detail.numero_rps,
         });

@@ -68,12 +68,17 @@ function rowMatches(
   row: Record<string, unknown>,
   opts: {
     idVenda?: string;
+    numeroVenda?: number;
     numeroNfse?: number;
     numeroRps?: number;
   },
 ): boolean {
   if (opts.idVenda?.trim()) {
     if (itemIdVenda(row) !== opts.idVenda.trim()) return false;
+  }
+  if (opts.numeroVenda != null && opts.numeroVenda > 0) {
+    const nv = num(row.numero_venda ?? row.numeroVenda ?? row.numero);
+    if (nv != null && nv !== opts.numeroVenda) return false;
   }
   if (opts.numeroNfse != null && opts.numeroNfse > 0) {
     const n = num(row.numero_nfse ?? row.numeroNfse);
@@ -157,7 +162,9 @@ export async function tryResolveNfseServicoDownload(
   accessToken: string,
   opts: {
     idVenda?: string;
+    idCliente?: string;
     dataCompetencia?: string;
+    numeroVenda?: number;
     numeroNfse?: number;
     numeroRps?: number;
   },
@@ -171,6 +178,7 @@ export async function tryResolveNfseServicoDownload(
 
   const hasFilter =
     Boolean(opts.idVenda?.trim()) ||
+    (opts.numeroVenda != null && opts.numeroVenda > 0) ||
     (opts.numeroNfse != null && opts.numeroNfse > 0) ||
     (opts.numeroRps != null && opts.numeroRps > 0);
 
@@ -186,6 +194,12 @@ export async function tryResolveNfseServicoDownload(
     qs.set("tamanho_pagina", "50");
     for (const st of ["EMITIDA", "CORRIGIDA_SUCESSO"]) {
       qs.append("status", st);
+    }
+    if (opts.idCliente?.trim()) {
+      qs.append("id_cliente", opts.idCliente.trim());
+    }
+    if (opts.numeroVenda != null && opts.numeroVenda > 0) {
+      qs.set("numero_venda", String(opts.numeroVenda));
     }
     if (opts.numeroNfse != null && opts.numeroNfse > 0) {
       qs.set("numero_nfse_inicial", String(opts.numeroNfse));
