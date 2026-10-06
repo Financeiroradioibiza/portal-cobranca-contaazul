@@ -6,8 +6,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
-/** Cron externo (ex. cron-job.org): Bearer CRON_SECRET ou OC_EMAIL_CRON_SECRET. */
-export async function POST(request: Request) {
+async function handleCron(request: Request) {
   const auth = authorizeOcAutoDispatchCron(request);
   if (!auth.ok) return auth.response;
 
@@ -16,7 +15,19 @@ export async function POST(request: Request) {
     return NextResponse.json(data);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "cron_failed";
-    const status = msg === "smtp_not_configured" ? 503 : msg === "conta_azul_disconnected" ? 503 : 500;
+    const status =
+      msg === "smtp_not_configured" || msg === "conta_azul_disconnected" ? 503
+      : msg.includes("envio_manual") || msg.includes("does not exist") ? 503
+      : 500;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
+}
+
+/** Cron externo (cron-job.org): Bearer CRON_SECRET ou OC_EMAIL_CRON_SECRET — GET ou POST. */
+export async function GET(request: Request) {
+  return handleCron(request);
+}
+
+export async function POST(request: Request) {
+  return handleCron(request);
 }
