@@ -36,6 +36,7 @@ export type CaPeopleSearchResponse = {
 /** Detalhe da parcela (GET …/parcelas/{id}) — campos parciais para links de boleto/documento. */
 export type CaInstallmentDetail = {
   id?: string;
+  descricao?: string;
   anexos?: Array<{
     id?: string;
     url?: string | null;

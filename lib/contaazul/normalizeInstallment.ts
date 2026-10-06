@@ -372,6 +372,7 @@ export function normalizeInstallmentDetail(data: unknown): CaInstallmentDetail {
 
   return {
     id: str(data.id),
+    descricao: descricaoParcela || undefined,
     id_venda,
     numero_venda,
     data_referencia_nf,

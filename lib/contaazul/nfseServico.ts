@@ -251,3 +251,71 @@ export async function tryResolveNfseServicoDownload(
 
   return { url: null, pdfResponse: null };
 }
+
+/** UUID da venda na listagem NFS-e (para PDF `service-invoice/{id}/pdf`). */
+export async function lookupIdVendaFromNfseServicoList(
+  accessToken: string,
+  opts: {
+    idVenda?: string;
+    idCliente?: string;
+    dataCompetencia?: string;
+    numeroVenda?: number;
+    numeroNfse?: number;
+    numeroRps?: number;
+  },
+): Promise<string | null> {
+  const ref =
+    (opts.dataCompetencia ?? new Date().toISOString().slice(0, 10)).slice(
+      0,
+      10,
+    );
+  const { de, ate } = windowCompetencia15(ref);
+
+  const hasFilter =
+    Boolean(opts.idVenda?.trim()) ||
+    (opts.numeroVenda != null && opts.numeroVenda > 0) ||
+    (opts.numeroNfse != null && opts.numeroNfse > 0) ||
+    (opts.numeroRps != null && opts.numeroRps > 0);
+
+  if (!hasFilter) return null;
+
+  const qs = new URLSearchParams();
+  qs.set("data_competencia_de", de);
+  qs.set("data_competencia_ate", ate);
+  qs.set("pagina", "1");
+  qs.set("tamanho_pagina", "50");
+  for (const st of ["EMITIDA", "CORRIGIDA_SUCESSO"]) {
+    qs.append("status", st);
+  }
+  if (opts.idCliente?.trim()) {
+    qs.append("id_cliente", opts.idCliente.trim());
+  }
+  if (opts.numeroVenda != null && opts.numeroVenda > 0) {
+    qs.set("numero_venda", String(opts.numeroVenda));
+  }
+  if (opts.numeroNfse != null && opts.numeroNfse > 0) {
+    qs.set("numero_nfse_inicial", String(opts.numeroNfse));
+    qs.set("numero_nfse_final", String(opts.numeroNfse));
+  }
+  if (opts.numeroRps != null && opts.numeroRps > 0) {
+    qs.set("numero_rps_inicial", String(opts.numeroRps));
+    qs.set("numero_rps_final", String(opts.numeroRps));
+  }
+
+  try {
+    const list = await caFetch<NfseList>(
+      `/v1/notas-fiscais-servico?${qs.toString()}`,
+      accessToken,
+    );
+    for (const raw of list.itens ?? list.items ?? []) {
+      if (!isRecord(raw)) continue;
+      if (!rowMatches(raw, opts)) continue;
+      const idV = itemIdVenda(raw);
+      if (idV?.trim()) return idV.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}

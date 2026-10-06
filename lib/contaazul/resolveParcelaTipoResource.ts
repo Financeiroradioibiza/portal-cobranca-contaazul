@@ -10,10 +10,13 @@ import {
 import { tryResolveNfeDownloadUrl } from "./nfeFromVenda";
 import { tryResolveNfseServicoDownload } from "./nfseServico";
 import { fetchParcelaAnexoFile } from "./parcelaAnexoDownload";
-import { fetchServiceInvoicePdfByVendaId } from "./serviceInvoicePdf";
+import { fetchServiceInvoicePdfBufferByVendaId } from "./serviceInvoicePdf";
 import { tryFetchBoletoPdfViaCobrancaApi } from "./cobrancaBoletoPdfApi";
 import { fetchInstallmentById } from "./receivables";
-import { enrichInstallmentVendaContext } from "./resolveVendaFromInstallment";
+import {
+  ensureVendaIdForNfPdf,
+  enrichInstallmentVendaContext,
+} from "./resolveVendaFromInstallment";
 import type { CaInstallmentDetail } from "./types";
 
 const isProd = process.env.NODE_ENV === "production";
@@ -59,6 +62,21 @@ export async function resolveParcelaTipoResource(
   }
 
   detail = await enrichInstallmentVendaContext(token, detail);
+  if (tipo === "nf") {
+    detail = await ensureVendaIdForNfPdf(token, detail);
+    const vendaId = detail.id_venda?.trim();
+    if (vendaId) {
+      const nfPdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, token);
+      if (nfPdf) {
+        return {
+          kind: "buffer",
+          mime: "application/pdf",
+          disposition: 'attachment; filename="nota.pdf"',
+          data: nfPdf,
+        };
+      }
+    }
+  }
 
   const parcelaLinks = extractBoletoAndDocUrls(detail);
   const { boletoUrl, docUrl, boletoAnexoId, docAnexoId, boletoAnexoBaixaId, docAnexoBaixaId } =
@@ -94,16 +112,11 @@ export async function resolveParcelaTipoResource(
     }
   }
 
-  let billingPubPdf: Response | null = null;
   let nfeFromVendaUrl: string | null = null;
   let nfseUrl: string | null = null;
   let nfsePdf: Response | null = null;
   if (tipo === "nf" && !docUrl && !docAnexoId) {
-    if (detail.id_venda?.trim()) {
-      billingPubPdf = await fetchServiceInvoicePdfByVendaId(detail.id_venda, token);
-    }
-    if (!billingPubPdf?.ok) {
-      nfeFromVendaUrl = await tryResolveNfeDownloadUrl(token, {
+    nfeFromVendaUrl = await tryResolveNfeDownloadUrl(token, {
         idVenda: detail.id_venda,
         dataRef: detail.data_referencia_nf,
         numeroNota: detail.numero_fatura,
@@ -126,7 +139,6 @@ export async function resolveParcelaTipoResource(
         nfseUrl = se.url;
         nfsePdf = se.pdfResponse;
       }
-    }
   }
 
   const targetUrl =
@@ -201,16 +213,6 @@ export async function resolveParcelaTipoResource(
     };
   }
 
-  if (tipo === "nf" && billingPubPdf?.ok) {
-    const { mime, disposition, data } = await respToBuffer(billingPubPdf);
-    return {
-      kind: "buffer",
-      mime: mime ?? "application/pdf",
-      disposition,
-      data,
-    };
-  }
-
   if (tipo === "nf" && nfsePdf?.ok) {
     const { mime, disposition, data } = await respToBuffer(nfsePdf);
     return {
@@ -251,6 +253,30 @@ export async function resolveParcelaTipoResource(
       messageForDev:
         "A Conta Azul tem um arquivo nesta parcela, mas o download não foi concluído.",
     };
+  }
+
+  if (tipo === "nf") {
+    const vendaId = detail.id_venda?.trim();
+    if (vendaId) {
+      const nfPdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, token);
+      if (nfPdf) {
+        return {
+          kind: "buffer",
+          mime: "application/pdf",
+          disposition: 'attachment; filename="nota.pdf"',
+          data: nfPdf,
+        };
+      }
+    }
+    if (isProd) {
+      console.error("[resolveParcelaTipo] NF not_found:", parcelaId, {
+        id_venda: detail.id_venda,
+        numero_venda: detail.numero_venda,
+        numero_nfse: detail.numero_nfse,
+        docUrl: Boolean(docUrl),
+        docAnexoId: Boolean(docAnexoId),
+      });
+    }
   }
 
   return {

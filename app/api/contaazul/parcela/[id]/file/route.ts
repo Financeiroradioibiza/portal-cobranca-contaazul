@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
 import { getValidAccessToken } from "@/lib/contaazul/session";
 
+export const runtime = "nodejs";
+
 function plain(msg: string, status: number) {
   return new NextResponse(msg, {
     status,
@@ -50,8 +52,12 @@ export async function GET(
   if (resolved.kind === "buffer") {
     const headers = new Headers();
     headers.set("Content-Type", resolved.mime || "application/octet-stream");
-    if (resolved.disposition) headers.set("Content-Disposition", resolved.disposition);
-    else headers.set("Content-Disposition", "inline");
+    if (resolved.disposition) {
+      headers.set("Content-Disposition", resolved.disposition);
+    } else {
+      const fallback = tipo === "nf" ? "nota.pdf" : "boleto.pdf";
+      headers.set("Content-Disposition", `attachment; filename="${fallback}"`);
+    }
     headers.set("Cache-Control", "no-store");
     return new NextResponse(new Uint8Array(resolved.data), { status: 200, headers });
   }
