@@ -25,7 +25,10 @@ import { authorizeOcAutoDispatchCron } from "@/lib/manualReminders/ocAutoDispatc
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   /** Cron SMTP «pedido OC»: não exige sessão do portal — só Bearer com OC_EMAIL_CRON_SECRET / CRON_SECRET. */
-  if (pathname === "/api/manual-envios/oc-email/auto-dispatch") {
+  if (
+    pathname === "/api/manual-envios/oc-email/auto-dispatch" ||
+    pathname === "/api/financeiro/envios-manuais/cron"
+  ) {
     const auth = authorizeOcAutoDispatchCron(request);
     if (!auth.ok) return auth.response;
     return NextResponse.next();
