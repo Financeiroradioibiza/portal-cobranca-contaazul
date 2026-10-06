@@ -190,6 +190,58 @@ export function FinanceiroVisaoGeralPanel() {
           icon="🔮"
         />
       </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white">TOP 10 atrasados de 90 dias</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Clientes do financeiro · vencidos em aberto · vencimento de {data.topVencidos.periodoLabel} (inclui{" "}
+            {data.labels.mesAtual})
+          </p>
+        </div>
+        {data.topVencidos.clientes.length === 0 ?
+          <p className="px-4 py-6 text-sm text-slate-500">Nenhum cliente com boletos vencidos nesse período.</p>
+        : <div className="overflow-x-auto">
+            <table className="w-full min-w-[320px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800">
+                  <th className="w-10 px-4 py-2.5">#</th>
+                  <th className="px-4 py-2.5">Cliente</th>
+                  <th className="hidden px-4 py-2.5 sm:table-cell">Parcelas</th>
+                  <th className="px-4 py-2.5 text-right">Total vencido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.topVencidos.clientes.map((row, idx) => (
+                  <tr
+                    key={row.clienteId}
+                    className="border-b border-slate-50 last:border-0 dark:border-slate-800/80"
+                  >
+                    <td className="px-4 py-2.5 tabular-nums text-slate-400">{idx + 1}</td>
+                    <td className="max-w-[12rem] truncate px-4 py-2.5 font-medium text-slate-900 dark:text-slate-100 sm:max-w-none">
+                      {row.nome}
+                      <span className="ml-1.5 text-xs font-normal text-slate-400 sm:hidden">
+                        · {row.parcelas} parc.
+                      </span>
+                    </td>
+                    <td className="hidden px-4 py-2.5 tabular-nums text-slate-600 dark:text-slate-400 sm:table-cell">
+                      {row.parcelas}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-rose-700 dark:text-rose-300">
+                      {formatBRL(row.totalVencido)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        }
+        <div className="border-t border-slate-100 px-4 py-2 dark:border-slate-800">
+          <Link href="/financeiro/vencidos" className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400">
+            Ver listagem completa em Vencidos →
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }

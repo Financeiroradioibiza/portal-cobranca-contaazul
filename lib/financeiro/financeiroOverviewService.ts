@@ -23,6 +23,18 @@ export type FinanceiroOverviewCards = {
   previsaoMesSeguinte: number;
 };
 
+export type FinanceiroTopVencidoCliente = {
+  clienteId: string;
+  nome: string;
+  totalVencido: number;
+  parcelas: number;
+};
+
+export type FinanceiroOverviewTopVencidos = {
+  periodoLabel: string;
+  clientes: FinanceiroTopVencidoCliente[];
+};
+
 export type FinanceiroOverviewPayload = {
   ok: true;
   fetchedAt: string;
@@ -35,6 +47,7 @@ export type FinanceiroOverviewPayload = {
     mesSeguinte: string;
   };
   cards: FinanceiroOverviewCards;
+  topVencidos: FinanceiroOverviewTopVencidos;
 };
 
 function sum(items: CaReceivableItem[], pick: (it: CaReceivableItem) => number): number {
@@ -47,6 +60,51 @@ function overdueInMonth(items: CaReceivableItem[], ym: number): number {
   return sum(items, (it) =>
     isPastDueOpen(it) && dueInYearMonth(it.data_vencimento, ym) ? it.nao_pago : 0,
   );
+}
+
+const TOP_VENCIDOS_LIMIT = 10;
+const TOP_VENCIDOS_DIAS = 90;
+
+function formatYmdBr(ymd: string): string {
+  const [y, mo, d] = ymd.slice(0, 10).split("-");
+  if (!y || !mo || !d) return ymd;
+  return `${d}/${mo}/${y}`;
+}
+
+/** Vencimento entre `desde` e `ate` (inclusive), parcela vencida em aberto. */
+function buildTopVencidosPorCliente(
+  items: CaReceivableItem[],
+  desde: string,
+  ate: string,
+  limit = TOP_VENCIDOS_LIMIT,
+): FinanceiroTopVencidoCliente[] {
+  const byClient = new Map<string, { nome: string; total: number; parcelas: number }>();
+
+  for (const it of items) {
+    if (!isPastDueOpen(it)) continue;
+    const due = it.data_vencimento?.slice(0, 10);
+    if (!due || ymdCompare(due, desde) < 0 || ymdCompare(due, ate) > 0) continue;
+    const cid = it.cliente?.id?.trim();
+    if (!cid) continue;
+    const nome = it.cliente?.nome?.trim() || "Cliente";
+    const cur = byClient.get(cid) ?? { nome, total: 0, parcelas: 0 };
+    cur.total += it.nao_pago;
+    cur.parcelas += 1;
+    if (nome && nome !== "Cliente") cur.nome = nome;
+    byClient.set(cid, cur);
+  }
+
+  const rows: FinanceiroTopVencidoCliente[] = [];
+  for (const [clienteId, v] of byClient) {
+    rows.push({
+      clienteId,
+      nome: v.nome,
+      totalVencido: Math.round(v.total * 100) / 100,
+      parcelas: v.parcelas,
+    });
+  }
+  rows.sort((a, b) => b.totalVencido - a.totalVencido || b.parcelas - a.parcelas);
+  return rows.slice(0, limit);
 }
 
 /** Busca mês a mês em paralelo — evita uma única consulta gigante na Conta Azul. */
@@ -78,7 +136,10 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
   if (!token) return { error: "not_connected" };
 
   const ctx = currentOverviewContext();
-  const items = await fetchOverviewInstallments(token, ctx.fetchMonths, ctx.ym);
+  const topVencidosAte = addDaysYmd(ctx.today, -1);
+  const topVencidosDesde = addDaysYmd(ctx.today, -TOP_VENCIDOS_DIAS);
+  const fetchMonths = [...new Set([...ctx.fetchMonths, dueYearMonth(topVencidosDesde)])];
+  const items = await fetchOverviewInstallments(token, fetchMonths, ctx.ym);
 
   const cards: FinanceiroOverviewCards = {
     totalPrevistoMes: sum(items, (it) =>
@@ -114,6 +175,10 @@ export async function buildFinanceiroOverview(): Promise<FinanceiroOverviewPaylo
       mesSeguinte: ctx.labelMesSeguinte,
     },
     cards,
+    topVencidos: {
+      periodoLabel: `${formatYmdBr(topVencidosDesde)} a ${formatYmdBr(topVencidosAte)}`,
+      clientes: buildTopVencidosPorCliente(items, topVencidosDesde, topVencidosAte),
+    },
   };
 }
 
