@@ -1,6 +1,7 @@
 import { caFetch } from "./caHttp";
 import { lookupIdVendaFromNfseServicoList } from "./nfseServico";
 import { fetchServiceInvoicePdfBufferByVendaId } from "./serviceInvoicePdf";
+import { fetchVendaImprimirPdfApi } from "./vendaNfPdfApi";
 import type { CaInstallmentDetail } from "./types";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -136,8 +137,10 @@ export async function tryFetchNfPdfBufferForInstallment(
   pushVendaIdCandidate(candidates, work.id_venda);
 
   for (const vendaId of candidates) {
-    const pdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, accessToken);
-    if (pdf) return pdf;
+    const apiPdf = await fetchVendaImprimirPdfApi(accessToken, vendaId);
+    if (apiPdf) return apiPdf;
+    const pubPdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, accessToken);
+    if (pubPdf) return pubPdf;
   }
 
   return null;
