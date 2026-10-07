@@ -176,6 +176,58 @@ export async function publishCronogramasAndVinhetas(
       continue;
     }
 
+    if (ag.alvo_tipo === 'vinheta_pasta') {
+      const pastaItemsRes = await portalQuery<{ vinheta_id: string; sort_order: number; nome: string; storage_key: string | null }>(
+        `SELECT i.vinheta_id, i.sort_order, v.nome, v.storage_key
+           FROM vinheta_pasta_item i
+           JOIN vinheta v ON v.id = i.vinheta_id
+          WHERE i.vinheta_pasta_id = $1
+          ORDER BY i.sort_order ASC, i.vinheta_id ASC`,
+        [ag.alvo_id],
+      );
+      if (!pastaItemsRes.rows.length) continue;
+      const pastaNomeRes = await portalQuery<{ nome: string }>(
+        `SELECT nome FROM vinheta_pasta WHERE id = $1 LIMIT 1`,
+        [ag.alvo_id],
+      );
+      const pastaNome = pastaNomeRes.rows[0]?.nome ?? 'Pasta vinhetas';
+      const tocarCada = ag.frequencia_musicas ?? ag.frequencia_min ?? 15;
+      const tipoTocar = ag.frequencia_musicas ? 'musica' : 'minuto';
+      const pl = await gw.query<{ id: number }>(
+        `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar, origem_vinheta_id, publicado, tipo_agendamento, selecionavel)
+           VALUES ($1, NULL, $2, 'VP', 'N', make_interval(secs => 30), $3, $4, NULL, 'S', 'programada', 'N')
+         RETURNING id`,
+        [programaId, pastaNome, tocarCada, tipoTocar],
+      );
+      const playlistId = pl.rows[0]?.id;
+      if (!playlistId) continue;
+      let ordem = 0;
+      for (const row of pastaItemsRes.rows) {
+        const musicaId = await upsertVinhetaMusica(gw, {
+          id: row.vinheta_id,
+          nome: row.nome,
+          storage_key: row.storage_key,
+        });
+        if (!musicaId) continue;
+        await gw.query(
+          `INSERT INTO playlist_musicas (playlist_id, musica_id, ordem) VALUES ($1, $2, $3)
+           ON CONFLICT (playlist_id, musica_id) DO UPDATE SET ordem = EXCLUDED.ordem`,
+          [playlistId, musicaId, ordem],
+        );
+        ordem += 1;
+        vinhetas += 1;
+      }
+      for (const dia of diasFromCsv(ag.dias_semana)) {
+        await gw.query(
+          `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
+             VALUES ($1, $2, NULL, $3, $4::time, $5::time, $6, $7, NULL)`,
+          [programaId, playlistId, dia, horaLegacy(ag.hora_inicio), horaLegacy(ag.hora_fim), tocarCada, tipoTocar],
+        );
+        agendas += 1;
+      }
+      continue;
+    }
+
     if (ag.alvo_tipo !== 'vinheta') continue;
     const vin = vinById.get(ag.alvo_id);
     if (!vin) continue;
@@ -256,6 +308,56 @@ export async function publishCronogramasAndVinhetas(
     pastaPlaylistMap,
     pastasComCronograma,
   );
+
+  const fixoRes = await portalQuery<{
+    tipo: string;
+    hora: string;
+    vinheta_id: string | null;
+    nome: string | null;
+    storage_key: string | null;
+  }>(
+    `SELECT h.tipo::text AS tipo, h.hora, h.vinheta_id, v.nome, v.storage_key
+       FROM programacao_vinheta_horario_fixo h
+       LEFT JOIN vinheta v ON v.id = h.vinheta_id
+      WHERE h.programacao_id = $1 AND h.ativo = true AND h.vinheta_id IS NOT NULL`,
+    [programacaoId],
+  );
+  for (const fx of fixoRes.rows) {
+    if (!fx.vinheta_id || !fx.storage_key?.trim()) continue;
+    const musicaId = await upsertVinhetaMusica(gw, {
+      id: fx.vinheta_id,
+      nome: fx.nome ?? 'Vinheta',
+      storage_key: fx.storage_key,
+    });
+    if (!musicaId) {
+      vinhetasSemAudio += 1;
+      continue;
+    }
+    const label = fx.tipo === 'encerramento' ? 'Encerramento' : 'Abertura';
+    const hora = horaLegacy(fx.hora);
+    const pl = await gw.query<{ id: number }>(
+      `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar, origem_vinheta_id, publicado, tipo_agendamento, selecionavel)
+         VALUES ($1, NULL, $2, 'VP', 'N', make_interval(secs => 30), 1440, 'minuto', $3, 'S', $4, 'N')
+       RETURNING id`,
+      [programaId, `${label} · ${fx.nome ?? 'Vinheta'}`, fx.vinheta_id, fx.tipo],
+    );
+    const playlistId = pl.rows[0]?.id;
+    if (!playlistId) continue;
+    await gw.query(
+      `INSERT INTO playlist_musicas (playlist_id, musica_id, ordem) VALUES ($1, $2, 0)
+       ON CONFLICT (playlist_id, musica_id) DO NOTHING`,
+      [playlistId, musicaId],
+    );
+    vinhetas += 1;
+    for (const dia of [0, 1, 2, 3, 4, 5, 6]) {
+      await gw.query(
+        `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
+           VALUES ($1, $2, NULL, $3, $4::time, $4::time, 1440, 'minuto', NULL)`,
+        [programaId, playlistId, dia, hora],
+      );
+      agendas += 1;
+    }
+  }
 
   return { agendas, vinhetas, vinhetasSemAudio };
 }

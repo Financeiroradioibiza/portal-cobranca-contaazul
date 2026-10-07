@@ -9,6 +9,7 @@ import {
 import type { BibliotecaFolderKey } from "@/lib/criacao/bibliotecaFolderTypes";
 import { folderDropTargetId } from "@/lib/criacao/bibliotecaFolderTypes";
 import type { BibliotecaSidebarTree } from "@/lib/criacao/bibliotecaClientTypes";
+import { VINHETAS_CLIENTES_FOLDER_LABEL } from "@/lib/criacao/vinhetaClienteBibliotecaService";
 import { PortalUserAvatar } from "@/components/portal/PortalUserAvatar";
 
 function readableText(hex: string): string {
@@ -543,6 +544,18 @@ export function BibliotecaSidebar({
           </div>
         )}
         </CollapsibleSection>
+
+        <SidebarItem
+          active={isActive({ kind: "vinheta_clientes", label: VINHETAS_CLIENTES_FOLDER_LABEL, readOnly: true })}
+          label={VINHETAS_CLIENTES_FOLDER_LABEL}
+          subtitle="Spots de clientes (sem ponto de mix)"
+          emoji="📢"
+          badge={tree?.vinhetasClientesCount ?? 0}
+          readOnly={filterOnly ? undefined : true}
+          onClick={() =>
+            onSelect({ kind: "vinheta_clientes", label: VINHETAS_CLIENTES_FOLDER_LABEL, readOnly: true })
+          }
+        />
 
         <CollapsibleSection
           sectionKey="especiais"

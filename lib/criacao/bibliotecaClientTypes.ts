@@ -75,6 +75,7 @@ export type BibliotecaSidebarProgramacaoArquivada = {
 export type BibliotecaSidebarTree = {
   tags: BibliotecaSidebarTag[];
   pastasCustom: BibliotecaSidebarPastaCustom[];
+  vinhetasClientesCount: number;
   pastasEspeciais: BibliotecaSidebarPastaEspecial[];
   programacoes: BibliotecaSidebarProgramacao[];
   programacoesArquivadas: BibliotecaSidebarProgramacaoArquivada[];

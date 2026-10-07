@@ -15,6 +15,7 @@ export async function GET(request: Request) {
     const tagId = url.searchParams.get("tagId") ?? undefined;
     const bibliotecaPastaId = url.searchParams.get("bibliotecaPastaId") ?? undefined;
     const pastaEspecialId = url.searchParams.get("pastaEspecialId") ?? undefined;
+    const vinhetaClientes = url.searchParams.get("vinhetaClientes") === "1";
     const pastaProgramacaoId = url.searchParams.get("pastaProgramacaoId") ?? undefined;
     const offArquivoId = url.searchParams.get("offArquivoId") ?? undefined;
     const gravadora = url.searchParams.get("gravadora") ?? undefined;
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
       tagId,
       bibliotecaPastaId,
       pastaEspecialId,
+      vinhetaClientes: vinhetaClientes || undefined,
       pastaProgramacaoId,
       offArquivoId,
       gravadora,

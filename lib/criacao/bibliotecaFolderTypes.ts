@@ -10,6 +10,7 @@ export type BibliotecaFolderKey =
       criativoIniciais: string;
       readOnly?: false;
     }
+  | { kind: "vinheta_clientes"; label: string; readOnly: true }
   | { kind: "especial"; id: string; label: string; readOnly: true }
   | {
       kind: "prog";
@@ -37,6 +38,8 @@ export function folderKeyToQuery(f: BibliotecaFolderKey): Record<string, string>
       return { tagId: f.id };
     case "custom":
       return { bibliotecaPastaId: f.id };
+    case "vinheta_clientes":
+      return { vinhetaClientes: "1" };
     case "especial":
       return { pastaEspecialId: f.id };
     case "prog":

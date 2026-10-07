@@ -8,6 +8,7 @@ import { applyPendingUploadTags, resolveCriativoIniciais } from "@/lib/criacao/u
 import { portalUserHasAvatar } from "@/lib/config/portalUserAvatar";
 import { applyPendingPastaUploads } from "@/lib/criacao/pastaUploadService";
 import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
+import { applyPendingVinhetaClienteUploads } from "@/lib/criacao/vinhetaClienteUploadService";
 import {
   extractExplicitApiStatus,
   isGeminiExplicitTagged,
@@ -411,6 +412,7 @@ export async function listMusicasBiblioteca(opts: {
   tagId?: string;
   bibliotecaPastaId?: string;
   pastaEspecialId?: string;
+  vinhetaClientes?: boolean;
   pastaProgramacaoId?: string;
   offArquivoId?: string;
   gravadora?: string;
@@ -424,6 +426,7 @@ export async function listMusicasBiblioteca(opts: {
     await applyPendingUploadTags().catch(() => {});
     await applyPendingPastaUploads().catch(() => {});
     await applyPendingPastaEspecialUploads().catch(() => {});
+    await applyPendingVinhetaClienteUploads().catch(() => {});
   }
 
   const page = Math.max(1, opts.page);
@@ -484,6 +487,9 @@ export async function listMusicasBiblioteca(opts: {
     if ((where.id as { in: string[] }).in.length === 0) {
       return { rows: [], total: 0 };
     }
+  }
+  if (opts.vinhetaClientes) {
+    where.vinhetaClienteBiblioteca = { isNot: null };
   }
   if (opts.pastaProgramacaoId) {
     where.pastas = { some: { pastaId: opts.pastaProgramacaoId } };
@@ -551,7 +557,7 @@ export async function listMusicasBiblioteca(opts: {
         .map((id) => byId.get(id))
         .filter((m): m is NonNullable<typeof m> => m != null) as MusicaDbRow[];
     }
-  } else if (opts.explicitOnly || isBibliotecaVoteSort(sortBy)) {
+  } else if (opts.explicitOnly || opts.vinhetaClientes || opts.pastaEspecialId || isBibliotecaVoteSort(sortBy)) {
     const { listMusicaIdsByCatalogFilter } = await import("@/lib/criacao/bibliotecaSearchService");
     const catalog = await listMusicaIdsByCatalogFilter({
       page,
@@ -565,6 +571,7 @@ export async function listMusicasBiblioteca(opts: {
       bibliotecaPastaId: opts.bibliotecaPastaId,
       pastaProgramacaoId: opts.pastaProgramacaoId,
       pastaEspecialId: opts.pastaEspecialId,
+      vinhetaClientes: opts.vinhetaClientes,
       sortBy,
     });
     total = catalog.total;

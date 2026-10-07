@@ -85,7 +85,7 @@ const STATUS_LABEL: Record<string, string> = {
 export type BibliotecaMusicalPanelProps = {
   sidebarMode?: boolean;
   folderFilter?: Record<string, string>;
-  folderKind?: "all" | "tag" | "custom" | "especial" | "prog" | "off";
+  folderKind?: "all" | "tag" | "custom" | "especial" | "prog" | "vinheta_clientes" | "off";
   folderTitle?: string;
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
@@ -121,6 +121,12 @@ function emptyFolderCopy(kind: BibliotecaMusicalPanelProps["folderKind"]): {
     return {
       title: "Nenhuma faixa neste OFF",
       desc: "Selecione as faixas e arraste para uma pasta custom (⋮⋮) ou use «Copiar para programação».",
+    };
+  }
+  if (kind === "vinheta_clientes") {
+    return {
+      title: "Nenhuma vinheta de cliente",
+      desc: "Envie MP3 em Criação → Upload → destino «Vinhetas (clientes)». Após a fila, as faixas aparecem aqui.",
     };
   }
   if (kind === "especial" || kind === "prog") {

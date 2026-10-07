@@ -27,7 +27,7 @@ type PickedFile =
   | { source: "local"; nome: string; sizeBytes: number; file: File }
   | { source: "staging"; nome: string; sizeBytes: number; downloadItemId: string; label: string };
 type Ticket = { itemId: string; arquivoNome: string; token: string; exp: number };
-type DestinoTipo = "pasta" | "biblioteca" | "pasta_especial";
+type DestinoTipo = "pasta" | "biblioteca" | "pasta_especial" | "vinheta_cliente";
 type PastaEspecialOpt = { id: string; nome: string };
 
 type UploadLote = {
@@ -142,6 +142,11 @@ function loteLabel(l: UploadLote, pastasEspeciais: PastaEspecialOpt[] = []): str
     const pe = pastasEspeciais.find((p) => p.id === l.pastaEspecialSel);
     const base = pe ? `Pasta especial · ${pe.nome}` : "Pasta especial — escolha qual";
     return l.uploadTag.trim() ? `${base} · ${l.uploadTag.trim()}` : base;
+  }
+  if (l.destinoTipo === "vinheta_cliente") {
+    return l.uploadTag.trim() ?
+        `Vinhetas clientes · ${l.uploadTag.trim()}`
+      : "Vinhetas clientes (defina a tag)";
   }
   if (!l.clienteSel) return "Pasta — escolha o cliente";
   const prog = l.arvore.find((p) => p.id === l.progSel);
@@ -303,6 +308,12 @@ export function UploadPanel() {
       if (l.files.length === 0) continue;
       if (l.destinoTipo === "biblioteca") {
         if (!l.uploadTag.trim()) return `Defina a tag criativa do lote «${loteLabel(l, pastasEspeciais)}».`;
+        continue;
+      }
+      if (l.destinoTipo === "vinheta_cliente") {
+        if (!l.uploadTag.trim()) {
+          return `Defina a tag criativa em «${loteLabel(l, pastasEspeciais)}» para localizar as vinhetas na biblioteca.`;
+        }
         continue;
       }
       if (l.destinoTipo === "pasta_especial") {
@@ -658,6 +669,27 @@ function LoteCard({
         >
           Tag na biblioteca (sem pasta)
         </button>
+        <button
+          type="button"
+          onClick={() =>
+            onUpdate({
+              destinoTipo: "vinheta_cliente",
+              clienteSel: null,
+              arvore: [],
+              progSel: "",
+              pastaSel: "",
+              pastaEspecialSel: "",
+            })
+          }
+          className={
+            "rounded-lg px-3 py-1.5 text-xs font-semibold " +
+            (lote.destinoTipo === "vinheta_cliente" ?
+              "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+            : "border border-slate-200 text-slate-500 dark:border-slate-700")
+          }
+        >
+          Vinhetas (clientes)
+        </button>
       </div>
 
       {lote.destinoTipo === "pasta_especial" ?
@@ -687,8 +719,13 @@ function LoteCard({
             </p>
           : null}
         </div>
-      : lote.destinoTipo === "biblioteca" ?
-        null
+      : lote.destinoTipo === "biblioteca" || lote.destinoTipo === "vinheta_cliente" ?
+        lote.destinoTipo === "vinheta_cliente" ?
+          <p className="mb-3 text-xs text-slate-500">
+            Processamento igual à música, <strong>sem ponto de mix</strong>. Após a fila, a faixa entra na pasta{" "}
+            <strong>Vinhetas clientes</strong> na biblioteca (use a tag para achar).
+          </p>
+        : null
       : <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="text-sm sm:col-span-2">
             <span className="mb-1 block text-xs font-semibold text-slate-500">Cliente</span>
@@ -797,6 +834,8 @@ function LoteCard({
           hint={
             lote.destinoTipo === "biblioteca" ?
               "As faixas entram só na biblioteca com esta tag."
+            : lote.destinoTipo === "vinheta_cliente" ?
+              "Obrigatória — tag na biblioteca + pasta Vinhetas clientes após processar."
             : lote.destinoTipo === "pasta_especial" ?
               "Obrigatória — após processar, as faixas vão para a biblioteca e para a pasta especial escolhida."
             : "Obrigatória — após processar, as faixas vão para a pasta do cliente e para a biblioteca com esta tag."

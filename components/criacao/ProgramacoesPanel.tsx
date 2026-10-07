@@ -12,6 +12,10 @@ import { marcarAtualizacaoAberta } from "@/lib/criacao/marcarAtualizacaoAbertaCl
 import { AtlCricaAberturaAviso } from "@/components/criacao/AtlCricaAberturaAviso";
 import { isAtlCricaAbertura } from "@/lib/criacao/atlCricaConstants";
 import { CronogramaAlvoBadges, DOW, diasLabel, formatPeriodoAgendamento } from "@/components/criacao/CronogramaAlvoBadges";
+import {
+  ImportVinhetaClientesModal,
+  VinhetasProgramacaoExtras,
+} from "@/components/criacao/VinhetasProgramacaoExtras";
 import { CronogramaShufflePanel } from "@/components/criacao/CronogramaShufflePanel";
 import { AgendaSemanaChart } from "@/components/criacao/AgendaSemanaChart";
 import type { AgendamentoRow } from "@/lib/criacao/agendamentoService";
@@ -932,6 +936,8 @@ function ProgramacaoEditor({
 
       <VinhetasSection programacaoId={id} ags={ags} onEdit={registrarEdicao} />
 
+      <VinhetasProgramacaoExtras programacaoId={id} onEdit={registrarEdicao} />
+
       <CronogramaSection
         programacaoId={id}
         pastas={prog.pastas.map((p) => ({ id: p.id, nome: p.nome }))}
@@ -1049,6 +1055,7 @@ function VinhetasSection({
   const [nome, setNome] = useState("");
   const [busy, setBusy] = useState(false);
   const [bibOpen, setBibOpen] = useState(false);
+  const [clientesOpen, setClientesOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pendingUploadId = useRef<string | null>(null);
 
@@ -1125,8 +1132,11 @@ function VinhetasSection({
         }}
       />
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Vinhetas</h2>
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Vinhetas únicas</h2>
       </div>
+      <p className="mb-3 text-xs text-slate-500">
+        Uma vinheta por vez (VP/VA no cronograma). Para rotação em pasta, use «Pasta de vinhetas» abaixo.
+      </p>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
@@ -1145,6 +1155,13 @@ function VinhetasSection({
         </button>
         <button
           type="button"
+          onClick={() => setClientesOpen(true)}
+          className="rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+        >
+          Importar Vinhetas clientes
+        </button>
+        <button
+          type="button"
           onClick={() => void criar()}
           disabled={busy || !nome.trim()}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
@@ -1159,6 +1176,18 @@ function VinhetasSection({
           onClose={() => setBibOpen(false)}
           onImported={async () => {
             setBibOpen(false);
+            await onEdit?.();
+            await load();
+          }}
+        />
+      : null}
+
+      {clientesOpen ?
+        <ImportVinhetaClientesModal
+          programacaoId={programacaoId}
+          onClose={() => setClientesOpen(false)}
+          onImported={async () => {
+            setClientesOpen(false);
             await onEdit?.();
             await load();
           }}
@@ -1318,6 +1347,7 @@ function CronogramaSection({
   onRefreshTargets?: () => void | Promise<void>;
 }) {
   const [vinhetas, setVinhetas] = useState<{ id: string; nome: string }[]>([]);
+  const [vinhetaPastas, setVinhetaPastas] = useState<{ id: string; nome: string }[]>([]);
   const [open, setOpen] = useState(false);
   const [refreshingLista, setRefreshingLista] = useState(false);
 
@@ -1335,14 +1365,19 @@ function CronogramaSection({
 
   const load = useCallback(async () => {
     try {
-      const [ra, rv] = await Promise.all([
+      const [ra, rv, rvp] = await Promise.all([
         fetch(`/api/criacao/programacoes/${programacaoId}/agendamentos`),
         fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`),
+        fetch(`/api/criacao/programacoes/${programacaoId}/vinheta-pastas`),
       ]);
       if (ra.ok) {
         onAgendamentosChange(((await ra.json()) as { agendamentos: AgendamentoRow[] }).agendamentos);
       }
       if (rv.ok) setVinhetas(((await rv.json()) as { vinhetas: { id: string; nome: string }[] }).vinhetas);
+      if (rvp.ok) {
+        const pastas = ((await rvp.json()) as { pastas: { id: string; nome: string }[] }).pastas ?? [];
+        setVinhetaPastas(pastas.map((p) => ({ id: p.id, nome: p.nome })));
+      }
     } catch {
       /* silencioso */
     }
@@ -1363,6 +1398,7 @@ function CronogramaSection({
   }
 
   const alvoIsVinheta = alvo.startsWith("vinheta:");
+  const alvoIsVinhetaPasta = alvo.startsWith("vinheta_pasta:");
   const alvoIsPasta = alvo.startsWith("pasta:");
 
   async function criar() {
@@ -1382,7 +1418,8 @@ function CronogramaSection({
           horaFim: hFim,
           dataInicio: dIni || undefined,
           dataFim: dFim || undefined,
-          frequenciaMin: alvoTipo === "vinheta" && freq ? Number(freq) : undefined,
+          frequenciaMin:
+            (alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta") && freq ? Number(freq) : undefined,
           frequenciaMusicas:
             freqMusicas ?
               Number(freqMusicas)
@@ -1472,7 +1509,7 @@ function CronogramaSection({
                   </optgroup>
                 : null}
                 {vinhetas.length > 0 ?
-                  <optgroup label="Vinhetas">
+                  <optgroup label="Vinhetas únicas">
                     {vinhetas.map((v) => (
                       <option key={v.id} value={`vinheta:${v.id}`}>
                         {v.nome}
@@ -1480,8 +1517,17 @@ function CronogramaSection({
                     ))}
                   </optgroup>
                 : null}
+                {vinhetaPastas.length > 0 ?
+                  <optgroup label="Pasta de vinhetas">
+                    {vinhetaPastas.map((p) => (
+                      <option key={p.id} value={`vinheta_pasta:${p.id}`}>
+                        {p.nome}
+                      </option>
+                    ))}
+                  </optgroup>
+                : null}
               </select>
-              {pastas.length === 0 && vinhetas.length === 0 ?
+              {pastas.length === 0 && vinhetas.length === 0 && vinhetaPastas.length === 0 ?
                 <p className="mt-1 text-[10px] text-slate-400">
                   Criou pasta ou vinheta acima? Clique em <strong>Atualizar</strong>.
                 </p>
@@ -1548,7 +1594,7 @@ function CronogramaSection({
                 Deixe «a» vazio para tocar indefinidamente a partir da data de início.
               </p>
             </label>
-            {alvoIsVinheta ?
+            {alvoIsVinheta || alvoIsVinhetaPasta ?
               <>
                 <label className="text-sm">
                   <span className="mb-1 block text-xs font-semibold text-slate-500">Repetir a cada (min)</span>
@@ -1572,6 +1618,11 @@ function CronogramaSection({
                     className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
                   />
                 </label>
+                {alvoIsVinhetaPasta ?
+                  <p className="text-[10px] text-slate-400 sm:col-span-2">
+                    Na pasta, as vinhetas tocam em rotação (1 → 2 → 3…) a cada intervalo definido.
+                  </p>
+                : null}
               </>
             : alvoIsPasta ?
               <label className="text-sm sm:col-span-2">

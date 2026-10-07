@@ -29,9 +29,11 @@ export function resumoAgendamento(a: AgendamentoRow): string {
   return parts.join(" · ");
 }
 
+export type CronogramaAlvoTipo = "pasta" | "vinheta" | "vinheta_pasta";
+
 function agendamentosDoAlvo(
   ags: AgendamentoRow[],
-  alvoTipo: "pasta" | "vinheta",
+  alvoTipo: CronogramaAlvoTipo,
   alvoId: string,
 ): AgendamentoRow[] {
   return ags.filter((a) => a.alvoTipo === alvoTipo && a.alvoId === alvoId);
@@ -44,7 +46,7 @@ export function CronogramaAlvoBadges({
   alvoId,
 }: {
   ags: AgendamentoRow[];
-  alvoTipo: "pasta" | "vinheta";
+  alvoTipo: CronogramaAlvoTipo;
   alvoId: string;
 }) {
   const rules = agendamentosDoAlvo(ags, alvoTipo, alvoId);
@@ -52,7 +54,7 @@ export function CronogramaAlvoBadges({
   const paused = rules.filter((a) => !a.ativo);
 
   if (rules.length === 0) {
-    if (alvoTipo === "vinheta") {
+    if (alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta") {
       return (
         <span
           className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-200"
@@ -78,7 +80,7 @@ export function CronogramaAlvoBadges({
   }
 
   const chipClass =
-    alvoTipo === "vinheta" ?
+    alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta" ?
       "rounded-md bg-fuchsia-500/15 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-900 ring-1 ring-fuchsia-500/30 dark:text-fuchsia-200"
     : "rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-900 ring-1 ring-sky-500/30 dark:text-sky-200";
 

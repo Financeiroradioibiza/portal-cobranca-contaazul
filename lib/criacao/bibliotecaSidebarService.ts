@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { listTags } from "@/lib/criacao/tagService";
 import { listBibliotecaPastas } from "@/lib/criacao/bibliotecaPastaService";
 import { listPastasEspeciais } from "@/lib/criacao/pastaEspecialService";
+import { countVinhetasClientesBiblioteca } from "@/lib/criacao/vinhetaClienteBibliotecaService";
 import { listOffArquivoForBibliotecaSidebar } from "@/lib/criacao/atualizacaoArquivoService";
 import type { BibliotecaSidebarTree } from "@/lib/criacao/bibliotecaClientTypes";
 
@@ -17,9 +18,10 @@ export type {
 } from "@/lib/criacao/bibliotecaClientTypes";
 
 export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree> {
-  const [tags, pastasCustom, especiais, progs, offIndex] = await Promise.all([
+  const [tags, pastasCustom, vinhetasClientesCount, especiais, progs, offIndex] = await Promise.all([
     listTags(),
     listBibliotecaPastas(),
+    countVinhetasClientesBiblioteca(),
     listPastasEspeciais(),
     prisma.programacao.findMany({
       orderBy: [{ clienteNome: "asc" }, { nome: "asc" }],
@@ -44,6 +46,7 @@ export async function loadBibliotecaSidebarTree(): Promise<BibliotecaSidebarTree
   return {
     tags: tags.filter((t) => t.usoCount > 0).map((t) => ({ ...t, kind: "tag" as const })),
     pastasCustom: pastasCustom.map((p) => ({ ...p, kind: "custom" as const })),
+    vinhetasClientesCount,
     pastasEspeciais: especiais
       .filter((p) => p.musicaCount > 0)
       .map((p) => ({

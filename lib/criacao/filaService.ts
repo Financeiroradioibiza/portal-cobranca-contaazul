@@ -6,6 +6,7 @@ import {
   applyPendingPastaUploadsForJob,
 } from "@/lib/criacao/pastaUploadService";
 import { applyPendingPastaEspecialUploads } from "@/lib/criacao/pastaEspecialUploadService";
+import { applyPendingVinhetaClienteUploads } from "@/lib/criacao/vinhetaClienteUploadService";
 import {
   applyAllPendingUploadTags,
   applyPendingUploadTagsForJob,
@@ -13,6 +14,7 @@ import {
 import { cloud2Enabled, cloud2FetchWithTimeout } from "@/lib/criacao/cloud2Client";
 import {
   ensureProcessamentoPastaEspecialColumn,
+  ensureVinhetaClienteJobColumns,
   hasProcessamentoPastaEspecialColumn,
 } from "@/lib/criacao/processamentoJobSchemaCompat";
 import { allocateFilaOrdemForBatch, allocateNextFilaOrdem } from "@/lib/criacao/filaOrdemService";
@@ -27,6 +29,9 @@ export type UploadArquivo = {
   downloadItemId?: string;
 };
 
+/** pasta = programação do cliente; pasta_especial = coringa global; biblioteca = só tag; vinheta_cliente = acervo + pasta Vinhetas clientes */
+export type UploadDestinoTipo = "pasta" | "biblioteca" | "pasta_especial" | "vinheta_cliente";
+
 export type CreateUploadJobInput = {
   titulo: string;
   clienteRef?: string;
@@ -37,16 +42,14 @@ export type CreateUploadJobInput = {
   programacaoId?: string;
   pastaId?: string;
   pastaEspecialId?: string;
+  destinoTipo?: UploadDestinoTipo;
   arquivos: UploadArquivo[];
   /** Reservado para batch; senão aloca automaticamente. */
   filaOrdem?: number;
 };
 
 /** Um lote = um job na fila (pasta de programação, pasta especial ou tag de biblioteca). */
-export type UploadLoteInput = CreateUploadJobInput & {
-  /** pasta = programação do cliente; pasta_especial = coringa global; biblioteca = só tag no acervo */
-  destinoTipo?: "pasta" | "biblioteca" | "pasta_especial";
-};
+export type UploadLoteInput = CreateUploadJobInput;
 
 const ETAPAS = ["upload", "deduplicacao", "ponto_mix", "normalizacao", "tags", "armazenamento"] as const;
 export const ETAPA_LABEL: Record<string, string> = {
@@ -68,8 +71,10 @@ export async function createUploadJob(input: CreateUploadJobInput) {
   if (!(await ensureProcessamentoPastaEspecialColumn())) {
     throw new Error("pasta_especial_migration_pendente");
   }
+  await ensureVinhetaClienteJobColumns();
 
   const pastaEspecialId = input.pastaEspecialId?.trim();
+  const destinoVinhetaCliente = input.destinoTipo === "vinheta_cliente";
   const filaOrdem = input.filaOrdem ?? (await allocateNextFilaOrdem());
 
   const job = await prisma.processamentoJob.create({
@@ -86,6 +91,9 @@ export async function createUploadJob(input: CreateUploadJobInput) {
       programacaoId: input.programacaoId || null,
       pastaId: input.pastaId || null,
       ...(pastaEspecialId ? { pastaEspecialId } : {}),
+      ...(destinoVinhetaCliente ?
+        { destinoVinhetaCliente: true, skipPontoMix: true }
+      : {}),
       filaOrdem,
       totalItens: arquivos.length,
       itensFeitos: 0,
@@ -308,6 +316,7 @@ async function applyPostFinishSideEffects(): Promise<void> {
   await applyAllPendingPastaUploads().catch(() => {});
   if (await hasProcessamentoPastaEspecialColumn()) {
     await applyPendingPastaEspecialUploads(200).catch(() => {});
+    await applyPendingVinhetaClienteUploads(200).catch(() => {});
   }
 }
 
