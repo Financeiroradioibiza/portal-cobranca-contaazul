@@ -6,6 +6,7 @@ import { listAgendamentosByProgramacaoIds, type AgendamentoRow } from "@/lib/cri
 import { hasAtualizacaoAbertaColumn } from "@/lib/criacao/programacaoSchemaCompat";
 import { buildVinhetaPreviewUrl } from "@/lib/criacao/vinhetaSign";
 import { assignUnassignedPdvsToProgramacao } from "@/lib/criacao/pdvProgramacaoService";
+import { listVinhetasHorarioFixoByProgramacaoIds } from "@/lib/criacao/programacaoVinhetaHorarioFixoService";
 import {
   countVotosPorMusicaFiltradoPdv,
   portalPdvIdsForProgramacao,
@@ -60,6 +61,13 @@ export type ArvoreVinhetaNode = {
   previewUrl: string | null;
 };
 
+export type ArvoreVinhetaHorarioFixoNode = {
+  tipo: "abertura" | "encerramento";
+  hora: string;
+  ativo: boolean;
+  vinhetaId: string | null;
+};
+
 export type ArvoreProgramacaoNode = {
   id: string;
   nome: string;
@@ -73,6 +81,7 @@ export type ArvoreProgramacaoNode = {
   pastas: ArvorePastaNode[];
   vinhetas: ArvoreVinhetaNode[];
   agendamentos: AgendamentoRow[];
+  vinhetaHorarioFixo: ArvoreVinhetaHorarioFixoNode[];
 };
 
 /** Árvore mínima para match de pastas (Servidor UP) — sem vinhetas, agendamentos ou contagens. */
@@ -149,7 +158,11 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
         },
       });
 
-  const agendamentosByProg = await listAgendamentosByProgramacaoIds(items.map((p) => p.id));
+  const progIds = items.map((p) => p.id);
+  const [agendamentosByProg, horarioFixoByProg] = await Promise.all([
+    listAgendamentosByProgramacaoIds(progIds),
+    listVinhetasHorarioFixoByProgramacaoIds(progIds),
+  ]);
 
   return items.map((p) => {
     const abertaEmRaw = hasAberta && "atualizacaoAbertaEm" in p ? p.atualizacaoAbertaEm : null;
@@ -179,6 +192,12 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
         previewUrl: v.storageKey ? buildVinhetaPreviewUrl(v.id) : null,
       })),
       agendamentos: agendamentosByProg.get(p.id) ?? [],
+      vinhetaHorarioFixo: (horarioFixoByProg.get(p.id) ?? []).map((h) => ({
+        tipo: h.tipo,
+        hora: h.hora,
+        ativo: h.ativo,
+        vinhetaId: h.vinhetaId,
+      })),
     };
   });
 }

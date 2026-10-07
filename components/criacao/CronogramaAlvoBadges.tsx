@@ -40,20 +40,49 @@ function agendamentosDoAlvo(
 }
 
 /** Badge ao lado da pasta/vinheta — «Tocar sempre» (pasta) ou cronograma. */
+export type VinhetaHorarioFixoBadgeSlot = {
+  tipo: "abertura" | "encerramento";
+  hora: string;
+  ativo: boolean;
+  vinhetaId: string | null;
+};
+
+function horarioFixoBadgeLabel(tipo: VinhetaHorarioFixoBadgeSlot["tipo"], hora: string): string {
+  return tipo === "abertura" ? `Abertura · ${hora}` : `Encerramento · ${hora}`;
+}
+
 export function CronogramaAlvoBadges({
   ags,
   alvoTipo,
   alvoId,
+  vinhetaHorarioFixo,
 }: {
   ags: AgendamentoRow[];
   alvoTipo: CronogramaAlvoTipo;
   alvoId: string;
+  /** Abertura/encerramento (horário fixo) — fora do cronograma VP/VA. */
+  vinhetaHorarioFixo?: VinhetaHorarioFixoBadgeSlot[];
 }) {
   const rules = agendamentosDoAlvo(ags, alvoTipo, alvoId);
   const active = rules.filter((a) => a.ativo);
   const paused = rules.filter((a) => !a.ativo);
 
+  const fixoSlot =
+    alvoTipo === "vinheta" && vinhetaHorarioFixo?.length ?
+      vinhetaHorarioFixo.find((s) => s.ativo && s.vinhetaId === alvoId)
+    : null;
+
   if (rules.length === 0) {
+    if (fixoSlot) {
+      return (
+        <span
+          className="rounded-md bg-violet-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900 ring-1 ring-violet-500/30 dark:text-violet-200"
+          title="Horário fixo diário (Brasil) — abertura ou encerramento"
+        >
+          {horarioFixoBadgeLabel(fixoSlot.tipo, fixoSlot.hora)}
+        </span>
+      );
+    }
     if (alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta") {
       return (
         <span
@@ -86,6 +115,14 @@ export function CronogramaAlvoBadges({
 
   return (
     <span className="flex flex-wrap items-center gap-1">
+      {fixoSlot ?
+        <span
+          className="rounded-md bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-900 ring-1 ring-violet-500/30 dark:text-violet-200"
+          title="Horário fixo diário (Brasil)"
+        >
+          {horarioFixoBadgeLabel(fixoSlot.tipo, fixoSlot.hora)}
+        </span>
+      : null}
       {active.map((a) => (
         <span key={a.id} className={chipClass} title={resumoAgendamento(a)}>
           {resumoAgendamento(a)}
