@@ -19,6 +19,15 @@ function parseGrupo(json: unknown): EnvioManualGrupoCliente[] | null {
   return out.length ? out : null;
 }
 
+function compareAgendamentosByDia(a: EnvioManualAgendamentoDto, b: EnvioManualAgendamentoDto): number {
+  if (a.day !== b.day) return a.day - b.day;
+  return a.client.localeCompare(b.client, "pt-BR", { sensitivity: "base" });
+}
+
+function sortAgendamentosByDia(items: EnvioManualAgendamentoDto[]): EnvioManualAgendamentoDto[] {
+  return [...items].sort(compareAgendamentosByDia);
+}
+
 function rowToDto(row: {
   id: string;
   tipo: string;
@@ -49,16 +58,19 @@ function rowToDto(row: {
 }
 
 export async function listEnvioManualAgendamentos(): Promise<EnvioManualAgendamentoDto[]> {
-  const rows = await prisma.envioManualAgendamento.findMany({ orderBy: [{ sortOrder: "asc" }, { clientLabel: "asc" }] });
+  const rows = await prisma.envioManualAgendamento.findMany({
+    orderBy: [{ diaMes: "asc" }, { clientLabel: "asc" }],
+  });
   return rows.map(rowToDto);
 }
 
 export async function replaceEnvioManualAgendamentos(items: EnvioManualAgendamentoDto[]): Promise<number> {
+  const sorted = sortAgendamentosByDia(items);
   await prisma.$transaction(async (tx) => {
     await tx.envioManualAgendamento.deleteMany();
-    if (!items.length) return;
+    if (!sorted.length) return;
     await tx.envioManualAgendamento.createMany({
-      data: items.map((a, idx) => ({
+      data: sorted.map((a, idx) => ({
         id: a.id,
         tipo: a.tipo,
         clientLabel: a.client,
@@ -74,7 +86,7 @@ export async function replaceEnvioManualAgendamentos(items: EnvioManualAgendamen
       })),
     });
   });
-  return items.length;
+  return sorted.length;
 }
 
 export async function markAgendamentoSent(id: string): Promise<void> {
