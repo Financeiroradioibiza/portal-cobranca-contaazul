@@ -5,6 +5,7 @@ import type { SaleRow } from "@/lib/types";
 import { applyCobrancaAbertaPlaceholders } from "./cobrancaAbertaEmailDefaults";
 import { getOrCreateCobrancaAbertaEmailTemplate } from "./cobrancaAbertaEmailTemplateService";
 import { buildCobrancaAbertaEmailHtml } from "./cobrancaAbertaHtml";
+import { cobrancaEmailLayoutHintsFromSales } from "./cobrancaEmailLayoutHints";
 import { collectOpenChargesEmailAssets } from "./collectOpenChargesEmailAssets";
 import { buildMinimalDocumentosVar } from "./documentosPlaintext";
 import { parcelaLinhaCsvParaEmail } from "./parcelaLinhaEmail";
@@ -91,6 +92,7 @@ export async function prepareOpenChargesEmail(
   const html = buildCobrancaAbertaEmailHtml({
     bodyPlain,
     documentosHtmlLinkLines: bundle.linkLines,
+    layoutHints: cobrancaEmailLayoutHintsFromSales(args.fantasy, args.sales),
   });
 
   return {
