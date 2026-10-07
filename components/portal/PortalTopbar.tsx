@@ -12,7 +12,10 @@ import {
 } from "@/lib/portal/portalNav";
 import type { PortalPermissionsMap } from "@/lib/portal/menuPermissions";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useChamadosResumo } from "@/components/chamados/useChamadosResumo";
+import { IbiZapNavBadges } from "@/components/portal/IbiZapNavBadges";
 import { usePortalPreviewProfile } from "@/components/portal/PortalPreviewProfileContext";
+import type { ChamadosResumoView } from "@/lib/chamados/chamadoTypes";
 
 function userInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -60,6 +63,8 @@ export function PortalTopbar() {
   const visibleNav = filterTopNav(PORTAL_TOP_NAV, perm, {
     isMaster: preview?.effectiveIsMasterForNav ?? session?.isMaster,
   });
+  const ibizapNavVisible = visibleNav.some((item) => item.id === "chamados");
+  const { resumo: chamadosResumo } = useChamadosResumo(Boolean(session) && ibizapNavVisible);
 
   const accountHref = (() => {
     if (perm === "all") return "/config/usuarios";
@@ -82,7 +87,13 @@ export function PortalTopbar() {
 
       <nav className="portal-topnav" aria-label="Módulos">
         {visibleNav.map((item) => (
-          <TopNavLink key={item.id} item={item} active={moduleId === item.id} perm={perm} />
+          <TopNavLink
+            key={item.id}
+            item={item}
+            active={moduleId === item.id}
+            perm={perm}
+            chamadosResumo={item.id === "chamados" ? chamadosResumo : undefined}
+          />
         ))}
       </nav>
 
@@ -107,10 +118,12 @@ function TopNavLink({
   item,
   active,
   perm,
+  chamadosResumo,
 }: {
   item: PortalTopNavItem;
   active: boolean;
   perm: PortalPermissionsMap | "all";
+  chamadosResumo?: ChamadosResumoView;
 }) {
   return (
     <Link
@@ -119,6 +132,7 @@ function TopNavLink({
     >
       <span aria-hidden>{item.icon}</span>
       {item.label}
+      {chamadosResumo ? <IbiZapNavBadges resumo={chamadosResumo} mode="dots" /> : null}
     </Link>
   );
 }

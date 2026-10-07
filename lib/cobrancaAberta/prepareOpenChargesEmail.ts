@@ -41,6 +41,8 @@ export type PrepareOpenChargesArgs = {
   /** Só no fluxo com pré-visualização; omitir no POST legado. */
   subjectOverride?: string | undefined;
   bodyOverride?: string | undefined;
+  /** Envio manual boleto+NF: cabeçalho «Seu boleto…», sem título «Cobranças em aberto». */
+  boletoNfEmailShell?: boolean;
 };
 
 export async function prepareOpenChargesEmail(
@@ -89,10 +91,22 @@ export async function prepareOpenChargesEmail(
     args.bodyOverride !== undefined ? args.bodyOverride : bodyTemplated;
   const bodyPlain = bodyPlainRaw.replace(/\n{3,}/g, "\n\n").trimEnd();
 
+  let layoutHints = cobrancaEmailLayoutHintsFromSales(args.fantasy, args.sales);
+  if (args.boletoNfEmailShell) {
+    const first = args.sales[0];
+    layoutHints = {
+      ...layoutHints,
+      variant: "boleto_nf",
+      competencia: first?.comp?.trim() || layoutHints.competencia,
+      vencimento: first?.due?.trim() || layoutHints.vencimento,
+      valor: formatBRL(totalNum),
+    };
+  }
+
   const html = buildCobrancaAbertaEmailHtml({
     bodyPlain,
     documentosHtmlLinkLines: bundle.linkLines,
-    layoutHints: cobrancaEmailLayoutHintsFromSales(args.fantasy, args.sales),
+    layoutHints,
   });
 
   return {

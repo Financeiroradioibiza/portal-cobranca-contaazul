@@ -121,6 +121,7 @@ export async function sendEnvioManualIndividual(args: {
     sales,
     subjectOverride: `Boleto + Nota Fiscal · ${args.clientLabel} · ${mesRef}`.slice(0, 480),
     bodyOverride: bodyPlain || undefined,
+    boletoNfEmailShell: true,
   });
 
   const fromPrepare =

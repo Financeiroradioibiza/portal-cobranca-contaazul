@@ -21,7 +21,10 @@ import {
   toDesktopPortalPath,
 } from "@/lib/portal/mobilePaths";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useChamadosResumo } from "@/components/chamados/useChamadosResumo";
+import { IbiZapNavBadges } from "@/components/portal/IbiZapNavBadges";
 import { PortalErrorReporter } from "@/components/portal/PortalErrorReporter";
+import type { ChamadosResumoView } from "@/lib/chamados/chamadoTypes";
 import {
   ChamadosAppSessionBootstrap,
   IbiZapReturnBar,
@@ -83,10 +86,12 @@ function BottomTab({
   item,
   perm,
   active,
+  chamadosResumo,
 }: {
   item: PortalTopNavItem;
   perm: PortalPermissionsMap | "all";
   active: boolean;
+  chamadosResumo?: ChamadosResumoView;
 }) {
   const href = toMobilePortalHref(topNavHref(item, perm));
   return (
@@ -99,8 +104,13 @@ function BottomTab({
         : "text-slate-500 dark:text-slate-400")
       }
     >
-      <span className="text-base leading-none" aria-hidden>
+      <span className="relative inline-flex text-base leading-none" aria-hidden>
         {item.icon}
+        {chamadosResumo ?
+          <span className="absolute -right-2 -top-1 scale-[0.85]">
+            <IbiZapNavBadges resumo={chamadosResumo} mode="dots" />
+          </span>
+        : null}
       </span>
       <span className="max-w-[4.5rem] truncate">{item.label.split(" ")[0]}</span>
     </Link>
@@ -155,6 +165,8 @@ export function MobilePortalShell({ children }: { children: React.ReactNode }) {
     () => filterTopNav(PORTAL_TOP_NAV, perm, { isMaster: session?.isMaster }),
     [perm, session?.isMaster],
   );
+  const ibizapNavVisible = visibleNav.some((item) => item.id === "chamados");
+  const { resumo: chamadosResumo } = useChamadosResumo(Boolean(session) && ibizapNavVisible);
   const visibleSidebar = useMemo(
     () =>
       filterSidebarItems(sidebar.items, perm).filter(
@@ -206,7 +218,13 @@ export function MobilePortalShell({ children }: { children: React.ReactNode }) {
       >
         <div className="mx-auto flex max-w-lg items-stretch justify-around gap-0.5 overflow-x-auto px-1 py-1">
           {visibleNav.map((item) => (
-            <BottomTab key={item.id} item={item} perm={perm} active={moduleId === item.id} />
+            <BottomTab
+              key={item.id}
+              item={item}
+              perm={perm}
+              active={moduleId === item.id}
+              chamadosResumo={item.id === "chamados" ? chamadosResumo : undefined}
+            />
           ))}
         </div>
       </nav>

@@ -179,6 +179,31 @@ body {
   font-weight: 800;
 }
 
+.portal-topnav-ibizap-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+.portal-topnav-ibizap-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.portal-topnav-ibizap-dot--red {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.45);
+}
+
+.portal-topnav-ibizap-dot--blue {
+  background: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.45);
+}
+
 .portal-topbar-right {
   display: flex;
   align-items: center;
