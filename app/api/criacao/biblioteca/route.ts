@@ -55,6 +55,7 @@ export async function GET(request: Request) {
       explicitOnly,
       listFilter,
       sortBy,
+      syncPending: vinhetaClientes,
     });
 
     return NextResponse.json({ musicas: rows, total });

@@ -365,6 +365,7 @@ export function BibliotecaMusicalPanel({
     if (folderFilter?.tagId) params.set("tagId", folderFilter.tagId);
     else if (tagIdFilter) params.set("tagId", tagIdFilter);
     if (folderFilter?.bibliotecaPastaId) params.set("bibliotecaPastaId", folderFilter.bibliotecaPastaId);
+    if (folderFilter?.vinhetaClientes === "1") params.set("vinhetaClientes", "1");
     if (folderFilter?.pastaEspecialId) params.set("pastaEspecialId", folderFilter.pastaEspecialId);
     if (folderFilter?.pastaProgramacaoId) params.set("pastaProgramacaoId", folderFilter.pastaProgramacaoId);
     if (folderFilter?.offArquivoId) params.set("offArquivoId", folderFilter.offArquivoId);

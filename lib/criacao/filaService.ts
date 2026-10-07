@@ -308,6 +308,7 @@ export async function cancelJob(id: string): Promise<boolean> {
 async function applyPostFinishForJob(jobId: string): Promise<void> {
   await applyPendingUploadTagsForJob(jobId).catch(() => {});
   await applyPendingPastaUploadsForJob(jobId).catch(() => {});
+  await applyPendingVinhetaClienteUploads(200).catch(() => {});
 }
 
 /** Job terminou: aplica tag + pasta quando há faixas ok (sync global). */
