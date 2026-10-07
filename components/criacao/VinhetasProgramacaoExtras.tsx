@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { VinhetaHorarioFixoView } from "@/lib/criacao/programacaoVinhetaHorarioFixoService";
 import type { VinhetaPastaView } from "@/lib/criacao/vinhetaPastaService";
+import { vinhetaClienteImportErrorMessage } from "@/lib/criacao/vinhetaFromMusicaClienteService";
 
 type VinhetaOpt = { id: string; nome: string };
 
@@ -368,9 +369,15 @@ export function ImportVinhetaClientesModal({
           body: JSON.stringify({ musicaId, nome: label }),
         },
       );
-      const d = (await res.json().catch(() => ({}))) as { vinheta?: { id: string }; error?: string };
+      const raw = await res.text();
+      let d = {} as { vinheta?: { id: string }; error?: string };
+      try {
+        d = JSON.parse(raw) as typeof d;
+      } catch {
+        d = { error: res.status === 404 ? "rota_nao_encontrada" : "copia_falhou" };
+      }
       if (!res.ok || !d.vinheta?.id) {
-        alert(d.error ?? "Não foi possível importar.");
+        alert(vinhetaClienteImportErrorMessage(d.error ?? "copia_falhou"));
         return;
       }
       await onImported(d.vinheta.id);
