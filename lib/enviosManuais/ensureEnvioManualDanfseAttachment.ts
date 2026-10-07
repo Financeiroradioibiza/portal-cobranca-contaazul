@@ -1,6 +1,6 @@
-import { isDanfsePdfBuffer } from "@/lib/contaazul/danfsePdf";
-import { fetchServiceInvoicePdfBufferByVendaId } from "@/lib/contaazul/serviceInvoicePdf";
+import { resolveParcelaDanfseMeta } from "@/lib/contaazul/resolveParcelaDanfseMeta";
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
+import { fetchDanfsePdfViaVencidosPath } from "@/lib/enviosManuais/fetchDanfseViaVencidosPath";
 
 const MAX_ATTACHMENTS = 26;
 
@@ -8,31 +8,45 @@ function attachmentsIncludeDanfse(atts: EmailAttachment[]): boolean {
   return atts.some((a) => /RPS-|NFS-e-|nota\.pdf|nota-/i.test(a.filename));
 }
 
-/** Garante PDF DANFSE no e-mail usando UUID da venda (1 NFS-e por venda, independente da parcela). */
-export async function ensureEnvioManualDanfseAttachment(args: {
+/**
+ * Anexa DANFSE no e-mail usando o mesmo fluxo do botão Nota em Vencidos (por parcela).
+ * Tenta cada parcela até obter o PDF.
+ */
+export async function ensureEnvioManualDanfseFromParcelas(args: {
   token: string;
-  vendaId: string;
+  parcelaIds: string[];
   attachments: EmailAttachment[];
-  filename: string;
   filenamePrefix?: string;
-}): Promise<boolean> {
-  const vendaId = args.vendaId.trim();
-  if (!vendaId) return false;
-  if (attachmentsIncludeDanfse(args.attachments)) return true;
-  if (args.attachments.length >= MAX_ATTACHMENTS) return false;
+}): Promise<{ ok: boolean; idVenda?: string; openUrl?: string; filename?: string }> {
+  if (attachmentsIncludeDanfse(args.attachments)) return { ok: true };
+  if (args.attachments.length >= MAX_ATTACHMENTS) return { ok: false };
 
-  const buf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, args.token);
-  if (!buf || !(isDanfsePdfBuffer(buf) || buf.length >= 50_000)) return false;
+  let lastMeta: { idVenda: string; openUrl: string; filename: string } | undefined;
 
-  const baseName = args.filename.trim() || "nota.pdf";
-  const filename = args.filenamePrefix
-    ? `${args.filenamePrefix.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 24)}-${baseName}`
-    : baseName;
+  for (const parcelaId of args.parcelaIds) {
+    const meta = await resolveParcelaDanfseMeta(args.token, parcelaId).catch(() => null);
+    if (meta) {
+      lastMeta = { idVenda: meta.idVenda, openUrl: meta.openUrl, filename: meta.filename };
+    }
 
-  args.attachments.push({
-    filename,
-    content: buf,
-    contentType: "application/pdf",
-  });
-  return true;
+    const got = await fetchDanfsePdfViaVencidosPath(args.token, parcelaId);
+    if (!got) continue;
+
+    const baseName = got.filename.trim() || "nota.pdf";
+    const filename = args.filenamePrefix
+      ? `${args.filenamePrefix.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 24)}-${baseName}`
+      : baseName;
+
+    args.attachments.push({
+      filename,
+      content: got.buffer,
+      contentType: "application/pdf",
+    });
+    return { ok: true, idVenda: got.idVenda, openUrl: got.openUrl, filename: baseName };
+  }
+
+  if (lastMeta) {
+    return { ok: false, idVenda: lastMeta.idVenda, openUrl: lastMeta.openUrl, filename: lastMeta.filename };
+  }
+  return { ok: false };
 }

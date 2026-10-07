@@ -75,7 +75,8 @@ function fetchPdfViaNodeHttps(url: string): Promise<Buffer | null> {
   });
 }
 
-async function fetchDanfseViaCloud2Proxy(vendaId: string): Promise<Buffer | null> {
+/** Baixa DANFSE no cloud2 (Netlify não alcança app.contaazul.com de forma confiável). */
+export async function fetchDanfseViaCloud2Proxy(vendaId: string): Promise<Buffer | null> {
   const secret = (process.env.CRIACAO_INGEST_SECRET ?? "").trim();
   if (!secret) return null;
   const base = CRIACAO_INGEST_URL.replace(/\/ingest\/?$/, "");
@@ -128,6 +129,34 @@ async function fetchPdfViaFetch(
   }
 }
 
+/** Mesmo URL que o botão Nota em Vencidos (`danfse-meta` → `openUrl`). */
+export async function fetchServiceInvoicePdfBufferByOpenUrl(
+  openUrl: string,
+  accessToken: string,
+): Promise<Buffer | null> {
+  const url = openUrl.trim();
+  if (!url) return null;
+
+  const vendaId = parseVendaIdFromServiceInvoiceUrl(url);
+  if (vendaId) {
+    const viaCloud2 = await fetchDanfseViaCloud2Proxy(vendaId);
+    if (viaCloud2) return viaCloud2;
+  }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const viaHttps = await fetchPdfViaNodeHttps(url);
+    if (viaHttps) return viaHttps;
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+
+  for (const withBearer of [false, true]) {
+    const buf = await fetchPdfViaFetch(url, accessToken, withBearer);
+    if (buf) return buf;
+  }
+
+  return vendaId ? fetchDanfseViaCloud2Proxy(vendaId) : null;
+}
+
 export async function fetchServiceInvoicePdfBufferByVendaId(
   vendaId: string,
   accessToken: string,
@@ -136,6 +165,8 @@ export async function fetchServiceInvoicePdfBufferByVendaId(
   if (!id) return null;
 
   const url = serviceInvoiceDanfsePublicUrl(id);
+  const viaCloud2 = await fetchDanfseViaCloud2Proxy(id);
+  if (viaCloud2) return viaCloud2;
 
   /** Node https costuma funcionar em serverless quando `fetch` falha. */
   for (let attempt = 0; attempt < 3; attempt++) {

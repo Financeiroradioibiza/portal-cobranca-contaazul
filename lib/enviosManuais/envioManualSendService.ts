@@ -3,7 +3,7 @@ import { buildCobrancaAbertaEmailHtml } from "@/lib/cobrancaAberta/cobrancaAbert
 import { buildMinimalDocumentosVar } from "@/lib/cobrancaAberta/documentosPlaintext";
 import { prepareOpenChargesEmail } from "@/lib/cobrancaAberta/prepareOpenChargesEmail";
 import { serviceInvoiceDanfsePublicUrl } from "@/lib/contaazul/serviceInvoicePdf";
-import { ensureEnvioManualDanfseAttachment } from "@/lib/enviosManuais/ensureEnvioManualDanfseAttachment";
+import { ensureEnvioManualDanfseFromParcelas } from "@/lib/enviosManuais/ensureEnvioManualDanfseAttachment";
 import { fetchPersonDetail, normalizeCaPersonBrief } from "@/lib/contaazul/personBilling";
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import { isOcSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
@@ -28,11 +28,24 @@ function safeNamePrefix(label: string): string {
 
 function appendDanfseLinkFallback(args: {
   vendaId: string;
+  openUrl?: string;
   clientLabel: string;
   bodyPlain: string;
   linkLines: string[];
 }): { bodyPlain: string; html: string; linkLines: string[] } {
-  const openUrl = serviceInvoiceDanfsePublicUrl(args.vendaId);
+  const openUrl =
+    args.openUrl?.trim() ||
+    (args.vendaId.trim() ? serviceInvoiceDanfsePublicUrl(args.vendaId) : "");
+  if (!openUrl) {
+    return {
+      bodyPlain: args.bodyPlain,
+      linkLines: args.linkLines,
+      html: buildCobrancaAbertaEmailHtml({
+        bodyPlain: args.bodyPlain,
+        documentosHtmlLinkLines: args.linkLines,
+      }),
+    };
+  }
   const line = `- ${args.clientLabel}: DANFSE (PDF): ${openUrl}`;
   if (args.linkLines.some((l) => l.includes(openUrl))) {
     return {
@@ -80,23 +93,21 @@ export async function sendEnvioManualIndividual(args: {
   const cnpjRaw = personCnpj(personRaw);
   if (!cnpjRaw) throw new Error("missing_client_cnpj");
 
-  const { sales, vendaId, vendaNumero, danfseFilename } = await resolveEnvioManualSalesForCliente(
+  const { sales, vendaNumero } = await resolveEnvioManualSalesForCliente(
     args.token,
     args.caClienteId,
     60,
   );
   if (!sales.length) throw new Error("no_parcelas_for_client");
 
+  const parcelaIds = sales.map((s) => s.id);
   const danfseAttachments: EmailAttachment[] = [];
-  if (vendaId) {
-    await ensureEnvioManualDanfseAttachment({
-      token: args.token,
-      vendaId,
-      attachments: danfseAttachments,
-      filename: danfseFilename,
-      filenamePrefix: safeNamePrefix(args.clientLabel),
-    });
-  }
+  const danfseResult = await ensureEnvioManualDanfseFromParcelas({
+    token: args.token,
+    parcelaIds,
+    attachments: danfseAttachments,
+    filenamePrefix: safeNamePrefix(args.clientLabel),
+  });
 
   const prepared = await prepareOpenChargesEmail({
     token: args.token,
@@ -118,9 +129,10 @@ export async function sendEnvioManualIndividual(args: {
   let bodyOut = prepared.bodyPlain;
   let htmlOut = prepared.html;
 
-  if (vendaId && danfseAttachments.length === 0) {
+  if (!danfseResult.ok && (danfseResult.idVenda || danfseResult.openUrl)) {
     const withLink = appendDanfseLinkFallback({
-      vendaId,
+      vendaId: danfseResult.idVenda ?? "",
+      openUrl: danfseResult.openUrl,
       clientLabel: args.clientLabel,
       bodyPlain: bodyOut,
       linkLines,
@@ -168,7 +180,7 @@ export async function sendEnvioManualGrupo(args: {
   let clientesOk = 0;
 
   for (const c of args.grupoClientes) {
-    const { sales, vendaId, vendaNumero, danfseFilename } = await resolveEnvioManualSalesForCliente(
+    const { sales, vendaNumero } = await resolveEnvioManualSalesForCliente(
       args.token,
       c.id,
       40,
@@ -179,15 +191,12 @@ export async function sendEnvioManualGrupo(args: {
       continue;
     }
     const danfseForCliente: EmailAttachment[] = [];
-    if (vendaId) {
-      await ensureEnvioManualDanfseAttachment({
-        token: args.token,
-        vendaId,
-        attachments: danfseForCliente,
-        filename: danfseFilename,
-        filenamePrefix: safeNamePrefix(c.nome),
-      });
-    }
+    const danfseResult = await ensureEnvioManualDanfseFromParcelas({
+      token: args.token,
+      parcelaIds: sales.map((s) => s.id),
+      attachments: danfseForCliente,
+      filenamePrefix: safeNamePrefix(c.nome),
+    });
     for (const att of danfseForCliente) {
       if (allAttachments.length >= 26) break;
       allAttachments.push(att);
@@ -201,8 +210,10 @@ export async function sendEnvioManualGrupo(args: {
       if (allAttachments.length >= 26) break;
       allAttachments.push(prefixAttachmentName(c.nome, att));
     }
-    if (vendaId && danfseForCliente.length === 0) {
-      linkLines.push(`- ${c.nome}: DANFSE (PDF): ${serviceInvoiceDanfsePublicUrl(vendaId)}`);
+    if (!danfseResult.ok && danfseResult.openUrl) {
+      linkLines.push(`- ${c.nome}: DANFSE (PDF): ${danfseResult.openUrl}`);
+    } else if (!danfseResult.ok && danfseResult.idVenda) {
+      linkLines.push(`- ${c.nome}: DANFSE (PDF): ${serviceInvoiceDanfsePublicUrl(danfseResult.idVenda)}`);
     }
     linkLines.push(...bundle.linkLines.map((l) => `- ${c.nome}: ${l.replace(/^-\s*/, "")}`));
     clientesOk += 1;
