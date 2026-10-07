@@ -138,10 +138,25 @@ export function EnviosManuaisPanel() {
         setError(String(json.error ?? "Falha no envio"));
         return;
       }
+      const names = Array.isArray(json.attachmentFilenames) ?
+          (json.attachmentFilenames as string[]).join(", ")
+        : "";
+      const danfseOk = json.danfseAttached === true;
+      const danfseHint =
+        danfseOk ? " · nota anexada"
+        : json.danfseSkipReason === "no_criacao_secret" ?
+          " · nota: falta CRIACAO_INGEST_SECRET no Netlify (proxy cloud2)"
+        : json.danfseSkipReason === "pdf_fetch_failed" ?
+          " · nota: PDF não baixou no servidor — deploy cloud2 /criacao/ops/danfse-pdf ou link no e-mail"
+        : json.danfseSkipReason === "no_meta" ?
+          " · nota: sem DANFSE na parcela (Conta Azul)"
+        : !danfseOk ?
+          " · nota não anexada"
+        : "";
       setNotice(
         json.sandbox ?
-          `Enviado (modo teste) para ${(json.recipients as string[]).join(", ")} · ${json.pdfAttachments} PDF(s).`
-        : `Enviado para ${(json.recipients as string[]).join(", ")}.`,
+          `Enviado (modo teste) para ${(json.recipients as string[]).join(", ")} · ${json.pdfAttachments} PDF(s)${danfseHint}${names ? ` (${names})` : ""}.`
+        : `Enviado para ${(json.recipients as string[]).join(", ")} · ${json.pdfAttachments} PDF(s)${danfseHint}.`,
       );
       await load();
     } finally {

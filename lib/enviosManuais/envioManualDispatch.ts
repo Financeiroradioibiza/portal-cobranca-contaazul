@@ -11,6 +11,9 @@ export type EnvioManualDispatchResult = {
   recipients: string[];
   originalRecipients: string[];
   pdfAttachments: number;
+  danfseAttached: boolean;
+  attachmentFilenames: string[];
+  danfseSkipReason?: string;
 };
 
 export async function dispatchEnvioManualAgendamento(
@@ -44,6 +47,9 @@ export async function dispatchEnvioManualAgendamento(
       recipients: result.recipients,
       originalRecipients: result.originalRecipients,
       pdfAttachments: result.pdfAttachments,
+      danfseAttached: result.danfseAttached,
+      attachmentFilenames: result.attachmentFilenames,
+      danfseSkipReason: result.danfseSkipReason,
     };
   }
 
@@ -71,5 +77,8 @@ export async function dispatchEnvioManualAgendamento(
     recipients: result.recipients,
     originalRecipients: result.originalRecipients,
     pdfAttachments: result.pdfAttachments,
+    danfseAttached: result.danfseAttached,
+    attachmentFilenames: result.attachmentFilenames,
+    danfseSkipReason: result.danfseSkipReason,
   };
 }

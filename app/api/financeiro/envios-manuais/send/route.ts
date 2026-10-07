@@ -35,6 +35,9 @@ export async function POST(request: Request) {
       recipients: result.recipients,
       originalRecipients: result.originalRecipients,
       pdfAttachments: result.pdfAttachments,
+      danfseAttached: result.danfseAttached,
+      attachmentFilenames: result.attachmentFilenames,
+      danfseSkipReason: result.danfseSkipReason ?? null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "send_failed";

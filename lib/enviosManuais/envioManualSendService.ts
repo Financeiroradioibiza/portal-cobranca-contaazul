@@ -74,6 +74,9 @@ export type EnvioManualSendResult = {
   pdfAttachments: number;
   vendaNumero?: number;
   hadAttachmentGaps: boolean;
+  danfseAttached: boolean;
+  attachmentFilenames: string[];
+  danfseSkipReason?: string;
 };
 
 export async function sendEnvioManualIndividual(args: {
@@ -157,6 +160,9 @@ export async function sendEnvioManualIndividual(args: {
     pdfAttachments: attachments.length,
     vendaNumero,
     hadAttachmentGaps: linkLines.length > 0,
+    danfseAttached: danfseResult.ok,
+    attachmentFilenames: attachments.map((a) => a.filename),
+    danfseSkipReason: danfseResult.ok ? undefined : danfseResult.skipReason,
   };
 }
 
@@ -234,12 +240,16 @@ export async function sendEnvioManualGrupo(args: {
     attachments: allAttachments,
   });
 
+  const danfseCount = allAttachments.filter((a) => /RPS-|NFS-e-/i.test(a.filename)).length;
   return {
     sandbox,
     recipients: to,
     originalRecipients: original,
     pdfAttachments: allAttachments.length,
     hadAttachmentGaps: linkLines.length > 0,
+    danfseAttached: danfseCount > 0,
+    attachmentFilenames: allAttachments.map((a) => a.filename),
+    danfseSkipReason: danfseCount > 0 ? undefined : "pdf_fetch_failed",
     clientesOk,
     clientesTotal: args.grupoClientes.length,
   };

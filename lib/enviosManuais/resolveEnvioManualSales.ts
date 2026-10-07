@@ -1,4 +1,6 @@
 import { caFetch } from "@/lib/contaazul/caHttp";
+import { normalizeReceivableItem } from "@/lib/contaazul/normalizeReceivable";
+import type { CaReceivableItem } from "@/lib/contaazul/types";
 import { addDaysYmd, brazilTodayYmd } from "@/lib/financeiro/financeiroOverviewDates";
 import type { SaleRow } from "@/lib/types";
 
@@ -27,9 +29,22 @@ function danfseFilenameFromVenda(vendaDetalhes: Record<string, unknown>, vendaNu
   return "nota.pdf";
 }
 
+/** Mesmo critério do Financeiro → Vencidos (`id_parcela` antes de `id`). */
+function receivableToSaleRow(it: CaReceivableItem): SaleRow {
+  const parcelaId = it.id_parcela?.trim() || it.idParcela?.trim() || it.id.trim();
+  return {
+    id: parcelaId,
+    comp: it.data_competencia?.slice(0, 10) ?? it.data_vencimento.slice(0, 10),
+    due: it.data_vencimento.slice(0, 10),
+    summary: it.descricao ?? "Parcela",
+    value: it.nao_pago,
+  };
+}
+
 function parcelaToSaleRow(raw: unknown): SaleRow | null {
   if (!isRecord(raw)) return null;
-  const id = String(raw.id ?? raw.id_parcela ?? raw.idParcela ?? "").trim();
+  const idParcela = String(raw.id_parcela ?? raw.idParcela ?? "").trim();
+  const id = idParcela || String(raw.id ?? "").trim();
   if (!id) return null;
   const due = String(raw.data_vencimento ?? raw.dataVencimento ?? "").slice(0, 10);
   if (!due) return null;
@@ -40,11 +55,45 @@ function parcelaToSaleRow(raw: unknown): SaleRow | null {
   return { id, comp, due, summary, value };
 }
 
-/** Última venda CA do cliente → parcelas do evento financeiro (mesmo critério do Vercel). */
-export async function resolveEnvioManualSalesForCliente(
+const OPEN_STATUSES = ["ATRASADO", "EM_ABERTO", "RECEBIDO_PARCIAL"] as const;
+
+/** Parcelas em aberto do cliente — mesma origem/ID que Vencidos (`contas-a-receber/buscar`). */
+async function fetchOpenReceivablesForCliente(
   token: string,
   clienteId: string,
-  lookbackDays = 15,
+  lookbackDays: number,
+): Promise<CaReceivableItem[]> {
+  const today = brazilTodayYmd();
+  const desde = addDaysYmd(today, -Math.max(lookbackDays, 30));
+  const ate = addDaysYmd(today, 45);
+  const qs = new URLSearchParams();
+  qs.set("pagina", "1");
+  qs.set("tamanho_pagina", "100");
+  qs.set("data_vencimento_de", desde);
+  qs.set("data_vencimento_ate", ate);
+  qs.append("ids_clientes", clienteId);
+  for (const s of OPEN_STATUSES) qs.append("status", s);
+
+  const res = await caFetch<{ itens?: unknown[]; items?: unknown[] }>(
+    `/v1/financeiro/eventos-financeiros/contas-a-receber/buscar?${qs.toString()}`,
+    token,
+  );
+  const rawList = res.itens ?? res.items ?? [];
+  const out: CaReceivableItem[] = [];
+  for (const row of rawList) {
+    const norm = normalizeReceivableItem(row);
+    if (!norm || norm.cliente?.id !== clienteId) continue;
+    if (!norm.nao_pago || norm.nao_pago <= 0) continue;
+    out.push(norm);
+  }
+  out.sort((a, b) => b.data_vencimento.localeCompare(a.data_vencimento));
+  return out;
+}
+
+async function salesFromLatestVendaEvent(
+  token: string,
+  clienteId: string,
+  lookbackDays: number,
 ): Promise<{ sales: SaleRow[]; vendaId?: string; vendaNumero?: number; danfseFilename: string }> {
   const today = brazilTodayYmd();
   const desde = addDaysYmd(today, -lookbackDays);
@@ -63,8 +112,7 @@ export async function resolveEnvioManualSalesForCliente(
     Number.isFinite(vendaNumero) ? vendaNumero : undefined,
   );
   const evento = vendaDetalhes.evento_financeiro;
-  const eventoId =
-    isRecord(evento) ? String(evento.id ?? "").trim() : "";
+  const eventoId = isRecord(evento) ? String(evento.id ?? "").trim() : "";
   if (!eventoId) {
     return {
       sales: [],
@@ -89,4 +137,20 @@ export async function resolveEnvioManualSalesForCliente(
     vendaNumero: Number.isFinite(vendaNumero) ? vendaNumero : undefined,
     danfseFilename,
   };
+}
+
+/** Parcelas + metadados de venda para envio manual (prioriza busca igual Vencidos). */
+export async function resolveEnvioManualSalesForCliente(
+  token: string,
+  clienteId: string,
+  lookbackDays = 15,
+): Promise<{ sales: SaleRow[]; vendaId?: string; vendaNumero?: number; danfseFilename: string }> {
+  const receivables = await fetchOpenReceivablesForCliente(token, clienteId, lookbackDays);
+  if (receivables.length) {
+    return {
+      sales: receivables.map(receivableToSaleRow),
+      danfseFilename: "nota.pdf",
+    };
+  }
+  return salesFromLatestVendaEvent(token, clienteId, lookbackDays);
 }

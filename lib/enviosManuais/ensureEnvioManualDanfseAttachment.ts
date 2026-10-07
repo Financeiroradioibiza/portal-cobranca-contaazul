@@ -17,7 +17,15 @@ export async function ensureEnvioManualDanfseFromParcelas(args: {
   parcelaIds: string[];
   attachments: EmailAttachment[];
   filenamePrefix?: string;
-}): Promise<{ ok: boolean; idVenda?: string; openUrl?: string; filename?: string }> {
+}): Promise<{
+  ok: boolean;
+  idVenda?: string;
+  openUrl?: string;
+  filename?: string;
+  /** Diagnóstico (modo teste / logs). */
+  skipReason?: "no_parcela" | "no_meta" | "pdf_fetch_failed" | "no_criacao_secret";
+}> {
+  if (!args.parcelaIds.length) return { ok: false, skipReason: "no_parcela" };
   if (attachmentsIncludeDanfse(args.attachments)) return { ok: true };
   if (args.attachments.length >= MAX_ATTACHMENTS) return { ok: false };
 
@@ -46,7 +54,14 @@ export async function ensureEnvioManualDanfseFromParcelas(args: {
   }
 
   if (lastMeta) {
-    return { ok: false, idVenda: lastMeta.idVenda, openUrl: lastMeta.openUrl, filename: lastMeta.filename };
+    const secret = (process.env.CRIACAO_INGEST_SECRET ?? "").trim();
+    return {
+      ok: false,
+      idVenda: lastMeta.idVenda,
+      openUrl: lastMeta.openUrl,
+      filename: lastMeta.filename,
+      skipReason: secret ? "pdf_fetch_failed" : "no_criacao_secret",
+    };
   }
-  return { ok: false };
+  return { ok: false, skipReason: "no_meta" };
 }
