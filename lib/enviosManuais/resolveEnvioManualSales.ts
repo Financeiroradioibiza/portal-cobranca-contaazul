@@ -6,6 +6,27 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function numField(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+  if (typeof v === "string" && /^\d+$/.test(v.trim())) return parseInt(v, 10);
+  return undefined;
+}
+
+function danfseFilenameFromVenda(vendaDetalhes: Record<string, unknown>, vendaNumero?: number): string {
+  const rps =
+    numField(vendaDetalhes.numero_rps) ??
+    numField(vendaDetalhes.numeroRps) ??
+    numField((vendaDetalhes.nota_servico as Record<string, unknown> | undefined)?.numero_rps);
+  if (rps) return `RPS-${rps}.pdf`;
+  const nfse =
+    numField(vendaDetalhes.numero_nfse) ??
+    numField(vendaDetalhes.numeroNfse) ??
+    numField((vendaDetalhes.nota_servico as Record<string, unknown> | undefined)?.numero);
+  if (nfse) return `NFS-e-${nfse}.pdf`;
+  if (vendaNumero != null && vendaNumero > 0) return `NFS-e-venda-${vendaNumero}.pdf`;
+  return "nota.pdf";
+}
+
 function parcelaToSaleRow(raw: unknown): SaleRow | null {
   if (!isRecord(raw)) return null;
   const id = String(raw.id ?? raw.id_parcela ?? raw.idParcela ?? "").trim();
@@ -24,7 +45,7 @@ export async function resolveEnvioManualSalesForCliente(
   token: string,
   clienteId: string,
   lookbackDays = 15,
-): Promise<{ sales: SaleRow[]; vendaNumero?: number }> {
+): Promise<{ sales: SaleRow[]; vendaId?: string; vendaNumero?: number; danfseFilename: string }> {
   const today = brazilTodayYmd();
   const desde = addDaysYmd(today, -lookbackDays);
   const vendas = await caFetch<{ itens?: unknown[] }>(
@@ -32,16 +53,25 @@ export async function resolveEnvioManualSalesForCliente(
     token,
   );
   const vendaRaw = vendas.itens?.[0];
-  if (!isRecord(vendaRaw)) return { sales: [] };
+  if (!isRecord(vendaRaw)) return { sales: [], danfseFilename: "nota.pdf" };
   const vendaId = String(vendaRaw.id ?? "").trim();
-  if (!vendaId) return { sales: [] };
+  if (!vendaId) return { sales: [], danfseFilename: "nota.pdf" };
   const vendaNumero = Number(vendaRaw.numero);
   const vendaDetalhes = await caFetch<Record<string, unknown>>(`/v1/venda/${encodeURIComponent(vendaId)}`, token);
+  const danfseFilename = danfseFilenameFromVenda(
+    vendaDetalhes,
+    Number.isFinite(vendaNumero) ? vendaNumero : undefined,
+  );
   const evento = vendaDetalhes.evento_financeiro;
   const eventoId =
     isRecord(evento) ? String(evento.id ?? "").trim() : "";
   if (!eventoId) {
-    return { sales: [], vendaNumero: Number.isFinite(vendaNumero) ? vendaNumero : undefined };
+    return {
+      sales: [],
+      vendaId,
+      vendaNumero: Number.isFinite(vendaNumero) ? vendaNumero : undefined,
+      danfseFilename,
+    };
   }
   const parcelas = await caFetch<unknown>(
     `/v1/financeiro/eventos-financeiros/${encodeURIComponent(eventoId)}/parcelas`,
@@ -53,5 +83,10 @@ export async function resolveEnvioManualSalesForCliente(
     const row = parcelaToSaleRow(p);
     if (row) sales.push(row);
   }
-  return { sales, vendaNumero: Number.isFinite(vendaNumero) ? vendaNumero : undefined };
+  return {
+    sales,
+    vendaId,
+    vendaNumero: Number.isFinite(vendaNumero) ? vendaNumero : undefined,
+    danfseFilename,
+  };
 }

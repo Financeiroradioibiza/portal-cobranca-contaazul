@@ -1,6 +1,9 @@
 import { collectOpenChargesEmailAssets } from "@/lib/cobrancaAberta/collectOpenChargesEmailAssets";
 import { buildCobrancaAbertaEmailHtml } from "@/lib/cobrancaAberta/cobrancaAbertaHtml";
+import { buildMinimalDocumentosVar } from "@/lib/cobrancaAberta/documentosPlaintext";
 import { prepareOpenChargesEmail } from "@/lib/cobrancaAberta/prepareOpenChargesEmail";
+import { serviceInvoiceDanfsePublicUrl } from "@/lib/contaazul/serviceInvoicePdf";
+import { ensureEnvioManualDanfseAttachment } from "@/lib/enviosManuais/ensureEnvioManualDanfseAttachment";
 import { fetchPersonDetail, normalizeCaPersonBrief } from "@/lib/contaazul/personBilling";
 import type { EmailAttachment } from "@/lib/email/ocSmtp";
 import { isOcSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
@@ -17,6 +20,38 @@ function personCnpj(raw: unknown): string {
 function prefixAttachmentName(prefix: string, att: EmailAttachment): EmailAttachment {
   const safe = prefix.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 24) || "cli";
   return { ...att, filename: `${safe}-${att.filename}` };
+}
+
+function safeNamePrefix(label: string): string {
+  return label.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 24) || "cli";
+}
+
+function appendDanfseLinkFallback(args: {
+  vendaId: string;
+  clientLabel: string;
+  bodyPlain: string;
+  linkLines: string[];
+}): { bodyPlain: string; html: string; linkLines: string[] } {
+  const openUrl = serviceInvoiceDanfsePublicUrl(args.vendaId);
+  const line = `- ${args.clientLabel}: DANFSE (PDF): ${openUrl}`;
+  if (args.linkLines.some((l) => l.includes(openUrl))) {
+    return {
+      bodyPlain: args.bodyPlain,
+      linkLines: args.linkLines,
+      html: buildCobrancaAbertaEmailHtml({
+        bodyPlain: args.bodyPlain,
+        documentosHtmlLinkLines: args.linkLines,
+      }),
+    };
+  }
+  const linkLines = [...args.linkLines, line];
+  const docBlock = buildMinimalDocumentosVar(linkLines);
+  const bodyPlain = docBlock ? `${args.bodyPlain.trimEnd()}\n\n${docBlock}` : args.bodyPlain;
+  return {
+    bodyPlain,
+    linkLines,
+    html: buildCobrancaAbertaEmailHtml({ bodyPlain, documentosHtmlLinkLines: linkLines }),
+  };
 }
 
 export type EnvioManualSendResult = {
@@ -45,8 +80,23 @@ export async function sendEnvioManualIndividual(args: {
   const cnpjRaw = personCnpj(personRaw);
   if (!cnpjRaw) throw new Error("missing_client_cnpj");
 
-  const { sales, vendaNumero } = await resolveEnvioManualSalesForCliente(args.token, args.caClienteId, 60);
+  const { sales, vendaId, vendaNumero, danfseFilename } = await resolveEnvioManualSalesForCliente(
+    args.token,
+    args.caClienteId,
+    60,
+  );
   if (!sales.length) throw new Error("no_parcelas_for_client");
+
+  const danfseAttachments: EmailAttachment[] = [];
+  if (vendaId) {
+    await ensureEnvioManualDanfseAttachment({
+      token: args.token,
+      vendaId,
+      attachments: danfseAttachments,
+      filename: danfseFilename,
+      filenamePrefix: safeNamePrefix(args.clientLabel),
+    });
+  }
 
   const prepared = await prepareOpenChargesEmail({
     token: args.token,
@@ -59,21 +109,42 @@ export async function sendEnvioManualIndividual(args: {
     bodyOverride: bodyPlain || undefined,
   });
 
+  const fromPrepare =
+    danfseAttachments.length > 0
+      ? prepared.attachments.filter((a) => !/RPS-|NFS-e-|nota-/i.test(a.filename))
+      : prepared.attachments;
+  let attachments = [...danfseAttachments, ...fromPrepare];
+  let linkLines = prepared.linkLines;
+  let bodyOut = prepared.bodyPlain;
+  let htmlOut = prepared.html;
+
+  if (vendaId && danfseAttachments.length === 0) {
+    const withLink = appendDanfseLinkFallback({
+      vendaId,
+      clientLabel: args.clientLabel,
+      bodyPlain: bodyOut,
+      linkLines,
+    });
+    bodyOut = withLink.bodyPlain;
+    htmlOut = withLink.html;
+    linkLines = withLink.linkLines;
+  }
+
   await sendEmailViaSmtp({
     to: prepared.to,
     subject: prepared.subject,
-    text: prepared.bodyPlain,
-    html: prepared.html,
-    attachments: prepared.attachments,
+    text: bodyOut,
+    html: htmlOut,
+    attachments,
   });
 
   return {
     sandbox,
     recipients: prepared.to,
     originalRecipients: original,
-    pdfAttachments: prepared.attachments.length,
+    pdfAttachments: attachments.length,
     vendaNumero,
-    hadAttachmentGaps: prepared.linkLines.length > 0,
+    hadAttachmentGaps: linkLines.length > 0,
   };
 }
 
@@ -97,16 +168,41 @@ export async function sendEnvioManualGrupo(args: {
   let clientesOk = 0;
 
   for (const c of args.grupoClientes) {
-    const { sales, vendaNumero } = await resolveEnvioManualSalesForCliente(args.token, c.id, 40);
+    const { sales, vendaId, vendaNumero, danfseFilename } = await resolveEnvioManualSalesForCliente(
+      args.token,
+      c.id,
+      40,
+    );
     if (!sales.length) {
       bodyParts.push(`• ${c.nome}: nenhuma parcela encontrada na Conta Azul.`);
       linkLines.push(`- ${c.nome}: sem parcelas recentes`);
       continue;
     }
+    const danfseForCliente: EmailAttachment[] = [];
+    if (vendaId) {
+      await ensureEnvioManualDanfseAttachment({
+        token: args.token,
+        vendaId,
+        attachments: danfseForCliente,
+        filename: danfseFilename,
+        filenamePrefix: safeNamePrefix(c.nome),
+      });
+    }
+    for (const att of danfseForCliente) {
+      if (allAttachments.length >= 26) break;
+      allAttachments.push(att);
+    }
     const bundle = await collectOpenChargesEmailAssets(args.token, c.id, sales);
-    for (const att of bundle.attachments) {
+    const bundleAtts =
+      danfseForCliente.length > 0
+        ? bundle.attachments.filter((a) => !/RPS-|NFS-e-|nota-/i.test(a.filename))
+        : bundle.attachments;
+    for (const att of bundleAtts) {
       if (allAttachments.length >= 26) break;
       allAttachments.push(prefixAttachmentName(c.nome, att));
+    }
+    if (vendaId && danfseForCliente.length === 0) {
+      linkLines.push(`- ${c.nome}: DANFSE (PDF): ${serviceInvoiceDanfsePublicUrl(vendaId)}`);
     }
     linkLines.push(...bundle.linkLines.map((l) => `- ${c.nome}: ${l.replace(/^-\s*/, "")}`));
     clientesOk += 1;
