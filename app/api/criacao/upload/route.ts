@@ -91,7 +91,7 @@ function buildStagingPairs(
 
 type LoteBody = {
   titulo?: string;
-  destinoTipo?: "pasta" | "biblioteca" | "pasta_especial";
+  destinoTipo?: "pasta" | "biblioteca" | "pasta_especial" | "vinheta_cliente";
   clienteRef?: string;
   clienteNome?: string;
   uploadTagNome?: string;
@@ -159,6 +159,7 @@ export async function POST(request: Request) {
         const destinoTipo =
           l.destinoTipo === "biblioteca" ? "biblioteca"
           : l.destinoTipo === "pasta_especial" ? "pasta_especial"
+          : l.destinoTipo === "vinheta_cliente" ? "vinheta_cliente"
           : "pasta";
         const tagCriativo = await resolveTagCriativoUser(
           l.tagCriativoUserId ?? body.tagCriativoUserId,

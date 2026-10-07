@@ -341,11 +341,36 @@ async function stepDedupe(item: ClaimedItem, inputPath: string): Promise<string 
   });
 }
 
+async function jobSkipPontoMix(jobId: string): Promise<boolean> {
+  const r = await portalQuery<{ skip: boolean }>(
+    `SELECT COALESCE(skip_ponto_mix, false) AS skip FROM processamento_job WHERE id = $1 LIMIT 1`,
+    [jobId],
+  );
+  return r.rows[0]?.skip === true;
+}
+
 async function stepProduce(item: ClaimedItem, musicaId: string, inputPath: string): Promise<void> {
   const ctx = { itemId: item.id, jobId: item.job_id, musicaId, etapa: 'producao' };
 
   await pipelineTimed({ ...ctx, etapa: 'ponto_mix' }, async () => {
     await setItemEtapa(item.id, 'ponto_mix');
+    if (await jobSkipPontoMix(item.job_id)) {
+      await persistMixTrimForMusica(
+        musicaId,
+        {
+          mixSegundosFinais: 0,
+          trimFimMs: 0,
+          trimInicioMs: 0,
+          appliedMixSegundos: 0,
+          quietOutro: false,
+          envelopeOk: true,
+        },
+        true,
+        false,
+      );
+      pipelineLog({ ...ctx, etapa: 'ponto_mix' }, 'mix_skip_vinheta_cliente', {});
+      return;
+    }
     const servidorUp = await isServidorUpJob(item.job_id);
     const presetMix =
       servidorUp ? parseMixSegundosFromLegacyFilename(item.arquivo_nome) : null;

@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
-export type AgendamentoAlvo = "pasta" | "vinheta";
+export type AgendamentoAlvo = "pasta" | "vinheta" | "vinheta_pasta";
 
 export type AgendamentoRow = {
   id: string;
@@ -98,7 +98,7 @@ export async function listAgendamentosByProgramacaoIds(
   const ids = [...new Set(programacaoIds.filter(Boolean))];
   if (ids.length === 0) return new Map();
 
-  const [ags, pastas, vinhetas] = await Promise.all([
+  const [ags, pastas, vinhetas, vinhetaPastas] = await Promise.all([
     prisma.agendamento.findMany({
       where: { programacaoId: { in: ids } },
       orderBy: [{ programacaoId: "asc" }, { alvoTipo: "asc" }, { horaInicio: "asc" }],
@@ -108,6 +108,10 @@ export async function listAgendamentosByProgramacaoIds(
       select: { id: true, nome: true, programacaoId: true },
     }),
     prisma.vinheta.findMany({
+      where: { programacaoId: { in: ids } },
+      select: { id: true, nome: true, programacaoId: true },
+    }),
+    prisma.vinhetaPasta.findMany({
       where: { programacaoId: { in: ids } },
       select: { id: true, nome: true, programacaoId: true },
     }),
@@ -123,6 +127,10 @@ export async function listAgendamentosByProgramacaoIds(
     if (!v.programacaoId) continue;
     const m = nomeByProg.get(v.programacaoId);
     if (m) m.set("vinheta:" + v.id, v.nome);
+  }
+  for (const vp of vinhetaPastas) {
+    const m = nomeByProg.get(vp.programacaoId);
+    if (m) m.set("vinheta_pasta:" + vp.id, `Pasta vinhetas · ${vp.nome}`);
   }
 
   return mapAgendamentoRows(ags, nomeByProg);
@@ -148,7 +156,10 @@ export async function createAgendamento(
     prioridade?: number;
   },
 ) {
-  const alvoTipo = input.alvoTipo === "vinheta" ? "vinheta" : "pasta";
+  const alvoTipo: AgendamentoAlvo =
+    input.alvoTipo === "vinheta" ? "vinheta"
+    : input.alvoTipo === "vinheta_pasta" ? "vinheta_pasta"
+    : "pasta";
   const alvoId = (input.alvoId || "").trim();
   if (!alvoId) throw new Error("alvo_obrigatorio");
 
@@ -165,9 +176,9 @@ export async function createAgendamento(
       horaFim: normalizeHora(input.horaFim, "23:59"),
       dataInicio: parseDate(input.dataInicio),
       dataFim: parseDate(input.dataFim),
-      frequenciaMin: alvoTipo === "vinheta" ? freqMin : null,
+      frequenciaMin: alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta" ? freqMin : null,
       frequenciaMusicas:
-        alvoTipo === "vinheta" || alvoTipo === "pasta" ? freqMusicas : null,
+        alvoTipo === "vinheta" || alvoTipo === "pasta" || alvoTipo === "vinheta_pasta" ? freqMusicas : null,
       prioridade: Number.isFinite(Number(input.prioridade)) ? Math.round(Number(input.prioridade)) : 0,
     },
     select: { id: true },

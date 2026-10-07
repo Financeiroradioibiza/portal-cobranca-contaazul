@@ -62,6 +62,7 @@ type BibliotecaSqlFilterOpts = {
   bibliotecaPastaId?: string;
   pastaProgramacaoId?: string;
   pastaEspecialId?: string;
+  vinhetaClientes?: boolean;
 };
 
 function buildBibliotecaSqlConditions(opts: BibliotecaSqlFilterOpts): Prisma.Sql[] {
@@ -134,6 +135,12 @@ function buildBibliotecaSqlConditions(opts: BibliotecaSqlFilterOpts): Prisma.Sql
     conditions.push(Prisma.sql`EXISTS (
       SELECT 1 FROM pasta_especial_musica pem
        WHERE pem.musica_id = m.id AND pem.pasta_especial_id = ${opts.pastaEspecialId}
+    )`);
+  }
+
+  if (opts.vinhetaClientes) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM biblioteca_vinheta_cliente bvc WHERE bvc.musica_id = m.id
     )`);
   }
 

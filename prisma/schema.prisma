@@ -1155,6 +1155,7 @@ model MusicaBiblioteca {
   pastas      PastaMusica[]
   bibliotecaPastas BibliotecaPastaMusica[]
   pastasEspeciais PastaEspecialMusica[]
+  vinhetaClienteBiblioteca BibliotecaVinhetaCliente?
   rejeicoes   MusicaRejeicao[]
   votos       MusicaBibliotecaVoto[]
 
@@ -1279,6 +1280,8 @@ model Programacao {
 
   pastas       Pasta[]
   vinhetas     Vinheta[]
+  vinhetaPastas VinhetaPasta[]
+  vinhetasHorarioFixo ProgramacaoVinhetaHorarioFixo[]
   agendamentos Agendamento[]
   cronogramaShuffles CronogramaShuffle[]
   atualizacoes     ProgramacaoAtualizacao[]
@@ -1380,6 +1383,7 @@ model CriacaoAtualizacaoPainel {
 enum AgendamentoAlvo {
   pasta
   vinheta
+  vinheta_pasta
 }
 
 /// Cronograma: quando uma pasta ou vinheta toca (dias da semana + janela de horário
@@ -1485,6 +1489,16 @@ model PastaEspecialMusica {
   @@map("pasta_especial_musica")
 }
 
+/// Faixas de vinheta de clientes na biblioteca (processadas como música, sem ponto de mix).
+model BibliotecaVinhetaCliente {
+  musicaId String   @id @map("musica_id")
+  addedAt  DateTime @default(now()) @map("added_at")
+
+  musica MusicaBiblioteca @relation(fields: [musicaId], references: [id], onDelete: Cascade)
+
+  @@map("biblioteca_vinheta_cliente")
+}
+
 model PastaMusica {
   pastaId   String    @map("pasta_id")
   musicaId  String    @map("musica_id")
@@ -1542,10 +1556,64 @@ model Vinheta {
   updatedAt        DateTime      @updatedAt @map("updated_at")
 
   programacao Programacao? @relation(fields: [programacaoId], references: [id], onDelete: SetNull)
+  vinhetaPastaItens VinhetaPastaItem[]
+  horariosFixos     ProgramacaoVinhetaHorarioFixo[]
 
   @@index([programacaoId])
   @@index([status, criativoUserId])
   @@map("vinheta")
+}
+
+/// Pasta de vinhetas na programação (rotação 1→2→3… conforme cronograma).
+model VinhetaPasta {
+  id            String   @id @default(cuid())
+  programacaoId String   @map("programacao_id")
+  nome          String   @db.VarChar(120)
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  programacao Programacao       @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
+  itens       VinhetaPastaItem[]
+
+  @@index([programacaoId, sortOrder])
+  @@map("vinheta_pasta")
+}
+
+model VinhetaPastaItem {
+  id            String @id @default(cuid())
+  vinhetaPastaId String @map("vinheta_pasta_id")
+  vinhetaId     String @map("vinheta_id")
+  sortOrder     Int    @default(0) @map("sort_order")
+
+  vinhetaPasta VinhetaPasta @relation(fields: [vinhetaPastaId], references: [id], onDelete: Cascade)
+  vinheta      Vinheta      @relation(fields: [vinhetaId], references: [id], onDelete: Cascade)
+
+  @@unique([vinhetaPastaId, vinhetaId])
+  @@index([vinhetaPastaId, sortOrder])
+  @@map("vinheta_pasta_item")
+}
+
+enum VinhetaHorarioFixoTipo {
+  abertura
+  encerramento
+}
+
+/// Vinheta única em horário fixo diário (abertura / encerramento) — separado dos cronogramas VP/VA.
+model ProgramacaoVinhetaHorarioFixo {
+  id            String                 @id @default(cuid())
+  programacaoId String                 @map("programacao_id")
+  tipo          VinhetaHorarioFixoTipo
+  vinhetaId     String?                @map("vinheta_id")
+  hora          String                 @default("09:00") @db.VarChar(5)
+  ativo         Boolean                @default(true)
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  programacao Programacao @relation(fields: [programacaoId], references: [id], onDelete: Cascade)
+  vinheta       Vinheta?    @relation(fields: [vinhetaId], references: [id], onDelete: SetNull)
+
+  @@unique([programacaoId, tipo])
+  @@map("programacao_vinheta_horario_fixo")
 }
 
 /// Trilha ambiente para vinhetas IA — upload direto, visível só em Criação → Vinhetas.
@@ -1597,6 +1665,8 @@ model ProcessamentoJob {
   pastaId        String? @map("pasta_id")
   /// Destino alternativo: pasta coringa global (Pastas Especiais).
   pastaEspecialId String? @map("pasta_especial_id")
+  destinoVinhetaCliente Boolean @default(false) @map("destino_vinheta_cliente")
+  skipPontoMix          Boolean @default(false) @map("skip_ponto_mix")
   totalItens   Int       @default(0) @map("total_itens")
   itensFeitos  Int       @default(0) @map("itens_feitos")
   /// Ordem na fila de processamento (maior = processa antes). De 5 em 5; gaps para inserção manual.

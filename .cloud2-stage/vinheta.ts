@@ -6,7 +6,14 @@ import { produceVinhetaMp3, mixVinhetaVoiceWithBed } from '../../criacao/ffmpeg.
 import { verifyVinhetaStreamAccess, verifyVinhetaToken } from '../../criacao/ingestToken.js';
 import { portalQuery } from '../../criacao/portalDb.js';
 import { resolveUsoAudio, sendAudioReply } from '../../criacao/audioDelivery.js';
-import { ensureStorageDirs, vinhetaPath, vinhetaStorageKey, vinhetaTrilhaPath, vinhetaTrilhaStorageKey } from '../../criacao/storage.js';
+import {
+  ensureStorageDirs,
+  usoStorageKey,
+  vinhetaPath,
+  vinhetaStorageKey,
+  vinhetaTrilhaPath,
+  vinhetaTrilhaStorageKey,
+} from '../../criacao/storage.js';
 import { syncSingleVinhetaToGateway } from './publishCronogramas.js';
 
 const MAX_VINHETA_BYTES = Number(process.env.CRIACAO_MAX_VINHETA_BYTES ?? String(20 * 1024 * 1024));
@@ -305,6 +312,45 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
       );
       void syncSingleVinhetaToGateway(targetVinhetaId).catch((err) => {
         app.log.error({ err, vinhetaId: targetVinhetaId }, '[vinheta-clone] sync gateway falhou');
+      });
+      return reply.send({ ok: true, targetVinhetaId, storageKey: key });
+    },
+  );
+
+  app.post<{ Body: { token?: string; musicaId?: string; targetVinhetaId?: string } }>(
+    `${prefix}/vinheta-from-musica`,
+    async (req, reply) => {
+      const token = String(req.body?.token ?? '').trim();
+      const musicaId = String(req.body?.musicaId ?? '').trim();
+      const targetVinhetaId = String(req.body?.targetVinhetaId ?? '').trim();
+      if (!token || !musicaId || !targetVinhetaId) {
+        return reply.code(400).send({ ok: false, error: 'parametros_invalidos' });
+      }
+      const parsed = verifyVinhetaToken(token);
+      if (!parsed || parsed.vinhetaId !== targetVinhetaId) {
+        return reply.code(401).send({ ok: false, error: 'token_invalido' });
+      }
+
+      const srcKey = usoStorageKey(musicaId, 'mp3_128_mono', 'mp3');
+      const srcResolved = await resolveUsoAudio(srcKey);
+      if (!srcResolved) return reply.code(404).send({ ok: false, error: 'musica_uso_ausente' });
+
+      ensureStorageDirs();
+      const dest = vinhetaPath(targetVinhetaId);
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      if (srcResolved.mp3Buffer) {
+        await fsp.writeFile(dest, srcResolved.mp3Buffer);
+      } else {
+        await fsp.copyFile(srcResolved.filePath, dest);
+      }
+
+      const key = vinhetaStorageKey(targetVinhetaId);
+      await portalQuery(
+        `UPDATE vinheta SET storage_key = $2, status = 'aprovada', updated_at = now() WHERE id = $1`,
+        [targetVinhetaId, key],
+      );
+      void syncSingleVinhetaToGateway(targetVinhetaId).catch((err) => {
+        app.log.error({ err, vinhetaId: targetVinhetaId }, '[vinheta-from-musica] sync gateway falhou');
       });
       return reply.send({ ok: true, targetVinhetaId, storageKey: key });
     },
