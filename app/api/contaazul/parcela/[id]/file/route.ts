@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
-import { danfsePdfFilename, isDanfsePdfBuffer } from "@/lib/contaazul/danfsePdf";
+import { isDanfsePdfBuffer } from "@/lib/contaazul/danfsePdf";
+import { resolveParcelaDanfseMeta } from "@/lib/contaazul/resolveParcelaDanfseMeta";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
-import { fetchInstallmentById } from "@/lib/contaazul/receivables";
-import {
-  ensureVendaIdForNfPdf,
-  enrichInstallmentVendaContext,
-} from "@/lib/contaazul/resolveVendaFromInstallment";
 import {
   fetchServiceInvoicePdfBufferByVendaId,
   isServiceInvoiceDanfseUrl,
@@ -48,28 +44,6 @@ function pdfBufferResponse(
   return new NextResponse(new Uint8Array(data), { status: 200, headers });
 }
 
-async function tryDanfsePdfForParcela(
-  token: string,
-  parcelaId: string,
-): Promise<{ buffer: Buffer; filename: string } | { openUrl: string; filename: string } | null> {
-  let detail = await fetchInstallmentById(token, parcelaId);
-  detail = await enrichInstallmentVendaContext(token, detail);
-  detail = await ensureVendaIdForNfPdf(token, detail);
-  const vendaId = detail.id_venda?.trim();
-  if (!vendaId) return null;
-
-  const filename = danfsePdfFilename(detail);
-  const buf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, token);
-  if (buf && (isDanfsePdfBuffer(buf) || buf.length >= 50_000)) {
-    return { buffer: buf, filename };
-  }
-
-  return {
-    openUrl: serviceInvoiceDanfsePublicUrl(vendaId),
-    filename,
-  };
-}
-
 /**
  * Abre ou baixa boleto / nota: proxy com Bearer na API v2 ou DANFSE (service-invoice).
  */
@@ -85,11 +59,29 @@ export async function GET(
     return plain("Conecte o Conta Azul novamente no portal.", 401);
   }
 
-  const resolved = await resolveParcelaTipoResource(
-    token,
-    id,
-    tipo === "nf" ? "nf" : "boleto",
-  );
+  if (tipo === "nf") {
+    const meta = await resolveParcelaDanfseMeta(token, id);
+    if (!meta) {
+      return plain(
+        "Não há nota ou documento com link nesta parcela na Conta Azul.",
+        404,
+      );
+    }
+    const buf = await fetchServiceInvoicePdfBufferByVendaId(meta.idVenda, token);
+    if (buf && (isDanfsePdfBuffer(buf) || buf.length >= 50_000)) {
+      return pdfBufferResponse(buf, `attachment; filename="${meta.filename}"`);
+    }
+    return NextResponse.json(
+      {
+        kind: "danfse_public",
+        openUrl: meta.openUrl,
+        filename: meta.filename,
+      },
+      { status: 200, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const resolved = await resolveParcelaTipoResource(token, id, "boleto");
 
   if (resolved.kind === "buffer") {
     const headers = new Headers();
@@ -104,44 +96,7 @@ export async function GET(
     return new NextResponse(new Uint8Array(resolved.data), { status: 200, headers });
   }
 
-  if (tipo === "nf") {
-    const danfse = await tryDanfsePdfForParcela(token, id);
-    if (danfse) {
-      if ("buffer" in danfse) {
-        return pdfBufferResponse(
-          danfse.buffer,
-          `attachment; filename="${danfse.filename}"`,
-        );
-      }
-      return NextResponse.json(
-        {
-          kind: "danfse_public",
-          openUrl: danfse.openUrl,
-          filename: danfse.filename,
-        },
-        { status: 200, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-  }
-
   if (resolved.kind === "external_redirect") {
-    if (tipo === "nf" && isServiceInvoiceDanfseUrl(resolved.url)) {
-      const vendaId = parseVendaIdFromServiceInvoiceUrl(resolved.url);
-      if (vendaId) {
-        const buf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, token);
-        if (buf && (isDanfsePdfBuffer(buf) || buf.length >= 50_000)) {
-          return pdfBufferResponse(buf, `attachment; filename="nota.pdf"`);
-        }
-        return NextResponse.json(
-          {
-            kind: "danfse_public",
-            openUrl: serviceInvoiceDanfsePublicUrl(vendaId),
-            filename: "nota.pdf",
-          },
-          { status: 200, headers: { "Cache-Control": "no-store" } },
-        );
-      }
-    }
     const dest = new URL(resolved.url);
     if (isServiceInvoiceDanfseUrl(dest.href)) dest.search = "";
     return new Response(null, {

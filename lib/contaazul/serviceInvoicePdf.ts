@@ -1,5 +1,6 @@
 import dns from "node:dns";
 import https from "node:https";
+import { CRIACAO_INGEST_URL } from "@/lib/criacao/ingestTicket";
 
 /** Evita falhas intermitentes IPv6 em alguns hosts serverless. */
 dns.setDefaultResultOrder("ipv4first");
@@ -74,6 +75,25 @@ function fetchPdfViaNodeHttps(url: string): Promise<Buffer | null> {
   });
 }
 
+async function fetchDanfseViaCloud2Proxy(vendaId: string): Promise<Buffer | null> {
+  const secret = (process.env.CRIACAO_INGEST_SECRET ?? "").trim();
+  if (!secret) return null;
+  const base = CRIACAO_INGEST_URL.replace(/\/ingest\/?$/, "");
+  const proxyUrl = `${base}/ops/danfse-pdf?vendaId=${encodeURIComponent(vendaId)}`;
+  try {
+    const res = await fetch(proxyUrl, {
+      headers: { "x-criacao-secret": secret, Accept: "application/pdf" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(35_000),
+    });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return looksLikePdf(buf) ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchPdfViaFetch(
   url: string,
   accessToken: string,
@@ -130,7 +150,7 @@ export async function fetchServiceInvoicePdfBufferByVendaId(
     if (buf) return buf;
   }
 
-  return null;
+  return fetchDanfseViaCloud2Proxy(id);
 }
 
 /** @deprecated Prefer `fetchServiceInvoicePdfBufferByVendaId`. */

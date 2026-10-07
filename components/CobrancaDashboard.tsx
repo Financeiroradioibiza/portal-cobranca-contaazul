@@ -389,6 +389,44 @@ export function CobrancaDashboard() {
 
   const openParcelaLink = useCallback(async (parcelaId: string, tipo: "boleto" | "nf") => {
     setActionMsg(null);
+    if (tipo === "nf") {
+      try {
+        const metaRes = await fetch(
+          `/api/contaazul/parcela/${encodeURIComponent(parcelaId)}/danfse-meta`,
+          { credentials: "include" },
+        );
+        if (metaRes.status === 401) {
+          setActionMsg("Conecte o Conta Azul novamente no portal.");
+          return;
+        }
+        if (!metaRes.ok) {
+          const err = (await metaRes.json().catch(() => null)) as { message?: string } | null;
+          setActionMsg(
+            err?.message?.trim() ||
+              "Não há DANFSE (NFS-e) para esta parcela — confira se a nota já foi emitida no Conta Azul.",
+          );
+          return;
+        }
+        const meta = (await metaRes.json()) as { openUrl?: string; filename?: string };
+        if (!meta.openUrl?.trim()) {
+          setActionMsg("Link da nota indisponível.");
+          return;
+        }
+        const u = new URL(meta.openUrl);
+        u.search = "";
+        const a = document.createElement("a");
+        a.href = u.href;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch {
+        setActionMsg("Falha ao abrir o DANFSE. Tente de novo.");
+      }
+      return;
+    }
+
     const path = `/api/contaazul/parcela/${encodeURIComponent(parcelaId)}/file?tipo=${tipo}`;
     try {
       const res = await fetch(path, { credentials: "include", redirect: "manual" });
@@ -399,27 +437,8 @@ export function CobrancaDashboard() {
       }
 
       if (res.status >= 300 && res.status < 400) {
-        const loc = res.headers.get("Location")?.trim();
-        if (tipo === "nf" && loc && /^https?:\/\//i.test(loc)) {
-          try {
-            const u = new URL(loc);
-            u.search = "";
-            const a = document.createElement("a");
-            a.href = u.href;
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-          } catch {
-            setActionMsg("Link da nota inválido.");
-          }
-          return;
-        }
         setActionMsg(
-          tipo === "boleto"
-            ? "Não foi possível baixar o PDF do boleto (só link da fatura). Tente de novo em instantes."
-            : "Não foi possível baixar o documento (redirecionamento externo).",
+          "Não foi possível baixar o PDF do boleto (só link da fatura). Tente de novo em instantes.",
         );
         return;
       }
@@ -432,58 +451,14 @@ export function CobrancaDashboard() {
 
       const ct = (res.headers.get("content-type") ?? "").toLowerCase();
       if (ct.includes("application/json")) {
-        const j = (await res.json()) as {
-          kind?: string;
-          openUrl?: string;
-          filename?: string;
-        };
-        if (j.kind === "danfse_public" && j.openUrl) {
-          try {
-            const u = new URL(j.openUrl);
-            u.search = "";
-            const pdfRes = await fetch(u.href);
-            if (pdfRes.ok) {
-              const blob = await pdfRes.blob();
-              const name = j.filename?.trim() || "nota.pdf";
-              const obj = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = obj;
-              a.download = name;
-              a.rel = "noopener";
-              document.body.appendChild(a);
-              a.click();
-              window.setTimeout(() => {
-                URL.revokeObjectURL(obj);
-                a.remove();
-              }, 1000);
-              return;
-            }
-          } catch {
-            /* CORS ou rede — abre aba */
-          }
-          try {
-            const u = new URL(j.openUrl);
-            u.search = "";
-            const a = document.createElement("a");
-            a.href = u.href;
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-          } catch {
-            setActionMsg("Não foi possível abrir o DANFSE.");
-          }
-          return;
-        }
-        setActionMsg("Resposta inesperada da API ao baixar o documento.");
+        setActionMsg("Resposta inesperada da API ao baixar o boleto.");
         return;
       }
 
       const blob = await res.blob();
       const name = parseDownloadFileName(
         res.headers.get("content-disposition"),
-        tipo === "nf" ? "nota.pdf" : "boleto.pdf",
+        "boleto.pdf",
       );
       const obj = URL.createObjectURL(blob);
       const a = document.createElement("a");
