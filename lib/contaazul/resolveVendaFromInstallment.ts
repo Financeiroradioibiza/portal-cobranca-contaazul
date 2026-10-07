@@ -139,7 +139,10 @@ export async function tryFetchNfPdfBufferForInstallment(
 
   for (const vendaId of candidates) {
     const danfse = await fetchServiceInvoicePdfBufferByVendaId(vendaId, accessToken);
-    if (danfse && isDanfsePdfBuffer(danfse)) return danfse;
+    if (!danfse) continue;
+    if (isDanfsePdfBuffer(danfse)) return danfse;
+    /** Só confiamos em tamanho grande quando veio do endpoint service-invoice (DANFSE típico ≥ ~50 KB). */
+    if (danfse.length >= 50_000) return danfse;
   }
 
   const numeroNfse = numeroNfseFromDetail(work);

@@ -1,12 +1,24 @@
+import dns from "node:dns";
 import https from "node:https";
 
+/** Evita falhas intermitentes IPv6 em alguns hosts serverless. */
+dns.setDefaultResultOrder("ipv4first");
+
 /**
- * PDF da NFS-e (DANFSE) por venda — mesmo caminho usado pelo ERP / integrações legadas.
- * Documentado na prática em: app.contaazul.com/pub/rest/billing-data/…
- * @param vendaId - UUID da venda Conta Azul (mesmo de `evento.referencia.id` quando origem é venda).
+ * PDF da NFS-e (DANFSE) por venda — mesmo caminho do botão «Fazer download do DANFSE» no ERP.
+ * URL pública (funciona no browser mesmo quando o serverless não alcança o host).
  */
 const BILLING_SERVICE_INVOICE_PDF =
   "https://app.contaazul.com/pub/rest/billing-data/service-invoice";
+
+export function serviceInvoiceDanfsePublicUrl(vendaId: string): string {
+  const id = vendaId.trim();
+  return `${BILLING_SERVICE_INVOICE_PDF}/${encodeURIComponent(id)}/pdf`;
+}
+
+export function isServiceInvoiceDanfseUrl(url: string): boolean {
+  return /app\.contaazul\.com\/pub\/rest\/billing-data\/service-invoice\//i.test(url);
+}
 
 const PDF_HEADERS = {
   Accept: "application/pdf,application/octet-stream,*/*",
@@ -88,7 +100,7 @@ export async function fetchServiceInvoicePdfBufferByVendaId(
   const id = vendaId.trim();
   if (!id) return null;
 
-  const url = `${BILLING_SERVICE_INVOICE_PDF}/${encodeURIComponent(id)}/pdf`;
+  const url = serviceInvoiceDanfsePublicUrl(id);
 
   /** ERP legado usa fetch sem Bearer; tentamos nessa ordem. */
   for (const withBearer of [false, true]) {

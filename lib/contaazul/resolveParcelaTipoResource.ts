@@ -14,6 +14,10 @@ import { tryFetchBoletoPdfViaCobrancaApi } from "./cobrancaBoletoPdfApi";
 import { fetchInstallmentById } from "./receivables";
 import { danfsePdfFilename } from "./danfsePdf";
 import {
+  serviceInvoiceDanfsePublicUrl,
+} from "./serviceInvoicePdf";
+import {
+  ensureVendaIdForNfPdf,
   enrichInstallmentVendaContext,
   tryFetchNfPdfBufferForInstallment,
 } from "./resolveVendaFromInstallment";
@@ -63,6 +67,7 @@ export async function resolveParcelaTipoResource(
 
   detail = await enrichInstallmentVendaContext(token, detail);
   if (tipo === "nf") {
+    detail = await ensureVendaIdForNfPdf(token, detail);
     const nfPdf = await tryFetchNfPdfBufferForInstallment(token, detail);
     if (nfPdf) {
       const name = danfsePdfFilename(detail);
@@ -71,6 +76,13 @@ export async function resolveParcelaTipoResource(
         mime: "application/pdf",
         disposition: `attachment; filename="${name}"`,
         data: nfPdf,
+      };
+    }
+    const vendaId = detail.id_venda?.trim();
+    if (vendaId) {
+      return {
+        kind: "external_redirect",
+        url: serviceInvoiceDanfsePublicUrl(vendaId),
       };
     }
   }
@@ -253,14 +265,12 @@ export async function resolveParcelaTipoResource(
   }
 
   if (tipo === "nf") {
-    const nfPdf = await tryFetchNfPdfBufferForInstallment(token, detail);
-    if (nfPdf) {
-      const name = danfsePdfFilename(detail);
+    detail = await ensureVendaIdForNfPdf(token, detail);
+    const vendaId = detail.id_venda?.trim();
+    if (vendaId) {
       return {
-        kind: "buffer",
-        mime: "application/pdf",
-        disposition: `attachment; filename="${name}"`,
-        data: nfPdf,
+        kind: "external_redirect",
+        url: serviceInvoiceDanfsePublicUrl(vendaId),
       };
     }
     if (isProd) {

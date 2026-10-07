@@ -19,6 +19,21 @@ type ConnStatus = {
 
 type ClientSortMode = "parcelas_desc" | "open_desc" | "open_asc";
 
+function parseDownloadFileName(contentDisposition: string | null, fallback: string): string {
+  if (!contentDisposition) return fallback;
+  const star = /filename\*=UTF-8''([^;\s]+)/i.exec(contentDisposition);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].replace(/"/g, ""));
+    } catch {
+      //
+    }
+  }
+  const plain = /filename="?([^";\n]+)"?/i.exec(contentDisposition);
+  if (plain?.[1]) return plain[1].trim();
+  return fallback;
+}
+
 export function CobrancaDashboard() {
   const initial = defaultPeriodMonths(6);
   const [start, setStart] = useState(initial.start);
@@ -372,10 +387,62 @@ export function CobrancaDashboard() {
     window.location.href = "/login";
   }, []);
 
-  const openParcelaLink = useCallback((parcelaId: string, tipo: "boleto" | "nf") => {
+  const openParcelaLink = useCallback(async (parcelaId: string, tipo: "boleto" | "nf") => {
     setActionMsg(null);
     const path = `/api/contaazul/parcela/${encodeURIComponent(parcelaId)}/file?tipo=${tipo}`;
-    window.open(path, "_blank", "noopener,noreferrer");
+    try {
+      const res = await fetch(path, { credentials: "include", redirect: "manual" });
+
+      if (res.status === 401) {
+        setActionMsg("Conecte o Conta Azul novamente no portal.");
+        return;
+      }
+
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get("Location")?.trim();
+        if (tipo === "nf" && loc && /^https?:\/\//i.test(loc)) {
+          window.open(loc, "_blank", "noopener,noreferrer");
+          return;
+        }
+        setActionMsg(
+          tipo === "boleto"
+            ? "Não foi possível baixar o PDF do boleto (só link da fatura). Tente de novo em instantes."
+            : "Não foi possível baixar o documento (redirecionamento externo).",
+        );
+        return;
+      }
+
+      if (!res.ok) {
+        const t = (await res.text()).trim();
+        setActionMsg(t.slice(0, 500) || "Não foi possível baixar o documento.");
+        return;
+      }
+
+      const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+      if (ct.includes("application/json")) {
+        setActionMsg("Resposta inesperada da API ao baixar o documento.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const name = parseDownloadFileName(
+        res.headers.get("content-disposition"),
+        tipo === "nf" ? "nota.pdf" : "boleto.pdf",
+      );
+      const obj = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = obj;
+      a.download = name;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      window.setTimeout(() => {
+        URL.revokeObjectURL(obj);
+        a.remove();
+      }, 1000);
+    } catch {
+      setActionMsg("Falha ao baixar o documento. Tente de novo.");
+    }
   }, []);
 
   const persistCobEmailTemplate = useCallback(async () => {
