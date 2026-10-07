@@ -8,7 +8,7 @@ function looksLikePdf(buf: Buffer): boolean {
 }
 
 /**
- * DANFSE / documento da venda via OAuth (mesmo host do boleto `…/cobranca/…/imprimir`).
+ * Resumo/impressão da venda no ERP — **não** é o DANFSE da NFS-e (use `service-invoice`).
  * GET /v1/venda/{id_venda}/imprimir
  */
 export async function fetchVendaImprimirPdfApi(

@@ -7,6 +7,7 @@ import {
 import { tryFetchBoletoPdfViaCobrancaApi } from "@/lib/contaazul/cobrancaBoletoPdfApi";
 import { listBoletoLinksForInstallmentEmail } from "@/lib/contaazul/boletoLinksForEmail";
 import { extractBoletoAndDocUrls } from "@/lib/contaazul/installmentLinks";
+import { danfsePdfFilename } from "@/lib/contaazul/danfsePdf";
 import { enrichInstallmentVendaContext, tryFetchNfPdfBufferForInstallment } from "@/lib/contaazul/resolveVendaFromInstallment";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
@@ -97,11 +98,12 @@ function pushPdfAttachment(
   sale: SaleRow,
   role: "boleto" | "nf",
   buf: Buffer,
+  nfFilename?: string,
 ): boolean {
   if (attachments.length >= MAX_ATTACHMENTS) return false;
   if (!isProbablyPdf(buf)) return false;
   attachments.push({
-    filename: buildFilename(sale.comp, sale.id, role),
+    filename: role === "nf" && nfFilename ? nfFilename : buildFilename(sale.comp, sale.id, role),
     content: buf,
     contentType: "application/pdf",
   });
@@ -148,7 +150,15 @@ export async function collectOpenChargesEmailAssets(
           );
           continue;
         }
-        if (pushPdfAttachment(attachments, s, role, res.data)) {
+        if (
+          pushPdfAttachment(
+            attachments,
+            s,
+            role,
+            res.data,
+            role === "nf" ? danfsePdfFilename(detail) : undefined,
+          )
+        ) {
           if (role === "boleto") boletoAttached = true;
           else nfAttached = true;
         }
@@ -191,7 +201,10 @@ export async function collectOpenChargesEmailAssets(
       }
       if (tipo === "nf" && !nfAttached) {
         const nfBuf = await tryFetchNfPdfBufferForInstallment(token, detail);
-        if (nfBuf && pushPdfAttachment(attachments, s, "nf", nfBuf)) {
+        if (
+          nfBuf &&
+          pushPdfAttachment(attachments, s, "nf", nfBuf, danfsePdfFilename(detail))
+        ) {
           nfAttached = true;
           continue;
         }

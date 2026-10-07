@@ -1,7 +1,8 @@
 import { caFetch } from "./caHttp";
 import { lookupIdVendaFromNfseServicoList } from "./nfseServico";
+import { isDanfsePdfBuffer } from "./danfsePdf";
+import { tryResolveNfseServicoDownload } from "./nfseServico";
 import { fetchServiceInvoicePdfBufferByVendaId } from "./serviceInvoicePdf";
-import { fetchVendaImprimirPdfApi } from "./vendaNfPdfApi";
 import type { CaInstallmentDetail } from "./types";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -137,10 +138,33 @@ export async function tryFetchNfPdfBufferForInstallment(
   pushVendaIdCandidate(candidates, work.id_venda);
 
   for (const vendaId of candidates) {
-    const apiPdf = await fetchVendaImprimirPdfApi(accessToken, vendaId);
-    if (apiPdf) return apiPdf;
-    const pubPdf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, accessToken);
-    if (pubPdf) return pubPdf;
+    const danfse = await fetchServiceInvoicePdfBufferByVendaId(vendaId, accessToken);
+    if (danfse && isDanfsePdfBuffer(danfse)) return danfse;
+  }
+
+  const numeroNfse = numeroNfseFromDetail(work);
+  const se = await tryResolveNfseServicoDownload(accessToken, {
+    idVenda: work.id_venda,
+    idCliente: work.cliente?.id,
+    dataCompetencia: work.data_referencia_nf,
+    numeroVenda: work.numero_venda,
+    numeroNfse,
+    numeroRps: work.numero_rps,
+  });
+  if (se.pdfResponse?.ok) {
+    const buf = Buffer.from(await se.pdfResponse.arrayBuffer());
+    if (isDanfsePdfBuffer(buf)) return buf;
+  }
+  if (se.url) {
+    try {
+      const r = await fetch(se.url, { redirect: "follow", cache: "no-store" });
+      if (r.ok) {
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (isDanfsePdfBuffer(buf)) return buf;
+      }
+    } catch {
+      /* ignora */
+    }
   }
 
   return null;

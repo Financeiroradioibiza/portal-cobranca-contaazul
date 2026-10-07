@@ -12,6 +12,7 @@ import { tryResolveNfseServicoDownload } from "./nfseServico";
 import { fetchParcelaAnexoFile } from "./parcelaAnexoDownload";
 import { tryFetchBoletoPdfViaCobrancaApi } from "./cobrancaBoletoPdfApi";
 import { fetchInstallmentById } from "./receivables";
+import { danfsePdfFilename } from "./danfsePdf";
 import {
   enrichInstallmentVendaContext,
   tryFetchNfPdfBufferForInstallment,
@@ -64,10 +65,11 @@ export async function resolveParcelaTipoResource(
   if (tipo === "nf") {
     const nfPdf = await tryFetchNfPdfBufferForInstallment(token, detail);
     if (nfPdf) {
+      const name = danfsePdfFilename(detail);
       return {
         kind: "buffer",
         mime: "application/pdf",
-        disposition: 'attachment; filename="nota.pdf"',
+        disposition: `attachment; filename="${name}"`,
         data: nfPdf,
       };
     }
@@ -253,10 +255,11 @@ export async function resolveParcelaTipoResource(
   if (tipo === "nf") {
     const nfPdf = await tryFetchNfPdfBufferForInstallment(token, detail);
     if (nfPdf) {
+      const name = danfsePdfFilename(detail);
       return {
         kind: "buffer",
         mime: "application/pdf",
-        disposition: 'attachment; filename="nota.pdf"',
+        disposition: `attachment; filename="${name}"`,
         data: nfPdf,
       };
     }
