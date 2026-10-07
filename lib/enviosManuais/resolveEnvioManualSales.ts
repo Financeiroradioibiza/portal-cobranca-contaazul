@@ -90,6 +90,18 @@ async function fetchOpenReceivablesForCliente(
   return out;
 }
 
+function dedupeSalesByParcelaId(sales: SaleRow[]): SaleRow[] {
+  const seen = new Set<string>();
+  const out: SaleRow[] = [];
+  for (const s of sales) {
+    const k = s.id.trim();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
 async function salesFromLatestVendaEvent(
   token: string,
   clienteId: string,
@@ -139,18 +151,22 @@ async function salesFromLatestVendaEvent(
   };
 }
 
-/** Parcelas + metadados de venda para envio manual (prioriza busca igual Vencidos). */
+/**
+ * Parcelas + metadados para envio manual.
+ * Prioriza a **venda mais recente** (boleto + NF da mesma venda); senão parcelas em aberto (Vencidos).
+ */
 export async function resolveEnvioManualSalesForCliente(
   token: string,
   clienteId: string,
   lookbackDays = 15,
 ): Promise<{ sales: SaleRow[]; vendaId?: string; vendaNumero?: number; danfseFilename: string }> {
-  const receivables = await fetchOpenReceivablesForCliente(token, clienteId, lookbackDays);
-  if (receivables.length) {
-    return {
-      sales: receivables.map(receivableToSaleRow),
-      danfseFilename: "nota.pdf",
-    };
+  const fromVenda = await salesFromLatestVendaEvent(token, clienteId, lookbackDays);
+  if (fromVenda.sales.length) {
+    return { ...fromVenda, sales: dedupeSalesByParcelaId(fromVenda.sales) };
   }
-  return salesFromLatestVendaEvent(token, clienteId, lookbackDays);
+  const receivables = await fetchOpenReceivablesForCliente(token, clienteId, lookbackDays);
+  return {
+    sales: dedupeSalesByParcelaId(receivables.map(receivableToSaleRow)),
+    danfseFilename: "nota.pdf",
+  };
 }

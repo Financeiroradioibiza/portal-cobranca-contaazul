@@ -15,6 +15,16 @@ function pickNfseFromSummary(raw: string): string | null {
   return null;
 }
 
+/**
+ * Valor do cartão verde no e-mail boleto+NF: uma parcela/venda, não a soma de várias cobranças em aberto.
+ */
+export function valorCartaoBoletoNfEmail(sales: SaleRow[]): number {
+  if (!sales.length) return 0;
+  if (sales.length === 1) return sales[0]!.value;
+  const byDue = [...sales].sort((a, b) => b.due.localeCompare(a.due));
+  return byDue[0]!.value;
+}
+
 /** Metadados para cartões e bloco de anexos do template Radio Ibiza. */
 export function cobrancaEmailLayoutHintsFromSales(
   fantasy: string,

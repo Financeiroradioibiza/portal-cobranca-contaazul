@@ -5,7 +5,10 @@ import type { SaleRow } from "@/lib/types";
 import { applyCobrancaAbertaPlaceholders } from "./cobrancaAbertaEmailDefaults";
 import { getOrCreateCobrancaAbertaEmailTemplate } from "./cobrancaAbertaEmailTemplateService";
 import { buildCobrancaAbertaEmailHtml } from "./cobrancaAbertaHtml";
-import { cobrancaEmailLayoutHintsFromSales } from "./cobrancaEmailLayoutHints";
+import {
+  cobrancaEmailLayoutHintsFromSales,
+  valorCartaoBoletoNfEmail,
+} from "./cobrancaEmailLayoutHints";
 import { collectOpenChargesEmailAssets } from "./collectOpenChargesEmailAssets";
 import { buildMinimalDocumentosVar } from "./documentosPlaintext";
 import { parcelaLinhaCsvParaEmail } from "./parcelaLinhaEmail";
@@ -99,7 +102,7 @@ export async function prepareOpenChargesEmail(
       variant: "boleto_nf",
       competencia: first?.comp?.trim() || layoutHints.competencia,
       vencimento: first?.due?.trim() || layoutHints.vencimento,
-      valor: formatBRL(totalNum),
+      valor: formatBRL(valorCartaoBoletoNfEmail(args.sales)),
     };
   }
 
