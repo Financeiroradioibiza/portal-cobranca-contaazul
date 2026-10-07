@@ -20,6 +20,21 @@ export function isServiceInvoiceDanfseUrl(url: string): boolean {
   return /app\.contaazul\.com\/pub\/rest\/billing-data\/service-invoice\//i.test(url);
 }
 
+const RX_VENDA_ID_IN_SERVICE_INVOICE =
+  /\/service-invoice\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/pdf/i;
+
+export function parseVendaIdFromServiceInvoiceUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    u.search = "";
+    const m = RX_VENDA_ID_IN_SERVICE_INVOICE.exec(u.pathname);
+    return m?.[1]?.toLowerCase() ?? null;
+  } catch {
+    const m = RX_VENDA_ID_IN_SERVICE_INVOICE.exec(url);
+    return m?.[1]?.toLowerCase() ?? null;
+  }
+}
+
 const PDF_HEADERS = {
   Accept: "application/pdf,application/octet-stream,*/*",
   "User-Agent":
@@ -102,13 +117,20 @@ export async function fetchServiceInvoicePdfBufferByVendaId(
 
   const url = serviceInvoiceDanfsePublicUrl(id);
 
+  /** Node https costuma funcionar em serverless quando `fetch` falha. */
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const viaHttps = await fetchPdfViaNodeHttps(url);
+    if (viaHttps) return viaHttps;
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+  }
+
   /** ERP legado usa fetch sem Bearer; tentamos nessa ordem. */
   for (const withBearer of [false, true]) {
     const buf = await fetchPdfViaFetch(url, accessToken, withBearer);
     if (buf) return buf;
   }
 
-  return fetchPdfViaNodeHttps(url);
+  return null;
 }
 
 /** @deprecated Prefer `fetchServiceInvoicePdfBufferByVendaId`. */

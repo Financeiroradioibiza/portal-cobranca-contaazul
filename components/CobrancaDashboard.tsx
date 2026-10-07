@@ -401,7 +401,19 @@ export function CobrancaDashboard() {
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get("Location")?.trim();
         if (tipo === "nf" && loc && /^https?:\/\//i.test(loc)) {
-          window.open(loc, "_blank", "noopener,noreferrer");
+          try {
+            const u = new URL(loc);
+            u.search = "";
+            const a = document.createElement("a");
+            a.href = u.href;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          } catch {
+            setActionMsg("Link da nota inválido.");
+          }
           return;
         }
         setActionMsg(
@@ -420,6 +432,50 @@ export function CobrancaDashboard() {
 
       const ct = (res.headers.get("content-type") ?? "").toLowerCase();
       if (ct.includes("application/json")) {
+        const j = (await res.json()) as {
+          kind?: string;
+          openUrl?: string;
+          filename?: string;
+        };
+        if (j.kind === "danfse_public" && j.openUrl) {
+          try {
+            const u = new URL(j.openUrl);
+            u.search = "";
+            const pdfRes = await fetch(u.href);
+            if (pdfRes.ok) {
+              const blob = await pdfRes.blob();
+              const name = j.filename?.trim() || "nota.pdf";
+              const obj = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = obj;
+              a.download = name;
+              a.rel = "noopener";
+              document.body.appendChild(a);
+              a.click();
+              window.setTimeout(() => {
+                URL.revokeObjectURL(obj);
+                a.remove();
+              }, 1000);
+              return;
+            }
+          } catch {
+            /* CORS ou rede — abre aba */
+          }
+          try {
+            const u = new URL(j.openUrl);
+            u.search = "";
+            const a = document.createElement("a");
+            a.href = u.href;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          } catch {
+            setActionMsg("Não foi possível abrir o DANFSE.");
+          }
+          return;
+        }
         setActionMsg("Resposta inesperada da API ao baixar o documento.");
         return;
       }

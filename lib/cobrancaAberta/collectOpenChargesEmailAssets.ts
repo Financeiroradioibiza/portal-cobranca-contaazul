@@ -7,8 +7,17 @@ import {
 import { tryFetchBoletoPdfViaCobrancaApi } from "@/lib/contaazul/cobrancaBoletoPdfApi";
 import { listBoletoLinksForInstallmentEmail } from "@/lib/contaazul/boletoLinksForEmail";
 import { extractBoletoAndDocUrls } from "@/lib/contaazul/installmentLinks";
-import { danfsePdfFilename } from "@/lib/contaazul/danfsePdf";
-import { enrichInstallmentVendaContext, tryFetchNfPdfBufferForInstallment } from "@/lib/contaazul/resolveVendaFromInstallment";
+import { danfsePdfFilename, isDanfsePdfBuffer } from "@/lib/contaazul/danfsePdf";
+import {
+  ensureVendaIdForNfPdf,
+  enrichInstallmentVendaContext,
+  tryFetchNfPdfBufferForInstallment,
+} from "@/lib/contaazul/resolveVendaFromInstallment";
+import {
+  fetchServiceInvoicePdfBufferByVendaId,
+  isServiceInvoiceDanfseUrl,
+  parseVendaIdFromServiceInvoiceUrl,
+} from "@/lib/contaazul/serviceInvoicePdf";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
 import type { CaInstallmentDetail } from "@/lib/contaazul/types";
@@ -133,6 +142,7 @@ export async function collectOpenChargesEmailAssets(
       throw new Error(`A parcela ${s.id.slice(0, 8)}… não pertence a este cliente.`);
     }
     detail = await enrichInstallmentVendaContext(token, detail);
+    detail = await ensureVendaIdForNfPdf(token, detail);
 
     let boletoAttached = false;
     let nfAttached = false;
@@ -141,6 +151,21 @@ export async function collectOpenChargesEmailAssets(
       if (attachments.length >= MAX_ATTACHMENTS) break;
       const tipo = role === "nf" ? "nf" : "boleto";
       const labelShort = `${s.comp} · venc. ${s.due} · ${role === "boleto" ? "Boleto" : "Nota"}`;
+
+      if (tipo === "nf" && !nfAttached && detail.id_venda?.trim()) {
+        const danfseBuf = await fetchServiceInvoicePdfBufferByVendaId(
+          detail.id_venda,
+          token,
+        );
+        if (
+          danfseBuf &&
+          (isDanfsePdfBuffer(danfseBuf) || danfseBuf.length >= 50_000) &&
+          pushPdfAttachment(attachments, s, "nf", danfseBuf, danfsePdfFilename(detail))
+        ) {
+          nfAttached = true;
+          continue;
+        }
+      }
 
       const res = await resolveParcelaTipoResource(token, s.id, tipo, detail);
       if (res.kind === "buffer") {
@@ -173,6 +198,27 @@ export async function collectOpenChargesEmailAssets(
             });
             if (got?.buffer && pushPdfAttachment(attachments, s, role, got.buffer)) {
               boletoAttached = true;
+              continue;
+            }
+          }
+        }
+        if (tipo === "nf" && isServiceInvoiceDanfseUrl(res.url)) {
+          const vendaId =
+            parseVendaIdFromServiceInvoiceUrl(res.url) ?? detail.id_venda?.trim();
+          if (vendaId) {
+            const danfseBuf = await fetchServiceInvoicePdfBufferByVendaId(vendaId, token);
+            if (
+              danfseBuf &&
+              (isDanfsePdfBuffer(danfseBuf) || danfseBuf.length >= 50_000) &&
+              pushPdfAttachment(
+                attachments,
+                s,
+                "nf",
+                danfseBuf,
+                danfsePdfFilename(detail),
+              )
+            ) {
+              nfAttached = true;
               continue;
             }
           }

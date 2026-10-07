@@ -14,10 +14,6 @@ import { tryFetchBoletoPdfViaCobrancaApi } from "./cobrancaBoletoPdfApi";
 import { fetchInstallmentById } from "./receivables";
 import { danfsePdfFilename } from "./danfsePdf";
 import {
-  serviceInvoiceDanfsePublicUrl,
-} from "./serviceInvoicePdf";
-import {
-  ensureVendaIdForNfPdf,
   enrichInstallmentVendaContext,
   tryFetchNfPdfBufferForInstallment,
 } from "./resolveVendaFromInstallment";
@@ -67,7 +63,6 @@ export async function resolveParcelaTipoResource(
 
   detail = await enrichInstallmentVendaContext(token, detail);
   if (tipo === "nf") {
-    detail = await ensureVendaIdForNfPdf(token, detail);
     const nfPdf = await tryFetchNfPdfBufferForInstallment(token, detail);
     if (nfPdf) {
       const name = danfsePdfFilename(detail);
@@ -76,13 +71,6 @@ export async function resolveParcelaTipoResource(
         mime: "application/pdf",
         disposition: `attachment; filename="${name}"`,
         data: nfPdf,
-      };
-    }
-    const vendaId = detail.id_venda?.trim();
-    if (vendaId) {
-      return {
-        kind: "external_redirect",
-        url: serviceInvoiceDanfsePublicUrl(vendaId),
       };
     }
   }
@@ -264,24 +252,14 @@ export async function resolveParcelaTipoResource(
     };
   }
 
-  if (tipo === "nf") {
-    detail = await ensureVendaIdForNfPdf(token, detail);
-    const vendaId = detail.id_venda?.trim();
-    if (vendaId) {
-      return {
-        kind: "external_redirect",
-        url: serviceInvoiceDanfsePublicUrl(vendaId),
-      };
-    }
-    if (isProd) {
-      console.error("[resolveParcelaTipo] NF not_found:", parcelaId, {
-        id_venda: detail.id_venda,
-        numero_venda: detail.numero_venda,
-        numero_nfse: detail.numero_nfse,
-        docUrl: Boolean(docUrl),
-        docAnexoId: Boolean(docAnexoId),
-      });
-    }
+  if (tipo === "nf" && isProd) {
+    console.error("[resolveParcelaTipo] NF not_found:", parcelaId, {
+      id_venda: detail.id_venda,
+      numero_venda: detail.numero_venda,
+      numero_nfse: detail.numero_nfse,
+      docUrl: Boolean(docUrl),
+      docAnexoId: Boolean(docAnexoId),
+    });
   }
 
   return {
