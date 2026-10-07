@@ -116,22 +116,37 @@ export function EnviosManuaisPanel() {
     }
   }
 
-  async function sendRow(id: string, label: string) {
-    if (
+  async function sendRow(id: string, row: EnvioManualAgendamentoDto, mode: "live" | "test") {
+    const label = row.client;
+    const destinos = row.emails.join(", ") || "(nenhum e-mail cadastrado)";
+    if (mode === "live") {
+      if (!row.emails.length) {
+        setError("Cadastre ao menos um e-mail no agendamento antes de enviar.");
+        return;
+      }
+      if (
+        !confirm(
+          `Enviar boleto e NF para «${label}»?\n\nDestinatários:\n${destinos}\n\nConfirma envio REAL aos clientes (não é teste).`,
+        )
+      ) {
+        return;
+      }
+    } else if (
       !confirm(
-        `Enviar teste para «${label}»?\n\nEnquanto ENVIOS_MANUAIS_LIVE não estiver ativo, o e-mail vai só para ${ENVIOS_MANUAIS_TEST_EMAIL}.`,
+        `Enviar teste de «${label}»?\n\nO e-mail vai só para ${ENVIOS_MANUAIS_TEST_EMAIL} (não altera o status Enviado).`,
       )
     ) {
       return;
     }
-    setBusy(id);
+    setBusy(`${mode}-${id}`);
     setNotice(null);
+    setError(null);
     try {
       const res = await fetch("/api/financeiro/envios-manuais/send", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agendamentoId: id }),
+        body: JSON.stringify({ agendamentoId: id, mode }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
@@ -192,11 +207,12 @@ export function EnviosManuaisPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-        <strong>Modo seguro:</strong> anexos via Conta Azul (como Vencidos). Sem{" "}
-        <code className="rounded bg-amber-100/80 px-1">ENVIOS_MANUAIS_LIVE=1</code>, destino fixo:{" "}
-        <strong>{ENVIOS_MANUAIS_TEST_EMAIL}</strong>. Cron:{" "}
-        <code className="break-all">POST /api/financeiro/envios-manuais/cron</code> com Bearer{" "}
-        <code>CRON_SECRET</code> (ex. a cada 3 min).
+        <strong>Enviar manualmente</strong> usa os e-mails cadastrados no agendamento (boleto + NF via
+        Conta Azul, como Vencidos). <strong>Teste</strong> envia só para{" "}
+        <strong>{ENVIOS_MANUAIS_TEST_EMAIL}</strong> e não marca como enviado. Cron automático (dia do
+        mês):{" "}
+        <code className="break-all">POST /api/financeiro/envios-manuais/cron</code> — exige{" "}
+        <code className="rounded bg-amber-100/80 px-1">ENVIOS_MANUAIS_LIVE=1</code> no Netlify.
       </div>
 
       {error ?
@@ -302,10 +318,10 @@ export function EnviosManuaisPanel() {
                         <button
                           type="button"
                           disabled={busy !== null}
-                          onClick={() => void sendRow(r.id, r.client)}
-                          className="rounded bg-[#0066cc] px-2 py-0.5 text-[11px] font-semibold text-white dark:bg-sky-600"
+                          onClick={() => void sendRow(r.id, r, "live")}
+                          className="rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white dark:bg-emerald-700"
                         >
-                          Teste
+                          Enviar manualmente
                         </button>
                         <button
                           type="button"
@@ -335,6 +351,14 @@ export function EnviosManuaisPanel() {
                           className="rounded border border-rose-200 px-2 py-0.5 text-[11px] text-rose-700"
                         >
                           Excluir
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => void sendRow(r.id, r, "test")}
+                          className="rounded bg-[#0066cc] px-2 py-0.5 text-[11px] font-semibold text-white dark:bg-sky-600"
+                        >
+                          Teste
                         </button>
                       </div>
                     </td>

@@ -10,7 +10,10 @@ import { isOcSmtpConfigured, sendEmailViaSmtp } from "@/lib/email/ocSmtp";
 import type { EnvioManualGrupoCliente } from "@/lib/enviosManuais/types";
 import { applyMesPlaceholder, mesReferenciaAnteriorLabel } from "@/lib/enviosManuais/mesReferencia";
 import { resolveEnvioManualSalesForCliente } from "@/lib/enviosManuais/resolveEnvioManualSales";
-import { resolveEnvioManualRecipients } from "@/lib/enviosManuais/safeRecipients";
+import {
+  resolveEnvioManualRecipients,
+  type EnvioManualDelivery,
+} from "@/lib/enviosManuais/safeRecipients";
 
 function personCnpj(raw: unknown): string {
   const p = normalizeCaPersonBrief(raw);
@@ -85,10 +88,14 @@ export async function sendEnvioManualIndividual(args: {
   clientLabel: string;
   emails: string[];
   mensagemTemplate: string;
+  delivery?: EnvioManualDelivery;
 }): Promise<EnvioManualSendResult> {
   if (!isOcSmtpConfigured()) throw new Error("smtp_not_configured");
 
-  const { to, sandbox, original } = resolveEnvioManualRecipients(args.emails);
+  const { to, sandbox, original } = resolveEnvioManualRecipients(
+    args.emails,
+    args.delivery ?? "cron",
+  );
   const mesRef = mesReferenciaAnteriorLabel();
   const bodyPlain = applyMesPlaceholder(args.mensagemTemplate || "", mesRef).trim();
 
@@ -173,11 +180,15 @@ export async function sendEnvioManualGrupo(args: {
   grupoClientes: EnvioManualGrupoCliente[];
   emails: string[];
   mensagemTemplate: string;
+  delivery?: EnvioManualDelivery;
 }): Promise<EnvioManualSendResult & { clientesOk: number; clientesTotal: number }> {
   if (!isOcSmtpConfigured()) throw new Error("smtp_not_configured");
   if (!args.grupoClientes.length) throw new Error("grupo_vazio");
 
-  const { to, sandbox, original } = resolveEnvioManualRecipients(args.emails);
+  const { to, sandbox, original } = resolveEnvioManualRecipients(
+    args.emails,
+    args.delivery ?? "cron",
+  );
   const mesRef = mesReferenciaAnteriorLabel();
   const intro = applyMesPlaceholder(args.mensagemTemplate || "", mesRef).trim();
 

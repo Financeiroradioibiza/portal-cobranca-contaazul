@@ -18,6 +18,8 @@ export async function POST(request: Request) {
   }
 
   const agendamentoId = typeof body.agendamentoId === "string" ? body.agendamentoId.trim() : "";
+  const modeRaw = typeof body.mode === "string" ? body.mode.trim().toLowerCase() : "test";
+  const mode = modeRaw === "live" ? "live" : "test";
   if (!agendamentoId) {
     return NextResponse.json({ ok: false, error: "missing_agendamento_id" }, { status: 400 });
   }
@@ -28,7 +30,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await dispatchEnvioManualAgendamento(auth.token, row, "");
+    const result = await dispatchEnvioManualAgendamento(auth.token, row, {
+      refAutomatico: mode === "live" ? "Envio manual (portal)" : "Teste (portal)",
+      delivery: mode,
+      markSent: mode === "live",
+    });
     return NextResponse.json({
       ok: true,
       sandbox: result.sandbox,

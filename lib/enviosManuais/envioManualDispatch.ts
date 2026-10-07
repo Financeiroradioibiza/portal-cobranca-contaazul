@@ -3,7 +3,15 @@ import {
   markAgendamentoSent,
 } from "@/lib/enviosManuais/agendamentoStore";
 import { sendEnvioManualGrupo, sendEnvioManualIndividual } from "@/lib/enviosManuais/envioManualSendService";
+import type { EnvioManualDelivery } from "@/lib/enviosManuais/safeRecipients";
 import type { EnvioManualAgendamentoDto } from "@/lib/enviosManuais/types";
+
+export type DispatchEnvioManualOptions = {
+  refAutomatico?: string;
+  delivery?: EnvioManualDelivery;
+  /** Teste no portal não marca «Enviado» no agendamento. */
+  markSent?: boolean;
+};
 
 export type EnvioManualDispatchResult = {
   ok: true;
@@ -19,8 +27,16 @@ export type EnvioManualDispatchResult = {
 export async function dispatchEnvioManualAgendamento(
   token: string,
   row: EnvioManualAgendamentoDto,
-  refAutomatico: string,
+  refAutomaticoOrOpts: string | DispatchEnvioManualOptions = "",
 ): Promise<EnvioManualDispatchResult> {
+  const opts: DispatchEnvioManualOptions =
+    typeof refAutomaticoOrOpts === "string" ?
+      { refAutomatico: refAutomaticoOrOpts }
+    : refAutomaticoOrOpts;
+  const refAutomatico = opts.refAutomatico ?? "";
+  const delivery = opts.delivery ?? "cron";
+  const markSent = opts.markSent ?? delivery !== "test";
+
   if (!row.emails.length) throw new Error("missing_emails");
 
   if (row.tipo === "grupo") {
@@ -31,6 +47,7 @@ export async function dispatchEnvioManualAgendamento(
       grupoClientes: row.grupoClientes,
       emails: row.emails,
       mensagemTemplate: row.msg,
+      delivery,
     });
     await appendEnvioManualLog({
       client: `${row.client} [GRUPO]`,
@@ -40,7 +57,7 @@ export async function dispatchEnvioManualAgendamento(
       aviso: result.hadAttachmentGaps ? "Alguns documentos só por link" : null,
       sandbox: result.sandbox,
     });
-    await markAgendamentoSent(row.id);
+    if (markSent) await markAgendamentoSent(row.id);
     return {
       ok: true,
       sandbox: result.sandbox,
@@ -60,6 +77,7 @@ export async function dispatchEnvioManualAgendamento(
     clientLabel: row.client,
     emails: row.emails,
     mensagemTemplate: row.msg,
+    delivery,
   });
   const semAnexo = result.pdfAttachments === 0;
   await appendEnvioManualLog({
@@ -70,7 +88,7 @@ export async function dispatchEnvioManualAgendamento(
     aviso: semAnexo ? "Enviado sem anexos PDF" : result.hadAttachmentGaps ? "Parte só por link" : null,
     sandbox: result.sandbox,
   });
-  await markAgendamentoSent(row.id);
+  if (markSent) await markAgendamentoSent(row.id);
   return {
     ok: true,
     sandbox: result.sandbox,
