@@ -151,7 +151,25 @@ function ProgramacaoEditor({
   /** Fechar atualização modal. */
   const [showFechar, setShowFechar] = useState(false);
   const [votosModal, setVotosModal] = useState<{ id: string; titulo: string } | null>(null);
+  /** Vinhetas reservadas a abertura/encerramento ativos — ocultar em «Vinhetas únicas». */
+  const [horarioFixoVinhetaExclude, setHorarioFixoVinhetaExclude] = useState<Set<string>>(() => new Set());
+  const [vinhetasListRev, setVinhetasListRev] = useState(0);
   const marcouAberta = useRef(false);
+
+  const refreshHorarioFixoVinhetaExclude = useCallback(async () => {
+    try {
+      const rh = await fetch(`/api/criacao/programacoes/${id}/vinheta-horario-fixo`);
+      if (!rh.ok) return;
+      const d = (await rh.json()) as { items?: { ativo?: boolean; vinhetaId?: string | null }[] };
+      const ids = new Set<string>();
+      for (const row of d.items ?? []) {
+        if (row.ativo && row.vinhetaId) ids.add(row.vinhetaId);
+      }
+      setHorarioFixoVinhetaExclude(ids);
+    } catch {
+      /* silencioso */
+    }
+  }, [id]);
 
   async function registrarEdicao() {
     if (marcouAberta.current) return;
@@ -163,15 +181,24 @@ function ProgramacaoEditor({
     setLoading(true);
     setError(null);
     try {
-      const [res, ra] = await Promise.all([
+      const [res, ra, rh] = await Promise.all([
         fetch(`/api/criacao/programacoes/${id}`),
         fetch(`/api/criacao/programacoes/${id}/agendamentos`),
+        fetch(`/api/criacao/programacoes/${id}/vinheta-horario-fixo`),
       ]);
       if (!res.ok) throw new Error();
       const data = (await res.json()) as { programacao: ProgramacaoDetail };
       setProg(data.programacao);
       if (ra.ok) setAgs(((await ra.json()) as { agendamentos: AgendamentoRow[] }).agendamentos);
       else setAgs([]);
+      if (rh.ok) {
+        const d = (await rh.json()) as { items?: { ativo?: boolean; vinhetaId?: string | null }[] };
+        const ids = new Set<string>();
+        for (const row of d.items ?? []) {
+          if (row.ativo && row.vinhetaId) ids.add(row.vinhetaId);
+        }
+        setHorarioFixoVinhetaExclude(ids);
+      }
       setSelectedByPasta((prev) => {
         const next: Record<string, Set<string>> = {};
         for (const pasta of data.programacao.pastas) {
@@ -934,9 +961,22 @@ function ProgramacaoEditor({
         </div>
       }
 
-      <VinhetasSection programacaoId={id} ags={ags} onEdit={registrarEdicao} />
+      <VinhetasSection
+        programacaoId={id}
+        ags={ags}
+        onEdit={registrarEdicao}
+        reloadSignal={vinhetasListRev}
+        horarioFixoVinhetaExclude={horarioFixoVinhetaExclude}
+      />
 
-      <VinhetasProgramacaoExtras programacaoId={id} onEdit={registrarEdicao} />
+      <VinhetasProgramacaoExtras
+        programacaoId={id}
+        onEdit={registrarEdicao}
+        onHorarioFixoSaved={async () => {
+          await refreshHorarioFixoVinhetaExclude();
+          setVinhetasListRev((n) => n + 1);
+        }}
+      />
 
       <CronogramaSection
         programacaoId={id}
@@ -1046,10 +1086,14 @@ function VinhetasSection({
   programacaoId,
   ags,
   onEdit,
+  reloadSignal,
+  horarioFixoVinhetaExclude,
 }: {
   programacaoId: string;
   ags: AgendamentoRow[];
   onEdit?: () => void | Promise<void>;
+  reloadSignal?: number;
+  horarioFixoVinhetaExclude: Set<string>;
 }) {
   const [vinhetas, setVinhetas] = useState<Vinheta[]>([]);
   const [nome, setNome] = useState("");
@@ -1061,10 +1105,11 @@ function VinhetasSection({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { vinhetas: Vinheta[] };
-      setVinhetas(data.vinhetas);
+      const rv = await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`);
+      if (rv.ok) {
+        const data = (await rv.json()) as { vinhetas: Vinheta[] };
+        setVinhetas(data.vinhetas);
+      }
     } catch {
       /* silencioso */
     }
@@ -1072,7 +1117,7 @@ function VinhetasSection({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, reloadSignal]);
 
   async function criar() {
     if (!nome.trim() || busy) return;
@@ -1135,7 +1180,8 @@ function VinhetasSection({
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Vinhetas únicas</h2>
       </div>
       <p className="mb-3 text-xs text-slate-500">
-        Uma vinheta por vez (VP/VA no cronograma). Para rotação em pasta, use «Pasta de vinhetas» abaixo.
+        Uma vinheta por vez (VP/VA no cronograma). Abertura e encerramento ficam nos blocos abaixo. Para rotação em pasta,
+        use «Pasta de vinhetas».
       </p>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -1194,12 +1240,20 @@ function VinhetasSection({
         />
       : null}
 
-      {vinhetas.length === 0 ?
-        <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400 dark:border-slate-700">
-          Sem vinhetas. Crie uma vinheta e envie o áudio MP3 para atrelar a esta programação.
-        </div>
-      : <div className="space-y-2">
-          {vinhetas.map((v) => (
+      {(() => {
+        const list = vinhetas.filter((v) => !horarioFixoVinhetaExclude.has(v.id));
+        if (list.length === 0) {
+          return (
+            <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400 dark:border-slate-700">
+              {vinhetas.length === 0 ?
+                "Sem vinhetas. Crie uma vinheta e envie o áudio MP3 para atrelar a esta programação."
+              : "Todas as vinhetas desta prog. estão em abertura/encerramento ou no cronograma abaixo. Crie outra ou desative o horário fixo."}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-2">
+          {list.map((v) => (
             <div key={v.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
@@ -1232,7 +1286,8 @@ function VinhetasSection({
             </div>
           ))}
         </div>
-      }
+        );
+      })()}
     </div>
   );
 }
