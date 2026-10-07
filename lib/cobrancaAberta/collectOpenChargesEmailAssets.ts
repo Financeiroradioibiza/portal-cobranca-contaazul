@@ -4,8 +4,10 @@ import {
   extractBillingChargeUuidFromUrlString,
   fetchBillingChargePdfPublic,
 } from "@/lib/contaazul/billingChargeFilePdf";
+import { tryFetchBoletoPdfViaCobrancaApi } from "@/lib/contaazul/cobrancaBoletoPdfApi";
 import { listBoletoLinksForInstallmentEmail } from "@/lib/contaazul/boletoLinksForEmail";
 import { extractBoletoAndDocUrls } from "@/lib/contaazul/installmentLinks";
+import { enrichInstallmentVendaContext, tryFetchNfPdfBufferForInstallment } from "@/lib/contaazul/resolveVendaFromInstallment";
 import { resolveParcelaTipoResource } from "@/lib/contaazul/resolveParcelaTipoResource";
 import { fetchInstallmentById } from "@/lib/contaazul/receivables";
 import type { CaInstallmentDetail } from "@/lib/contaazul/types";
@@ -90,7 +92,23 @@ async function fetchPublicUrlAsPdf(url: string): Promise<Buffer | null> {
   }
 }
 
-/** PDFs quando direto/anexo na API ou via PDF público iugu (`public.contaazul.com/.../charge/file`); resto são links ou HTML-only. */
+function pushPdfAttachment(
+  attachments: EmailAttachment[],
+  sale: SaleRow,
+  role: "boleto" | "nf",
+  buf: Buffer,
+): boolean {
+  if (attachments.length >= MAX_ATTACHMENTS) return false;
+  if (!isProbablyPdf(buf)) return false;
+  attachments.push({
+    filename: buildFilename(sale.comp, sale.id, role),
+    content: buf,
+    contentType: "application/pdf",
+  });
+  return true;
+}
+
+/** PDFs via mesma resolução do Vencidos (api-v2 imprimir + fallbacks); links só quando não houver PDF. */
 export async function collectOpenChargesEmailAssets(
   token: string,
   clientId: string,
@@ -112,6 +130,7 @@ export async function collectOpenChargesEmailAssets(
     if (detail.cliente?.id && detail.cliente.id !== clientId) {
       throw new Error(`A parcela ${s.id.slice(0, 8)}… não pertence a este cliente.`);
     }
+    detail = await enrichInstallmentVendaContext(token, detail);
 
     let boletoAttached = false;
     let nfAttached = false;
@@ -129,13 +148,10 @@ export async function collectOpenChargesEmailAssets(
           );
           continue;
         }
-        attachments.push({
-          filename: buildFilename(s.comp, s.id, role),
-          content: res.data,
-          contentType: "application/pdf",
-        });
-        if (role === "boleto") boletoAttached = true;
-        else nfAttached = true;
+        if (pushPdfAttachment(attachments, s, role, res.data)) {
+          if (role === "boleto") boletoAttached = true;
+          else nfAttached = true;
+        }
         continue;
       }
       if (res.kind === "external_redirect") {
@@ -145,28 +161,14 @@ export async function collectOpenChargesEmailAssets(
             const got = await fetchBillingChargePdfPublic(uuidRetry, {
               preferredReferer: res.url,
             });
-            if (
-              got?.buffer &&
-              isProbablyPdf(got.buffer, "application/pdf") &&
-              attachments.length < MAX_ATTACHMENTS
-            ) {
-              attachments.push({
-                filename: buildFilename(s.comp, s.id, role),
-                content: got.buffer,
-                contentType: "application/pdf",
-              });
+            if (got?.buffer && pushPdfAttachment(attachments, s, role, got.buffer)) {
               boletoAttached = true;
               continue;
             }
           }
         }
         const pdf = await fetchPublicUrlAsPdf(res.url);
-        if (pdf && attachments.length < MAX_ATTACHMENTS) {
-          attachments.push({
-            filename: buildFilename(s.comp, s.id, role),
-            content: pdf,
-            contentType: "application/pdf",
-          });
+        if (pdf && pushPdfAttachment(attachments, s, role, pdf)) {
           if (role === "boleto") boletoAttached = true;
           else nfAttached = true;
         } else if (tipo !== "boleto") {
@@ -181,9 +183,21 @@ export async function collectOpenChargesEmailAssets(
       if (tipo === "boleto" && !boletoAttached) {
         boletoAttached = await tryAttachPublicBillingBoletoPdf(detail, s, attachments);
         if (boletoAttached) continue;
+        const cobPdf = await tryFetchBoletoPdfViaCobrancaApi(token, detail);
+        if (cobPdf && pushPdfAttachment(attachments, s, "boleto", cobPdf)) {
+          boletoAttached = true;
+          continue;
+        }
       }
-      if (tipo === "nf" && !nfAttached && res.kind === "not_found") {
-        linkLines.push(`- ${labelShort}: nota não encontrada na Conta Azul para esta parcela.`);
+      if (tipo === "nf" && !nfAttached) {
+        const nfBuf = await tryFetchNfPdfBufferForInstallment(token, detail);
+        if (nfBuf && pushPdfAttachment(attachments, s, "nf", nfBuf)) {
+          nfAttached = true;
+          continue;
+        }
+        if (res.kind === "not_found") {
+          linkLines.push(`- ${labelShort}: nota não encontrada na Conta Azul para esta parcela.`);
+        }
       }
     }
 

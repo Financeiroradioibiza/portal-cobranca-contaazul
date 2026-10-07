@@ -45,7 +45,7 @@ export async function sendEnvioManualIndividual(args: {
   const cnpjRaw = personCnpj(personRaw);
   if (!cnpjRaw) throw new Error("missing_client_cnpj");
 
-  const { sales, vendaNumero } = await resolveEnvioManualSalesForCliente(args.token, args.caClienteId, 15);
+  const { sales, vendaNumero } = await resolveEnvioManualSalesForCliente(args.token, args.caClienteId, 60);
   if (!sales.length) throw new Error("no_parcelas_for_client");
 
   const prepared = await prepareOpenChargesEmail({
