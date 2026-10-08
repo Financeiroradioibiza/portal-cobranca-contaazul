@@ -12,20 +12,27 @@ export default function PreviewsList() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
-      .from('previews')
-      .select('*, preview_tracks(count), access_logs(count)')
-      .eq('is_archived', tab === 'archived')
-      .order('created_at', { ascending: false })
-    setPreviews(data || [])
+    try {
+      const { data, error } = await supabase
+        .from('previews')
+        .select('*, preview_tracks(count), access_logs(count)')
+        .eq('is_archived', tab === 'archived')
+        .order('created_at', { ascending: false })
+      if (error) {
+        console.error('[PreviewsList]', error)
+        setPreviews([])
+      } else {
+        setPreviews(data || [])
+      }
 
-    const { count } = await supabase
-      .from('previews')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_archived', true)
-    setArchivedCount(count || 0)
-
-    setLoading(false)
+      const { count } = await supabase
+        .from('previews')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_archived', true)
+      setArchivedCount(count || 0)
+    } finally {
+      setLoading(false)
+    }
   }
 
   function statusOf(p) {

@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
-import { adminSessionAllowed, tryPortalSupabaseBootstrap } from '../lib/portalAuth.js'
+import {
+  adminSessionAllowed,
+  clearPortalBootstrapSession,
+  tryPortalSupabaseBootstrap,
+} from '../lib/portalAuth.js'
 
 import PreviewsList from './admin/PreviewsList.jsx'
 import PreviewEditor from './admin/PreviewEditor.jsx'
@@ -12,34 +16,99 @@ import Downloads from './admin/Downloads.jsx'
 export default function AdminApp() {
   const navigate = useNavigate()
   const [session, setSession] = useState(undefined)
+  const [bootError, setBootError] = useState(null)
+  const checkingRef = useRef(false)
 
   useEffect(() => {
-    async function check() {
-      let { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        await tryPortalSupabaseBootstrap()
-        ;({ data: { session } } = await supabase.auth.getSession())
+    let cancelled = false
+
+    async function resolveSession() {
+      if (checkingRef.current) return
+      checkingRef.current = true
+      setBootError(null)
+      try {
+        let { data: { session: s } } = await supabase.auth.getSession()
+        if (!s) {
+          const boot = await tryPortalSupabaseBootstrap()
+          if (!boot.ok && boot.status === 503) {
+            if (!cancelled) {
+              setBootError(
+                'Preview musical: configure PREVIEW_MUSICAL_SUPABASE_ADMIN_EMAIL e PREVIEW_MUSICAL_SUPABASE_ADMIN_PASSWORD no Netlify do portal.',
+              )
+              setSession(null)
+            }
+            return
+          }
+          ;({ data: { session: s } } = await supabase.auth.getSession())
+        }
+        if (!s) {
+          if (!cancelled) setSession(null)
+          return
+        }
+        const allowed = await adminSessionAllowed(s)
+        if (!allowed) {
+          clearPortalBootstrapSession()
+          if (!cancelled) setSession(null)
+          return
+        }
+        if (!cancelled) setSession(s)
+      } catch (err) {
+        console.error('[AdminApp] auth check', err)
+        if (!cancelled) {
+          setBootError('Não foi possível autenticar o preview musical. Tente recarregar.')
+          setSession(null)
+        }
+      } finally {
+        checkingRef.current = false
       }
-      if (!session) {
-        setSession(null)
-        return
-      }
-      const allowed = await adminSessionAllowed(session)
-      if (!allowed) {
-        setSession(null)
-        return
-      }
-      setSession(session)
     }
-    check()
-    const { data: sub } = supabase.auth.onAuthStateChange(() => check())
-    return () => sub?.subscription.unsubscribe()
+
+    void resolveSession()
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        clearPortalBootstrapSession()
+        setSession(null)
+        return
+      }
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        void resolveSession()
+      }
+    })
+
+    return () => {
+      cancelled = true
+      sub?.subscription.unsubscribe()
+    }
   }, [])
 
-  if (session === undefined) return <div style={{ padding: 40 }}>Carregando…</div>
-  if (session === null) return <Navigate to="/admin/login" replace />
+  if (session === undefined) {
+    return (
+      <div style={{ padding: 40 }}>
+        <div className="muted">Carregando…</div>
+        {bootError ?
+          <p style={{ marginTop: 12, color: 'var(--rose)', fontSize: 14, maxWidth: 480 }}>{bootError}</p>
+        : null}
+      </div>
+    )
+  }
+
+  if (session === null) {
+    if (bootError) {
+      return (
+        <div style={{ padding: 40, maxWidth: 520 }}>
+          <p style={{ color: 'var(--rose)', fontSize: 14, lineHeight: 1.5 }}>{bootError}</p>
+          <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 16 }} onClick={() => window.location.reload()}>
+            Recarregar
+          </button>
+        </div>
+      )
+    }
+    return <Navigate to="/admin/login" replace />
+  }
 
   async function logout() {
+    clearPortalBootstrapSession()
     await supabase.auth.signOut()
     navigate('/admin')
   }
