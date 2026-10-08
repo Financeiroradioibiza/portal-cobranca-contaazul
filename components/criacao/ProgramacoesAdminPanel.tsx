@@ -47,12 +47,6 @@ type ArvoreProg = {
   pastas: ArvorePasta[];
   vinhetas: ArvoreVinheta[];
   agendamentos: AgendamentoRow[];
-  vinhetaHorarioFixo: Array<{
-    tipo: "abertura" | "encerramento";
-    hora: string;
-    ativo: boolean;
-    vinhetaId: string | null;
-  }>;
 };
 
 type AtualizacaoAbertaRow = {
@@ -712,12 +706,7 @@ export function ProgramacoesAdminPanel({ onOpenEditor }: { onOpenEditor: (progra
                             <li key={v.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded px-2 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40">
                               <span className="shrink-0 text-slate-400">{v.tipo === "audio" ? "🔊" : "🗣"}</span>
                               <span className="min-w-0 shrink truncate text-slate-700 dark:text-slate-300">{v.nome}</span>
-                              <CronogramaAlvoBadges
-                                ags={prog.agendamentos}
-                                alvoTipo="vinheta"
-                                alvoId={v.id}
-                                vinhetaHorarioFixo={prog.vinhetaHorarioFixo}
-                              />
+                              <CronogramaAlvoBadges ags={prog.agendamentos} alvoTipo="vinheta" alvoId={v.id} />
                               <span className="shrink-0 text-[10px] uppercase text-slate-400">{v.tipo}</span>
                               {v.tipo === "audio" ?
                                 <span

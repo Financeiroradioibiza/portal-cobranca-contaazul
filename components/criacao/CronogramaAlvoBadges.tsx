@@ -19,7 +19,12 @@ export function formatPeriodoAgendamento(dataInicio: string | null, dataFim: str
 }
 
 export function resumoAgendamento(a: AgendamentoRow): string {
-  const parts = [diasLabel(a.diasSemana), `${a.horaInicio}–${a.horaFim}`];
+  const parts = [diasLabel(a.diasSemana)];
+  if (a.vinhetaDisparo === "horario_fixo") {
+    parts.push(`1× às ${a.horaInicio}`);
+  } else {
+    parts.push(`${a.horaInicio}–${a.horaFim}`);
+  }
   const periodo = formatPeriodoAgendamento(a.dataInicio, a.dataFim);
   if (periodo) parts.push(periodo);
   if (a.frequenciaMin) parts.push(`a cada ${a.frequenciaMin} min`);
@@ -39,50 +44,20 @@ function agendamentosDoAlvo(
   return ags.filter((a) => a.alvoTipo === alvoTipo && a.alvoId === alvoId);
 }
 
-/** Badge ao lado da pasta/vinheta — «Tocar sempre» (pasta) ou cronograma. */
-export type VinhetaHorarioFixoBadgeSlot = {
-  tipo: "abertura" | "encerramento";
-  hora: string;
-  ativo: boolean;
-  vinhetaId: string | null;
-};
-
-function horarioFixoBadgeLabel(tipo: VinhetaHorarioFixoBadgeSlot["tipo"], hora: string): string {
-  return tipo === "abertura" ? `Abertura · ${hora}` : `Encerramento · ${hora}`;
-}
-
 export function CronogramaAlvoBadges({
   ags,
   alvoTipo,
   alvoId,
-  vinhetaHorarioFixo,
 }: {
   ags: AgendamentoRow[];
   alvoTipo: CronogramaAlvoTipo;
   alvoId: string;
-  /** Abertura/encerramento (horário fixo) — fora do cronograma VP/VA. */
-  vinhetaHorarioFixo?: VinhetaHorarioFixoBadgeSlot[];
 }) {
   const rules = agendamentosDoAlvo(ags, alvoTipo, alvoId);
   const active = rules.filter((a) => a.ativo);
   const paused = rules.filter((a) => !a.ativo);
 
-  const fixoSlot =
-    alvoTipo === "vinheta" && vinhetaHorarioFixo?.length ?
-      vinhetaHorarioFixo.find((s) => s.ativo && s.vinhetaId === alvoId)
-    : null;
-
   if (rules.length === 0) {
-    if (fixoSlot) {
-      return (
-        <span
-          className="rounded-md bg-violet-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-900 ring-1 ring-violet-500/30 dark:text-violet-200"
-          title="Horário fixo diário (Brasil) — abertura ou encerramento"
-        >
-          {horarioFixoBadgeLabel(fixoSlot.tipo, fixoSlot.hora)}
-        </span>
-      );
-    }
     if (alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta") {
       return (
         <span
@@ -108,23 +83,17 @@ export function CronogramaAlvoBadges({
     );
   }
 
-  const chipClass =
-    alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta" ?
+  const chipClass = (a: AgendamentoRow) =>
+    a.vinhetaDisparo === "horario_fixo" ?
+      "rounded-md bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-900 ring-1 ring-violet-500/30 dark:text-violet-200"
+    : alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta" ?
       "rounded-md bg-fuchsia-500/15 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-900 ring-1 ring-fuchsia-500/30 dark:text-fuchsia-200"
     : "rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-900 ring-1 ring-sky-500/30 dark:text-sky-200";
 
   return (
     <span className="flex flex-wrap items-center gap-1">
-      {fixoSlot ?
-        <span
-          className="rounded-md bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-900 ring-1 ring-violet-500/30 dark:text-violet-200"
-          title="Horário fixo diário (Brasil)"
-        >
-          {horarioFixoBadgeLabel(fixoSlot.tipo, fixoSlot.hora)}
-        </span>
-      : null}
       {active.map((a) => (
-        <span key={a.id} className={chipClass} title={resumoAgendamento(a)}>
+        <span key={a.id} className={chipClass(a)} title={resumoAgendamento(a)}>
           {resumoAgendamento(a)}
         </span>
       ))}

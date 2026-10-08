@@ -331,7 +331,7 @@ export async function registerVinhetaRoutes(app: FastifyInstance, prefix: string
         return reply.code(401).send({ ok: false, error: 'token_invalido' });
       }
 
-      const srcKey = usoStorageKey(musicaId, 'mp3_128_mono', 'mp3');
+      const srcKey = usoStorageKey(musicaId, 'mp3_128_mono', '.mp3');
       const srcResolved = await resolveUsoAudio(srcKey);
       if (!srcResolved) return reply.code(404).send({ ok: false, error: 'musica_uso_ausente' });
 

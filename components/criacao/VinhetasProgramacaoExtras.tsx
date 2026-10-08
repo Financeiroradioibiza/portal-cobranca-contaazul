@@ -1,230 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { VinhetaAudioControls } from "@/components/criacao/VinhetaAudioControls";
-import type { VinhetaHorarioFixoView } from "@/lib/criacao/programacaoVinhetaHorarioFixoService";
 import type { VinhetaPastaView } from "@/lib/criacao/vinhetaPastaService";
 import { vinhetaClienteImportErrorMessage } from "@/lib/criacao/vinhetaFromMusicaClienteService";
 
 type VinhetaOpt = { id: string; nome: string };
-type VinhetaDetalhe = VinhetaOpt & {
-  tipo: string;
-  temAudio: boolean;
-  previewUrl: string | null;
-};
 
+/** Pastas de vinhetas (rotação no cronograma). Horário fixo de vinheta única fica em «+ Regra». */
 export function VinhetasProgramacaoExtras({
   programacaoId,
   onEdit,
-  onHorarioFixoSaved,
 }: {
   programacaoId: string;
   onEdit?: () => void | Promise<void>;
-  /** Depois do PUT — atualiza lista «Vinhetas únicas» no editor (evita race com onEdit no início do save). */
-  onHorarioFixoSaved?: () => void | Promise<void>;
 }) {
   return (
-    <div className="mt-8 space-y-8">
-      <VinhetaHorarioFixoBlock
-        programacaoId={programacaoId}
-        tipo="abertura"
-        titulo="Vinheta de abertura"
-        onEdit={onEdit}
-        onSaved={onHorarioFixoSaved}
-      />
-      <VinhetaHorarioFixoBlock
-        programacaoId={programacaoId}
-        tipo="encerramento"
-        titulo="Vinheta de encerramento"
-        onEdit={onEdit}
-        onSaved={onHorarioFixoSaved}
-      />
+    <div className="mt-8">
       <VinhetaPastasBlock programacaoId={programacaoId} onEdit={onEdit} />
     </div>
   );
 }
 
-function VinhetaHorarioFixoBlock({
-  programacaoId,
-  tipo,
-  titulo,
-  onEdit,
-  onSaved,
-}: {
-  programacaoId: string;
-  tipo: "abertura" | "encerramento";
-  titulo: string;
-  onEdit?: () => void | Promise<void>;
-  onSaved?: () => void | Promise<void>;
-}) {
-  const [vinhetas, setVinhetas] = useState<VinhetaDetalhe[]>([]);
-  const [row, setRow] = useState<VinhetaHorarioFixoView | null>(null);
-  const [hora, setHora] = useState("09:00");
-  const [vinhetaId, setVinhetaId] = useState("");
-  const [ativo, setAtivo] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [bibOpen, setBibOpen] = useState(false);
-
-  const load = useCallback(async () => {
-    const [rv, rh] = await Promise.all([
-      fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`),
-      fetch(`/api/criacao/programacoes/${programacaoId}/vinheta-horario-fixo`),
-    ]);
-    if (rv.ok) {
-      const d = (await rv.json()) as { vinhetas: VinhetaDetalhe[] };
-      setVinhetas(d.vinhetas ?? []);
-    }
-    if (rh.ok) {
-      const d = (await rh.json()) as { items: VinhetaHorarioFixoView[] };
-      const found = d.items.find((i) => i.tipo === tipo) ?? null;
-      setRow(found);
-      if (found) {
-        setHora(found.hora);
-        setVinhetaId(found.vinhetaId ?? "");
-        setAtivo(found.ativo);
-      }
-    }
-  }, [programacaoId, tipo]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  async function salvar(nextAtivo = ativo) {
-    setBusy(true);
-    try {
-      await onEdit?.();
-      await fetch(`/api/criacao/programacoes/${programacaoId}/vinheta-horario-fixo`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tipo,
-          hora,
-          vinhetaId: vinhetaId || null,
-          ativo: nextAtivo,
-        }),
-      });
-      await load();
-      await onSaved?.();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function desativar() {
-    if (!confirm(`Desativar ${titulo.toLowerCase()}?`)) return;
-    setAtivo(false);
-    await salvar(false);
-  }
-
-  const vinhetaSel = vinhetaId ? vinhetas.find((v) => v.id === vinhetaId) : null;
-
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">{titulo}</h3>
-      <p className="mt-1 text-xs text-slate-500">
-        Horário fixo todos os dias (Brasil). Gravado no portal; o player passa a usar após homologação/publicação.
-      </p>
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-          Horário
-          <input
-            type="time"
-            value={hora}
-            onChange={(e) => setHora(e.target.value)}
-            className="mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-          />
-        </label>
-        <label className="min-w-[200px] flex-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-          Vinheta
-          <select
-            value={vinhetaId}
-            onChange={(e) => setVinhetaId(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-          >
-            <option value="">Selecione…</option>
-            {vinhetas.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.nome}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => setBibOpen(true)}
-          className="rounded-lg border border-violet-300 px-3 py-2 text-xs font-semibold text-violet-900 dark:border-violet-800 dark:text-violet-200"
-        >
-          Importar Vinhetas clientes
-        </button>
-        <button
-          type="button"
-          disabled={busy || !vinhetaId}
-          onClick={() => {
-            setAtivo(true);
-            void salvar(true);
-          }}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900"
-        >
-          {busy ? "Salvando…" : row?.ativo ? "Atualizar" : "Ativar"}
-        </button>
-        {row?.ativo ?
-          <button type="button" disabled={busy} onClick={() => void desativar()} className="text-xs text-rose-600 underline">
-            Desativar
-          </button>
-        : null}
-      </div>
-      {row?.ativo ?
-        <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
-          Ativo · {row.hora} · {row.vinhetaNome ?? "—"}
-        </p>
-      : null}
-      {vinhetaSel ?
-        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/40">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-500 dark:bg-slate-800">
-                {vinhetaSel.tipo === "ia" ? "IA" : vinhetaSel.tipo === "audio" ? "Áudio" : "TTS"}
-              </span>
-              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{vinhetaSel.nome}</span>
-            </div>
-            <VinhetaAudioControls
-              vinhetaId={vinhetaSel.id}
-              tipo={vinhetaSel.tipo}
-              temAudio={vinhetaSel.temAudio}
-              previewUrl={vinhetaSel.previewUrl}
-              onUploaded={async () => {
-                await onEdit?.();
-                await load();
-              }}
-            />
-          </div>
-          {vinhetaSel.temAudio ?
-            <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">
-              Áudio enviado — use ▶ para ouvir ou «trocar» para substituir.
-            </p>
-          : vinhetaSel.tipo === "audio" ?
-            <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Envie o MP3 com «trocar» ou escolha outra vinheta.</p>
-          : null}
-        </div>
-      : vinhetaId ?
-        <p className="mt-2 text-xs text-slate-400">Carregando vinheta…</p>
-      : null}
-      {bibOpen ?
-        <ImportVinhetaClientesModal
-          programacaoId={programacaoId}
-          onClose={() => setBibOpen(false)}
-          onImported={async (id) => {
-            setBibOpen(false);
-            setVinhetaId(id);
-            await load();
-          }}
-        />
-      : null}
-    </section>
-  );
-}
 
 function VinhetaPastasBlock({
   programacaoId,

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export type AgendamentoAlvo = "pasta" | "vinheta" | "vinheta_pasta";
+export type AgendamentoVinhetaDisparo = "recorrente" | "horario_fixo";
 
 export type AgendamentoRow = {
   id: string;
@@ -15,6 +16,7 @@ export type AgendamentoRow = {
   dataFim: string | null;
   frequenciaMin: number | null;
   frequenciaMusicas: number | null;
+  vinhetaDisparo: AgendamentoVinhetaDisparo;
   prioridade: number;
   ativo: boolean;
 };
@@ -48,6 +50,10 @@ function normalizeFreqInt(v: unknown): number | null {
   return Math.max(1, Math.round(Number(v)));
 }
 
+function normalizeVinhetaDisparo(v: unknown): AgendamentoVinhetaDisparo {
+  return v === "horario_fixo" ? "horario_fixo" : "recorrente";
+}
+
 function mapAgendamentoRows(
   ags: {
     id: string;
@@ -61,6 +67,7 @@ function mapAgendamentoRows(
     dataFim: Date | null;
     frequenciaMin: number | null;
     frequenciaMusicas: number | null;
+    vinhetaDisparo: string;
     prioridade: number;
     ativo: boolean;
   }[],
@@ -85,6 +92,7 @@ function mapAgendamentoRows(
       dataFim: a.dataFim ? a.dataFim.toISOString().slice(0, 10) : null,
       frequenciaMin: a.frequenciaMin,
       frequenciaMusicas: a.frequenciaMusicas,
+      vinhetaDisparo: normalizeVinhetaDisparo(a.vinhetaDisparo),
       prioridade: a.prioridade,
       ativo: a.ativo,
     });
@@ -153,6 +161,7 @@ export async function createAgendamento(
     dataFim?: string;
     frequenciaMin?: number | null;
     frequenciaMusicas?: number | null;
+    vinhetaDisparo?: string;
     prioridade?: number;
   },
 ) {
@@ -163,8 +172,19 @@ export async function createAgendamento(
   const alvoId = (input.alvoId || "").trim();
   if (!alvoId) throw new Error("alvo_obrigatorio");
 
-  const freqMin = normalizeFreqInt(input.frequenciaMin);
-  const freqMusicas = normalizeFreqInt(input.frequenciaMusicas);
+  let vinhetaDisparo = alvoTipo === "vinheta" ? normalizeVinhetaDisparo(input.vinhetaDisparo) : "recorrente";
+  const freqMin = vinhetaDisparo === "horario_fixo" ? null : normalizeFreqInt(input.frequenciaMin);
+  const freqMusicas = vinhetaDisparo === "horario_fixo" ? null : normalizeFreqInt(input.frequenciaMusicas);
+
+  let horaInicio = normalizeHora(input.horaInicio, "00:00");
+  let horaFim = normalizeHora(input.horaFim, "23:59");
+  if (vinhetaDisparo === "horario_fixo") {
+    horaFim = horaInicio;
+  }
+
+  if (vinhetaDisparo === "horario_fixo" && alvoTipo !== "vinheta") {
+    vinhetaDisparo = "recorrente";
+  }
 
   return prisma.agendamento.create({
     data: {
@@ -172,13 +192,14 @@ export async function createAgendamento(
       alvoTipo,
       alvoId,
       diasSemana: normalizeDias(input.diasSemana),
-      horaInicio: normalizeHora(input.horaInicio, "00:00"),
-      horaFim: normalizeHora(input.horaFim, "23:59"),
+      horaInicio,
+      horaFim,
       dataInicio: parseDate(input.dataInicio),
       dataFim: parseDate(input.dataFim),
       frequenciaMin: alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta" ? freqMin : null,
       frequenciaMusicas:
         alvoTipo === "vinheta" || alvoTipo === "pasta" || alvoTipo === "vinheta_pasta" ? freqMusicas : null,
+      vinhetaDisparo,
       prioridade: Number.isFinite(Number(input.prioridade)) ? Math.round(Number(input.prioridade)) : 0,
     },
     select: { id: true },
@@ -195,6 +216,7 @@ export async function updateAgendamento(
     dataFim?: string | null;
     frequenciaMin?: number | null;
     frequenciaMusicas?: number | null;
+    vinhetaDisparo?: string;
     prioridade?: number;
     ativo?: boolean;
   },
@@ -203,6 +225,9 @@ export async function updateAgendamento(
   if ("diasSemana" in patch) data.diasSemana = normalizeDias(patch.diasSemana);
   if ("horaInicio" in patch) data.horaInicio = normalizeHora(patch.horaInicio, "00:00");
   if ("horaFim" in patch) data.horaFim = normalizeHora(patch.horaFim, "23:59");
+  if ("vinhetaDisparo" in patch) {
+    data.vinhetaDisparo = normalizeVinhetaDisparo(patch.vinhetaDisparo);
+  }
   if ("dataInicio" in patch) data.dataInicio = parseDate(patch.dataInicio);
   if ("dataFim" in patch) data.dataFim = parseDate(patch.dataFim);
   if ("frequenciaMin" in patch) {
