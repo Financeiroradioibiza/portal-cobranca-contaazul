@@ -124,6 +124,16 @@ export function isTopNavModuleVisible(
     return Array.isArray(p) && p.length > 0;
   }
 
+  if (moduleId === "cadastros") {
+    const p = perm.cadastros;
+    if (p === "all") return true;
+    if (Array.isArray(p) && p.length > 0) return true;
+    return (
+      isSubAllowed("atendimento", "prospects", perm) ||
+      isSubAllowed("atendimento", "solicitar-pdv", perm)
+    );
+  }
+
   const menuModule = moduleId as PortalMenuModuleId;
   const p = perm[menuModule];
   if (p === "all") return true;

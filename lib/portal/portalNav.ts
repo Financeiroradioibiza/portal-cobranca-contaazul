@@ -1,5 +1,9 @@
 import { FINANCEIRO_NAV, FINANCEIRO_HOME_HREF } from "@/lib/portal/financeiroNav";
-import { CADASTROS_SIDEBAR, CADASTROS_HOME_HREF } from "@/lib/portal/cadastrosNav";
+import {
+  CADASTROS_HOME_HREF,
+  CADASTROS_SIDEBAR,
+  resolveCadastrosHomeHref,
+} from "@/lib/portal/cadastrosNav";
 import { CRIACAO_SIDEBAR, CRIACAO_HOME_HREF } from "@/lib/portal/criacaoNav";
 import { CONFIG_NAV, CONFIG_HOME_HREF } from "@/lib/portal/configNav";
 import { PORTAL_HOME_HREF } from "@/lib/portal/portalHome";
@@ -173,6 +177,7 @@ export function isSidebarActive(pathname: string, href: string, exact?: boolean)
 
 export function topNavHref(item: PortalTopNavItem, perm: PortalPermissionsMap | "all" = "all"): string {
   if (item.id === "dashboard") return PORTAL_HOME_HREF;
+  if (item.id === "cadastros") return resolveCadastrosHomeHref(perm);
   const sidebar = PORTAL_SIDEBARS[item.id];
   const first = sidebar.items.find(
     (x) =>

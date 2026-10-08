@@ -48,7 +48,6 @@ import { ConfigUsuariosPanel } from "@/components/config/ConfigUsuariosPanel";
 import { ConfigServidoresPanel } from "@/components/config/ConfigServidoresPanel";
 import { ConfigLogsPanel } from "@/components/config/ConfigLogsPanel";
 import { ConfigErrorLogPanel } from "@/components/config/ConfigErrorLogPanel";
-import { CADASTROS_HOME_HREF } from "@/lib/portal/cadastrosNav";
 import { CONFIG_HOME_HREF } from "@/lib/portal/configNav";
 import { siteClientePublicLoginUrl } from "@/lib/site-cliente/publicOrigin";
 import { stripMobilePortalPrefix, toMobilePortalPath } from "@/lib/portal/mobilePaths";
@@ -366,7 +365,6 @@ const PAGES: Record<string, PageDef> = {
 };
 
 const REDIRECTS: Record<string, string> = {
-  "/cadastros": CADASTROS_HOME_HREF,
   "/config": CONFIG_HOME_HREF,
   "/cadastros/cliente-pdv-novo": "/cadastros/solicitar-pdv",
 };

@@ -2,9 +2,13 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getPortalSession } from "@/lib/auth/portalAccess";
+import { getPortalMenuPermissionsForEmail } from "@/lib/config/portalUserPermissions";
+import { resolveCadastrosHomeHref } from "@/lib/portal/cadastrosNav";
 import { resolveMobilePortalPage, desktopPathFromSegments } from "@/lib/portal/mobilePageRegistry";
 import { MobilePortalPageView } from "@/components/portal-mobile/MobilePortalPageView";
 import { toMobilePortalPath } from "@/lib/portal/mobilePaths";
+import { isPathAllowedByMenuPermissions } from "@/lib/portal/pathMenuMap";
 
 type Props = {
   params: Promise<{ segments?: string[] }>;
@@ -15,6 +19,17 @@ export default async function MobilePortalCatchAllPage({ params, searchParams }:
   const { segments } = await params;
   const sp = await searchParams;
   const desktopPath = desktopPathFromSegments(segments);
+
+  if (desktopPath === "/cadastros" || desktopPath === "/cadastros/") {
+    const session = await getPortalSession();
+    if (!session) redirect("/m/login?next=%2Fm%2Fcadastros");
+    const perm = await getPortalMenuPermissionsForEmail(session.email);
+    const target = resolveCadastrosHomeHref(perm);
+    if (!isPathAllowedByMenuPermissions(target, perm)) {
+      redirect("/m?error=forbidden");
+    }
+    redirect(toMobilePortalPath(target));
+  }
 
   if (desktopPath === "/cadastros/cliente-pdv-novo") {
     const qs = new URLSearchParams();

@@ -9,6 +9,12 @@ export const CADASTROS_SIDEBAR = [
   { href: "/cadastros/atualizacoes", label: "Atl. cadastros", icon: "🔄" },
 ] as const;
 
+/** URLs sob /cadastros concedidas pelo perfil Atendimento (ex.: Relacionamento). */
+export const CADASTROS_ATENDIMENTO_HREFS = [
+  "/cadastros/prospects",
+  "/cadastros/solicitar-pdv",
+] as const;
+
 /** Fallback legado — preferir `resolveCadastrosHomeHref(perm)`. */
 export const CADASTROS_HOME_HREF = "/cadastros/grupos";
 
@@ -17,6 +23,11 @@ export function resolveCadastrosHomeHref(perm: PortalPermissionsMap | "all"): st
   for (const item of CADASTROS_SIDEBAR) {
     if (item.href && isSidebarHrefAllowed(item.href, perm)) {
       return item.href;
+    }
+  }
+  for (const href of CADASTROS_ATENDIMENTO_HREFS) {
+    if (isSidebarHrefAllowed(href, perm)) {
+      return href;
     }
   }
   return CADASTROS_HOME_HREF;
