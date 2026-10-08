@@ -15,6 +15,13 @@ Variáveis iguais ao site standalone:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
+Login no iframe **não** pede email/senha: quem está no portal chama `GET /api/criacao/preview-musical/bootstrap-auth` e recebe sessão Supabase de uma **conta de serviço** (recomendado: usuário Supabase **sem MFA**):
+
+- `PREVIEW_MUSICAL_SUPABASE_ADMIN_EMAIL`
+- `PREVIEW_MUSICAL_SUPABASE_ADMIN_PASSWORD`
+
+(Opcional: `PREVIEW_MUSICAL_SUPABASE_URL` / `PREVIEW_MUSICAL_SUPABASE_ANON_KEY` — senão usa as `VITE_*`.)
+
 ```bash
 export VITE_SUPABASE_URL=...
 export VITE_SUPABASE_ANON_KEY=...

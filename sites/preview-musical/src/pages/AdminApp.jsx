@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
+import { adminSessionAllowed, tryPortalSupabaseBootstrap } from '../lib/portalAuth.js'
 
 import PreviewsList from './admin/PreviewsList.jsx'
 import PreviewEditor from './admin/PreviewEditor.jsx'
@@ -14,10 +15,20 @@ export default function AdminApp() {
 
   useEffect(() => {
     async function check() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { setSession(null); return }
-      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      if (aal?.currentLevel !== 'aal2') { setSession(null); return }
+      let { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        await tryPortalSupabaseBootstrap()
+        ;({ data: { session } } = await supabase.auth.getSession())
+      }
+      if (!session) {
+        setSession(null)
+        return
+      }
+      const allowed = await adminSessionAllowed(session)
+      if (!allowed) {
+        setSession(null)
+        return
+      }
       setSession(session)
     }
     check()
@@ -30,7 +41,7 @@ export default function AdminApp() {
 
   async function logout() {
     await supabase.auth.signOut()
-    navigate('/admin/login')
+    navigate('/admin')
   }
 
   return (

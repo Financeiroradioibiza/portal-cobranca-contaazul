@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
+import { adminSessionAllowed, tryPortalSupabaseBootstrap } from '../lib/portalAuth.js'
 
 export default function AdminLogin() {
   const navigate = useNavigate()
@@ -17,15 +18,17 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    // Se já tem sessão completa (AAL2 com TOTP), pula direto
-    checkSession()
+    void bootstrapOrExisting()
   }, [])
 
-  async function checkSession() {
+  async function bootstrapOrExisting() {
+    const boot = await tryPortalSupabaseBootstrap()
+    if (boot.ok) {
+      navigate('/admin')
+      return
+    }
     const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
-    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-    if (aal?.currentLevel === 'aal2') {
+    if (session && (await adminSessionAllowed(session))) {
       navigate('/admin')
     }
   }

@@ -11,7 +11,7 @@ export function PreviewMusicalPanel() {
       </p>
       <iframe
         title="Preview musical Radio Ibiza"
-        src="/preview-musical/"
+        src="/preview-musical/admin"
         className="min-h-[calc(100dvh-13rem)] w-full flex-1 rounded-lg border border-slate-200 bg-[#fffaf0] dark:border-slate-700"
         allow="fullscreen"
       />
