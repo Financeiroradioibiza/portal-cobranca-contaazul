@@ -34,6 +34,7 @@ import {
 } from "@/lib/rio/sortRioCompLinhas";
 import { displayBrazilianTaxId } from "@/lib/format";
 import { downloadRioMonthStyledExcel } from "@/lib/rio/rioPlanilhaExport";
+import { searchRioPlanilhaPdvs, type RioPlanilhaPdvHit } from "@/lib/rio/rioPlanilhaPdvSearch";
 import { PortalNoticeBanner } from "@/components/portal/PortalNoticeBanner";
 import {
   buildHttpErrorReport,
@@ -125,6 +126,8 @@ export function RioClientesCompPanel() {
     [],
   );
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [buscaPdv, setBuscaPdv] = useState("");
+  const [revealPdvIds, setRevealPdvIds] = useState<Set<string>>(() => new Set());
   const [newPdvName, setNewPdvName] = useState<Record<string, string>>({});
   /** Buscar contrato na CA por cliente deixa o pedido muito longo (timeout no Netlify/proxy). */
   const [syncIncludeContracts, setSyncIncludeContracts] = useState(false);
@@ -1411,8 +1414,7 @@ export function RioClientesCompPanel() {
     [activeYm, systemGrupoOrd, userGrupoOrd],
   );
 
-  const scrollToRioLinha = useCallback((targetLinhaId: string) => {
-    const el = document.getElementById(`rio-linha-${targetLinhaId}`);
+  const highlightRioElement = useCallback((el: HTMLElement | null) => {
     if (!el) return false;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     el.classList.add("ring-2", "ring-amber-500", "ring-offset-2", "dark:ring-amber-400");
@@ -1421,6 +1423,32 @@ export function RioClientesCompPanel() {
     }, 4500);
     return true;
   }, []);
+
+  const scrollToRioLinha = useCallback(
+    (targetLinhaId: string) => highlightRioElement(document.getElementById(`rio-linha-${targetLinhaId}`)),
+    [highlightRioElement],
+  );
+
+  const goToPlanilhaPdvHit = useCallback(
+    (hit: RioPlanilhaPdvHit) => {
+      setExpanded((prev) => {
+        const nx = new Set(prev);
+        nx.add(hit.linhaId);
+        return nx;
+      });
+      setRevealPdvIds(new Set([hit.pdvId]));
+      window.setTimeout(() => {
+        const pdvEl = document.getElementById(`rio-pdv-${hit.pdvId}`);
+        if (!highlightRioElement(pdvEl)) scrollToRioLinha(hit.linhaId);
+      }, 80);
+    },
+    [highlightRioElement, scrollToRioLinha],
+  );
+
+  const pdvSearchHits = useMemo(
+    () => searchRioPlanilhaPdvs(linhas, buscaPdv),
+    [linhas, buscaPdv],
+  );
 
   type CaLinkResult =
     | { ok: true; hints: string[] }
@@ -2265,6 +2293,63 @@ export function RioClientesCompPanel() {
       : null}
 
       {!loading && linhas.length > 0 ?
+        <div className="mb-3 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-950">
+          <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+            Buscar PDV (inclui clientes fechados e PDVs encerrados)
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <input
+                type="search"
+                value={buscaPdv}
+                onChange={(e) => setBuscaPdv(e.target.value)}
+                placeholder="Nome, CNPJ, cliente, MARCA…"
+                className="min-w-[220px] flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900"
+                autoComplete="off"
+              />
+              {buscaPdv.trim() ?
+                <button
+                  type="button"
+                  className="text-xs text-slate-500 underline"
+                  onClick={() => {
+                    setBuscaPdv("");
+                    setRevealPdvIds(new Set());
+                  }}
+                >
+                  Limpar
+                </button>
+              : null}
+            </div>
+          </label>
+          {buscaPdv.trim().length >= 2 ?
+            pdvSearchHits.length === 0 ?
+              <p className="mt-2 text-xs text-slate-500">Nenhum PDV encontrado nesta competência.</p>
+            : <ul className="mt-2 max-h-48 overflow-auto rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/80">
+                {pdvSearchHits.map((hit) => (
+                  <li key={hit.pdvId}>
+                    <button
+                      type="button"
+                      className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2 text-left text-sm hover:bg-amber-100/80 dark:hover:bg-amber-950/40"
+                      onClick={() => goToPlanilhaPdvHit(hit)}
+                    >
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">{hit.pdvNome}</span>
+                      <span className="text-xs text-slate-500">
+                        · {hit.clienteNome} · {hit.marcaNome}
+                      </span>
+                      {hit.ocultoNaLista ?
+                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                          {hit.motivoOculto ?? "oculto na lista"}
+                        </span>
+                      : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+          : buscaPdv.trim() ?
+            <p className="mt-1 text-[11px] text-slate-400">Digite ao menos 2 caracteres.</p>
+          : null}
+        </div>
+      : null}
+
+      {!loading && linhas.length > 0 ?
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/80">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Totais — {formatYearMonthLabel(activeYm)}
@@ -2382,6 +2467,7 @@ export function RioClientesCompPanel() {
                         onAddPdvsBulk={addPdvsBulk}
                         expanded={expanded}
                         setExpanded={setExpanded}
+                        revealPdvIds={revealPdvIds}
                         patchLinha={patchLinha}
                         setLinhas={setLinhas}
                         addPdv={addPdv}
@@ -2410,6 +2496,7 @@ export function RioClientesCompPanel() {
                     onAddPdvsBulk={addPdvsBulk}
                     expanded={expanded}
                     setExpanded={setExpanded}
+                    revealPdvIds={revealPdvIds}
                     patchLinha={patchLinha}
                     setLinhas={setLinhas}
                     addPdv={addPdv}
@@ -2440,6 +2527,7 @@ export function RioClientesCompPanel() {
                   onAddPdvsBulk={addPdvsBulk}
                   expanded={expanded}
                   setExpanded={setExpanded}
+                  revealPdvIds={revealPdvIds}
                   patchLinha={patchLinha}
                   setLinhas={setLinhas}
                   addPdv={addPdv}
@@ -2470,6 +2558,7 @@ export function RioClientesCompPanel() {
                   onAddPdvsBulk={addPdvsBulk}
                   expanded={expanded}
                   setExpanded={setExpanded}
+                  revealPdvIds={revealPdvIds}
                   patchLinha={patchLinha}
                   setLinhas={setLinhas}
                   addPdv={addPdv}

@@ -175,6 +175,7 @@ function SortClientRow(props: {
   monthClosed?: boolean;
   newPdv: string;
   setNewPdv: (nome: string) => void;
+  revealPdvIds?: Set<string>;
 }) {
   const { r, gruposTodos, onMarcaSel, onExpand, isOpen, onOpenCaLink, onToggleCaLink, onAddPdvsBulk, ym } =
     props;
@@ -207,7 +208,10 @@ function SortClientRow(props: {
   };
 
   const pdvsSorted = sortRioPdvsByNome(
-    r.pdvs.filter((p) => (p.movimento ?? "estavel") !== "saida"),
+    r.pdvs.filter(
+      (p) =>
+        (p.movimento ?? "estavel") !== "saida" || props.revealPdvIds?.has(p.id),
+    ),
   );
   const temPdvs = r.pdvs.length > 0;
   const showPingOnLinha = pdvsSorted.length === 0;
@@ -673,6 +677,7 @@ function PdvMini(props: {
   const rowBg = rioTagCobrancaRowBgClass(pdvTag);
   return (
     <li
+      id={`rio-pdv-${props.p.id}`}
       className={
         "flex flex-nowrap items-center gap-2 rounded-md border px-2 py-0.5 text-[11px] " +
         (rowBg || "border-amber-900/45 bg-amber-100/80 dark:bg-amber-950/72 dark:border-amber-800/61") +
@@ -776,6 +781,7 @@ export function ClienteMarcaBlock(props: {
   setNewPdvName: Dispatch<SetStateAction<Record<string, string>>>;
   /** Texto auxiliar no cabeçalho (ex.: clientes presos em bloco de movimento PDV). */
   subtitulo?: string | null;
+  revealPdvIds?: Set<string>;
 }) {
   const {
     ym,
@@ -785,6 +791,7 @@ export function ClienteMarcaBlock(props: {
     grupoIndex,
     grupoCount,
     subtitulo,
+    revealPdvIds,
     onReorderLinhasSameMarca,
     onMoveMarca,
     onRenameMarca,
@@ -927,6 +934,7 @@ export function ClienteMarcaBlock(props: {
               monthClosed={monthClosed}
               newPdv={newPdvName[r.id] ?? ""}
               setNewPdv={(s) => setNewPdvName((p) => ({ ...p, [r.id]: s }))}
+              revealPdvIds={revealPdvIds}
             />
           ))}
         </SortableContext>
