@@ -36,6 +36,7 @@
     "cloudflare",
     "scripts",
     "tools",
-    "tmp-fluxo"
+    "tmp-fluxo",
+    "sites/preview-musical"
   ]
 }

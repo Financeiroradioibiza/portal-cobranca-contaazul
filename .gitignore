@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+/public/preview-musical/
+/sites/preview-musical/node_modules/
+/sites/preview-musical/dist/
 
 # production
 /build

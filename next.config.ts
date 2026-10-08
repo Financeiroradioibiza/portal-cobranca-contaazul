@@ -26,9 +26,9 @@ function securityHeaders(): { key: string; value: string }[] {
       value: [
         "default-src 'self'",
         "script-src 'self' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
         "img-src 'self' data: blob: https:",
-        "font-src 'self' data:",
+        "font-src 'self' data: https://fonts.gstatic.com",
         "connect-src 'self' https:",
         "media-src 'self' https://cloud2.radioibiza.app.br https:",
         `frame-src 'self' ${enviosManuaisOrigin}`,
@@ -42,6 +42,20 @@ function securityHeaders(): { key: string; value: string }[] {
 }
 
 const nextConfig: NextConfig = {
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: "/preview-musical",
+          destination: "/preview-musical/index.html",
+        },
+        {
+          source: "/preview-musical/:path((?!assets/).*)",
+          destination: "/preview-musical/index.html",
+        },
+      ],
+    };
+  },
   async redirects() {
     return [
       {

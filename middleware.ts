@@ -34,6 +34,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  /** Player preview musical — público (código IBZ); admin exige sessão do portal. */
+  const isPreviewMusicalPublic =
+    pathname === "/preview-musical" ||
+    pathname === "/preview-musical/" ||
+    pathname === "/preview-musical/index.html" ||
+    pathname.startsWith("/preview-musical/player") ||
+    pathname.startsWith("/preview-musical/assets/") ||
+    pathname === "/preview-musical/favicon.svg";
+
+  if (isPreviewMusicalPublic) {
+    return NextResponse.next();
+  }
+
   if (
     pathname.startsWith("/_next/static") ||
     pathname.startsWith("/_next/image") ||

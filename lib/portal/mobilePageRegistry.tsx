@@ -25,6 +25,7 @@ import { ProgramacoesPanel } from "@/components/criacao/ProgramacoesPanel";
 import { AtlCricaPanel } from "@/components/criacao/AtlCricaPanel";
 import { EdicaoPanel } from "@/components/criacao/EdicaoPanel";
 import { PastasEspeciaisPanel } from "@/components/criacao/PastasEspeciaisPanel";
+import { PreviewMusicalPanel } from "@/components/criacao/PreviewMusicalPanel";
 import { CriacaoRelatoriosPanel } from "@/components/criacao/CriacaoRelatoriosPanel";
 import { AtualizacoesPanel } from "@/components/criacao/AtualizacoesPanel";
 import { PlanilhaProdPanel } from "@/components/criacao/PlanilhaProdPanel";
@@ -212,6 +213,12 @@ const PAGES: Record<string, PageDef> = {
     title: "Pastas Especiais",
     criacao: true,
     render: () => <PastasEspeciaisPanel />,
+  },
+  "/criacao/preview-musical": {
+    section: "Criação",
+    title: "Preview musical",
+    criacao: true,
+    render: () => <PreviewMusicalPanel />,
   },
   "/criacao/relatorios": {
     section: "Criação",

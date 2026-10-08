@@ -70,6 +70,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "fila", label: "Fila de processamento" },
       { id: "edicao", label: "Edição de música" },
       { id: "pastas-especiais", label: "Pastas Especiais" },
+      { id: "preview-musical", label: "Preview musical" },
       { id: "vinhetas", label: "Vinhetas" },
       { id: "download", label: "Download link" },
       { id: "atl-crica", label: "ATL CRICA" },
