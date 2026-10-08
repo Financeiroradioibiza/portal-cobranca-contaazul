@@ -1386,6 +1386,12 @@ enum AgendamentoAlvo {
   vinheta_pasta
 }
 
+/// Vinheta única no cronograma: repetir na janela (VP) ou 1× por dia no relógio (VA).
+enum AgendamentoVinhetaDisparo {
+  recorrente
+  horario_fixo
+}
+
 /// Cronograma: quando uma pasta ou vinheta toca (dias da semana + janela de horário
 /// + intervalo de datas opcional). Para vinhetas, frequenciaMin repete dentro da janela.
 model Agendamento {
@@ -1404,6 +1410,8 @@ model Agendamento {
   frequenciaMin Int?            @map("frequencia_min")
   /// Para vinhetas: tocar a cada N músicas da programação (null = não usar intervalo por faixa).
   frequenciaMusicas Int?        @map("frequencia_musicas")
+  /// Só para alvo vinheta: `horario_fixo` = VA 1×/dia às HH:MM (ignora frequência).
+  vinhetaDisparo AgendamentoVinhetaDisparo @default(recorrente) @map("vinheta_disparo")
   prioridade    Int             @default(0)
   ativo         Boolean         @default(true)
   createdAt     DateTime        @default(now()) @map("created_at")

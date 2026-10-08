@@ -19,7 +19,12 @@ export function formatPeriodoAgendamento(dataInicio: string | null, dataFim: str
 }
 
 export function resumoAgendamento(a: AgendamentoRow): string {
-  const parts = [diasLabel(a.diasSemana), `${a.horaInicio}–${a.horaFim}`];
+  const parts = [diasLabel(a.diasSemana)];
+  if (a.vinhetaDisparo === "horario_fixo") {
+    parts.push(`1× às ${a.horaInicio}`);
+  } else {
+    parts.push(`${a.horaInicio}–${a.horaFim}`);
+  }
   const periodo = formatPeriodoAgendamento(a.dataInicio, a.dataFim);
   if (periodo) parts.push(periodo);
   if (a.frequenciaMin) parts.push(`a cada ${a.frequenciaMin} min`);
@@ -39,7 +44,6 @@ function agendamentosDoAlvo(
   return ags.filter((a) => a.alvoTipo === alvoTipo && a.alvoId === alvoId);
 }
 
-/** Badge ao lado da pasta/vinheta — «Tocar sempre» (pasta) ou cronograma. */
 export function CronogramaAlvoBadges({
   ags,
   alvoTipo,
@@ -79,15 +83,17 @@ export function CronogramaAlvoBadges({
     );
   }
 
-  const chipClass =
-    alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta" ?
+  const chipClass = (a: AgendamentoRow) =>
+    a.vinhetaDisparo === "horario_fixo" ?
+      "rounded-md bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-900 ring-1 ring-violet-500/30 dark:text-violet-200"
+    : alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta" ?
       "rounded-md bg-fuchsia-500/15 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-900 ring-1 ring-fuchsia-500/30 dark:text-fuchsia-200"
     : "rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-900 ring-1 ring-sky-500/30 dark:text-sky-200";
 
   return (
     <span className="flex flex-wrap items-center gap-1">
       {active.map((a) => (
-        <span key={a.id} className={chipClass} title={resumoAgendamento(a)}>
+        <span key={a.id} className={chipClass(a)} title={resumoAgendamento(a)}>
           {resumoAgendamento(a)}
         </span>
       ))}

@@ -16,6 +16,7 @@ type NeonAg = {
   data_fim: string | null;
   frequencia_min: number | null;
   frequencia_musicas: number | null;
+  vinheta_disparo: string | null;
 };
 
 type NeonVinheta = {
@@ -27,6 +28,17 @@ type NeonVinheta = {
 function horaLegacy(h: string): string {
   const s = (h || '00:00').trim();
   return s.length === 5 ? `${s}:00` : s;
+}
+
+/** Janela de execução VA após o horário (Player 5 só avalia VA entre faixas). */
+function horaFimGracePontual(hhmm: string, graceMin = 12): string {
+  const m = /^(\d{2}):(\d{2})$/.exec((hhmm || '00:00').trim());
+  if (!m) return '23:59:00';
+  let total = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + graceMin;
+  if (total > 23 * 60 + 59) total = 23 * 60 + 59;
+  const hh = String(Math.floor(total / 60)).padStart(2, '0');
+  const mm = String(total % 60).padStart(2, '0');
+  return `${hh}:${mm}:00`;
 }
 
 function diasFromCsv(csv: string): number[] {
@@ -126,7 +138,7 @@ export async function publishCronogramasAndVinhetas(
   const agRes = await portalQuery<NeonAg>(
     `SELECT id, alvo_tipo::text AS alvo_tipo, alvo_id, dias_semana, hora_inicio, hora_fim,
             data_inicio::text AS data_inicio, data_fim::text AS data_fim,
-            frequencia_min, frequencia_musicas
+            frequencia_min, frequencia_musicas, vinheta_disparo::text AS vinheta_disparo
        FROM agendamento
       WHERE programacao_id = $1 AND ativo = true`,
     [programacaoId],
@@ -238,16 +250,28 @@ export async function publishCronogramasAndVinhetas(
       continue;
     }
 
-    const isVa = Boolean(ag.data_inicio);
+    const disparo = (ag.vinheta_disparo || 'recorrente').toLowerCase();
+    const isHorarioFixo = disparo === 'horario_fixo';
+    const isVaCampanha = Boolean(ag.data_inicio) && !isHorarioFixo;
+    const isVa = isHorarioFixo || isVaCampanha;
     const tipo = isVa ? 'VA' : 'VP';
-    const tocarCada = ag.frequencia_min ?? ag.frequencia_musicas ?? 15;
+    const tocarCada = isHorarioFixo ? 1 : (ag.frequencia_min ?? ag.frequencia_musicas ?? 15);
     const tipoTocar = ag.frequencia_musicas ? 'musica' : 'minuto';
+    const horaPontual = horaLegacy(ag.hora_inicio);
 
     const pl = await gw.query<{ id: number }>(
       `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar, origem_vinheta_id, publicado, tipo_agendamento, selecionavel)
          VALUES ($1, NULL, $2, $3, 'N', make_interval(secs => 30), $4, $5, $6, 'S', $7, 'S')
        RETURNING id`,
-      [programaId, vin.nome, tipo, tocarCada, tipoTocar, vin.id, isVa ? 'agendada' : 'programada'],
+      [
+        programaId,
+        isHorarioFixo ? `${vin.nome} · ${ag.hora_inicio}` : vin.nome,
+        tipo,
+        tocarCada,
+        tipoTocar,
+        vin.id,
+        isVa ? 'agendada' : 'programada',
+      ],
     );
     const playlistId = pl.rows[0].id;
     vinhetas++;
@@ -258,7 +282,23 @@ export async function publishCronogramasAndVinhetas(
       [playlistId, musicaId],
     );
 
-    if (isVa) {
+    if (isHorarioFixo) {
+      let campIni: string | null = null;
+      let campFim: string | null = null;
+      if (ag.data_inicio) {
+        campIni = ag.data_inicio;
+        campFim = ag.data_fim && ag.data_fim !== ag.data_inicio ? ag.data_fim : '2099-12-31';
+      }
+      const horaFimPontual = horaFimGracePontual(ag.hora_inicio);
+      for (const dia of diasFromCsv(ag.dias_semana)) {
+        await gw.query(
+          `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
+             VALUES ($1, $2, $3::date, $4, $5::time, $6::time, 1, 'minuto', $7::date)`,
+          [programaId, playlistId, campIni, dia, horaPontual, horaFimPontual, campFim],
+        );
+        agendas += 1;
+      }
+    } else if (isVaCampanha) {
       await gw.query(
         `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
            VALUES ($1, $2, $3::date, NULL, $4::time, $5::time, $6, $7, $8::date)`,
@@ -273,6 +313,7 @@ export async function publishCronogramasAndVinhetas(
           ag.data_fim,
         ],
       );
+      agendas += 1;
     } else {
       for (const dia of diasFromCsv(ag.dias_semana)) {
         await gw.query(
@@ -280,10 +321,9 @@ export async function publishCronogramasAndVinhetas(
              VALUES ($1, $2, NULL, $3, $4::time, $5::time, $6, $7, NULL)`,
           [programaId, playlistId, dia, horaLegacy(ag.hora_inicio), horaLegacy(ag.hora_fim), tocarCada, tipoTocar],
         );
-        agendas++;
+        agendas += 1;
       }
     }
-    agendas++;
   }
 
   await syncPastasSelecionavelFlags(gw, programacaoId, pastaPlaylistMap);
@@ -308,56 +348,6 @@ export async function publishCronogramasAndVinhetas(
     pastaPlaylistMap,
     pastasComCronograma,
   );
-
-  const fixoRes = await portalQuery<{
-    tipo: string;
-    hora: string;
-    vinheta_id: string | null;
-    nome: string | null;
-    storage_key: string | null;
-  }>(
-    `SELECT h.tipo::text AS tipo, h.hora, h.vinheta_id, v.nome, v.storage_key
-       FROM programacao_vinheta_horario_fixo h
-       LEFT JOIN vinheta v ON v.id = h.vinheta_id
-      WHERE h.programacao_id = $1 AND h.ativo = true AND h.vinheta_id IS NOT NULL`,
-    [programacaoId],
-  );
-  for (const fx of fixoRes.rows) {
-    if (!fx.vinheta_id || !fx.storage_key?.trim()) continue;
-    const musicaId = await upsertVinhetaMusica(gw, {
-      id: fx.vinheta_id,
-      nome: fx.nome ?? 'Vinheta',
-      storage_key: fx.storage_key,
-    });
-    if (!musicaId) {
-      vinhetasSemAudio += 1;
-      continue;
-    }
-    const label = fx.tipo === 'encerramento' ? 'Encerramento' : 'Abertura';
-    const hora = horaLegacy(fx.hora);
-    const pl = await gw.query<{ id: number }>(
-      `INSERT INTO playlists (programa_id, pdv_id, nome, tipo, tocar_sempre, tempo_total, tocar_cada, tipo_tocar, origem_vinheta_id, publicado, tipo_agendamento, selecionavel)
-         VALUES ($1, NULL, $2, 'VP', 'N', make_interval(secs => 30), 1440, 'minuto', $3, 'S', $4, 'N')
-       RETURNING id`,
-      [programaId, `${label} · ${fx.nome ?? 'Vinheta'}`, fx.vinheta_id, fx.tipo],
-    );
-    const playlistId = pl.rows[0]?.id;
-    if (!playlistId) continue;
-    await gw.query(
-      `INSERT INTO playlist_musicas (playlist_id, musica_id, ordem) VALUES ($1, $2, 0)
-       ON CONFLICT (playlist_id, musica_id) DO NOTHING`,
-      [playlistId, musicaId],
-    );
-    vinhetas += 1;
-    for (const dia of [0, 1, 2, 3, 4, 5, 6]) {
-      await gw.query(
-        `INSERT INTO agendas (programa_id, playlist_id, data_agendada, dia_semana, hora_inicio, hora_fim, tocar_cada, tipo_tocar, data_fim)
-           VALUES ($1, $2, NULL, $3, $4::time, $4::time, 1440, 'minuto', NULL)`,
-        [programaId, playlistId, dia, hora],
-      );
-      agendas += 1;
-    }
-  }
 
   return { agendas, vinhetas, vinhetasSemAudio };
 }

@@ -151,6 +151,7 @@ function ProgramacaoEditor({
   /** Fechar atualização modal. */
   const [showFechar, setShowFechar] = useState(false);
   const [votosModal, setVotosModal] = useState<{ id: string; titulo: string } | null>(null);
+  const [vinhetasListRev, setVinhetasListRev] = useState(0);
   const marcouAberta = useRef(false);
 
   async function registrarEdicao() {
@@ -934,7 +935,12 @@ function ProgramacaoEditor({
         </div>
       }
 
-      <VinhetasSection programacaoId={id} ags={ags} onEdit={registrarEdicao} />
+      <VinhetasSection
+        programacaoId={id}
+        ags={ags}
+        onEdit={registrarEdicao}
+        reloadSignal={vinhetasListRev}
+      />
 
       <VinhetasProgramacaoExtras programacaoId={id} onEdit={registrarEdicao} />
 
@@ -1046,10 +1052,12 @@ function VinhetasSection({
   programacaoId,
   ags,
   onEdit,
+  reloadSignal,
 }: {
   programacaoId: string;
   ags: AgendamentoRow[];
   onEdit?: () => void | Promise<void>;
+  reloadSignal?: number;
 }) {
   const [vinhetas, setVinhetas] = useState<Vinheta[]>([]);
   const [nome, setNome] = useState("");
@@ -1061,10 +1069,11 @@ function VinhetasSection({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { vinhetas: Vinheta[] };
-      setVinhetas(data.vinhetas);
+      const rv = await fetch(`/api/criacao/programacoes/${programacaoId}/vinhetas`);
+      if (rv.ok) {
+        const data = (await rv.json()) as { vinhetas: Vinheta[] };
+        setVinhetas(data.vinhetas);
+      }
     } catch {
       /* silencioso */
     }
@@ -1072,7 +1081,7 @@ function VinhetasSection({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, reloadSignal]);
 
   async function criar() {
     if (!nome.trim() || busy) return;
@@ -1135,7 +1144,8 @@ function VinhetasSection({
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Vinhetas únicas</h2>
       </div>
       <p className="mb-3 text-xs text-slate-500">
-        Uma vinheta por vez (VP/VA no cronograma). Para rotação em pasta, use «Pasta de vinhetas» abaixo.
+        Uma vinheta por vez. No cronograma, use «+ Regra» — repetir a cada min/músicas ou «1× no horário». Rotação em sequência:
+        «Pasta de vinhetas».
       </p>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -1360,6 +1370,7 @@ function CronogramaSection({
   const [dFim, setDFim] = useState("");
   const [freq, setFreq] = useState("");
   const [freqMusicas, setFreqMusicas] = useState("");
+  const [vinhetaDisparo, setVinhetaDisparo] = useState<"recorrente" | "horario_fixo">("recorrente");
   const [busy, setBusy] = useState(false);
   const [regrasAdicionadas, setRegrasAdicionadas] = useState(0);
 
@@ -1419,11 +1430,12 @@ function CronogramaSection({
           dataInicio: dIni || undefined,
           dataFim: dFim || undefined,
           frequenciaMin:
-            (alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta") && freq ? Number(freq) : undefined,
+            alvoTipo === "vinheta" && vinhetaDisparo === "horario_fixo" ? undefined
+            : (alvoTipo === "vinheta" || alvoTipo === "vinheta_pasta") && freq ? Number(freq) : undefined,
           frequenciaMusicas:
-            freqMusicas ?
-              Number(freqMusicas)
-            : undefined,
+            alvoTipo === "vinheta" && vinhetaDisparo === "horario_fixo" ? undefined
+            : freqMusicas ? Number(freqMusicas) : undefined,
+          vinhetaDisparo: alvoTipo === "vinheta" ? vinhetaDisparo : undefined,
         }),
       });
       setDias(new Set());
@@ -1446,6 +1458,7 @@ function CronogramaSection({
     setDFim("");
     setFreq("");
     setFreqMusicas("");
+    setVinhetaDisparo("recorrente");
   }
 
   async function remover(id: string) {
@@ -1495,7 +1508,10 @@ function CronogramaSection({
               </div>
               <select
                 value={alvo}
-                onChange={(e) => setAlvo(e.target.value)}
+                onChange={(e) => {
+                  setAlvo(e.target.value);
+                  if (!e.target.value.startsWith("vinheta:")) setVinhetaDisparo("recorrente");
+                }}
                 className="w-full rounded-lg border border-slate-200 px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
               >
                 <option value="">Selecione…</option>
@@ -1560,28 +1576,82 @@ function CronogramaSection({
               </div>
               <div className="mt-1 text-[10px] text-slate-400">Nenhum marcado = todos os dias.</div>
             </div>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-semibold text-slate-500">Horário</span>
-              <div className="flex items-center gap-2">
-                <input type="time" value={hIni} onChange={(e) => setHIni(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
-                <span className="text-slate-400">até</span>
-                <input type="time" value={hFim} onChange={(e) => setHFim(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {CRONOGRAMA_HORARIO_PRESETS.map((p) => (
+            {alvoIsVinheta ?
+              <div className="text-sm sm:col-span-2">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">Como tocar</span>
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={p.label}
+                    type="button"
+                    onClick={() => setVinhetaDisparo("recorrente")}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      vinhetaDisparo === "recorrente" ?
+                        "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                      : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                    }`}
+                  >
+                    Repetir na janela (min / músicas)
+                  </button>
+                  <button
                     type="button"
                     onClick={() => {
-                      setHIni(p.hIni);
-                      setHFim(p.hFim);
+                      setVinhetaDisparo("horario_fixo");
+                      setHFim(hIni);
+                      setFreq("");
+                      setFreqMusicas("");
                     }}
-                    className="rounded-full border border-slate-200 px-2.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      vinhetaDisparo === "horario_fixo" ?
+                        "border-violet-600 bg-violet-600 text-white dark:border-violet-400 dark:bg-violet-500"
+                      : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                    }`}
                   >
-                    {p.label}
+                    1× no horário (relógio)
                   </button>
-                ))}
+                </div>
+                {vinhetaDisparo === "horario_fixo" ?
+                  <p className="mt-1 text-[10px] text-violet-700 dark:text-violet-300">
+                    Toca uma vez por dia, entre faixas, no minuto escolhido (horário do PDV).
+                  </p>
+                : null}
               </div>
+            : null}
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-semibold text-slate-500">
+                {alvoIsVinheta && vinhetaDisparo === "horario_fixo" ? "Horário (HH:MM)" : "Horário"}
+              </span>
+              {alvoIsVinheta && vinhetaDisparo === "horario_fixo" ?
+                <input
+                  type="time"
+                  value={hIni}
+                  onChange={(e) => {
+                    setHIni(e.target.value);
+                    setHFim(e.target.value);
+                  }}
+                  className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
+                />
+              : <div className="flex items-center gap-2">
+                  <input type="time" value={hIni} onChange={(e) => setHIni(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+                  <span className="text-slate-400">até</span>
+                  <input type="time" value={hFim} onChange={(e) => setHFim(e.target.value)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950" />
+                </div>
+              }
+              {!(alvoIsVinheta && vinhetaDisparo === "horario_fixo") ?
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {CRONOGRAMA_HORARIO_PRESETS.map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => {
+                        setHIni(p.hIni);
+                        setHFim(p.hFim);
+                      }}
+                      className="rounded-full border border-slate-200 px-2.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              : null}
             </label>
             <label className="text-sm">
               <span className="mb-1 block text-xs font-semibold text-slate-500">Período (opcional)</span>
@@ -1594,7 +1664,7 @@ function CronogramaSection({
                 Deixe «a» vazio para tocar indefinidamente a partir da data de início.
               </p>
             </label>
-            {alvoIsVinheta || alvoIsVinhetaPasta ?
+            {alvoIsVinheta && vinhetaDisparo === "horario_fixo" ? null : alvoIsVinheta || alvoIsVinhetaPasta ?
               <>
                 <label className="text-sm">
                   <span className="mb-1 block text-xs font-semibold text-slate-500">Repetir a cada (min)</span>
@@ -1681,7 +1751,11 @@ function CronogramaSection({
                 </span>
                 <span className="font-semibold">{a.alvoNome}</span>
                 <span className="text-slate-500">{diasLabel(a.diasSemana)}</span>
-                <span className="tabular-nums text-slate-500">{a.horaInicio}–{a.horaFim}</span>
+                {a.vinhetaDisparo === "horario_fixo" ?
+                  <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-900 dark:bg-violet-950 dark:text-violet-200">
+                    1× às {a.horaInicio}
+                  </span>
+                : <span className="tabular-nums text-slate-500">{a.horaInicio}–{a.horaFim}</span>}
                 {formatPeriodoAgendamento(a.dataInicio, a.dataFim) ?
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-200">
                     {formatPeriodoAgendamento(a.dataInicio, a.dataFim)}

@@ -149,7 +149,8 @@ export async function getClienteProgramacaoArvore(clienteRef: string): Promise<A
         },
       });
 
-  const agendamentosByProg = await listAgendamentosByProgramacaoIds(items.map((p) => p.id));
+  const progIds = items.map((p) => p.id);
+  const agendamentosByProg = await listAgendamentosByProgramacaoIds(progIds);
 
   return items.map((p) => {
     const abertaEmRaw = hasAberta && "atualizacaoAbertaEm" in p ? p.atualizacaoAbertaEm : null;

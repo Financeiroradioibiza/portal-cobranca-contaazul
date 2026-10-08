@@ -75,3 +75,30 @@ export async function upsertVinhetaHorarioFixo(
 export async function deleteVinhetaHorarioFixo(programacaoId: string, tipo: VinhetaHorarioFixoTipo): Promise<void> {
   await prisma.programacaoVinhetaHorarioFixo.deleteMany({ where: { programacaoId, tipo } });
 }
+
+export async function listVinhetasHorarioFixoByProgramacaoIds(
+  programacaoIds: string[],
+): Promise<Map<string, VinhetaHorarioFixoView[]>> {
+  const ids = [...new Set(programacaoIds.filter(Boolean))];
+  const map = new Map<string, VinhetaHorarioFixoView[]>();
+  if (ids.length === 0) return map;
+  const rows = await prisma.programacaoVinhetaHorarioFixo.findMany({
+    where: { programacaoId: { in: ids } },
+    orderBy: [{ programacaoId: "asc" }, { tipo: "asc" }],
+    include: { vinheta: { select: { id: true, nome: true } } },
+  });
+  for (const r of rows) {
+    const view: VinhetaHorarioFixoView = {
+      id: r.id,
+      tipo: r.tipo,
+      hora: r.hora,
+      ativo: r.ativo,
+      vinhetaId: r.vinhetaId,
+      vinhetaNome: r.vinheta?.nome ?? null,
+    };
+    const list = map.get(r.programacaoId) ?? [];
+    list.push(view);
+    map.set(r.programacaoId, list);
+  }
+  return map;
+}

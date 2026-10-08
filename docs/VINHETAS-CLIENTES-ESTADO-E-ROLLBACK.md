@@ -30,9 +30,9 @@ Documentos relacionados:
 
 | Marco | Status (preencher na prática) |
 |-------|------------------------------|
-| Código no Git (`main` ou branch) | Branch **`feat/vinhetas-clientes-prog`** (commit após tag); tag rollback **`pre-vinhetas-clientes-2026-10-07`** → `441dad1` |
-| Migration Neon `20261007180000_vinheta_cliente_prog` | **Não aplicada** até `prisma migrate deploy` |
-| Deploy portal (Netlify) | **Não** |
+| Código no Git (`main` ou branch) | **`main`** merge PR #2 → `e554419` (feature `79a231d`); tag **`pre-vinhetas-clientes-2026-10-07`** → `441dad1` |
+| Migration Neon `20261007180000_vinheta_cliente_prog` | **Aplicada** (schema up to date, out/2026) |
+| Deploy portal (Netlify) | Aguardar build automático pós-merge **ou** disparar deploy manual no painel Netlify |
 | Deploy cloud2 (`.cloud2-stage`) | **Não** — não subir `publishCronogramas` / pipeline / `vinheta-from-musica` antes de homologação |
 | Deploy Player 5 | **Não** — nenhuma alteração prevista nesta fase |
 
@@ -197,6 +197,16 @@ DROP TYPE IF EXISTS "VinhetaHorarioFixoTipo";
 4. Deploy **cloud2** (pipeline + vinheta-from-musica) — homologar 1 faixa vinheta_cliente + 1 import.
 5. Deploy **cloud2** `publishCronogramas` — homologar **uma programação de teste** + Player 5 homologação.
 6. Produção: volume só após OK explícito do Rafael.
+
+---
+
+## Player homolog `test7out` (não produção)
+
+Repo **`radio-ibiza-player-5`**: ver **`docs/HOMOLOG-TEST7OUT.md`**.
+
+- Mac: `npm run homolog:test7out` ou `homolog:test7out:web` (Chrome local, versão **test7out**).
+- Windows: instalador **`Radio Ibiza HML test7out`** — pasta `%ProgramData%\RadioIbizaPlayer-HML-test7out`.
+- **Não** roda `deploy:player5:prod`.
 
 ---
 
