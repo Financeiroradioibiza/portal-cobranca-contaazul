@@ -20,7 +20,11 @@ export interface Env {
 
 const DEFAULT_ORIGINS = [
   "https://player5.radioibiza.app.br",
+  "https://msplayer5.radioibiza.app.br",
   "https://portal.radioibiza.app.br",
+  /** Dev/homolog Player 5 local (Vite); preferir proxy `/cf-audio-proxy` se Worker ainda não redeployado. */
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
   /** Homologação shell 0125-lab (Netlify deploy preview — 1ª carga honesta). */
   "https://125lab--radio-ibiza-player5.netlify.app",
   /** Homologação ping 0125-lab (legado). */
