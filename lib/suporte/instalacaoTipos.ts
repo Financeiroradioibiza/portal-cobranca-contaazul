@@ -35,6 +35,11 @@ export const INSTALACAO_TIPOS: InstalacaoTipoMeta[] = [
     desc: "Código PL5 de uso único para o app na Play Store. Só gera com PDV sem player instalado (regenerar serial antes).",
   },
   {
+    id: "pdv_microsoft_store",
+    label: "8 · Instalação Microsoft Store (Windows)",
+    desc: "Código MS8 de uso único para o app na Microsoft Store (msplayer5). API isolada — não altera tipos 3–7.",
+  },
+  {
     id: "electron_ti",
     label: "6 · Instalação Multisusuário Windows (Apenas para TI)",
     desc: "Instalador .exe (Electron) para PC compartilhado. O operador entra com login e senha administrativos do cliente.",
@@ -53,6 +58,7 @@ export const INSTALACAO_TIPOS_VISIVEIS = INSTALACAO_TIPOS.filter((t) =>
       "pdv_senha_temp",
       "pdv_senha_temp_migracao",
       "pdv_play5",
+      "pdv_microsoft_store",
       "electron_ti",
       "electron_multisom",
     ] as InstalacaoTipo[]
@@ -63,6 +69,7 @@ export function instalacaoTipoLabel(tipo: string): string {
   if (tipo === "electron_multisom") return "Player Multi Som (.exe)";
   if (tipo === "electron_ti") return "Electron multisusuário (TI)";
   if (tipo === "pdv_play5") return "Google Play (Android)";
+  if (tipo === "pdv_microsoft_store") return "Microsoft Store (Windows · MS8)";
   if (tipo === "pdv_login") return "Windows Web · PDV sem senha temp";
   if (tipo === "pdv_senha_temp") return "Windows Web · senha temporária";
   if (tipo === "pdv_senha_temp_migracao") return "Windows Web · atualização + remover antigo";

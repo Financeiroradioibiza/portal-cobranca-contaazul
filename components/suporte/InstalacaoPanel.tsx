@@ -13,6 +13,7 @@ import type { InstalacaoPdvStatus, InstalacaoGeracaoGate, InstalacaoProgramacaoA
 import type { InstalacaoTipo } from "@/lib/suporte/instalacaoService";
 import { destinatarioEmailsValid } from "@/lib/suporte/parseDestinatarioEmails";
 import { InstalacaoProgramacaoAlertBanner } from "@/components/suporte/InstalacaoProgramacaoAlert";
+import { MicrosoftStoreInstalacaoPanel } from "@/components/suporte/MicrosoftStoreInstalacaoPanel";
 
 type Status = { kind: "ok" | "err"; text: string } | null;
 
@@ -850,7 +851,23 @@ export function InstalacaoPanel() {
               ))}
             </div>
 
-            {geracaoGate?.pdvComPlayerAtivo ?
+            {tipo === "pdv_microsoft_store" && selected ? (
+              <div className="mt-4">
+                <MicrosoftStoreInstalacaoPanel
+                  embeddedPdv={{
+                    portalClienteId: selected.portalClienteId,
+                    portalPdvId: selected.portalPdvId,
+                    clienteNome: selected.clienteNome,
+                    pdvNome: selected.pdvNome,
+                    codigoDisplay: selected.codigoDisplay,
+                  }}
+                  hidePdvPicker
+                  compactIntro
+                />
+              </div>
+            ) : null}
+
+            {tipo !== "pdv_microsoft_store" && geracaoGate?.pdvComPlayerAtivo ?
               <PlayerInstaladoAviso
                 playerInstaladoEm={contexto?.playerInstaladoEm ?? null}
                 pdvStatus={pdvStatus}
@@ -868,13 +885,16 @@ export function InstalacaoPanel() {
                   void loadContextoELog(selected!);
                 }}
               />
-            : tipo === "pdv_play5" && contexto?.podeGerarCodigoPlay && geracaoGate?.podeGerarLink !== false ?
+            : tipo !== "pdv_microsoft_store" &&
+                tipo === "pdv_play5" &&
+                contexto?.podeGerarCodigoPlay &&
+                geracaoGate?.podeGerarLink !== false ?
               <div className="mt-4 rounded-lg border border-emerald-700/60 bg-emerald-950/20 px-3 py-2.5 text-sm text-emerald-200">
                 <p>PDV livre para novo código Play (sem player instalado).</p>
               </div>
             : null}
 
-            {tipo !== "pdv_play5" ? (
+            {tipo !== "pdv_microsoft_store" && tipo !== "pdv_play5" ? (
               <p className="mt-3 text-[11px] text-zinc-500">
                 {tipo === "electron_multisom" ? (
                   <>
@@ -892,13 +912,15 @@ export function InstalacaoPanel() {
                     Instalação no <strong className="font-medium text-zinc-400">Windows Web</strong> (PWA no Edge ou Chrome).
                     Para celular Android, use o tipo{" "}
                     <strong className="font-medium text-zinc-400">5 · Google Play</strong>.
+                    Para Microsoft Store, use o tipo{" "}
+                    <strong className="font-medium text-zinc-400">8</strong>.
                     Para .exe TI, use o tipo <strong className="font-medium text-zinc-400">6</strong>.
                   </>
                 )}
               </p>
             ) : null}
 
-            {tipoEhElectronMultiSom(tipo) ? (
+            {tipo !== "pdv_microsoft_store" && tipoEhElectronMultiSom(tipo) ? (
               <div className="mt-4 space-y-2 rounded-lg border border-violet-700/50 bg-violet-950/20 p-3">
                 <p className="text-sm font-medium text-violet-100">
                   PDVs deste PC ({multiSomSelectedIds.length} selecionado
@@ -951,12 +973,16 @@ export function InstalacaoPanel() {
               </div>
             ) : null}
 
-            {geracaoGate?.podeGerarLink === false && geracaoGate.motivo && !tipoEhElectronMultiSom(tipo) ?
+            {tipo !== "pdv_microsoft_store" &&
+            geracaoGate?.podeGerarLink === false &&
+            geracaoGate.motivo &&
+            !tipoEhElectronMultiSom(tipo) ?
               <p className="mt-3 rounded-lg border border-red-800/50 bg-red-950/25 px-3 py-2 text-sm text-red-200">
                 {geracaoGate.motivo}
               </p>
             : null}
 
+            {tipo !== "pdv_microsoft_store" ? (
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -999,8 +1025,9 @@ export function InstalacaoPanel() {
                   </button>
               ) : null}
             </div>
+            ) : null}
 
-            {codigoPlay ? (
+            {tipo !== "pdv_microsoft_store" && codigoPlay ? (
               <div className="mt-3 space-y-2 rounded-lg border border-fuchsia-600/50 bg-fuchsia-950/20 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-fuchsia-300/90">
                   Código Google Play (uso único)
@@ -1019,7 +1046,7 @@ export function InstalacaoPanel() {
               </div>
             ) : null}
 
-            {multiSomResult ? (
+            {tipo !== "pdv_microsoft_store" && multiSomResult ? (
               <div className="mt-3 space-y-3 rounded-lg border border-violet-600/50 bg-violet-950/20 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-300/90">
                   Instalação Multi Som — {multiSomResult.slotCount} players
@@ -1054,7 +1081,7 @@ export function InstalacaoPanel() {
               </div>
             ) : null}
 
-            {link || exeUrl ? (
+            {tipo !== "pdv_microsoft_store" && (link || exeUrl) ? (
               <div className="mt-3 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950 p-3">
                 {link ? (
                   <div>
@@ -1101,6 +1128,7 @@ export function InstalacaoPanel() {
             ) : null}
           </section>
 
+          {tipo !== "pdv_microsoft_store" ? (
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <h2 className="mb-3 text-sm font-semibold text-zinc-200">3. Enviar por e-mail</h2>
             {tipo === "pdv_play5" ? (
@@ -1186,6 +1214,7 @@ export function InstalacaoPanel() {
               </p>
             </div>
           </section>
+          ) : null}
 
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
             <div className="mb-3 flex items-center justify-between">

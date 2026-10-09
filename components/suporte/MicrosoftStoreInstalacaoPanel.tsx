@@ -148,8 +148,18 @@ function PdvSearch({
   );
 }
 
-export function MicrosoftStoreInstalacaoPanel() {
-  const [selected, setSelected] = useState<SelectedPdv | null>(null);
+export type MicrosoftStoreEmbeddedPdv = SelectedPdv;
+
+export function MicrosoftStoreInstalacaoPanel({
+  embeddedPdv = null,
+  hidePdvPicker = false,
+  compactIntro = false,
+}: {
+  embeddedPdv?: MicrosoftStoreEmbeddedPdv | null;
+  hidePdvPicker?: boolean;
+  compactIntro?: boolean;
+} = {}) {
+  const [selected, setSelected] = useState<SelectedPdv | null>(embeddedPdv);
   const [contexto, setContexto] = useState<Contexto | null>(null);
   const [codigoMsStore, setCodigoMsStore] = useState("");
   const [emailNovo, setEmailNovo] = useState("");
@@ -176,6 +186,10 @@ export function MicrosoftStoreInstalacaoPanel() {
       setBusy(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (embeddedPdv) setSelected(embeddedPdv);
+  }, [embeddedPdv]);
 
   useEffect(() => {
     if (selected) void loadContexto(selected);
@@ -238,24 +252,34 @@ export function MicrosoftStoreInstalacaoPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-sky-800/40 bg-sky-950/20 px-4 py-3 text-sm text-sky-100">
-        <strong>Instalação 8 — Microsoft Store.</strong> Módulo isolado: não altera tipos 3–7 nem o PWA{" "}
-        <code className="text-xs">player5.radioibiza.app.br</code>. App MSIX: subdomínio{" "}
-        <code className="text-xs">msplayer5.radioibiza.app.br</code> (quando publicado).
-      </div>
+      {!compactIntro ? (
+        <div className="rounded-xl border border-sky-800/40 bg-sky-950/20 px-4 py-3 text-sm text-sky-100">
+          <strong>Instalação 8 — Microsoft Store.</strong> Módulo isolado: não altera tipos 3–7 nem o PWA{" "}
+          <code className="text-xs">player5.radioibiza.app.br</code>. App:{" "}
+          <code className="text-xs">msplayer5.radioibiza.app.br</code>.
+        </div>
+      ) : null}
+
+      {!hidePdvPicker ? (
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+          <h2 className="mb-3 text-sm font-semibold text-zinc-200">1. Escolher PDV</h2>
+          <PdvSearch selected={selected} onSelect={setSelected} />
+          {contexto?.playerInstaladoEm ? (
+            <p className="mt-3 text-sm text-amber-200">
+              Player já instalado — regenere a chave serial antes de novo MS8.
+            </p>
+          ) : null}
+        </section>
+      ) : contexto?.playerInstaladoEm ? (
+        <p className="text-sm text-amber-200">
+          Player já instalado — regenere a chave serial antes de novo MS8.
+        </p>
+      ) : null}
 
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-        <h2 className="mb-3 text-sm font-semibold text-zinc-200">1. Escolher PDV</h2>
-        <PdvSearch selected={selected} onSelect={setSelected} />
-        {contexto?.playerInstaladoEm ? (
-          <p className="mt-3 text-sm text-amber-200">
-            Player já instalado — regenere a chave serial antes de novo MS8.
-          </p>
-        ) : null}
-      </section>
-
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-        <h2 className="mb-3 text-sm font-semibold text-zinc-200">2. Código MS8</h2>
+        <h2 className="mb-3 text-sm font-semibold text-zinc-200">
+          {hidePdvPicker ? "Código MS8" : "2. Código MS8"}
+        </h2>
         <button
           type="button"
           disabled={!selected || busy}
@@ -277,7 +301,9 @@ export function MicrosoftStoreInstalacaoPanel() {
       </section>
 
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-        <h2 className="mb-3 text-sm font-semibold text-zinc-200">3. E-mail</h2>
+        <h2 className="mb-3 text-sm font-semibold text-zinc-200">
+          {hidePdvPicker ? "Enviar por e-mail" : "3. E-mail"}
+        </h2>
         <input
           type="email"
           value={emailNovo}

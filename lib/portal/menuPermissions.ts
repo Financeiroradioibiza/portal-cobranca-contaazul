@@ -287,7 +287,13 @@ export function isSubAllowed(
     if (Array.isArray(p) && p.includes(subId)) return true;
     /** Migração acompanha Instalação — perfis antigos não precisam marcar de novo. */
     if (Array.isArray(p) && subId === "migracao" && p.includes("instalacao")) return true;
-    if (Array.isArray(p) && subId === "instalacao-msstore" && p.includes("instalacao")) return true;
+    if (
+      Array.isArray(p) &&
+      (subId === "instalacao-msstore" || subId === "instalacao-microsoft-store") &&
+      p.includes("instalacao")
+    ) {
+      return true;
+    }
     if (hasLegacySuporteModuleAccess(perm as PortalPermissionsMap)) return true;
     return false;
   }
