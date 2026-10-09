@@ -13,6 +13,7 @@ import { registerSaveAtualizadasRoutes } from './webservice/saveAtualizadas.js';
 import { registerPlayerAvisosRoutes } from './webservice/playerAvisos.js';
 import { registerLoginPdvSenhaTempRoutes } from './webservice/loginPdvSenhaTemp.js';
 import { registerLoginPlayInstalacaoRoutes } from './webservice/loginPlayInstalacao.js';
+import { registerLoginMsStoreInstalacaoRoutes } from './webservice/loginMsStoreInstalacao.js';
 import { registerLogotipoClienteRoutes } from './webservice/logotipoCliente.js';
 import { registerSetAgendaAtualizadaRoutes } from './webservice/setAgendaAtualizada.js';
 import {
@@ -39,6 +40,7 @@ export async function registerWebserviceRoutes(app: FastifyInstance): Promise<vo
   await registerPlayerAvisosRoutes(app, WS_PREFIX);
   await registerLoginPdvSenhaTempRoutes(app, WS_PREFIX);
   await registerLoginPlayInstalacaoRoutes(app, WS_PREFIX);
+  await registerLoginMsStoreInstalacaoRoutes(app, WS_PREFIX);
   await registerLogotipoClienteRoutes(app, WS_PREFIX);
   await registerSetAgendaAtualizadaRoutes(app, WS_PREFIX);
   await registerPlayerFeedbackRoutes(app, WS_PREFIX);

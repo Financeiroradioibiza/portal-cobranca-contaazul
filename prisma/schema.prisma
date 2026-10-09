@@ -428,6 +428,23 @@ model PdvInstalacaoPlayCodigo {
   @@map("pdv_instalacao_play_codigo")
 }
 
+/// Código MS8 — Microsoft Store (Instalação 8, módulo isolado; não misturar com PL5).
+model PdvInstalacaoMsstoreCodigo {
+  id              String    @id @default(cuid())
+  portalClienteId Int       @map("portal_cliente_id")
+  portalPdvId     Int       @map("portal_pdv_id")
+  rioPdvKey       String    @default("") @map("rio_pdv_key") @db.VarChar(80)
+  codigoHash      String    @map("codigo_hash") @db.VarChar(128)
+  ativa           Boolean   @default(true)
+  usadaEm         DateTime? @map("usada_em")
+  criadaPor       String    @default("") @map("criada_por") @db.VarChar(120)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([portalClienteId, portalPdvId])
+  @@index([codigoHash])
+  @@map("pdv_instalacao_msstore_codigo")
+}
+
 /// Registo «Tô Instalado» — cada conclusão de instalação no Player (Suporte).
 model PdvInstalacaoConcluidaLog {
   id                  String    @id @default(cuid())

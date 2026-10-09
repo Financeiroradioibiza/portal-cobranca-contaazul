@@ -10,6 +10,7 @@ export type InstalacaoTipo =
   | "pdv_senha_temp"
   | "pdv_senha_temp_migracao"
   | "pdv_play5"
+  | "pdv_microsoft_store"
   | "electron_ti"
   | "electron_multisom";
 export type InstalacaoPlataforma = "windows" | "mobile";

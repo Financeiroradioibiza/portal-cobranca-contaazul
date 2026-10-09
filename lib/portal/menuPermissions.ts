@@ -54,6 +54,7 @@ export const PORTAL_MENU_MODULES = [
       { id: "site-clientes", label: "Site clientes" },
       { id: "avisos-player", label: "Avisos player" },
       { id: "instalacao", label: "Instalação" },
+      { id: "instalacao-msstore", label: "Instalação MS Store" },
       { id: "migracao", label: "Migração" },
     ],
   },
@@ -286,6 +287,7 @@ export function isSubAllowed(
     if (Array.isArray(p) && p.includes(subId)) return true;
     /** Migração acompanha Instalação — perfis antigos não precisam marcar de novo. */
     if (Array.isArray(p) && subId === "migracao" && p.includes("instalacao")) return true;
+    if (Array.isArray(p) && subId === "instalacao-msstore" && p.includes("instalacao")) return true;
     if (hasLegacySuporteModuleAccess(perm as PortalPermissionsMap)) return true;
     return false;
   }
