@@ -54,7 +54,6 @@ export const PORTAL_MENU_MODULES = [
       { id: "site-clientes", label: "Site clientes" },
       { id: "avisos-player", label: "Avisos player" },
       { id: "instalacao", label: "Instalação" },
-      { id: "instalacao-msstore", label: "Instalação MS Store" },
       { id: "migracao", label: "Migração" },
     ],
   },

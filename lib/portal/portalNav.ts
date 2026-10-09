@@ -126,7 +126,6 @@ export const PORTAL_SIDEBARS: Record<PortalModuleId, { section: string; items: P
       { href: "/suporte/site-clientes", icon: "🌐", label: "Site clientes" },
       { href: "/suporte/avisos-player", icon: "📢", label: "Avisos player" },
       { href: "/suporte/instalacao", icon: "📦", label: "Instalação" },
-      { href: "/suporte/instalacao-microsoft-store", icon: "🪟", label: "Instalação MS Store" },
       { href: "/suporte/migracao", icon: "🔄", label: "Migração" },
     ],
   },

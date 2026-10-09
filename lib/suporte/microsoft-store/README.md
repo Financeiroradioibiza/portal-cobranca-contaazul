@@ -1,6 +1,6 @@
 # Instalação 8 — Microsoft Store (módulo isolado)
 
-Painel: **Suporte → Instalação MS Store** (`/suporte/instalacao-microsoft-store`).
+Painel: **Suporte → Instalação** → tipo **8 · Microsoft Store** (`/suporte/instalacao`).
 
 API portal: `POST /api/suporte/microsoft-store` (gerar MS8, e-mail).  
 Player: `https://msplayer5.radioibiza.app.br/instalar-msstore?ibiza_app=msstore`.
